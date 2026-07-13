@@ -87,6 +87,18 @@ processes = {
 
 process_stats = {}
 
+# Deep snapshot of process_stats as last loaded/saved. save_process_stats
+# diffs the live dict against it to find the keys THIS process changed, and
+# merges only those onto the fresh file contents — so two services writing
+# different entries concurrently can no longer clobber each other.
+_process_stats_snapshot = {}
+
+
+def _snapshot_process_stats() -> None:
+    """Refresh the change-detection snapshot (JSON round-trip deep copy)."""
+    _process_stats_snapshot.clear()
+    _process_stats_snapshot.update(json.loads(json.dumps(process_stats)))
+
 
 
 def load_process_stats():
@@ -101,13 +113,41 @@ def load_process_stats():
     except Exception as e:
         print(f"Failed to load process stats: {e}")
         process_stats.clear()
+    _snapshot_process_stats()
 
 
 
 
 def save_process_stats():
+    """Persist process_stats without clobbering concurrent writers.
+
+    Runs as an atomic read-modify-write (``data_io.update_json``): only the
+    top-level keys that changed since the last load/save are applied onto the
+    freshly-read file contents, so an entry written meanwhile by the other
+    service (web ↔ task-runner, or a second server instance) survives. The
+    in-memory dict is then resynced to the merged authoritative contents.
+    """
     try:
-        data_io.save_json(data=process_stats, storage_location="cache", filename="process_stats.json")
+        def _merge(fresh):
+            fresh = fresh if isinstance(fresh, dict) else {}
+            for key, value in process_stats.items():
+                if key not in _process_stats_snapshot or _process_stats_snapshot[key] != value:
+                    fresh[key] = value
+            for key in _process_stats_snapshot:
+                if key not in process_stats:
+                    fresh.pop(key, None)
+            return fresh
+
+        updated = data_io.update_json(
+            storage_location="cache",
+            filename="process_stats.json",
+            mutate=_merge,
+            default={},
+        )
+        if updated is not None:
+            process_stats.clear()
+            process_stats.update(updated)
+        _snapshot_process_stats()
     except Exception as e:
         print(f"Failed to save process stats: {e}")
 
@@ -510,10 +550,51 @@ def _dispatch_cloud_task(name: str, task_args: dict,
 
 
 
+def _drain_lease_conflict(name: str) -> str | None:
+    """Return a block message when a local scrape-queue drain holds a lease.
+
+    A local drain against the shared bucket (see web_interface/drain_lease.py)
+    is invisible to this process's subprocess table AND to the GCS task-status
+    check, so it gets its own guard: the platform's own scraper is blocked, and
+    so is a consolidation (its queue prune would race the drain's).
+    """
+    from web_interface import drain_lease
+
+    try:
+        if name.startswith("queue_scraper_"):
+            platform = name.removeprefix("queue_scraper_")
+            lease = drain_lease.read_drain_lease(platform)
+            if lease:
+                return (f"Blocked: {drain_lease.describe_lease(lease)} is draining "
+                        f"this queue. Wait for it to finish (or for its lease to "
+                        f"expire, ~{drain_lease.LEASE_STALE_S // 60} min after it stops).")
+        elif name == "consolidate_enrichment":
+            leases = drain_lease.active_drain_leases()
+            if leases:
+                held = "; ".join(drain_lease.describe_lease(v) for v in leases.values())
+                return (f"Blocked: {held} is writing scrape data right now. "
+                        f"Consolidate after the drain finishes.")
+    except Exception as exc:
+        # The lease is a guard, not a dependency — never block starts on a
+        # lease-read failure.
+        print(f"Drain-lease check failed (ignoring): {exc}")
+    return None
+
+
+
+
+
+
 def start_process(name: str, script_path, args: list = [], study_name: str | None = None,
                   task_args: dict | None = None) -> tuple[bool, str]:
     """Start a background process. Uses Cloud Tasks on Cloud Run for eligible processes,
     otherwise falls back to subprocess."""
+
+    # A local scrape-queue drain (laptop, FYP_FORCE_GCS) holds a lease on the
+    # shared storage — refuse conflicting work while it is fresh.
+    lease_msg = _drain_lease_conflict(name)
+    if lease_msg:
+        return False, lease_msg
 
     # Cloud Tasks path for eligible processes on Cloud Run
     if is_cloud_run() and name in CLOUD_TASK_ELIGIBLE:

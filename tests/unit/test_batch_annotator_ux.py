@@ -85,6 +85,18 @@ class FakeDataIO:
     def remove(self, storage_location, filename):
         self.store.pop(filename, None)
 
+    def update_json(self, storage_location="cache", filename="", mutate=None,
+                    default=None, max_retries=6, verbose=False):
+        import json as _json
+        current = self.store.get(filename)
+        if current is None:
+            current = _json.loads(_json.dumps(default)) if default is not None else None
+        new_value = mutate(current)
+        if new_value is None:
+            return None
+        self.store[filename] = new_value
+        return new_value
+
 
 class FakeBatch:
     _TERMINAL_FAIL = {"JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED"}

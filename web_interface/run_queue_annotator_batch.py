@@ -101,14 +101,26 @@ def _total_batches(initial_total, batch_size, max_batches) -> int:
 
 
 def _claim_from_queue(data_io, ids) -> int:
-    """Remove ``ids`` from the annotation queue. Returns the count removed."""
+    """Remove ``ids`` from the annotation queue. Returns the count removed.
+
+    Atomic read-modify-write: ids appended by another process while the batch
+    was being prepared are never clobbered by the claim.
+    """
     claimed = {str(i) for i in ids}
-    fresh = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
-    remaining = [v for v in fresh if str(v) not in claimed]
-    removed = len(fresh) - len(remaining)
-    if removed:
-        data_io.save_json(data=remaining, storage_location="cache", filename=QUEUE_FILE)
-    return removed
+    counts = {"removed": 0}
+
+    def _mutate(fresh):
+        fresh = fresh if isinstance(fresh, list) else []
+        remaining = [v for v in fresh if str(v) not in claimed]
+        counts["removed"] = len(fresh) - len(remaining)
+        if not counts["removed"]:
+            return None  # nothing to claim — skip the write
+        return remaining
+
+    data_io.update_json(
+        storage_location="cache", filename=QUEUE_FILE, mutate=_mutate, default=[]
+    )
+    return counts["removed"]
 
 
 def _restore_to_queue(data_io, ids) -> int:
@@ -116,12 +128,21 @@ def _restore_to_queue(data_io, ids) -> int:
     ids = [str(i) for i in ids]
     if not ids:
         return 0
-    fresh = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
-    present = {str(v) for v in fresh}
-    additions = [i for i in ids if i not in present]
-    if additions:
-        data_io.save_json(data=fresh + additions, storage_location="cache", filename=QUEUE_FILE)
-    return len(additions)
+    counts = {"added": 0}
+
+    def _mutate(fresh):
+        fresh = fresh if isinstance(fresh, list) else []
+        present = {str(v) for v in fresh}
+        additions = [i for i in ids if i not in present]
+        counts["added"] = len(additions)
+        if not additions:
+            return None
+        return fresh + additions
+
+    data_io.update_json(
+        storage_location="cache", filename=QUEUE_FILE, mutate=_mutate, default=[]
+    )
+    return counts["added"]
 
 
 def _clear_job_state(data_io) -> None:

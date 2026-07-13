@@ -326,9 +326,14 @@ dispatch, no `task_status/` or `process_stats.json` writes).
 3. `ffmpeg` (DASH merge) and `node` or `deno` (n-challenge solver) on PATH.
 4. Chrome logged into the research YouTube account; approve the macOS Keychain prompt
    on first cookie extraction (run interactively).
-5. In the web UI: make sure `queue_scraper_youtube` is **not** running, and don't
-   start it or Consolidate while the drain runs (the queue prune is an unlocked
-   read-modify-write — a concurrent worker means duplicate work, not corruption).
+5. In the web UI: make sure `queue_scraper_youtube` is **not** running before
+   starting the drain. While the drain runs it holds a **drain lease**
+   (`local_drain_youtube.json` in `cache`, heartbeat every 30 s, stale after
+   10 min — see `web_interface/drain_lease.py`): the web UI refuses to start
+   that platform's scraper or a Consolidate while the lease is fresh, and the
+   armed auto-consolidate defers. Queue writes themselves are atomic
+   (`data_io.update_json` compare-and-swap), so a concurrent append is never
+   lost; a concurrent worker would only mean duplicate work.
 
 **Run:**
 

@@ -892,6 +892,167 @@ def save_json(data = None, storage_location: str = "cache", filename: str = "", 
 
 
 
+
+
+# Per-path locks for the local branch of update_json. In-process only — local
+# mode normally has a single server instance, so the lock guards concurrent
+# threads; the cross-instance guarantee comes from the GCS generation check.
+_update_json_locks: dict = {}
+_update_json_locks_guard = threading.Lock()
+
+
+
+
+
+
+def update_json(storage_location: str = "cache", filename: str = "",
+                mutate=None, default=None, max_retries: int = 6,
+                verbose: bool = False):
+    """Atomically read-modify-write a JSON file (lost-update safe).
+
+    The concurrency-safe replacement for the ``load_json`` → mutate →
+    ``save_json`` pattern on shared state (scrape queues, process stats).
+    In GCS mode the write carries an ``if_generation_match`` precondition:
+    if another process wrote the object between our read and write, the
+    upload fails with 412 and the whole read-mutate-write cycle is retried
+    against the fresh contents — no update is ever silently overwritten.
+    In local mode a per-path lock serializes in-process writers and the file
+    is written to a temp file then ``os.replace``d, so readers never observe
+    a torn file.
+
+    Args:
+        storage_location: The storage-location key to resolve.
+        filename: The JSON file to update.
+        mutate: ``(current) -> new`` callback. Receives the parsed JSON
+            contents (or ``default`` when the file is missing/invalid) and
+            returns the value to save. It may be called several times under
+            contention, so it must be a pure function of its argument.
+            Returning ``None`` skips the save (nothing to change).
+        default: Value passed to ``mutate`` when the file does not exist.
+        max_retries: Attempts before giving up under sustained contention.
+        verbose: When True, print diagnostic notices.
+
+    Returns:
+        The value returned by ``mutate`` on the attempt that was persisted
+        (or ``None`` when ``mutate`` skipped the save).
+
+    Raises:
+        ValueError: on empty ``filename``/``storage_location`` or missing
+            ``mutate``, or when the GCS bucket is not initialized.
+        RuntimeError: when every retry lost the generation race.
+    """
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+    if mutate is None:
+        raise ValueError("mutate callback is required")
+
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+
+    def _fresh_default():
+        # JSON round-trip copy so retries never see a mutated shared default.
+        return json.loads(json.dumps(default)) if default is not None else None
+
+    _t_io = _time.perf_counter()
+
+    if mode == 'gcs':
+        from google.api_core import exceptions as gcs_exceptions
+
+        bucket = _get_bucket()
+        if not bucket:
+            raise ValueError("GCS bucket not initialized")
+
+        for attempt in range(max_retries):
+            blob = bucket.get_blob(blob_name)
+            if blob is None:
+                current = _fresh_default()
+                generation = 0  # precondition: object must not exist yet
+                blob = bucket.blob(blob_name)
+            else:
+                generation = blob.generation
+                try:
+                    current = json.loads(blob.download_as_text())
+                except (gcs_exceptions.NotFound, json.JSONDecodeError):
+                    current = _fresh_default()
+
+            new_value = mutate(current)
+            if new_value is None:
+                return None
+
+            payload = json.dumps(new_value)
+            try:
+                blob.upload_from_string(payload, if_generation_match=generation)
+            except (gcs_exceptions.PreconditionFailed, gcs_exceptions.NotFound):
+                # Another writer changed the object between our read and
+                # write — back off briefly and retry against fresh contents.
+                if verbose:
+                    logger.info(f"    [DATA_IO] update_json generation conflict on "
+                                f"{blob_name} (attempt {attempt + 1}/{max_retries})")
+                _time.sleep(0.2 * (attempt + 1))
+                continue
+
+            _io_log(
+                op="update_json",
+                loc=storage_location,
+                filename=filename,
+                mode=mode,
+                bytes_=len(payload),
+                t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+            )
+            return new_value
+
+        raise RuntimeError(
+            f"update_json: lost the write race on '{blob_name}' "
+            f"{max_retries} times — giving up."
+        )
+
+    # Local mode: per-path lock + write-temp-then-rename.
+    with _update_json_locks_guard:
+        lock = _update_json_locks.setdefault(os.path.abspath(primary), threading.Lock())
+
+    with lock:
+        current = _fresh_default()
+        if os.path.exists(primary):
+            try:
+                with open(primary, encoding='utf-8') as file:
+                    current = json.loads(file.read())
+            except (OSError, json.JSONDecodeError):
+                current = _fresh_default()
+
+        new_value = mutate(current)
+        if new_value is None:
+            return None
+
+        payload = json.dumps(new_value)
+        os.makedirs(os.path.dirname(primary), exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(
+            dir=os.path.dirname(primary), suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as file:
+                file.write(payload)
+            os.replace(tmp_path, primary)
+        except BaseException:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            raise
+
+    _io_log(
+        op="update_json",
+        loc=storage_location,
+        filename=filename,
+        mode=mode,
+        bytes_=len(payload),
+        t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+    )
+    return new_value
+
+
+
+
 def load_text(storage_location: str = "cache", filename: str = "", verbose: bool = False) -> str | None:
     """Load a UTF-8 text file (e.g. a TOML contract) from a storage location.
 

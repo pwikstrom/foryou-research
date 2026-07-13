@@ -714,6 +714,17 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> None:
     if (cs.get("state") or "").lower() == "running":
         return
 
+    # Defer while a local scrape-queue drain holds a lease on the shared
+    # storage (its queue prunes would race the consolidation). The arm stays
+    # set, so the next worker completion — or a manual trigger — re-checks.
+    try:
+        from web_interface import drain_lease
+        if drain_lease.active_drain_leases():
+            print(f"[{just_finished}] Armed consolidate deferred: local drain lease active.")
+            return
+    except Exception:
+        pass
+
     # Claim the armed flag (clear before dispatch) so a concurrent finisher
     # observing the same idle state can't also fire.
     force = bool(entry.get("auto_armed_force"))

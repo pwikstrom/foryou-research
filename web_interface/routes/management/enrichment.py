@@ -1,5 +1,6 @@
 """Scrape/annotation queue + consolidation endpoints (/api/manage/enrichment*, refresh staleness)."""
 
+import time
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -41,6 +42,36 @@ from ...services.worker_status import (
 
 
 from ._blueprint import management_bp
+
+
+_drain_lease_cache = {"ts": 0.0, "value": {}}
+_DRAIN_LEASE_CACHE_TTL_S = 30
+
+
+def _active_drain_leases() -> dict:
+    """Fresh local-drain leases per platform (empty on any read failure).
+
+    Cached for a short TTL so the frequently-polled stats endpoint doesn't add
+    per-platform GCS reads on every tick — a drain appearing/disappearing
+    within the TTL is a UI-freshness detail, not a correctness one (the
+    authoritative check lives in ``process_manager.start_process``).
+    """
+    now = time.monotonic()
+    if now - _drain_lease_cache["ts"] < _DRAIN_LEASE_CACHE_TTL_S:
+        return _drain_lease_cache["value"]
+    try:
+        from ...drain_lease import active_drain_leases
+
+        value = active_drain_leases()
+    except Exception:
+        value = {}
+    _drain_lease_cache["ts"] = now
+    _drain_lease_cache["value"] = value
+    return value
+
+
+
+
 
 
 @management_bp.route('/api/manage/enrichment/stats', methods=['GET'])
@@ -173,6 +204,10 @@ def get_enrichment_stats():
         "card_health": system_health.derive_card_health(live_cookie=cookie_health),
         "annotate_queue_len": annotate_queue_len,
         "annotate_claimed_len": annotate_claimed_len,
+        # Fresh local-drain leases (laptop draining a queue against the shared
+        # bucket) — the matching scraper start and consolidation are blocked
+        # while one is held. {platform: {host, user, started_at, ...}}.
+        "local_drains": _active_drain_leases(),
         "consolidate_stats": {
             **consolidate_entry,
             **processes.get("consolidate_enrichment", {}).get("data", {})
@@ -375,24 +410,17 @@ def queue_voted_videos():
                 scrape_queues.append_to_scrape_queue(platform, items)
                 added_to_scrape[platform] = len(items)
 
-        def load_queue(fname):
-            if data_io.exists(storage_location="cache", filename=fname):
-                try:
-                    q = data_io.load_json(storage_location="cache", filename=fname)
-                    if isinstance(q, list): return q
-                except Exception:
-                     pass
-            return []
-
-        def save_queue(fname, q):
-            # deduplicate and save
-            q_clean = list(set(q))
-            data_io.save_json(data=q_clean, storage_location="cache", filename=fname)
-
         if new_annotate:
-             current_annotate = load_queue("to_annotate.json")
-             current_annotate.extend(new_annotate)
-             save_queue("to_annotate.json", current_annotate)
+            # Atomic append: ids claimed/pruned meanwhile by an annotation
+            # worker are never clobbered by this write.
+            data_io.update_json(
+                storage_location="cache",
+                filename="to_annotate.json",
+                mutate=lambda current: list(
+                    set(current if isinstance(current, list) else []) | set(new_annotate)
+                ),
+                default=[],
+            )
 
         return jsonify({
             "status": "success",
@@ -630,22 +658,16 @@ def calculate_to_annotate():
         # Ensure all values are plain Python strings (not PyArrow scalars)
         unannotated_videos = list({str(v) for v in unannotated_videos})
 
-        # Append target payload to global annotate queue
-        current_queue = []
-        if data_io.exists(storage_location="cache", filename="to_annotate.json"):
-            try:
-                q = data_io.load_json(storage_location="cache", filename="to_annotate.json")
-                if isinstance(q, list): current_queue = q
-            except Exception:
-                pass
-                
-        current_queue.extend(unannotated_videos)
-        current_queue = list(set(current_queue))
-
-        data_io.save_json(
-            data=current_queue,
+        # Append target payload to global annotate queue (atomic — never
+        # clobbers ids claimed/pruned meanwhile by an annotation worker).
+        current_queue = data_io.update_json(
             storage_location="cache",
-            filename="to_annotate.json"
+            filename="to_annotate.json",
+            mutate=lambda current: list(
+                {str(v) for v in (current if isinstance(current, list) else [])}
+                | set(unannotated_videos)
+            ),
+            default=[],
         )
 
         return jsonify({

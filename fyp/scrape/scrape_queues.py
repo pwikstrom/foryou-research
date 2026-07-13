@@ -183,8 +183,16 @@ def append_to_scrape_queue(platform: str, items: list[str]) -> int:
             f"Platform '{platform}' is not registered in the scrape contract — "
             f"no queue worker exists to drain its queue."
         )
-    merged = _dedup(load_scrape_queue(platform) + list(items))
-    save_scrape_queue(platform, merged)
+    data_io = _data_io()
+    migrate_legacy_queue(platform)
+    merged = data_io.update_json(
+        storage_location=QUEUE_LOCATION,
+        filename=queue_filename(platform),
+        mutate=lambda current: _dedup(
+            (current if isinstance(current, list) else []) + list(items)
+        ),
+        default=[],
+    )
     return len(merged)
 
 
@@ -195,8 +203,9 @@ def append_to_scrape_queue(platform: str, items: list[str]) -> int:
 def prune_scrape_queue(platform: str, remove_ids: set[str]) -> tuple[int, int]:
     """Remove finished items from one platform's queue.
 
-    Reloads the queue fresh before pruning so ids appended by another process
-    while a batch ran are never clobbered.
+    Runs as an atomic read-modify-write (``data_io.update_json``), so ids
+    appended by another process while a batch ran are never clobbered — a
+    concurrent append forces this prune to retry against the fresh queue.
 
     Args:
         platform: Platform whose queue to prune.
@@ -205,11 +214,25 @@ def prune_scrape_queue(platform: str, remove_ids: set[str]) -> tuple[int, int]:
     Returns:
         Tuple of ``(pruned_count, remaining_count)``.
     """
-    current = load_scrape_queue(platform)
-    updated = [v for v in current if v not in remove_ids]
-    if len(updated) != len(current):
-        save_scrape_queue(platform, updated)
-    return len(current) - len(updated), len(updated)
+    data_io = _data_io()
+    migrate_legacy_queue(platform)
+    counts = {"before": 0, "after": 0}
+
+    def _mutate(current):
+        items = _dedup(current) if isinstance(current, list) else []
+        updated = [v for v in items if v not in remove_ids]
+        counts["before"], counts["after"] = len(items), len(updated)
+        if len(updated) == len(items):
+            return None  # nothing pruned — skip the write
+        return updated
+
+    data_io.update_json(
+        storage_location=QUEUE_LOCATION,
+        filename=queue_filename(platform),
+        mutate=_mutate,
+        default=[],
+    )
+    return counts["before"] - counts["after"], counts["after"]
 
 
 

@@ -2188,13 +2188,26 @@ def annotate_videos_loop_from_list(
         # actually annotated.
         queue_remaining = len(video_list) - cumulative_done
         if not dry_run and data_io.exists(storage_location="cache", filename=target_cache_file):
-            fresh_queue = data_io.load_json(storage_location="cache", filename=target_cache_file)
-            if isinstance(fresh_queue, list):
-                items_to_remove = set(ok_ids) | set(fail_ids)
+            items_to_remove = set(ok_ids) | set(fail_ids)
+            prune_counts = {}
+
+            def _prune(fresh_queue):
+                fresh_queue = fresh_queue if isinstance(fresh_queue, list) else []
                 updated_queue = [v for v in fresh_queue if v not in items_to_remove]
-                if len(updated_queue) < len(fresh_queue):
-                    data_io.save_json(data=updated_queue, storage_location="cache", filename=target_cache_file)
-                queue_remaining = len(updated_queue)
+                prune_counts["after"] = len(updated_queue)
+                if len(updated_queue) == len(fresh_queue):
+                    return None  # nothing pruned — skip the write
+                return updated_queue
+
+            # Atomic prune: ids appended by the web service while this batch
+            # ran are never clobbered.
+            data_io.update_json(
+                storage_location="cache",
+                filename=target_cache_file,
+                mutate=_prune,
+                default=[],
+            )
+            queue_remaining = prune_counts.get("after", queue_remaining)
 
         if reporter is not None:
             reporter.emit_data({"annotate_queue_len": max(0, queue_remaining)})

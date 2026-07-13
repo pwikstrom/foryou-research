@@ -258,6 +258,7 @@ if __name__ == "__main__":
 
     import fyp.scrape_queues as scrape_queues
     from fyp.scrape import queue_scraper_loop
+    from web_interface.drain_lease import DrainLease
     from web_interface.task_status import LocalStatusReporter
 
     parser = argparse.ArgumentParser(description="Run queue scraper")
@@ -275,16 +276,20 @@ if __name__ == "__main__":
 
     reporter = LocalStatusReporter(process_name)
     try:
-        queue_scraper_loop(
-            batch_size=args.batch_size,
-            max_batches=args.max_batches,
-            verbose=False,
-            dry_run=False,
-            reporter=reporter,
-            cancellation_check=reporter.check_cancelled,
-            platform=platform,
-            process_name=process_name,
-        )
+        # The lease marks this drain on the shared storage so the Cloud Run UI
+        # refuses to start the same platform's scraper (or a consolidation)
+        # while it runs. Inert in pure-local dev (separate storage).
+        with DrainLease(platform):
+            queue_scraper_loop(
+                batch_size=args.batch_size,
+                max_batches=args.max_batches,
+                verbose=False,
+                dry_run=False,
+                reporter=reporter,
+                cancellation_check=reporter.check_cancelled,
+                platform=platform,
+                process_name=process_name,
+            )
         reporter.complete()
         print("Queue scraping process completed.")
 
