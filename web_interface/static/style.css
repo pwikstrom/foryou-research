@@ -3202,6 +3202,16 @@ button.meta-tooltip:disabled {
    Semantic tokens only — light theme works with no overrides.
    ============================================================ */
 
+/* The global body rule locks the SPA shell to the viewport
+   (height:100vh; overflow:hidden; padding:20px). Public pages are ordinary
+   scrolling documents, so undo that when a public page is present. */
+body:has(.public-page) {
+    height: auto;
+    overflow: visible;
+    padding: 0;
+    display: block;
+}
+
 .public-page {
     min-height: 100vh;
     display: flex;
