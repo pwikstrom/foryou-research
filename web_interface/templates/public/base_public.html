@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+
+{# Public mini-site layout: no Plotly/nouislider, own header + footer chrome. #}
+{% block app_libs %}{% endblock %}
+
+{% block head %}
+<script>
+    // Restore the saved theme before first paint (same key main.js uses,
+    // so the choice carries across the login boundary in both directions).
+    (function () {
+        const saved = localStorage.getItem('fyp-theme');
+        if (saved && saved !== document.documentElement.getAttribute('data-theme')) {
+            document.documentElement.setAttribute('data-theme', saved);
+        }
+    })();
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="public-page">
+    {% include 'public/_header.html' %}
+
+    <main class="public-main">
+        {% block public_content %}{% endblock %}
+    </main>
+
+    {% include 'public/_footer.html' %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function togglePublicTheme() {
+        const html = document.documentElement;
+        const next = (html.getAttribute('data-theme') || 'dark') === 'dark' ? 'light' : 'dark';
+        html.setAttribute('data-theme', next);
+        localStorage.setItem('fyp-theme', next);
+    }
+
+    function togglePublicNav() {
+        const nav = document.getElementById('public-nav');
+        const btn = document.getElementById('public-nav-toggle');
+        const open = nav.classList.toggle('open');
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+</script>
+{% block public_scripts %}{% endblock %}
+{% endblock %}

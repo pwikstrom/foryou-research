@@ -33,6 +33,8 @@ python scripts/gen_route_inventory.py
 | explorer_bp | `/api/explore/metadata/base` | GET | `explorer_bp.api_explorer_metadata_base` |
 | explorer_bp | `/api/explore/metadata/overlay` | GET | `explorer_bp.api_explorer_metadata_overlay` |
 | explorer_bp | `/api/studies/defined` | GET | `explorer_bp.api_get_study_defs` |
+| explorer_bp | `/api/system-health` | GET | `explorer_bp.get_system_health` |
+| explorer_bp | `/api/system-health/run` | POST | `explorer_bp.run_system_health` |
 | explorer_bp | `/api/system-info` | GET | `explorer_bp.system_info` |
 | human_eval | `/api/human-eval/my-tasks` | GET | `human_eval.my_human_eval_tasks` |
 | human_eval | `/api/human-eval/tasks/<run_id>/<task_type>` | GET | `human_eval.get_coder_task` |
@@ -119,6 +121,9 @@ python scripts/gen_route_inventory.py
 | process_bp | `/api/status/study_refresh/<study_name>` | GET | `process_bp.api_study_refresh_status` |
 | process_bp | `/api/stop/<name>` | POST | `process_bp.api_stop` |
 | process_bp | `/api/stop_graceful/<name>` | POST | `process_bp.api_stop_graceful` |
+| public_bp | `/about` | GET | `public_bp.about` |
+| public_bp | `/faq` | GET | `public_bp.faq` |
+| public_bp | `/guide` | GET | `public_bp.guide` |
 | semantic_space_bp | `/api/semantic_space/collections` | GET | `semantic_space_bp.api_semantic_space_collections` |
 | semantic_space_bp | `/api/semantic_space/map` | GET | `semantic_space_bp.api_semantic_space_map` |
 | semantic_space_bp | `/api/semantic_space/status` | GET | `semantic_space_bp.api_semantic_space_status` |
@@ -135,4 +140,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-124 routes total.
+129 routes total.

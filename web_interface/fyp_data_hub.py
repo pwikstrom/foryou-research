@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, render_template, request
-from flask_login import current_user, login_required
+from flask_login import current_user
 
 if __name__ == "__main__" and __package__ is None:
     file_path = Path(__file__).resolve()
@@ -89,8 +89,10 @@ def _register_web_ui(app):
     from .routes.human_eval_routes import human_eval_bp
     from .routes.management_routes import management_bp
     from .routes.process_routes import process_bp
+    from .routes.public_routes import public_bp
 
     app.register_blueprint(auth_bp)
+    app.register_blueprint(public_bp)
     app.register_blueprint(process_bp)
     app.register_blueprint(explorer_bp)
     app.register_blueprint(viewer_bp)
@@ -135,20 +137,24 @@ def _register_web_ui(app):
         return error
 
     @app.route('/')
-    @login_required
     def index():
+        # Anonymous visitors get the public landing page; authenticated users
+        # get the app shell. One rule keeps every url_for('index') call site
+        # (login redirects, the unauthorized handler) working unchanged.
+        if not current_user.is_authenticated:
+            return render_template('public/landing.html', active_page='landing')
+
         from fyp.fyp_config import get_config
 
         from .permissions import get_user_permissions
         from .slack_service import get_recent_messages
-        from .static_content import HOME_CONTENT
         slack_configured = bool(os.environ.get("SLACK_BOT_TOKEN"))
         slack_messages = get_recent_messages() if slack_configured else []
         user_perms = get_user_permissions(current_user)
         # The async (batch) annotator needs media as gs:// URIs, so its card is
         # only meaningful when media is GCS-backed (same flag resolve_media uses).
         media_on_gcs = bool(get_config().get("data_io", {}).get("use_gcs_for_media"))
-        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, content=HOME_CONTENT, media_on_gcs=media_on_gcs)
+        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, media_on_gcs=media_on_gcs)
 
 
 def create_app():

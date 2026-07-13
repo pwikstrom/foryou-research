@@ -7,6 +7,13 @@
   ]
  ],
  [
+  "/about",
+  "public_bp.about",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/admin/annotations",
   "auth_bp.api_admin_annotations",
   [
@@ -859,6 +866,20 @@
  [
   "/api/video_analysis/votes",
   "viewer_bp.api_get_votes",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/faq",
+  "public_bp.faq",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/guide",
+  "public_bp.guide",
   [
    "GET"
   ]
