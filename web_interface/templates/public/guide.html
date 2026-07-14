@@ -3,10 +3,22 @@
 {% block public_content %}
 
 <section class="landing-hero">
-    <h1 class="hero-title">Using the Data Hub</h1>
+    <h1 class="hero-title">A quick look inside the Data Hub</h1>
     <p class="hero-subtitle landing-hero-sub">
-        A step-by-step guide to getting access and running your first analysis session.
+        This is a little peek at the Hub's analysis tools, running against a sample dataset we've
+        made available to you. It's not the full pipeline — just enough to get a feel for what the
+        Data Hub makes possible.
     </p>
+</section>
+
+<section class="landing-section">
+    <div class="note-callout">
+        <p>
+            What you can explore here is a <strong>sample dataset</strong> we've opened up for a look
+            around. Ingesting your own participants' donations and running the full ingest-to-insight
+            pipeline isn't part of this preview — when you're ready for that, contact us for a demo.
+        </p>
+    </div>
 </section>
 
 <section class="landing-section">
@@ -18,26 +30,29 @@
             address, a username and a password.
         </li>
         <li>
-            <strong>Wait for approval.</strong> New accounts are reviewed by an administrator before
-            they can log in. You'll see "pending approval" until your account is activated — if it
-            takes more than a few days, email
-            <a href="mailto:foryou@qut.edu.au">foryou@qut.edu.au</a>.
+            <strong>Wait for approval.</strong> New accounts are reviewed before they're enabled for
+            the sample dataset. You'll see "pending approval" until your account is activated — if it
+            takes more than a few days, email <a href="mailto:foryou@qut.edu.au">foryou@qut.edu.au</a>.
         </li>
         <li>
-            <strong>Log in.</strong> Your role determines which parts of the hub you can see — most
-            researchers get the analysis tabs; data ingestion and administration are restricted.
+            <strong>Log in.</strong> You'll land in the app with the analysis tabs — Explore,
+            Timelines, Video Analysis, Correlations and Semantic Space — ready to use against the
+            sample study. Ingestion and administration aren't part of this peek.
         </li>
     </ol>
 </section>
 
 <section class="landing-section">
-    <h2 class="text-h2 font-semibold landing-section-title">Your first session</h2>
+    <h2 class="text-h2 font-semibold landing-section-title">Take the analysis tools for a spin</h2>
+    <p class="prose landing-section-intro">
+        With the sample study loaded, here's a quick tour of what you can do:
+    </p>
     <ol class="step-list">
         <li>
-            <strong>Pick a study.</strong> Everything in the hub operates on the <em>active study</em>
-            — a defined dataset combining selected data collections and a date range. Choose one from
-            the dropdown in the header; the studies you can access are listed under
-            <em>My stuff → My Studies</em>.
+            <strong>Pick the sample study.</strong> Everything in the hub operates on the
+            <em>active study</em> — a defined dataset combining collections and a date range. Choose
+            the sample study from the dropdown in the header; the studies you can access are listed
+            under <em>My stuff → My Studies</em>.
         </li>
         <li>
             <strong>Get an overview in Explore.</strong> Open the Explore tab to see how any variable
@@ -66,57 +81,6 @@
 </section>
 
 <section class="landing-section">
-    <h2 class="text-h2 font-semibold landing-section-title">The tabs at a glance</h2>
-    <div class="guide-tab-list">
-        <div class="guide-tab-item">
-            <h3 class="text-h3 font-semibold">Explore</h3>
-            <p class="text-sm">
-                Distribution comparison across the active study. Numeric variables render as
-                histograms with means; categorical variables as stacked bars. Two-slice mode runs two
-                filtered selections side by side with significance testing.
-            </p>
-        </div>
-        <div class="guide-tab-item">
-            <h3 class="text-h3 font-semibold">Timelines</h3>
-            <p class="text-sm">
-                One participant's activity over time. Smoothed per-variable timelines with optional
-                raw daily values, trend/anomaly/break detection, and per-day drill-down stats.
-            </p>
-        </div>
-        <div class="guide-tab-item">
-            <h3 class="text-h3 font-semibold">Video Analysis</h3>
-            <p class="text-sm">
-                Browse, watch and tag individual videos. Filter on any metadata variable, step through
-                the result set, inspect the full enrichment record, and annotate with open tags,
-                closed schemes and notes.
-            </p>
-        </div>
-        <div class="guide-tab-item">
-            <h3 class="text-h3 font-semibold">Correlations</h3>
-            <p class="text-sm">
-                Scatter plots (one dot per collection-day) on any two numeric axes with group
-                ellipses and regression stats, plus a Pearson correlation heatmap across all numeric
-                variables.
-            </p>
-        </div>
-        <div class="guide-tab-item">
-            <h3 class="text-h3 font-semibold">Semantic Space</h3>
-            <p class="text-sm">
-                A 2D map of every annotated video positioned by meaning, grouped into auto-named
-                niches. Colour by niche, category or popularity; click any dot to open the video.
-            </p>
-        </div>
-        <div class="guide-tab-item">
-            <h3 class="text-h3 font-semibold">My stuff</h3>
-            <p class="text-sm">
-                Your personal pages: the studies you can access, your coding tasks, preferences
-                (theme, sharing, variable customizations), your video tags and your profile.
-            </p>
-        </div>
-    </div>
-</section>
-
-<section class="landing-section">
     <h2 class="text-h2 font-semibold landing-section-title">Tips</h2>
     <ul class="guide-tips">
         <li>Every tab has a <strong>?</strong> help button in the top right with a detailed description of that tab.</li>
@@ -124,11 +88,18 @@
         <li>Charts stay synchronised when you zoom or pan in Timelines; click any point for that day's stats.</li>
         <li>Other researchers' annotations appear in Video Analysis when they've opted into sharing.</li>
     </ul>
-    <div class="note-callout">
-        <p>
-            Stuck, found a bug, or need access to a study? Email
-            info@foryouresearch.net and we'll help you out.
-        </p>
+</section>
+
+<section class="landing-section landing-cta-band">
+    <h2 class="text-h2 font-semibold">Ready to go beyond the peek?</h2>
+    <p class="prose">
+        This is just a sample of what the Data Hub does. To use it for your own research project —
+        ingesting your participants' donations, running the full ingest-to-insight pipeline, and
+        bringing in your team — get in touch and we'll set up a demo.
+    </p>
+    <div class="landing-hero-ctas">
+        <a href="mailto:foryou@qut.edu.au" class="btn-primary public-cta">Contact us for a demo and learn how to use the Data Hub for your research project</a>
+        <a href="{{ url_for('public_bp.about') }}" class="btn-discreet public-cta">About the project</a>
     </div>
 </section>
 

@@ -27,6 +27,11 @@
     </div>
 </section>
 
+<!-- Researcher CTA (top) -->
+<div class="researcher-cta-inline">
+    <a href="{{ url_for('public_bp.guide') }}" class="btn-primary public-cta">I'm a researcher and want to learn more →</a>
+</div>
+
 <!-- The pipeline -->
 <section class="landing-section">
     <h2 class="text-h2 font-semibold landing-section-title">The Hub automates the pipeline</h2>
@@ -77,10 +82,8 @@
                 <div class="feature-row">
                     <div class="feature-row-text">
                         <p class="prose">
-                            Donations arrive in different formats — AIO, Zeeschuimer, TikTok's own
-                            data export — and from many participants. Ingestion parses them into one
-                            clean, queryable corpus, which you label, merge and group into
-                            <em>studies</em> over defined time periods.
+                            Your research participants can donate data from the three leading short-video platforms: TikTok, Instagram Reels and YouTube Shorts. The Data Hub parses the donated data packages into a single clean, queryable corpus, which you curate and structure into
+                            <em>studies</em> that covers the time period that is relevant to your research questions.
                         </p>
                     </div>
                     <figure class="screenshot-frame">
@@ -101,8 +104,7 @@
                         <p class="prose">
                             Donated packages arrive stripped of the videos themselves and most
                             metadata. The Hub scrapes them back in — videos, captions, authors, music
-                            and engagement counts — running as background queues that enrich millions
-                            of items at scale.
+                            and engagement counts — running as background queues that enrich items at scale.
                         </p>
                     </div>
                     <figure class="screenshot-frame">
@@ -279,48 +281,17 @@
     </div>
 </section>
 
-<!-- Infrastructure -->
-<section class="landing-section">
-    <h2 class="text-h2 font-semibold landing-section-title">Running in the cloud</h2>
-    <p class="prose landing-section-intro">
-        The Hub is a browser-based tool — nothing to install — and everything runs on managed cloud
-        infrastructure that scales with your project.
-    </p>
-    <div class="infra-note">
-        <span class="infra-chip"><strong>Interface</strong> — browser-based, nothing to install</span>
-        <span class="infra-chip"><strong>Storage &amp; compute</strong> — Google Cloud</span>
-        <span class="infra-chip"><strong>AI annotation</strong> — Google Gemini</span>
-    </div>
-</section>
 
-<!-- Callouts -->
-<section class="landing-section">
-    <div class="note-callout">
-        <p>
-            This tool is currently under development, so you may occasionally encounter bugs or
-            unexpected behaviour. If you do, we'd really appreciate your help in improving it —
-            please let us know at info@foryouresearch.net.
-        </p>
-    </div>
-    <div class="note-callout">
-        <p>
-            Some of the data and insights presented here are generated using AI. While we aim for
-            accuracy, there may be instances where outputs are imperfect or unexpected. We appreciate
-            your understanding as we continue to refine both the tool and our research methods.
-        </p>
-    </div>
-</section>
 
-<!-- CTA -->
+<!-- Researcher CTA (bottom) -->
 <section class="landing-section landing-cta-band">
-    <h2 class="text-h2 font-semibold">Working with data donations?</h2>
+    <h2 class="text-h2 font-semibold">Curious whether the Hub fits your research?</h2>
     <p class="prose">
-        If you're a researcher who wants to use the Hub for your own project — or you'd like to
-        collaborate with The For You Research Project — we'd love to hear from you.
+        Take a look at the analysis tools for yourself with a sample dataset — then talk to us about
+        running the Data Hub for your own project.
     </p>
     <div class="landing-hero-ctas">
-        <a href="mailto:foryou@qut.edu.au" class="btn-primary public-cta">Get in touch</a>
-        <a href="{{ url_for('public_bp.about') }}" class="btn-discreet public-cta">About the project</a>
+        <a href="{{ url_for('public_bp.guide') }}" class="btn-primary public-cta">I'm a researcher and want to learn more →</a>
     </div>
 </section>
 

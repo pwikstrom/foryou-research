@@ -3805,6 +3805,12 @@ body:has(.public-page) {
     margin-bottom: 14px;
 }
 
+/* Standalone researcher CTA button between hero and pipeline */
+.researcher-cta-inline {
+    text-align: center;
+    margin-top: 44px;
+}
+
 /* "What is data donation?" link under the hero subtitle */
 .hero-donation-link {
     text-align: center;
