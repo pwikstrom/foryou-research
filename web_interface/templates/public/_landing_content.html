@@ -4,21 +4,22 @@
 
 <!-- Hero -->
 <section class="landing-hero">
-    <h1 class="hero-title">Manage your data donation pipeline from ingest to insight</h1>
+    <h1 class="hero-title">Automating the data donation pipeline for video feeds</h1>
     <p class="hero-donation-link">
         <a href="{{ url_for('public_bp.data_donation') }}">What is data donation? →</a>
     </p>
     <p class="hero-subtitle landing-hero-sub">
-        Data donation is a compelling way to study lived, in-the-wild platform experiences,
-        but donated feeds are messy, stripped of metadata, and challenging to annotate at scale.
-        The For You Data Hub closes the distance between a donation and a finding.
-    </p>
-    <p class="landing-hero-lead">
-        To solve this problem, researchers in
-        <a href="https://www.foryouresearch.net/" target="_blank" rel="noopener">The For You Research Project</a>
-       (based at QUT and the University of Sydney) has built the For You Data Hub. The Data Hub is a
-       research platform that automates the data donation pipeline from ingest to insight. The
-       focus is on short-video analysis and the platform accepts donations from TikTok, Instagram Reels and YouTube Shorts.
+      Data donation is a compelling way to study lived, in-the-wild platform experiences, 
+      but donated feeds are messy, stripped of metadata, and challenging to annotate 
+      at scale. As part of 
+      <a href="https://www.foryouresearch.net/" target="_blank" rel="noopener">The 
+      For You Research</a> Project (based at Queensland University of Technology and the
+      University of Sydney) we designed the For You Data Hub to solve this problem.
+      The Data Hub is a research platform that automates the pipeline from 
+      ingestion of donations from TikTok, Instagram Reels and YouTube Shorts to 
+      publishable insights. We believe this infrastructure can be useful to the 
+      broader research community and would love to connect with other research 
+      teams to expand its impact.
     </p>
 </section>
 
@@ -29,58 +30,59 @@
 </div>
 {% endif %}
 
-<!-- The pipeline -->
+<!-- See it in action: the five pipeline steps as a tabbed stepper.
+     CSS-only tabs: hidden radio inputs + label pills, so the component works
+     identically on the public landing page and the logged-in home pane. -->
 <section class="landing-section">
-    <h2 class="text-h2 font-semibold landing-section-title">The Hub automates the pipeline</h2>
-    <div class="fy-pipeline">
-        <div class="fy-pipeline-step">
-            <div class="fy-pipeline-num"></div>
-            <h3 class="font-semibold">Ingest</h3>
-            <p>Mixed formats and multiple participants become one clean, queryable corpus, grouped into studies.</p>
-        </div>
-        <div class="fy-pipeline-step">
-            <div class="fy-pipeline-num"></div>
-            <h3 class="font-semibold">Enrich</h3>
-            <p>Recovers the stripped-out videos, captions, authors, music and engagement counts.</p>
-        </div>
-        <div class="fy-pipeline-step">
-            <div class="fy-pipeline-num"></div>
-            <h3 class="font-semibold">Annotate</h3>
-            <p>AI turns each video into structured research variables, with human quality control.</p>
-        </div>
-        <div class="fy-pipeline-step">
-            <div class="fy-pipeline-num"></div>
-            <h3 class="font-semibold">Analyse</h3>
-            <p>Time-series, statistics and qualitative video analysis, side by side.</p>
-        </div>
-        <div class="fy-pipeline-step">
-            <div class="fy-pipeline-num"></div>
-            <h3 class="font-semibold">Share</h3>
-            <p>Role-based access brings collaborators and students in with the right permissions.</p>
-        </div>
-    </div>
-</section>
-
-<!-- See it in action: a walkthrough of the five pipeline steps -->
-<section class="landing-section">
-    <h2 class="text-h2 font-semibold landing-section-title">See it in action</h2>
+    <h2 class="text-h2 font-semibold landing-section-title">Follow The Pipeline</h2>
     <p class="prose landing-section-intro">
-        Follow a donation through all five steps of the pipeline:
-        Ingest → Enrich → Annotate → Analyse → Share sequence.
+        Ingest → Enrich → Annotate → Analyse → Share.
     </p>
 
-    <div class="see-flow">
+    <div class="see-tabs">
+        <input type="radio" name="see-tab" id="see-tab-ingest" class="see-tabs__input" checked>
+        <input type="radio" name="see-tab" id="see-tab-enrich" class="see-tabs__input">
+        <input type="radio" name="see-tab" id="see-tab-annotate" class="see-tabs__input">
+        <input type="radio" name="see-tab" id="see-tab-analyse" class="see-tabs__input">
+        <input type="radio" name="see-tab" id="see-tab-share" class="see-tabs__input">
 
-        <!-- 1. Ingest -->
-        <div class="see-stage">
-            <div class="see-stage__rail"><span class="see-stage__num">1</span><span class="see-stage__line"></span></div>
-            <div class="see-stage__main">
-                <h3 class="text-h3 font-semibold see-stage__title">Ingest</h3>
+        <div class="see-tabs__pills">
+            <label class="see-tab-pill" for="see-tab-ingest">
+                <span class="see-tab-pill__num">1</span>
+                <span class="see-tab-pill__title font-semibold">Ingest</span>
+                <span class="see-tab-pill__desc">Mixed formats and multiple participants become one clean, queryable corpus, grouped into studies.</span>
+            </label>
+            <label class="see-tab-pill" for="see-tab-enrich">
+                <span class="see-tab-pill__num">2</span>
+                <span class="see-tab-pill__title font-semibold">Enrich</span>
+                <span class="see-tab-pill__desc">Recovers the stripped-out videos, captions, authors, music and engagement counts.</span>
+            </label>
+            <label class="see-tab-pill" for="see-tab-annotate">
+                <span class="see-tab-pill__num">3</span>
+                <span class="see-tab-pill__title font-semibold">Annotate</span>
+                <span class="see-tab-pill__desc">AI turns each video into structured research variables, with human quality control.</span>
+            </label>
+            <label class="see-tab-pill" for="see-tab-analyse">
+                <span class="see-tab-pill__num">4</span>
+                <span class="see-tab-pill__title font-semibold">Analyse</span>
+                <span class="see-tab-pill__desc">Time-series, statistics and qualitative video analysis, side by side.</span>
+            </label>
+            <label class="see-tab-pill" for="see-tab-share">
+                <span class="see-tab-pill__num">5</span>
+                <span class="see-tab-pill__title font-semibold">Share</span>
+                <span class="see-tab-pill__desc">Role-based access brings collaborators and students in with the right permissions.</span>
+            </label>
+        </div>
+
+        <div class="see-panels">
+
+            <!-- 1. Ingest -->
+            <div class="see-panel" id="see-panel-ingest">
                 <div class="feature-row">
                     <div class="feature-row-text">
                         <p class="prose">
-                            Your research participants can donate data from the three leading short-video platforms: TikTok, Instagram Reels and YouTube Shorts. The Data Hub parses the donated data packages into a single clean, queryable corpus, which you curate and structure into
-                            <em>studies</em> that covers the time period that is relevant to your research questions.
+                            Research participants donate data from TikTok, Instagram Reels and YouTube Shorts. The Data Hub parses the donated data packages into a single clean, queryable corpus, which you curate and structure into
+                            <em>studies</em> that cover the time period relevant to your research questions.
                         </p>
                     </div>
                     <figure class="screenshot-frame">
@@ -89,19 +91,16 @@
                     </figure>
                 </div>
             </div>
-        </div>
 
-        <!-- 2. Enrich -->
-        <div class="see-stage">
-            <div class="see-stage__rail"><span class="see-stage__num">2</span><span class="see-stage__line"></span></div>
-            <div class="see-stage__main">
-                <h3 class="text-h3 font-semibold see-stage__title">Enrich</h3>
+            <!-- 2. Enrich -->
+            <div class="see-panel" id="see-panel-enrich">
                 <div class="feature-row">
                     <div class="feature-row-text">
                         <p class="prose">
                             Donated packages arrive stripped of the videos themselves and most
-                            metadata. The Hub scrapes them back in (e.g. videos, captions, authors, music
-                            and engagement counts) running as background queues that enrich items at scale.
+                            metadata. The Hub recovers as much as it can (videos, captions, authors,
+                            music and engagement counts) through background scraping queues. Not every
+                            item can be recovered, and the Hub keeps track of what is still missing.
                         </p>
                     </div>
                     <figure class="screenshot-frame">
@@ -110,18 +109,14 @@
                     </figure>
                 </div>
             </div>
-        </div>
 
-        <!-- 3. Annotate -->
-        <div class="see-stage">
-            <div class="see-stage__rail"><span class="see-stage__num">3</span><span class="see-stage__line"></span></div>
-            <div class="see-stage__main">
-                <h3 class="text-h3 font-semibold see-stage__title">Annotate</h3>
-                <p class="see-stage__lead">
+            <!-- 3. Annotate -->
+            <div class="see-panel" id="see-panel-annotate">
+                <p class="see-panel__lead">
                     Google Gemini turns each video into structured research variables, such as content
-                    category, activities, objects, transcript, sensitivity and more. The Hub wraps
-                    that in rigorous versioning, testing and human evaluation, then maps the annotated
-                    corpus by meaning.
+                    category, activities, objects, transcript, sensitivity and more. Machine annotation
+                    is useful, but it needs scrutiny, so we wrap it in versioning, testing and human
+                    evaluation, and then map the annotated corpus by meaning.
                 </p>
 
                 <div class="feature-row">
@@ -129,7 +124,7 @@
                         <h4 class="text-h3 font-semibold">Structured, versioned prompts</h4>
                         <p class="prose">
                             Every field the AI fills comes from a declarative annotation contract that
-                            generates the Gemini prompt and response schema editable in the browser
+                            generates the Gemini prompt and response schema, editable in the browser.
                             Each run is stamped with a content-derived version
                             (model + prompt + schema + parameters); old versions are never overwritten,
                             so the full annotation history stays archived and queryable, and each study
@@ -147,11 +142,11 @@
                         <h4 class="text-h3 font-semibold">Tested and human-evaluated</h4>
                         <p class="prose">
                             Before a prompt goes live, candidate contracts run head-to-head on a fixed
-                            evaluation set with real Gemini calls, scored on agreement metrics —
+                            evaluation set with real Gemini calls, scored on agreement metrics.
                             Human coders can be invited to
                             blind-code the same videos, so machine annotations are measured against
-                            inter-coder reliability. Only a winning candidate graduates through
-                            activation into the live dataset.
+                            inter-coder reliability. Only a candidate that holds up in this testing
+                            graduates into the live dataset.
                         </p>
                     </div>
                     <figure class="screenshot-frame">
@@ -179,14 +174,10 @@
                     </figure>
                 </div>
             </div>
-        </div>
 
-        <!-- 4. Analyse -->
-        <div class="see-stage">
-            <div class="see-stage__rail"><span class="see-stage__num">4</span><span class="see-stage__line"></span></div>
-            <div class="see-stage__main">
-                <h3 class="text-h3 font-semibold see-stage__title">Analyse</h3>
-                <p class="see-stage__lead">
+            <!-- 4. Analyse -->
+            <div class="see-panel" id="see-panel-analyse">
+                <p class="see-panel__lead">
                     Different research paradigms in one place: time-series and statistics alongside
                     qualitative video analysis.
                 </p>
@@ -210,7 +201,7 @@
                     <div class="feature-row-text">
                         <h4 class="text-h3 font-semibold">Follow a feed over time</h4>
                         <p class="prose">
-                            Timelines shows how a single participant's feed evolves day by day —
+                            Timelines shows how a single participant's feed evolves day by day:
                             smoothed per-variable timelines with trend, anomaly and structural-break
                             detection, and filter chips for rising, falling or spiking categories.
                         </p>
@@ -226,8 +217,8 @@
                         <h4 class="text-h3 font-semibold">Watch and annotate in context</h4>
                         <p class="prose">
                             Video Analysis is the qualitative workbench: watch videos in place,
-                            inspect the full enrichment and annotation record, and add your own notes close to the
-                            source: solo or in teams.
+                            inspect the full enrichment and annotation record, and add your own notes
+                            close to the source, alone or with your team.
                         </p>
                     </div>
                     <figure class="screenshot-frame">
@@ -251,13 +242,9 @@
                     </figure>
                 </div>
             </div>
-        </div>
 
-        <!-- 5. Share -->
-        <div class="see-stage">
-            <div class="see-stage__rail"><span class="see-stage__num">5</span><span class="see-stage__line"></span></div>
-            <div class="see-stage__main">
-                <h3 class="text-h3 font-semibold see-stage__title">Share</h3>
+            <!-- 5. Share -->
+            <div class="see-panel" id="see-panel-share">
                 <div class="feature-row">
                     <div class="feature-row-text">
                         <p class="prose">
@@ -273,8 +260,8 @@
                     </figure>
                 </div>
             </div>
-        </div>
 
+        </div>
     </div>
 </section>
 
@@ -285,8 +272,8 @@
 <section class="landing-section landing-cta-band">
     <h2 class="text-h2 font-semibold">Curious whether the Hub fits your research?</h2>
     <p class="prose">
-        Take a look at the analysis tools for yourself with a sample dataset, then talk to us about
-        running the Data Hub for your own project.
+        You can try the analysis tools yourself on a sample dataset, and we're always happy to talk
+        about whether the Data Hub could work for your project.
     </p>
     <div class="landing-hero-ctas">
         <a href="{{ url_for('public_bp.guide') }}" class="btn-primary public-cta">I'm a researcher and want to learn more →</a>
