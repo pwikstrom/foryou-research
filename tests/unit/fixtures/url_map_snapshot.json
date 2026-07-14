@@ -871,6 +871,13 @@
   ]
  ],
  [
+  "/data-donation",
+  "public_bp.data_donation",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/faq",
   "public_bp.faq",
   [

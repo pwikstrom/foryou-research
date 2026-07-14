@@ -122,6 +122,7 @@ python scripts/gen_route_inventory.py
 | process_bp | `/api/stop/<name>` | POST | `process_bp.api_stop` |
 | process_bp | `/api/stop_graceful/<name>` | POST | `process_bp.api_stop_graceful` |
 | public_bp | `/about` | GET | `public_bp.about` |
+| public_bp | `/data-donation` | GET | `public_bp.data_donation` |
 | public_bp | `/faq` | GET | `public_bp.faq` |
 | public_bp | `/guide` | GET | `public_bp.guide` |
 | semantic_space_bp | `/api/semantic_space/collections` | GET | `semantic_space_bp.api_semantic_space_collections` |
@@ -140,4 +141,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-129 routes total.
+130 routes total.

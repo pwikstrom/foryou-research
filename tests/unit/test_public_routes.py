@@ -32,7 +32,7 @@ def client(app):
     return app.test_client()
 
 
-@pytest.mark.parametrize("path", ["/", "/about", "/guide", "/faq", "/login", "/signup"])
+@pytest.mark.parametrize("path", ["/", "/about", "/data-donation", "/guide", "/faq", "/login", "/signup"])
 def test_public_pages_render_anonymously(client, path):
     resp = client.get(path)
     assert resp.status_code == 200

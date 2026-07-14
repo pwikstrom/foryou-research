@@ -4,18 +4,20 @@
 
 <!-- Hero -->
 <section class="landing-hero">
-    <span class="kicker">For researchers working with social-media data donations</span>
     <h1 class="hero-title">From messy data donations to research findings</h1>
     <p class="hero-subtitle landing-hero-sub">
-        Data donation is a compelling way to study lived, in-the-wild platform experience —
-        but donated feeds are messy, stripped of metadata, and slow to code by hand.
+        Data donation is a compelling way to study lived, in-the-wild platform experiences,
+        but donated feeds are messy, stripped of metadata, and challenging to annotate at scale.
         The For You Data Hub closes the distance between a donation and a finding.
     </p>
+    <p class="hero-donation-link">
+        <a href="{{ url_for('public_bp.data_donation') }}">What is data donation? →</a>
+    </p>
     <p class="landing-hero-lead">
-        A research platform for exploring short-video feeds donated by study participants —
-        TikTok, Instagram Reels and YouTube Shorts — built by
+        The For You Data Hub is a rigorous research platform for exploring short-video feeds donated by study participants. The Hub ingests data from
+        TikTok, Instagram Reels and YouTube Shorts and is built by researchers in 
         <a href="https://www.foryouresearch.net/" target="_blank" rel="noopener">The For You Research Project</a>
-        at QUT and the University of Sydney.
+       based at QUT and the University of Sydney.
     </p>
     <div class="landing-hero-ctas">
         <a href="{{ url_for('auth_bp.login') }}" class="btn-primary public-cta">Log in</a>
@@ -27,9 +29,9 @@
 <!-- The problem: the distance between donation and finding -->
 <section class="landing-section">
     <div class="pullquote">
-        <blockquote>"Data donation is a compelling idea… but the data is too messy to use."</blockquote>
+        <blockquote>The Problem:<br>"Data donation is a compelling idea…<br>but the data is too messy to use."</blockquote>
         <p class="pullquote-answer">
-            Sometimes true — but it's almost never the data's fault.
+            Sometimes true, but it's almost never the data's fault.
             It's the <strong>distance between the donated data and the finding</strong>.
             Between a donation and an insight lies a mountain of data wrangling.
         </p>
@@ -40,7 +42,7 @@
             <h3 class="text-h3 font-semibold">Reconcile formats</h3>
             <p class="text-sm">
                 Endless stitching together of unpredictable, ever-changing platform export
-                formats — AIO, Zeeschuimer and more — before any two donations line up.
+                formats.
             </p>
         </div>
         <div class="feature-card">
@@ -48,7 +50,7 @@
             <h3 class="text-h3 font-semibold">Extend the donation</h3>
             <p class="text-sm">
                 Videos, captions, authors, music and engagement counts are generally stripped
-                out of donated packages — they have to be recovered before analysis.
+                out of donated packages and have to be recovered before analysis.
             </p>
         </div>
         <div class="feature-card">
@@ -56,67 +58,11 @@
             <h3 class="text-h3 font-semibold">Hand-code content</h3>
             <p class="text-sm">
                 Thousands of items need to be coded, video by video, to become useful research
-                variables — the step that stalls most projects.
+                variables.
             </p>
         </div>
     </div>
-    <p class="landing-punchline">Projects stall before meaningful analysis can even begin.</p>
-</section>
-
-<!-- Why donated feeds -->
-<section class="landing-section">
-    <h2 class="text-h2 font-semibold landing-section-title">Why donated feeds?</h2>
-    <p class="prose landing-section-intro">
-        Platform libraries and API access give you a curated, top-down view. Only a donated
-        feed captures what a real person was actually served and watched.
-    </p>
-    <div class="compare-grid">
-        <div class="compare-col compare-col--muted">
-            <h3 class="text-h3 font-semibold">Platform libraries &amp; API access</h3>
-            <p class="compare-sub">Top-down, platform-defined</p>
-            <ul>
-                <li>Curated and aggregate</li>
-                <li>Not the individual's feed</li>
-                <li>What the platform chooses to expose</li>
-            </ul>
-        </div>
-        <div class="compare-col compare-col--accent">
-            <h3 class="text-h3 font-semibold">Donated feeds</h3>
-            <p class="compare-sub">Bottom-up, participant-defined</p>
-            <ul>
-                <li>The real "For You" sequence</li>
-                <li>Per participant, personalised</li>
-                <li>Lived experience, in the wild</li>
-            </ul>
-        </div>
-    </div>
-</section>
-
-<!-- What donated data can (and can't) tell us -->
-<section class="landing-section">
-    <h2 class="text-h2 font-semibold landing-section-title">What donated data can (and can't) tell us</h2>
-    <div class="canuse-grid">
-        <div class="canuse-card canuse-card--yes">
-            <div class="canuse-head">
-                <span class="canuse-badge canuse-badge--yes">✓</span> Great for
-            </div>
-            <ul>
-                <li>Lived, in-the-wild experience</li>
-                <li>How the feed behaves for real people</li>
-                <li>Within- and cross-participant comparison</li>
-            </ul>
-        </div>
-        <div class="canuse-card canuse-card--no">
-            <div class="canuse-head">
-                <span class="canuse-badge canuse-badge--no">✕</span> Not for
-            </div>
-            <ul>
-                <li>Population-level generalisation</li>
-                <li>"X% of all users…" claims</li>
-                <li>Replacing a representative survey</li>
-            </ul>
-        </div>
-    </div>
+    <p class="landing-punchline">Projects often stall before meaningful analysis can even begin.</p>
 </section>
 
 <!-- The pipeline -->

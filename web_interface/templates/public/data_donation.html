@@ -1,0 +1,84 @@
+{% extends 'public/base_public.html' %}
+
+{% block public_content %}
+
+<section class="landing-hero">
+    <h1 class="hero-title">What is data donation?</h1>
+    <p class="hero-subtitle landing-hero-sub">
+        Data donation is a research method where participants voluntarily share their own
+        platform data — the activity export a platform lets a user download of themselves.
+        Instead of scraping public content or querying a platform API, researchers work from the
+        feed a real person was actually served and engaged with.
+    </p>
+</section>
+
+<!-- Why donated feeds -->
+<section class="landing-section">
+    <h2 class="text-h2 font-semibold landing-section-title">Why donated feeds?</h2>
+    <p class="prose landing-section-intro">
+        Platform libraries and API access give you a curated, top-down view. Only a donated
+        feed captures what a real person was actually served and watched.
+    </p>
+    <div class="compare-grid">
+        <div class="compare-col compare-col--muted">
+            <h3 class="text-h3 font-semibold">Platform libraries &amp; API access</h3>
+            <p class="compare-sub">Top-down, platform-defined</p>
+            <ul>
+                <li>Curated and aggregate</li>
+                <li>Not the individual's feed</li>
+                <li>What the platform chooses to expose</li>
+            </ul>
+        </div>
+        <div class="compare-col compare-col--accent">
+            <h3 class="text-h3 font-semibold">Donated feeds</h3>
+            <p class="compare-sub">Bottom-up, participant-defined</p>
+            <ul>
+                <li>The real "For You" sequence</li>
+                <li>Per participant, personalised</li>
+                <li>Lived experience, in the wild</li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+<!-- What donated data can (and can't) tell us -->
+<section class="landing-section">
+    <h2 class="text-h2 font-semibold landing-section-title">What donated data can (and can't) tell us</h2>
+    <div class="canuse-grid">
+        <div class="canuse-card canuse-card--yes">
+            <div class="canuse-head">
+                <span class="canuse-badge canuse-badge--yes">✓</span> Great for
+            </div>
+            <ul>
+                <li>Lived, in-the-wild experience</li>
+                <li>How the feed behaves for real people</li>
+                <li>Within- and cross-participant comparison</li>
+            </ul>
+        </div>
+        <div class="canuse-card canuse-card--no">
+            <div class="canuse-head">
+                <span class="canuse-badge canuse-badge--no">✕</span> Not for
+            </div>
+            <ul>
+                <li>Population-level generalisation</li>
+                <li>"X% of all users…" claims</li>
+                <li>Replacing a representative survey</li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+<!-- Back to the Hub -->
+<section class="landing-section landing-cta-band">
+    <h2 class="text-h2 font-semibold">From donation to finding</h2>
+    <p class="prose">
+        The For You Data Hub takes donated feeds and turns them into analysable research data —
+        ingesting, enriching and annotating them automatically.
+    </p>
+    <div class="landing-hero-ctas">
+        <a href="{{ url_for('index') }}" class="btn-primary public-cta">See how the Hub works</a>
+        <a href="{{ url_for('public_bp.about') }}" class="btn-discreet public-cta">About the project</a>
+    </div>
+</section>
+
+{% endblock %}

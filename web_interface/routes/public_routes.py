@@ -17,6 +17,12 @@ def about():
     return render_template('public/about.html', active_page='about')
 
 
+@public_bp.route('/data-donation')
+def data_donation():
+    """Explainer: what data donation is, why donated feeds, what they can tell us."""
+    return render_template('public/data_donation.html', active_page='data_donation')
+
+
 @public_bp.route('/guide')
 def guide():
     """How to use the Data Hub: getting access + first-session walkthrough."""
