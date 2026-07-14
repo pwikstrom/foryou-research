@@ -4,20 +4,21 @@
 
 <!-- Hero -->
 <section class="landing-hero">
-    <h1 class="hero-title">From messy data donations to research findings</h1>
+    <h1 class="hero-title">Manage the data donation pipeline from ingest to insight</h1>
+    <p class="hero-donation-link">
+        <a href="{{ url_for('public_bp.data_donation') }}">What is data donation? →</a>
+    </p>
     <p class="hero-subtitle landing-hero-sub">
         Data donation is a compelling way to study lived, in-the-wild platform experiences,
         but donated feeds are messy, stripped of metadata, and challenging to annotate at scale.
         The For You Data Hub closes the distance between a donation and a finding.
     </p>
-    <p class="hero-donation-link">
-        <a href="{{ url_for('public_bp.data_donation') }}">What is data donation? →</a>
-    </p>
     <p class="landing-hero-lead">
-        The For You Data Hub is a rigorous research platform for exploring short-video feeds donated by study participants. The Hub ingests data from
-        TikTok, Instagram Reels and YouTube Shorts and is built by researchers in 
+        To solve this problem, researchers in 
         <a href="https://www.foryouresearch.net/" target="_blank" rel="noopener">The For You Research Project</a>
-       based at QUT and the University of Sydney.
+       (based at QUT and the University of Sydney) has built the For You Data Hub. The Data Hub is a 
+       research platform that automates the data donation pipeline from ingest to insight. The 
+       focus is on short-video analysis and the platform accepts donations from TikTok, Instagram Reels and YouTube Shorts.
     </p>
     <div class="landing-hero-ctas">
         <a href="{{ url_for('auth_bp.login') }}" class="btn-primary public-cta">Log in</a>
@@ -26,52 +27,9 @@
     </div>
 </section>
 
-<!-- The problem: the distance between donation and finding -->
-<section class="landing-section">
-    <div class="pullquote">
-        <blockquote>The Problem:<br>"Data donation is a compelling idea…<br>but the data is too messy to use."</blockquote>
-        <p class="pullquote-answer">
-            Sometimes true, but it's almost never the data's fault.
-            It's the <strong>distance between the donated data and the finding</strong>.
-            Between a donation and an insight lies a mountain of data wrangling.
-        </p>
-    </div>
-    <div class="feature-grid" style="margin-top: 34px;">
-        <div class="feature-card">
-            <div class="feature-card-icon">⇄</div>
-            <h3 class="text-h3 font-semibold">Reconcile formats</h3>
-            <p class="text-sm">
-                Endless stitching together of unpredictable, ever-changing platform export
-                formats.
-            </p>
-        </div>
-        <div class="feature-card">
-            <div class="feature-card-icon">✦</div>
-            <h3 class="text-h3 font-semibold">Extend the donation</h3>
-            <p class="text-sm">
-                Videos, captions, authors, music and engagement counts are generally stripped
-                out of donated packages and have to be recovered before analysis.
-            </p>
-        </div>
-        <div class="feature-card">
-            <div class="feature-card-icon">◱</div>
-            <h3 class="text-h3 font-semibold">Hand-code content</h3>
-            <p class="text-sm">
-                Thousands of items need to be coded, video by video, to become useful research
-                variables.
-            </p>
-        </div>
-    </div>
-    <p class="landing-punchline">Projects often stall before meaningful analysis can even begin.</p>
-</section>
-
 <!-- The pipeline -->
 <section class="landing-section">
     <h2 class="text-h2 font-semibold landing-section-title">The Hub automates the pipeline</h2>
-    <p class="prose landing-section-intro">
-        The For You Data Hub takes over the wrangling and gives HASS researchers the tools to
-        explore user experiences — from raw donation through to shareable analysis.
-    </p>
     <div class="fy-pipeline">
         <div class="fy-pipeline-step">
             <div class="fy-pipeline-num"></div>
@@ -101,98 +59,186 @@
     </div>
 </section>
 
-<!-- Feature tour -->
+<!-- See it in action: a walkthrough of the five pipeline steps -->
 <section class="landing-section">
     <h2 class="text-h2 font-semibold landing-section-title">See it in action</h2>
+    <p class="prose landing-section-intro">
+        Follow a donation through all five steps of the pipeline — the same
+        Ingest → Enrich → Annotate → Analyse → Share sequence, up close.
+    </p>
 
-    <div class="feature-row">
-        <div class="feature-row-text">
-            <span class="kicker">Analyse</span>
-            <h3 class="text-h3 font-semibold">Compare across the corpus</h3>
-            <p class="prose">
-                Explore compares variable distributions across a study, split into two filtered
-                slices with significance testing. Build selections with checkboxes and range
-                sliders, and click any bar to drill into the underlying videos.
-            </p>
-        </div>
-        <figure class="screenshot-frame">
-            <img src="{{ url_for('static', filename='landing/explore.webp') }}" alt="Explore tab: variable distributions split into two filtered slices" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
-            <figcaption>Explore — distribution comparison across data slices</figcaption>
-        </figure>
-    </div>
+    <div class="see-flow">
 
-    <div class="feature-row">
-        <div class="feature-row-text">
-            <span class="kicker">Analyse</span>
-            <h3 class="text-h3 font-semibold">Follow a feed over time</h3>
-            <p class="prose">
-                Timelines shows how a single participant's feed evolves day by day — smoothed
-                per-variable timelines with trend, anomaly and structural-break detection, and
-                filter chips for rising, falling, spiking or volatile categories.
-            </p>
+        <!-- 1. Ingest -->
+        <div class="see-stage">
+            <div class="see-stage__rail"><span class="see-stage__num">1</span><span class="see-stage__line"></span></div>
+            <div class="see-stage__main">
+                <h3 class="text-h3 font-semibold see-stage__title">Ingest</h3>
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <p class="prose">
+                            Donations arrive in different formats — AIO, Zeeschuimer, TikTok's own
+                            data export — and from many participants. Ingestion parses them into one
+                            clean, queryable corpus, which you label, merge and group into
+                            <em>studies</em> over defined time periods.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/ingest.webp') }}" alt="Data Management: ingesting new collections from different donation formats" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Ingest — mixed donation formats become one corpus</figcaption>
+                    </figure>
+                </div>
+            </div>
         </div>
-        <figure class="screenshot-frame">
-            <img src="{{ url_for('static', filename='landing/timelines.webp') }}" alt="Timelines tab: a participant's activity evolving day by day" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
-            <figcaption>Timelines — one participant's feed, day by day</figcaption>
-        </figure>
-    </div>
 
-    <div class="feature-row">
-        <div class="feature-row-text">
-            <span class="kicker">Annotate</span>
-            <h3 class="text-h3 font-semibold">Watch and code in context</h3>
-            <p class="prose">
-                Video Analysis is the qualitative workbench: filter on any variable, watch videos
-                in place, inspect the full enrichment and AI-annotation record, and code close to
-                the source — solo or in teams, with inter-coder reliability.
-            </p>
+        <!-- 2. Enrich -->
+        <div class="see-stage">
+            <div class="see-stage__rail"><span class="see-stage__num">2</span><span class="see-stage__line"></span></div>
+            <div class="see-stage__main">
+                <h3 class="text-h3 font-semibold see-stage__title">Enrich</h3>
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <p class="prose">
+                            Donated packages arrive stripped of the videos themselves and most
+                            metadata. The Hub scrapes them back in — videos, captions, authors, music
+                            and engagement counts — running as background queues that enrich millions
+                            of items at scale.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/enrich.webp') }}" alt="Scrape and Annotate: background queues recovering videos and metadata" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Enrich — scraping back the videos and metadata</figcaption>
+                    </figure>
+                </div>
+            </div>
         </div>
-        <figure class="screenshot-frame">
-            <img src="{{ url_for('static', filename='landing/video_analysis.webp') }}" alt="Video Analysis tab: watching and tagging an individual video" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
-            <figcaption>Video Analysis — watch, inspect and code individual videos</figcaption>
-        </figure>
-    </div>
 
-    <div class="feature-row">
-        <div class="feature-row-text">
-            <span class="kicker">Analyse</span>
-            <h3 class="text-h3 font-semibold">Find structure and patterns</h3>
-            <p class="prose">
-                Correlations places one dot per collection-day on any two numeric axes, with group
-                ellipses, regression lines and a full correlation heatmap — plus PCA-based measures
-                computed per study.
-            </p>
+        <!-- 3. Annotate -->
+        <div class="see-stage">
+            <div class="see-stage__rail"><span class="see-stage__num">3</span><span class="see-stage__line"></span></div>
+            <div class="see-stage__main">
+                <h3 class="text-h3 font-semibold see-stage__title">Annotate</h3>
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <p class="prose">
+                            Google Gemini turns each video into structured research variables —
+                            content category, activities, objects, transcript, sensitivity and more —
+                            with human quality control. Those variables are embedded and mapped into a
+                            readable 2D semantic space, grouped into fine-grained, auto-named
+                            "niches" you can navigate and colour by category or popularity.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/semantic_space.webp') }}" alt="Semantic Space tab: 2D embedding map of annotated videos" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Semantic Space — the annotated corpus, mapped by meaning</figcaption>
+                    </figure>
+                </div>
+            </div>
         </div>
-        <figure class="screenshot-frame">
-            <img src="{{ url_for('static', filename='landing/correlations.webp') }}" alt="Correlations tab: scatter plot with group ellipses" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
-            <figcaption>Correlations — scatter, ellipses and correlation heatmap</figcaption>
-        </figure>
-    </div>
 
-    <div class="feature-row">
-        <div class="feature-row-text">
-            <span class="kicker">Annotate</span>
-            <h3 class="text-h3 font-semibold">Map the whole corpus</h3>
-            <p class="prose">
-                Scraped and annotated variables become 1536-dimensional embeddings, mapped into a
-                readable 2D semantic space and grouped into fine-grained, auto-named "niches" —
-                micro-genres you can navigate and colour by category or popularity.
-            </p>
+        <!-- 4. Analyse -->
+        <div class="see-stage">
+            <div class="see-stage__rail"><span class="see-stage__num">4</span><span class="see-stage__line"></span></div>
+            <div class="see-stage__main">
+                <h3 class="text-h3 font-semibold see-stage__title">Analyse</h3>
+                <p class="see-stage__lead">
+                    Different research paradigms in one place — time-series and statistics alongside
+                    qualitative video analysis.
+                </p>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Compare across the corpus</h4>
+                        <p class="prose">
+                            Explore compares variable distributions across a study, split into two
+                            filtered slices with significance testing. Build selections with
+                            checkboxes and range sliders, and click any bar to drill into the videos.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/explore.webp') }}" alt="Explore tab: variable distributions split into two filtered slices" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Explore — distribution comparison across data slices</figcaption>
+                    </figure>
+                </div>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Follow a feed over time</h4>
+                        <p class="prose">
+                            Timelines shows how a single participant's feed evolves day by day —
+                            smoothed per-variable timelines with trend, anomaly and structural-break
+                            detection, and filter chips for rising, falling or spiking categories.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/timelines.webp') }}" alt="Timelines tab: a participant's activity evolving day by day" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Timelines — one participant's feed, day by day</figcaption>
+                    </figure>
+                </div>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Watch and code in context</h4>
+                        <p class="prose">
+                            Video Analysis is the qualitative workbench: watch videos in place,
+                            inspect the full enrichment and annotation record, and code close to the
+                            source — solo or in teams, with inter-coder reliability.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/video_analysis.webp') }}" alt="Video Analysis tab: watching and tagging an individual video" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Video Analysis — watch, inspect and code individual videos</figcaption>
+                    </figure>
+                </div>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Find structure and patterns</h4>
+                        <p class="prose">
+                            Correlations places one dot per collection-day on any two numeric axes,
+                            with group ellipses, regression lines and a full correlation heatmap —
+                            plus PCA-based measures computed per study.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/correlations.webp') }}" alt="Correlations tab: scatter plot with group ellipses" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Correlations — scatter, ellipses and correlation heatmap</figcaption>
+                    </figure>
+                </div>
+            </div>
         </div>
-        <figure class="screenshot-frame">
-            <img src="{{ url_for('static', filename='landing/semantic_space.webp') }}" alt="Semantic Space tab: 2D embedding map of annotated videos" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
-            <figcaption>Semantic Space — an embedding map of the whole corpus</figcaption>
-        </figure>
+
+        <!-- 5. Share -->
+        <div class="see-stage">
+            <div class="see-stage__rail"><span class="see-stage__num">5</span><span class="see-stage__line"></span></div>
+            <div class="see-stage__main">
+                <h3 class="text-h3 font-semibold see-stage__title">Share</h3>
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <p class="prose">
+                            The Hub is built for teams. Fine-grained, role-based access lets you bring
+                            collaborators and students in with exactly the tabs, studies and
+                            permissions they should have — so a whole project can work from one shared
+                            corpus, safely.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/share.webp') }}" alt="Admin: role-based permission matrix controlling access per role" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Share — role-based access for collaborators and students</figcaption>
+                    </figure>
+                </div>
+            </div>
+        </div>
+
     </div>
 </section>
 
-<!-- Built for teams + infrastructure -->
+<!-- Infrastructure -->
 <section class="landing-section">
-    <h2 class="text-h2 font-semibold landing-section-title">Built for teams, running in the cloud</h2>
+    <h2 class="text-h2 font-semibold landing-section-title">Running in the cloud</h2>
     <p class="prose landing-section-intro">
-        The Hub is a browser-based tool — nothing to install. Role-based access lets you bring
-        collaborators and students in with the right permissions, and everything runs on managed
-        cloud infrastructure that scales with your project.
+        The Hub is a browser-based tool — nothing to install — and everything runs on managed cloud
+        infrastructure that scales with your project.
     </p>
     <div class="infra-note">
         <span class="infra-chip"><strong>Interface</strong> — browser-based, nothing to install</span>

@@ -4094,3 +4094,106 @@ body:has(.public-page) {
         font-size: var(--text-h3);
     }
 }
+
+
+/* ============================================================
+   "See it in action" — vertical numbered walkthrough that
+   mirrors the five pipeline steps (Ingest…Share). A teal
+   numbered node + connecting rail runs down the whole section,
+   echoing the horizontal .fy-pipeline stepper above it.
+   ============================================================ */
+
+.see-flow {
+    margin-top: 22px;
+}
+
+.see-stage {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    column-gap: 22px;
+}
+
+/* Left rail: numbered node at top, connecting line filling the rest */
+.see-stage__rail {
+    grid-row: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.see-stage__num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 40px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    color: var(--btn-primary-text, #fff);
+    font-weight: var(--weight-bold);
+    font-size: var(--text-body);
+}
+
+.see-stage__line {
+    flex: 1 1 auto;
+    width: 2px;
+    min-height: 24px;
+    margin: 6px 0;
+    background: var(--color-border);
+}
+
+.see-stage:last-child .see-stage__line {
+    display: none;
+}
+
+.see-stage__main {
+    min-width: 0;
+    padding-bottom: 46px;
+}
+
+.see-stage:last-child .see-stage__main {
+    padding-bottom: 0;
+}
+
+/* Stage title sits level with the numbered node */
+.see-stage__title {
+    display: flex;
+    align-items: center;
+    min-height: 40px;
+    margin: 0 0 4px;
+    color: var(--color-text-heading);
+}
+
+.see-stage__lead {
+    color: var(--color-text-secondary);
+    line-height: var(--leading-relaxed);
+    margin: 0 0 8px;
+    max-width: 760px;
+}
+
+/* Reuse .feature-row inside a stage, but keep the image always on the
+   right (cancel the alternating order used by the flat tour) and tighten
+   the vertical rhythm. */
+.see-stage__main .feature-row {
+    margin-top: 20px;
+    align-items: start;
+}
+
+.see-stage__main .feature-row .feature-row-text {
+    order: 0;
+}
+
+.see-stage__main .feature-row .feature-row-text .prose {
+    margin: 0;
+}
+
+@media (max-width: 860px) {
+    .see-stage {
+        column-gap: 14px;
+    }
+
+    .see-stage__main {
+        padding-bottom: 34px;
+    }
+}
