@@ -3821,7 +3821,7 @@ body:has(.public-page) {
 
 /* ============================================================
    Public Mini-Site — researcher narrative components
-   (kicker, pull-quote, comparison, can/can't, fy-pipeline)
+   (kicker, pull-quote, comparison, can/can't)
    Semantic tokens only.
    ============================================================ */
 
@@ -4017,65 +4017,6 @@ body:has(.public-page) {
     font-weight: var(--weight-bold);
 }
 
-/* Pipeline stepper: Ingest -> Enrich -> Annotate -> Analyse -> Share */
-.fy-pipeline {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 14px;
-    margin-top: 26px;
-    counter-reset: stage;
-}
-
-.fy-pipeline-step {
-    position: relative;
-    background: var(--color-bg-surface);
-    border: 1px solid var(--color-border-subtle);
-    border-radius: 12px;
-    padding: 22px 16px;
-}
-
-.fy-pipeline-num {
-    counter-increment: stage;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    background: var(--color-accent);
-    color: var(--btn-primary-text, #fff);
-    font-weight: var(--weight-bold);
-    margin-bottom: 12px;
-}
-
-.fy-pipeline-num::before {
-    content: counter(stage);
-}
-
-/* Connector arrows between steps (desktop only) */
-.fy-pipeline-step:not(:last-child)::after {
-    content: "→";
-    position: absolute;
-    right: -12px;
-    top: 34px;
-    transform: translateX(50%);
-    color: var(--color-text-faint);
-    z-index: 1;
-}
-
-.fy-pipeline-step h3 {
-    margin: 0 0 6px;
-    color: var(--color-text-primary);
-    font-size: var(--text-body);
-}
-
-.fy-pipeline-step p {
-    margin: 0;
-    font-size: var(--text-sm);
-    color: var(--color-text-secondary);
-    line-height: var(--leading-normal);
-}
-
 /* Burden cards punchline */
 .landing-punchline {
     margin-top: 22px;
@@ -4113,19 +4054,6 @@ body:has(.public-page) {
         grid-template-columns: 1fr;
     }
 
-    .fy-pipeline {
-        grid-template-columns: 1fr;
-    }
-
-    .fy-pipeline-step:not(:last-child)::after {
-        content: "↓";
-        right: auto;
-        left: 33px;
-        top: auto;
-        bottom: -13px;
-        transform: translateX(-50%);
-    }
-
     .pullquote blockquote {
         font-size: var(--text-h3);
     }
@@ -4133,103 +4061,195 @@ body:has(.public-page) {
 
 
 /* ============================================================
-   "See it in action" — vertical numbered walkthrough that
-   mirrors the five pipeline steps (Ingest…Share). A teal
-   numbered node + connecting rail runs down the whole section,
-   echoing the horizontal .fy-pipeline stepper above it.
+   "See it in action" — the five pipeline steps (Ingest…Share)
+   as a tabbed stepper. A row of numbered step-pills is both the
+   pipeline summary and the tab navigation; only the selected
+   stage's panel is shown below. CSS-only tabs: hidden radio
+   inputs drive pill state and panel visibility, so the component
+   needs no JS on either the public landing page or the app shell.
    ============================================================ */
 
-.see-flow {
+.see-tabs {
     margin-top: 22px;
 }
 
-.see-stage {
+/* Visually hidden but focusable, so keyboard users can arrow
+   between steps via the radio group. */
+.see-tabs__input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.see-tabs__pills {
     display: grid;
-    grid-template-columns: 40px 1fr;
-    column-gap: 22px;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
 }
 
-/* Left rail: numbered node at top, connecting line filling the rest */
-.see-stage__rail {
-    grid-row: 1 / -1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+.see-tab-pill {
+    position: relative;
+    display: block;
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 12px;
+    padding: 22px 16px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.see-stage__num {
+.see-tab-pill:hover {
+    border-color: var(--color-border);
+}
+
+.see-tab-pill__num {
     display: flex;
     align-items: center;
     justify-content: center;
-    flex: 0 0 40px;
-    width: 40px;
-    height: 40px;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
     background: var(--color-accent);
     color: var(--btn-primary-text, #fff);
     font-weight: var(--weight-bold);
+    margin-bottom: 12px;
+}
+
+.see-tab-pill__title {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--color-text-primary);
     font-size: var(--text-body);
 }
 
-.see-stage__line {
-    flex: 1 1 auto;
-    width: 2px;
-    min-height: 24px;
-    margin: 6px 0;
-    background: var(--color-border);
+.see-tab-pill__desc {
+    display: block;
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    line-height: var(--leading-normal);
 }
 
-.see-stage:last-child .see-stage__line {
+/* Connector arrows between pills (desktop only) */
+.see-tab-pill:not(:last-child)::after {
+    content: "→";
+    position: absolute;
+    right: -12px;
+    top: 34px;
+    transform: translateX(50%);
+    color: var(--color-text-faint);
+    z-index: 1;
+}
+
+/* Selected pill */
+#see-tab-ingest:checked ~ .see-tabs__pills .see-tab-pill[for="see-tab-ingest"],
+#see-tab-enrich:checked ~ .see-tabs__pills .see-tab-pill[for="see-tab-enrich"],
+#see-tab-annotate:checked ~ .see-tabs__pills .see-tab-pill[for="see-tab-annotate"],
+#see-tab-analyse:checked ~ .see-tabs__pills .see-tab-pill[for="see-tab-analyse"],
+#see-tab-share:checked ~ .see-tabs__pills .see-tab-pill[for="see-tab-share"] {
+    border-color: var(--color-accent);
+    background: var(--color-bg-elevated, var(--color-bg-surface));
+}
+
+/* Forward keyboard focus from the hidden radio to its pill */
+#see-tab-ingest:focus-visible ~ .see-tabs__pills .see-tab-pill[for="see-tab-ingest"],
+#see-tab-enrich:focus-visible ~ .see-tabs__pills .see-tab-pill[for="see-tab-enrich"],
+#see-tab-annotate:focus-visible ~ .see-tabs__pills .see-tab-pill[for="see-tab-annotate"],
+#see-tab-analyse:focus-visible ~ .see-tabs__pills .see-tab-pill[for="see-tab-analyse"],
+#see-tab-share:focus-visible ~ .see-tabs__pills .see-tab-pill[for="see-tab-share"] {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+/* Panels: only the selected stage's content is shown */
+.see-panel {
     display: none;
+    margin-top: 26px;
 }
 
-.see-stage__main {
-    min-width: 0;
-    padding-bottom: 46px;
+#see-tab-ingest:checked ~ .see-panels #see-panel-ingest,
+#see-tab-enrich:checked ~ .see-panels #see-panel-enrich,
+#see-tab-annotate:checked ~ .see-panels #see-panel-annotate,
+#see-tab-analyse:checked ~ .see-panels #see-panel-analyse,
+#see-tab-share:checked ~ .see-panels #see-panel-share {
+    display: block;
 }
 
-.see-stage:last-child .see-stage__main {
-    padding-bottom: 0;
-}
-
-/* Stage title sits level with the numbered node */
-.see-stage__title {
-    display: flex;
-    align-items: center;
-    min-height: 40px;
-    margin: 0 0 4px;
-    color: var(--color-text-heading);
-}
-
-.see-stage__lead {
+.see-panel__lead {
     color: var(--color-text-secondary);
     line-height: var(--leading-relaxed);
     margin: 0 0 8px;
     max-width: 760px;
 }
 
-/* Reuse .feature-row inside a stage, but keep the image always on the
+/* Reuse .feature-row inside a panel, but keep the image always on the
    right (cancel the alternating order used by the flat tour) and tighten
    the vertical rhythm. */
-.see-stage__main .feature-row {
+.see-panel .feature-row {
     margin-top: 20px;
     align-items: start;
 }
 
-.see-stage__main .feature-row .feature-row-text {
+.see-panel .feature-row .feature-row-text {
     order: 0;
 }
 
-.see-stage__main .feature-row .feature-row-text .prose {
+.see-panel .feature-row .feature-row-text .prose {
     margin: 0;
 }
 
+/* Small screens: stacked pills break the tab metaphor, so the stepper
+   degrades into a linear walkthrough — every panel is shown, interleaved
+   directly after its own pill, and the reader steps forward by scrolling.
+   The wrappers are flattened with display:contents so pills and panels
+   become siblings that can interleave via flex order. */
 @media (max-width: 860px) {
-    .see-stage {
-        column-gap: 14px;
+    .see-tabs {
+        display: flex;
+        flex-direction: column;
+        gap: 26px;
     }
 
-    .see-stage__main {
-        padding-bottom: 34px;
+    .see-tabs__pills,
+    .see-panels {
+        display: contents;
+    }
+
+    .see-tab-pill {
+        cursor: default;
+        pointer-events: none;
+    }
+
+    .see-tab-pill:not(:last-child)::after {
+        content: none;
+    }
+
+    .see-tab-pill[for="see-tab-ingest"]   { order: 1; }
+    #see-panel-ingest                     { order: 2; }
+    .see-tab-pill[for="see-tab-enrich"]   { order: 3; }
+    #see-panel-enrich                     { order: 4; }
+    .see-tab-pill[for="see-tab-annotate"] { order: 5; }
+    #see-panel-annotate                   { order: 6; }
+    .see-tab-pill[for="see-tab-analyse"]  { order: 7; }
+    #see-panel-analyse                    { order: 8; }
+    .see-tab-pill[for="see-tab-share"]    { order: 9; }
+    #see-panel-share                      { order: 10; }
+
+    .see-panel {
+        display: block;
+        margin-top: 0;
+    }
+
+    /* No selection on mobile — neutralize the selected/focus pill state */
+    #see-tab-ingest:checked ~ .see-tabs__pills .see-tab-pill[for="see-tab-ingest"],
+    #see-tab-enrich:checked ~ .see-tabs__pills .see-tab-pill[for="see-tab-enrich"],
+    #see-tab-annotate:checked ~ .see-tabs__pills .see-tab-pill[for="see-tab-annotate"],
+    #see-tab-analyse:checked ~ .see-tabs__pills .see-tab-pill[for="see-tab-analyse"],
+    #see-tab-share:checked ~ .see-tabs__pills .see-tab-pill[for="see-tab-share"] {
+        border-color: var(--color-border-subtle);
+        background: var(--color-bg-surface);
+        outline: none;
     }
 }
