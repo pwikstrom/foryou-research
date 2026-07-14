@@ -118,14 +118,60 @@
             <div class="see-stage__rail"><span class="see-stage__num">3</span><span class="see-stage__line"></span></div>
             <div class="see-stage__main">
                 <h3 class="text-h3 font-semibold see-stage__title">Annotate</h3>
+                <p class="see-stage__lead">
+                    Google Gemini turns each video into structured research variables — content
+                    category, activities, objects, transcript, sensitivity and more. The Hub wraps
+                    that in rigorous versioning, testing and human evaluation, then maps the annotated
+                    corpus by meaning.
+                </p>
+
                 <div class="feature-row">
                     <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Structured, versioned prompts</h4>
                         <p class="prose">
-                            Google Gemini turns each video into structured research variables —
-                            content category, activities, objects, transcript, sensitivity and more —
-                            with human quality control. Those variables are embedded and mapped into a
-                            readable 2D semantic space, grouped into fine-grained, auto-named
-                            "niches" you can navigate and colour by category or popularity.
+                            Every field the AI fills comes from a declarative annotation contract that
+                            generates the Gemini prompt and response schema — editable in the browser
+                            without redeploying. Each run is stamped with a content-derived version
+                            (model + prompt + schema + parameters); old versions are never overwritten,
+                            so the full annotation history stays archived and queryable, and each study
+                            pins the exact version it was built on.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/annotation_versions.webp') }}" alt="Annotation contract and version history: prompt text and response schema, content-derived version stamps" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Annotation contract &amp; versions — prompt and schema, fully versioned</figcaption>
+                    </figure>
+                </div>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Tested and human-evaluated</h4>
+                        <p class="prose">
+                            Before a prompt goes live, candidate contracts run head-to-head on a fixed
+                            evaluation set with real Gemini calls, scored on agreement metrics —
+                            categorical agreement, list overlap and numeric correlation. Human coders
+                            blind-code the same videos, so machine annotations are measured against
+                            inter-coder reliability. Only a winning candidate graduates through
+                            activation into the live dataset.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/annotation_testing.webp') }}" alt="Annotation testing: candidate contracts compared against each other and human coders on a fixed evaluation set" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Annotation testing — candidate prompts vs human coders on a fixed set</figcaption>
+                    </figure>
+                </div>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Map the whole corpus</h4>
+                        <p class="prose">
+                            Once annotated, every video becomes a 1536-dimensional embedding built from
+                            its variables and content, then projected into a readable 2D semantic space
+                            where similar videos sit together. The Hub clusters that space into
+                            fine-grained, automatically named "niches" — emergent micro-genres you can
+                            focus on, label, and colour by content category or popularity. Because it
+                            spans the entire annotated corpus, the map is a bird's-eye view of what the
+                            feed is made of, independent of any single study.
                         </p>
                     </div>
                     <figure class="screenshot-frame">
