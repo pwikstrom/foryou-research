@@ -3275,22 +3275,6 @@ body:has(.public-page) {
     margin-left: 14px;
 }
 
-.public-theme-btn {
-    background: none;
-    border: 1px solid var(--color-border);
-    color: var(--color-text-secondary);
-    border-radius: 6px;
-    padding: 4px 9px;
-    cursor: pointer;
-    font-size: var(--text-body);
-    line-height: 1;
-}
-
-.public-theme-btn:hover {
-    color: var(--color-text-primary);
-    background: var(--color-bg-elevated);
-}
-
 /* Anchor-friendly sizing for btn-primary/.btn-discreet used as links. */
 .public-cta {
     display: inline-block;

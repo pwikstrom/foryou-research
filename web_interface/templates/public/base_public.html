@@ -5,13 +5,14 @@
 
 {% block head %}
 <script>
-    // Restore the saved theme before first paint (same key main.js uses,
-    // so the choice carries across the login boundary in both directions).
+    // These public pages aren't theme-switchable. Anonymous visitors always see
+    // the light theme; a logged-in user keeps whatever theme they chose in the
+    // app (persisted in localStorage under the same key main.js uses, so it
+    // carries across the login boundary). Runs before first paint — no flash.
     (function () {
-        const saved = localStorage.getItem('fyp-theme');
-        if (saved && saved !== document.documentElement.getAttribute('data-theme')) {
-            document.documentElement.setAttribute('data-theme', saved);
-        }
+        const authed = {{ current_user.is_authenticated | tojson }};
+        const theme = authed ? (localStorage.getItem('fyp-theme') || 'dark') : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
     })();
 </script>
 {% endblock %}
@@ -30,13 +31,6 @@
 
 {% block scripts %}
 <script>
-    function togglePublicTheme() {
-        const html = document.documentElement;
-        const next = (html.getAttribute('data-theme') || 'dark') === 'dark' ? 'light' : 'dark';
-        html.setAttribute('data-theme', next);
-        localStorage.setItem('fyp-theme', next);
-    }
-
     function togglePublicNav() {
         const nav = document.getElementById('public-nav');
         const btn = document.getElementById('public-nav-toggle');

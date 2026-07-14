@@ -3,12 +3,11 @@
     <button id="public-nav-toggle" class="public-nav-toggle" aria-label="Menu" aria-expanded="false"
         onclick="togglePublicNav()">☰</button>
     <nav id="public-nav" class="public-nav">
-        <a href="{{ url_for('index') }}" class="public-nav-link {% if active_page == 'landing' %}active{% endif %}">Home</a>
+        <!--a href="{{ url_for('index') }}" class="public-nav-link {% if active_page == 'landing' %}active{% endif %}">Home</a>
         <a href="{{ url_for('public_bp.about') }}" class="public-nav-link {% if active_page == 'about' %}active{% endif %}">About</a>
         <a href="{{ url_for('public_bp.guide') }}" class="public-nav-link {% if active_page == 'guide' %}active{% endif %}">Guide</a>
-        <a href="{{ url_for('public_bp.faq') }}" class="public-nav-link {% if active_page == 'faq' %}active{% endif %}">FAQ</a>
+        <a href="{{ url_for('public_bp.faq') }}" class="public-nav-link {% if active_page == 'faq' %}active{% endif %}">FAQ</a-->
         <span class="public-nav-actions">
-            <button class="public-theme-btn" onclick="togglePublicTheme()" aria-label="Toggle light/dark theme">◐</button>
             {% if current_user.is_authenticated %}
             <a href="{{ url_for('index') }}" class="btn-primary public-cta">Open the hub</a>
             {% else %}

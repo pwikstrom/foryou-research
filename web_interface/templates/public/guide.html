@@ -3,9 +3,16 @@
 {% block public_content %}
 
 <section class="landing-hero">
-    <h1 class="hero-title">A quick look inside the Data Hub</h1>
+    <h1 class="hero-title">Use the For You Data Hub in your project</h1>
     <p class="hero-subtitle landing-hero-sub">
-        This is a little peek at the Hub's analysis tools, running against a sample dataset we've
+        Email us at <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a> to learn how you
+        can use the Data Hub in your project. We'd love to hear from you.
+    </p>
+    <p class="hero-subtitle landing-hero-sub">
+        You can also take the Hub for a test drive right now. Sign up and explore
+        the Hub's analysis tools. Follow the instructions below and you will be able to use the tools
+        Explore, Video Analysis, Timelines, Correlations, and Semantic Space. Note that this is only a little
+        peek at the Hub's analysis tools, running against a sample dataset we've
         made available to you. It's not the full pipeline — just enough to get a feel for what the
         Data Hub makes possible.
     </p>
@@ -31,8 +38,8 @@
         </li>
         <li>
             <strong>Wait for approval.</strong> New accounts are reviewed before they're enabled for
-            the sample dataset. You'll see "pending approval" until your account is activated — if it
-            takes more than a few days, email <a href="mailto:foryou@qut.edu.au">foryou@qut.edu.au</a>.
+            the sample dataset. You'll see "pending approval" until your account is activated, it shouldn't
+            take more than 24 hours.
         </li>
         <li>
             <strong>Log in.</strong> You'll land in the app with the analysis tabs — Explore,
@@ -48,12 +55,6 @@
         With the sample study loaded, here's a quick tour of what you can do:
     </p>
     <ol class="step-list">
-        <li>
-            <strong>Pick the sample study.</strong> Everything in the hub operates on the
-            <em>active study</em> — a defined dataset combining collections and a date range. Choose
-            the sample study from the dropdown in the header; the studies you can access are listed
-            under <em>My stuff → My Studies</em>.
-        </li>
         <li>
             <strong>Get an overview in Explore.</strong> Open the Explore tab to see how any variable
             is distributed across the study. Use the filter panel to slice the data — for example,
@@ -75,7 +76,8 @@
         <li>
             <strong>Go deeper.</strong> Correlations charts relationships between numeric measures
             (with regression lines, group ellipses and a correlation heatmap), and Semantic Space
-            maps every annotated video by meaning so you can explore the corpus's micro-genres.
+            maps every annotated video by meaning so you can explore the corpus's micro-genres. Use the zoom
+            and navigation buttons in the Semantic Space to explore different regions of the mapping.
         </li>
     </ol>
 </section>
@@ -84,8 +86,7 @@
     <h2 class="text-h2 font-semibold landing-section-title">Tips</h2>
     <ul class="guide-tips">
         <li>Every tab has a <strong>?</strong> help button in the top right with a detailed description of that tab.</li>
-        <li>Customize which variables appear on each surface via the ⚙ panels — your choices are personal and persist across sessions.</li>
-        <li>Charts stay synchronised when you zoom or pan in Timelines; click any point for that day's stats.</li>
+        <li>Customize which variables appear on each surface via the ⚙ panels. Your choices are personal and persist across sessions.</li>
         <li>Other researchers' annotations appear in Video Analysis when they've opted into sharing.</li>
     </ul>
 </section>
@@ -95,12 +96,8 @@
     <p class="prose">
         This is just a sample of what the Data Hub does. To use it for your own research project —
         ingesting your participants' donations, running the full ingest-to-insight pipeline, and
-        bringing in your team — get in touch and we'll set up a demo.
+        bringing in your team — get in touch (<a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a>) and we'll set up a demo.
     </p>
-    <div class="landing-hero-ctas">
-        <a href="mailto:foryou@qut.edu.au" class="btn-primary public-cta">Contact us for a demo and learn how to use the Data Hub for your research project</a>
-        <a href="{{ url_for('public_bp.about') }}" class="btn-discreet public-cta">About the project</a>
-    </div>
 </section>
 
 {% endblock %}
