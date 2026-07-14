@@ -1,4 +1,5 @@
 import binascii
+import datetime
 import hashlib
 import logging
 import os
@@ -248,7 +249,7 @@ def validate_display_username(name) -> tuple[str | None, str | None]:
 # --- User Class ---
 
 class User(UserMixin):
-    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None):
+    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None, created_at=None):
         self.id = username
         self.username = username
         self.role = role
@@ -258,6 +259,7 @@ class User(UserMixin):
         self.settings = settings if settings is not None else {}
         self.machine_annotation_votes = machine_annotation_votes if machine_annotation_votes is not None else {}
         self.display_username = display_username or ""
+        self.created_at = created_at
 
     def is_admin(self):
         return self.role == ROLE_ADMIN and self.approved
@@ -282,6 +284,7 @@ class User(UserMixin):
             "password_hash": self.password_hash,
             "approved": self.approved,
             "last_login": self.last_login,
+            "created_at": self.created_at,
             "settings": self.settings,
             "machine_annotation_votes": self.machine_annotation_votes
         }
@@ -403,6 +406,7 @@ class UserManager:
                         "password_hash": user_data.get('password_hash'),
                         "approved": user_data.get('approved', True),
                         "last_login": user_data.get('last_login'),
+                        "created_at": user_data.get('created_at'),
                         "settings": user_data.get('settings', {})
                     }
                     
@@ -495,7 +499,8 @@ class UserManager:
                         last_login=user_data.get('last_login'),
                         settings=user_data.get('settings', {}),
                         machine_annotation_votes=user_data.get('machine_annotation_votes', {}),
-                        display_username=user_data.get('display_username')
+                        display_username=user_data.get('display_username'),
+                        created_at=user_data.get('created_at')
                     )
 
             self.users = loaded
@@ -572,6 +577,7 @@ class UserManager:
                 settings=user_data.get("settings", {}),
                 machine_annotation_votes=user_data.get("machine_annotation_votes", {}),
                 display_username=user_data.get("display_username"),
+                created_at=user_data.get("created_at"),
             )
             self.users[user_id] = user
             return user
@@ -588,7 +594,8 @@ class UserManager:
             return False, "User already exists"
 
         password_hash = hash_password(password)
-        new_user = User(username, role, password_hash, approved=approved, display_username=display_username)
+        created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        new_user = User(username, role, password_hash, approved=approved, display_username=display_username, created_at=created_at)
         # Default Settings for New Users (annotation sharing is opt-in)
         new_user.settings = {
             "share_annotations": False,
@@ -673,7 +680,6 @@ class UserManager:
     def update_last_login(self, username):
         user = self.get_user(username)
         if user is not None:
-            import datetime
             user.last_login = datetime.datetime.now().isoformat()
             self.save_user(username)
 
