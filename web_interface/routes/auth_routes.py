@@ -19,7 +19,7 @@ from ..admin_settings import (
     save_admin_settings,
 )
 from .. import activity_log
-from ..mail_utils import send_welcome_email_async
+from ..mail_utils import is_email, send_new_user_pending_email_async, send_welcome_email_async
 from ..permissions import permission_required
 from ..security import user_manager
 
@@ -102,11 +102,39 @@ def signup():
                 flash("Account created! You can now login.")
             else:
                 flash("Account created! Please wait for an administrator to approve your account.")
+                # Approval gating is on: email the oldest admin so they know a
+                # request is waiting, and stamp the pending user once it sends.
+                _notify_admin_of_pending_signup(username, cleaned_display)
             return redirect(url_for('auth_bp.login'))
         else:
             flash(msg)
-            
+
     return render_template('signup.html')
+
+
+def _notify_admin_of_pending_signup(new_username: str, new_display: str | None) -> None:
+    """Email the oldest admin that ``new_username`` is awaiting approval.
+
+    Fire-and-forget: the send runs in a background thread so signup stays
+    responsive, and the sent-at / sent-to marker is recorded on the pending user
+    only when the email actually goes out (accurate even when MAIL_PASSWORD is
+    unset in local dev). A no-op if no emailable admin exists.
+
+    Args:
+        new_username: Email (account id) of the just-created pending user.
+        new_display: The new user's chosen display name, if any.
+    """
+    admin = user_manager.get_oldest_admin()
+    if admin is None or not is_email(admin.username):
+        return
+    admin_email = admin.username
+    send_new_user_pending_email_async(
+        to_email=admin_email,
+        new_user_email=new_username,
+        new_user_display=new_display,
+        on_success=lambda: user_manager.record_approval_notification(
+            new_username, sent_to=admin_email),
+    )
 
 @auth_bp.route('/logout')
 @login_required

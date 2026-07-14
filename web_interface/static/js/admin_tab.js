@@ -506,10 +506,19 @@
                 pendingContainer.style.borderColor = 'var(--color-warning)';
                 let pendingHtml = '<ul style="list-style: none; padding: 0; margin: 0;">';
                 pending.forEach(u => {
+                    // If an approval-request email was sent to an admin, show
+                    // when and to whom, so admins know it was already flagged.
+                    let noteHtml = '';
+                    const n = u.approval_notification;
+                    if (n && n.sent_at) {
+                        const when = new Date(n.sent_at).toLocaleString();
+                        const to = n.sent_to || 'an admin';
+                        noteHtml = `<div class="text-xs" style="margin-top: 4px; color: var(--color-text-muted);">&#9993; Approval request emailed to <strong>${to}</strong> at ${when}</div>`;
+                    }
                     pendingHtml += `
-                 <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--color-warning);">
-                     <span><strong>${u.username}</strong> &mdash; will be assigned the <em>${u.role}</em> role on approval</span>
-                     <button onclick="approveUser('${u.username}')" class="action-btn" style="padding: 6px 12px;">Approve</button>
+                 <li style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px dashed var(--color-warning);">
+                     <div><span><strong>${u.username}</strong> &mdash; will be assigned the <em>${u.role}</em> role on approval</span>${noteHtml}</div>
+                     <button onclick="approveUser('${u.username}')" class="action-btn" style="padding: 6px 12px; flex-shrink: 0;">Approve</button>
                  </li>`;
                 });
                 pendingHtml += '</ul>';

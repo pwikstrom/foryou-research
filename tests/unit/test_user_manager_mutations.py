@@ -158,10 +158,70 @@ def test_last_admin_demotion_blocked() -> None:
 
 
 
+def test_get_oldest_admin_prefers_earliest_created_at() -> None:
+    store = _FakeStore()
+    um, patches = _manager_over(store, bootstrap=True)
+    try:
+        # Give the default admin a known-old timestamp, add a newer admin, an
+        # unapproved admin, and a viewer — only the oldest approved admin wins.
+        store.files["admin@admin.net.json"]["created_at"] = "2024-01-01T00:00:00+00:00"
+        um.get_user("admin@admin.net").created_at = "2024-01-01T00:00:00+00:00"
+
+        um.add_user("newadmin@x.net", "pw", "admin", approved=True)
+        um.get_user("newadmin@x.net").created_at = "2025-06-01T00:00:00+00:00"
+        um.save_user("newadmin@x.net")
+
+        um.add_user("pendingadmin@x.net", "pw", "admin", approved=False)
+        um.get_user("pendingadmin@x.net").created_at = "2020-01-01T00:00:00+00:00"
+        um.save_user("pendingadmin@x.net")
+
+        um.add_user("viewer@x.net", "pw", "viewer", approved=True)
+
+        # Force a fresh roster load so the in-memory objects reflect storage.
+        um._loaded = False
+        oldest = um.get_oldest_admin()
+        assert oldest is not None
+        assert oldest.username == "admin@admin.net", (
+            "unapproved admins are ignored; earliest approved created_at wins"
+        )
+    finally:
+        for p in patches:
+            p.stop()
+
+
+
+
+def test_record_approval_notification_persists_marker() -> None:
+    store = _FakeStore()
+    um, patches = _manager_over(store, bootstrap=True)
+    try:
+        um.add_user("bob@x.net", "pw", "viewer", approved=False)
+
+        ok, _ = um.record_approval_notification(
+            "bob@x.net", sent_to="admin@admin.net", sent_at="2026-07-14T00:00:00+00:00")
+        assert ok
+        marker = store.files["bob@x.net.json"]["approval_notification"]
+        assert marker == {"sent_to": "admin@admin.net", "sent_at": "2026-07-14T00:00:00+00:00"}
+
+        # to_dict / API round-trip surfaces it for the New Users page.
+        assert um.get_user("bob@x.net").to_dict()["approval_notification"] == marker
+
+        # Unknown user is rejected without raising.
+        ok, _ = um.record_approval_notification("ghost@x.net", sent_to="admin@admin.net")
+        assert not ok
+    finally:
+        for p in patches:
+            p.stop()
+
+
+
+
 TESTS = [
     test_bootstrap_creates_default_admin_on_empty_store,
     test_full_mutation_lifecycle,
     test_last_admin_demotion_blocked,
+    test_get_oldest_admin_prefers_earliest_created_at,
+    test_record_approval_notification_persists_marker,
 ]
 
 

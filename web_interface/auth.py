@@ -249,7 +249,7 @@ def validate_display_username(name) -> tuple[str | None, str | None]:
 # --- User Class ---
 
 class User(UserMixin):
-    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None, created_at=None):
+    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None, created_at=None, approval_notification=None):
         self.id = username
         self.username = username
         self.role = role
@@ -260,6 +260,10 @@ class User(UserMixin):
         self.machine_annotation_votes = machine_annotation_votes if machine_annotation_votes is not None else {}
         self.display_username = display_username or ""
         self.created_at = created_at
+        # Set once, when a pending-approval signup emails an admin: a
+        # {"sent_to": admin_email, "sent_at": iso_timestamp} record surfaced on
+        # the New Users admin page. None until (and unless) that email is sent.
+        self.approval_notification = approval_notification
 
     def is_admin(self):
         return self.role == ROLE_ADMIN and self.approved
@@ -285,6 +289,7 @@ class User(UserMixin):
             "approved": self.approved,
             "last_login": self.last_login,
             "created_at": self.created_at,
+            "approval_notification": self.approval_notification,
             "settings": self.settings,
             "machine_annotation_votes": self.machine_annotation_votes
         }
@@ -500,7 +505,8 @@ class UserManager:
                         settings=user_data.get('settings', {}),
                         machine_annotation_votes=user_data.get('machine_annotation_votes', {}),
                         display_username=user_data.get('display_username'),
-                        created_at=user_data.get('created_at')
+                        created_at=user_data.get('created_at'),
+                        approval_notification=user_data.get('approval_notification')
                     )
 
             self.users = loaded
@@ -578,6 +584,7 @@ class UserManager:
                 machine_annotation_votes=user_data.get("machine_annotation_votes", {}),
                 display_username=user_data.get("display_username"),
                 created_at=user_data.get("created_at"),
+                approval_notification=user_data.get("approval_notification"),
             )
             self.users[user_id] = user
             return user
@@ -667,6 +674,52 @@ class UserManager:
         user.approved = True
         self.save_user(username)
         return True, "User approved"
+
+    def get_oldest_admin(self):
+        """Return the approved admin with the earliest ``created_at``.
+
+        Used to pick the single administrator who is notified when a new user
+        signs up while approval gating is on. Admins whose ``created_at`` is
+        unknown (accounts predating the timestamp) sort after those with one, so
+        a known-oldest admin always wins; ``created_at`` values are UTC ISO
+        strings, which sort chronologically.
+
+        Returns:
+            The oldest approved admin :class:`User`, or ``None`` if the store
+            holds no approved admin.
+        """
+        self._ensure_loaded()
+        admins = [u for u in self.users.values() if u.role == ROLE_ADMIN and u.approved]
+        if not admins:
+            return None
+        admins.sort(key=lambda u: (u.created_at is None, u.created_at or ""))
+        return admins[0]
+
+    def record_approval_notification(self, username, sent_to, sent_at=None):
+        """Record that a pending-approval email was sent for ``username``.
+
+        Persists a ``{"sent_to", "sent_at"}`` marker on the user so the New Users
+        admin page can show when, and to which admin, the approval request was
+        emailed.
+
+        Args:
+            username: The pending user the notification is about.
+            sent_to: Email address the notification was sent to (the admin).
+            sent_at: ISO timestamp of the send; defaults to now (UTC).
+
+        Returns:
+            ``(True, message)`` on success, ``(False, error)`` if unknown user.
+        """
+        user = self.get_user(username)
+        if user is None:
+            return False, "User not found"
+
+        user.approval_notification = {
+            "sent_to": sent_to,
+            "sent_at": sent_at or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        self.save_user(username)
+        return True, "Notification recorded"
 
     def update_password(self, username, new_password):
         user = self.get_user(username)

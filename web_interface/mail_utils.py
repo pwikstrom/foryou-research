@@ -131,6 +131,59 @@ def send_invitation_email(to_email, run_id, task_type, inviter,
         return False
 
 
+def send_new_user_pending_email(to_email, new_user_email, new_user_display=None) -> bool:
+    """Notify an admin that a new user signed up and is awaiting approval.
+
+    Sent to the single administrator chosen by the caller (the oldest admin
+    account) only when new-user approval gating is enabled.
+
+    Args:
+        to_email: The admin's email address.
+        new_user_email: The email (account id) of the user awaiting approval.
+        new_user_display: The new user's chosen display name, if any.
+
+    Returns:
+        True when actually sent; False on no-op (MAIL_PASSWORD unset) or failure.
+        Never raises.
+    """
+    display = f" ({new_user_display})" if new_user_display else ""
+    subject = "New user pending approval — ForYouResearch Data Hub"
+    body = f"""
+    <html>
+      <body>
+        <h2>A new user is awaiting approval</h2>
+        <p><b>{new_user_email}</b>{display} has requested an account on the
+           ForYouResearch Data Hub and is pending administrator approval.</p>
+        <p>Log in at <a href="http://foryouresearch.net">foryouresearch.net</a>
+           and open <b>Admin &rarr; New Users</b> to review and approve.</p>
+        <br>
+        <p>Best regards,<br>The ForYouResearch Team</p>
+      </body>
+    </html>
+    """
+    return _send_html_email(to_email, subject, body)
+
+
+def send_new_user_pending_email_async(to_email, new_user_email,
+                                      new_user_display=None, on_success=None):
+    """Send a new-user pending-approval notification in a background thread.
+
+    Args:
+        on_success: optional zero-arg callable invoked only when the send
+            actually succeeded (used to persist the sent-at / sent-to marker on
+            the pending user).
+    """
+    def _worker():
+        if send_new_user_pending_email(to_email, new_user_email, new_user_display) and on_success:
+            try:
+                on_success()
+            except Exception as e:
+                logger.error(f"New-user-pending on_success callback failed: {e}")
+
+    thread = threading.Thread(target=_worker)
+    thread.start()
+
+
 def _send_html_email(to_email, subject, body_html) -> bool:
     """Send one HTML email via the shared Gmail SMTP transport.
 
