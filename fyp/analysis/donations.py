@@ -396,11 +396,19 @@ def generate_collection_metadata(
                     py_item = {k: _deser(v) for k, v in item.items()}
                     participant_metadata[py_item['id']] = py_item
 
+    # No participant metadata is the normal state for installs without the
+    # AIO AWS pipeline (the aio_participants location is simply empty) —
+    # the collection stats stand on their own.
     participant_metadata_df = pd.DataFrame(participant_metadata).T
-    participant_metadata_df.drop(["url","iat","pk","id","exp","profile","schemaChanged","appliedSchema"],axis=1, inplace=True)
-    participant_metadata_df.columns = pd.MultiIndex.from_product([['participants'], participant_metadata_df.columns])
+    if participant_metadata_df.empty:
+        combined_ddp_metadata = df1
+    else:
+        participant_metadata_df.drop(
+            ["url","iat","pk","id","exp","profile","schemaChanged","appliedSchema"],
+            axis=1, inplace=True, errors="ignore")
+        participant_metadata_df.columns = pd.MultiIndex.from_product([['participants'], participant_metadata_df.columns])
 
-    combined_ddp_metadata = pd.merge(df1, participant_metadata_df, left_index=True, right_index=True, how="left")
+        combined_ddp_metadata = pd.merge(df1, participant_metadata_df, left_index=True, right_index=True, how="left")
 
     if not collection_personas.empty:
         combined_ddp_metadata = pd.merge(combined_ddp_metadata, collection_personas, left_index=True, right_index=True, how="left")

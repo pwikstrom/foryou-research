@@ -128,6 +128,36 @@ def test_accepted_upload_suffixes_declarations():
 
 
 
+def test_collection_metadata_without_participant_files(monkeypatch):
+    """generate_collection_metadata must survive an empty aio_participants dir.
+
+    Fresh installs without the AIO AWS pipeline have no ddp_metadata files;
+    the participant merge used to hard-drop AWS columns from an empty frame
+    ("['url', 'iat', ...] not found in axis") and fail the whole ingest.
+    """
+    from fyp.analysis import donations
+
+    monkeypatch.setattr(donations.data_io, "listdir", lambda **kw: [])
+    monkeypatch.setattr(donations, "generate_personas", lambda df: pd.DataFrame())
+
+    events = pd.DataFrame({
+        "collection_id": ["c1", "c1", "c1"],
+        "activity_type": ["play", "play", "fave"],
+        "ts_added_to_dataset": pd.to_datetime(["2026-07-15"] * 3),
+    })
+    meta = donations.generate_collection_metadata(
+        events, sort_by=None, verbose=False,
+        save_to_disk_ok=False, load_from_disk=False,
+    )
+    assert list(meta.index) == ["c1"]
+    assert ("counts", "play") in meta.columns
+    assert ("other", "ts_added_to_dataset") in meta.columns
+
+
+
+
+
+
 def test_aio_aws_fetch_gate(monkeypatch):
     from fyp.fyp_config import fyp_cf
     from fyp.ingest.tiktok import TikTokAIOCollection
