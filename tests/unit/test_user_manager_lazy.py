@@ -100,7 +100,9 @@ def test_bootstrap_true_does_not_preload_roster() -> None:
         um = auth.UserManager(storage_location="users", bootstrap=True)
 
     assert um.users == {}, "bootstrap must not preload the full roster"
-    assert load_calls == [], f"no per-user load at init, got {load_calls}"
+    # The default-admin check content-probes candidate files and stops at the
+    # first real user, so it reads at most one file — not the whole roster.
+    assert len(load_calls) <= 1, f"default-admin check must be O(1), got {load_calls}"
     assert mock_save.call_count == 0, "existing users => no default admin created"
 
 
@@ -246,6 +248,9 @@ def test_get_user_lazy_loads_in_bootstrap_mode() -> None:
          patch.object(auth.data_io, "load_json", side_effect=fake_load_json), \
          patch.object(auth.data_io, "exists", side_effect=fake_exists):
         um = auth.UserManager(storage_location="users", bootstrap=True)
+        # The default-admin check may content-probe one file at construction;
+        # isolate the get_user behaviour under test from that.
+        load_calls.clear()
 
         assert um.users == {}, "roster must not be preloaded"
         alice = um.get_user("alice")

@@ -20,6 +20,32 @@ logger = logging.getLogger(__name__)
 ROLE_ADMIN = "admin"
 ROLE_VIEWER = "viewer"
 
+# JSON files that live in the user-store directory but are NOT individual user
+# records. The roster loader and the default-admin check must ignore these —
+# otherwise a store that still holds e.g. var_presentation.json looks non-empty
+# and no default admin is created even after every real user file was deleted.
+RESERVED_USER_STORE_FILES = frozenset({
+    "roles.json",
+    "admin_settings.json",
+    "irrelevant_words.json",
+    "var_presentation.json",
+    "users.json",  # legacy pre-migration roster
+})
+
+
+def _is_candidate_user_file(filename: str) -> bool:
+    """True if ``filename`` could be an individual user record (by name alone).
+
+    A definitive answer still needs a content check (a real user file carries a
+    ``username`` field); this only cheaply rules out the reserved sidecar files
+    (``*_tags.json``, ``*_log.json``, and the named singletons above).
+    """
+    if not filename.endswith(".json"):
+        return False
+    if filename.endswith("_tags.json") or filename.endswith("_log.json"):
+        return False
+    return filename not in RESERVED_USER_STORE_FILES
+
 class AnonymousUser(AnonymousUserMixin):
 
 
@@ -341,23 +367,36 @@ class UserManager:
         self._ensure_default_admin()
 
     def _ensure_default_admin(self):
-        """Create the default admin iff the store holds no user files.
+        """Create the default admin iff the store holds no user records.
 
-        Uses a single ``listdir`` (not an O(N) roster load) so a fresh
-        deployment still gets a working admin login without preloading users.
+        Lists the store (not an O(N) roster load) and confirms a real user by
+        content — a file with a ``username`` field — so leftover sidecar files
+        (var_presentation.json, irrelevant_words.json, activity logs) don't make
+        an otherwise user-less store look occupied. That false-positive left a
+        reset install (admin file deleted) with no way to create a new admin.
         The password is randomly generated and shown exactly once, on the
         console of the first boot — it is never written to the user store.
         """
         try:
             files = data_io.listdir(storage_location=self.storage_location, return_absolute_path=False)
-            has_user = any(
-                f.endswith('.json') and not f.endswith('_tags.json') and f != "roles.json"
-                for f in files
-            )
         except Exception as e:
             # Be conservative: never fabricate an admin when the listing failed.
             logger.error(f"Default-admin check could not list users: {e}")
             return
+
+        has_user = False
+        for f in files:
+            if not _is_candidate_user_file(f):
+                continue
+            try:
+                data = data_io.load_json(storage_location=self.storage_location, filename=f)
+            except Exception:
+                # A malformed/unreadable candidate is not proof a user exists.
+                continue
+            if isinstance(data, dict) and data.get("username"):
+                has_user = True
+                break
+
         if not has_user:
             logger.info("No users found. Creating default admin.")
             password = secrets.token_urlsafe(12)
@@ -501,7 +540,7 @@ class UserManager:
         try:
             # 1. List all .json files in storage location
             files = data_io.listdir(storage_location=self.storage_location, return_absolute_path=False)
-            json_files = [f for f in files if f.endswith('.json') and not f.endswith('_tags.json') and f != "roles.json"]
+            json_files = [f for f in files if _is_candidate_user_file(f)]
 
             def _load_one(fname):
                 try:
