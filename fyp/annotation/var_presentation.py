@@ -18,13 +18,15 @@ can never change the study hash (``web_*`` columns are excluded from
 
 ``load_var_schema`` synthesizes the in-memory var_schema from the contracts +
 version registries and fills the prio columns from this store; when the store
-is missing it is seeded once from the legacy ``var_schema.csv`` prios
-(idempotent — concurrent seeding writes identical content).
+is missing it is seeded once from the packaged starter surfaces in
+``config/var_presentation_defaults.json`` (idempotent — concurrent seeding
+writes identical content).
 """
 
 import datetime as _dt
 import hashlib
 import json
+from pathlib import Path
 
 # Cycle-safe: fyp.scrape_contract imports only stdlib (never fyp_config/data_io).
 from fyp.logging_setup import get_logger
@@ -74,11 +76,16 @@ def empty_presentation() -> dict:
 
 
 def load_presentation() -> dict | None:
-    """Load the presentation store, or None when it does not exist yet.
+    """Load the presentation store, seeding it from packaged defaults if absent.
 
-    Never raises — a read failure degrades to None so the caller can fall back
-    to the legacy CSV prios. Self-heals retired variable names into their
-    generic successors (see :func:`_migrate_retired_names`).
+    Never raises — a read failure degrades to the defaults (and ultimately to
+    None) so the caller can fall back to empty surfaces. Self-heals retired
+    variable names into their generic successors (see
+    :func:`_migrate_retired_names`).
+
+    A fresh install has no store yet; without the seed every ``web_*_prio``
+    surface would start empty and the Explore / Video Analysis filter panels
+    would render blank until an admin hand-picks variables.
     """
     try:
         if _data_io().exists(storage_location=LOCATION, filename=FILENAME):
@@ -87,7 +94,37 @@ def load_presentation() -> dict | None:
                 return _migrate_retired_names(payload)
     except Exception as e:
         logger.warning(f"WARNING: var_presentation store unreadable ({e}).")
-    return None
+        return None
+    return _seed_from_defaults()
+
+
+
+
+
+
+def _seed_from_defaults() -> dict | None:
+    """Create the initial store from the packaged starter surfaces.
+
+    Reads ``config/var_presentation_defaults.json`` (shipped with the code, a
+    curated starter set for the four UI surfaces) and persists it as the
+    install's ``var_presentation.json`` so subsequent admin edits build on it.
+    Returns None when the defaults file is missing/unreadable; a failed
+    persist still returns the payload (read-only storage keeps working).
+    """
+    defaults_path = Path(__file__).resolve().parents[2] / "config" / "var_presentation_defaults.json"
+    try:
+        payload = json.loads(defaults_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning(f"WARNING: no packaged presentation defaults ({e}).")
+        return None
+    if not (isinstance(payload, dict) and isinstance(payload.get("surfaces"), dict)):
+        return None
+    try:
+        _data_io().save_json(data=payload, storage_location=LOCATION, filename=FILENAME)
+        logger.info("Seeded var_presentation.json from packaged defaults.")
+    except Exception as e:
+        logger.warning(f"WARNING: could not persist seeded presentation store ({e}).")
+    return payload
 
 
 

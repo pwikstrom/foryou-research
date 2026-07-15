@@ -158,6 +158,40 @@ def test_collection_metadata_without_participant_files(monkeypatch):
 
 
 
+def test_presentation_store_seeds_from_packaged_defaults(monkeypatch):
+    """A fresh install (no var_presentation.json) must seed the packaged
+    defaults instead of starting with empty prio surfaces — empty surfaces
+    render the Explore / Video Analysis filter panels blank."""
+    from fyp.annotation import var_presentation as vp
+
+    saved = {}
+
+    class _FakeIO:
+        @staticmethod
+        def exists(storage_location, filename):
+            return False
+
+        @staticmethod
+        def save_json(data, storage_location, filename):
+            saved["payload"] = data
+            saved["filename"] = filename
+
+    monkeypatch.setattr(vp, "_data_io", lambda: _FakeIO)
+    payload = vp.load_presentation()
+
+    assert payload is not None, "packaged defaults must load on a fresh install"
+    surfaces = payload["surfaces"]
+    for surface in vp.SURFACES:
+        assert surfaces.get(surface), f"defaults must populate the '{surface}' surface"
+    # The seed is persisted as the install's initial store.
+    assert saved.get("filename") == vp.FILENAME
+    assert saved["payload"] is payload
+
+
+
+
+
+
 def test_aio_aws_fetch_gate(monkeypatch):
     from fyp.fyp_config import fyp_cf
     from fyp.ingest.tiktok import TikTokAIOCollection
