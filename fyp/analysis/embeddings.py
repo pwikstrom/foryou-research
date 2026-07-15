@@ -315,11 +315,19 @@ def embedded_item_ids() -> set[str]:
 
 
 def annotated_ok_item_ids() -> list[str]:
-    """Return the item_ids of all successfully-annotated videos."""
+    """Return the item_ids of all successfully-annotated videos.
+
+    An install where annotation has never run has no annotations parquet yet —
+    that is an empty backlog, not an error.
+    """
+    if not data_io.exists(storage_location=STORE_LOCATION, filename=ANNOTATIONS_FILE):
+        return []
     df = data_io.load_parquet_selective(
         storage_location=STORE_LOCATION, filename=ANNOTATIONS_FILE,
         columns=["item_id", "annotated_ok"],
     )
+    if df is None or "item_id" not in df.columns or "annotated_ok" not in df.columns:
+        return []
     ok = df[df["annotated_ok"] == True]
     return ok["item_id"].astype("string").tolist()
 

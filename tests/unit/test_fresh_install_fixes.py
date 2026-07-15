@@ -192,6 +192,19 @@ def test_presentation_store_seeds_from_packaged_defaults(monkeypatch):
 
 
 
+def test_annotated_ok_ids_empty_when_no_annotations_exist(monkeypatch):
+    """An embeddings refresh before any annotation run must see an empty
+    backlog, not crash with FileNotFoundError on the annotations parquet."""
+    from fyp.analysis import embeddings
+
+    monkeypatch.setattr(embeddings.data_io, "exists", lambda **kw: False)
+    assert embeddings.annotated_ok_item_ids() == []
+
+
+
+
+
+
 def test_aio_aws_fetch_gate(monkeypatch):
     from fyp.fyp_config import fyp_cf
     from fyp.ingest.tiktok import TikTokAIOCollection
