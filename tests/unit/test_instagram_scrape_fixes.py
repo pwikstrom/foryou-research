@@ -100,6 +100,27 @@ def test_scrape_future_success_predicate():
 
 
 
+def test_requests_cookiejar_local_dev_falls_back_to_chrome(monkeypatch):
+    """With no cookie file, local dev sources plain-requests cookies from Chrome."""
+    from fyp.scrape import scraper_cookies as sc
+
+    sentinel = object()
+    monkeypatch.setattr(sc, "ensure_cookie_file", lambda platform: None)
+    monkeypatch.setattr(sc, "_env_cookie_file", lambda platform: "")
+    monkeypatch.setattr(sc, "_chrome_requests_cookies", lambda platform: sentinel)
+
+    monkeypatch.setattr(sc, "_is_local_dev", lambda: True)
+    assert sc.requests_cookiejar("instagram") is sentinel
+
+    # Headless environments (Cloud Run/Docker) keep the old behavior: None.
+    monkeypatch.setattr(sc, "_is_local_dev", lambda: False)
+    assert sc.requests_cookiejar("instagram") is None
+
+
+
+
+
+
 def test_cookie_health_local_dev_probes_chrome(monkeypatch):
     from fyp.scrape import scraper_cookies as sc
 

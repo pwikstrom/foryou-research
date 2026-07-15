@@ -361,17 +361,44 @@ def cookie_opts(platform: str) -> dict:
 
 
 
+def _chrome_requests_cookies(platform: str):
+    """Local-dev fallback: the platform's cookies straight from Chrome.
+
+    Mirrors how yt-dlp authenticates in dev (``cookiesfrombrowser``) for the
+    plain ``requests`` call sites — without it, local runs of the media-info /
+    page-JSON / image fetches would go out unauthenticated while the yt-dlp
+    phases are logged in. Never raises; returns ``None`` when Chrome can't be
+    read (app-bound encryption, no profile, denied Keychain prompt).
+    """
+    domain = _PLATFORM_COOKIE_DOMAIN.get(platform, f"{platform}.com")
+    try:
+        import browser_cookie3
+
+        return browser_cookie3.chrome(domain_name=domain)
+    except Exception as e:
+        logger.debug("Chrome cookie fallback failed for %s: %s", platform, e)
+        return None
+
+
+
+
 def requests_cookiejar(platform: str):
-    """Return a ``MozillaCookieJar`` for ``requests`` calls, or ``None``.
+    """Return a cookie jar for ``requests`` calls, or ``None``.
 
     Used to attach the same session cookies to plain ``requests`` calls
-    (e.g. TikTok's page-JSON and carousel-image fetches).
+    (e.g. TikTok's page-JSON and carousel-image fetches, Instagram's
+    media-info endpoint and image downloads). Sources the GCS-cached cookie
+    file (Cloud Run) or the env-var file first; in local dev, where neither
+    exists, falls back to the Chrome profile — the same store yt-dlp's
+    ``cookiesfrombrowser`` uses.
 
     Args:
         platform: platform key, e.g. ``"tiktok"``.
     """
     path = ensure_cookie_file(platform) or _env_cookie_file(platform)
     if not path or not os.path.exists(path):
+        if _is_local_dev():
+            return _chrome_requests_cookies(platform)
         return None
 
     from http.cookiejar import MozillaCookieJar
