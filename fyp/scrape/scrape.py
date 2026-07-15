@@ -371,6 +371,23 @@ def make_slideshow(
 
 
 
+def _scrape_future_succeeded(f) -> bool:
+    """True only when a scrape future returned a NON-empty result row.
+
+    The download workers return ``(idx, df)``; a failed fetch returns an empty
+    DataFrame tagged with the error (``empty_fail``), which is still a
+    DataFrame. The live monitor uses this to count genuine successes — counting
+    empty fail-frames as OK made the "N OK · 0 fail" progress overstate success
+    (it really meant "N finished"). Never raises: a future that errored counts
+    as not-succeeded.
+    """
+    try:
+        res = f.result()[1]
+    except Exception:
+        return False
+    return isinstance(res, pd.DataFrame) and not res.empty
+
+
 def download_single_video(
     video_id: str = None,
     verbose: bool = True,
@@ -1062,7 +1079,7 @@ def download_video_threads(
 
         monitor_thread = start_monitor(
             futures, submit_times, interval=5, label="dl", bar_width=32,
-            result_checker=lambda f: isinstance(f.result()[1], pd.DataFrame),
+            result_checker=_scrape_future_succeeded,
             batch_label=batch_label,
             cumulative_done=cumulative_done,
             cumulative_total=cumulative_total,
