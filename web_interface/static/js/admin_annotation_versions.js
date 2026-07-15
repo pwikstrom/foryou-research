@@ -58,7 +58,31 @@
 
         const tbody = document.getElementById("avTableBody");
         if (!tbody) return;
-        if (!versions.length) {
+
+        const cell = 'padding: 8px; border-bottom: 1px solid var(--color-border);';
+        const mono = cell + ' font-family: var(--font-mono);';
+
+        // Pinned row for the live contract when it has no minted version yet
+        // (versions are only registered when annotation runs) — its View
+        // renders the generated prompt/schema from the current contract, so
+        // they can be inspected before the first run.
+        const currentIsMinted = versions.some(function (v) { return v.annotation_version === current; });
+        let currentRow = "";
+        if (current && !currentIsMinted) {
+            currentRow = "<tr>" +
+                '<td style="' + cell + '"></td>' +
+                '<td style="' + mono + '">' + _esc(current) + "</td>" +
+                '<td style="' + cell + ' color: var(--color-text-muted);">Current config — no annotation run yet</td>' +
+                '<td style="' + cell + '"></td>' +
+                '<td style="' + cell + '"></td>' +
+                '<td style="' + cell + '"></td>' +
+                '<td style="' + cell + '">' +
+                    '<button class="btn-discreet btn-compact" id="avViewCurrent">View</button>' +
+                "</td>" +
+                "</tr>";
+        }
+
+        if (!versions.length && !currentRow) {
             tbody.innerHTML =
                 '<tr><td colspan="7" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">' +
                 "No versions recorded yet. They appear once annotation runs under the current config." +
@@ -66,9 +90,7 @@
             return;
         }
 
-        const cell = 'padding: 8px; border-bottom: 1px solid var(--color-border);';
-        const mono = cell + ' font-family: var(--font-mono);';
-        tbody.innerHTML = versions.map(function (v) {
+        tbody.innerHTML = currentRow + versions.map(function (v) {
             const isActive = !!v.active;
             const isLegacy = v.annotation_version === LEGACY_VERSION;
             const activateBtn = (isActive || isLegacy) ? "" :
@@ -90,6 +112,10 @@
         tbody.querySelectorAll(".av-view").forEach(function (b) {
             b.addEventListener("click", function () { viewSnapshot(b.dataset.v); });
         });
+        const viewCurrentBtn = document.getElementById("avViewCurrent");
+        if (viewCurrentBtn) {
+            viewCurrentBtn.addEventListener("click", viewCurrentRendered);
+        }
         tbody.querySelectorAll(".av-activate").forEach(function (b) {
             b.addEventListener("click", function () { activate(b.dataset.v, b); });
         });
@@ -110,6 +136,24 @@
             _status("");
         } catch (err) {
             _status("Failed to load snapshot: " + err.message, true);
+        }
+    }
+
+    async function viewCurrentRendered() {
+        _status("Rendering current contract…");
+        try {
+            const res = await fetch("/api/manage/annotation-contract/rendered");
+            const body = await res.json();
+            if (!res.ok) throw new Error(body.error || res.statusText);
+            document.getElementById("avSnapVersion").textContent =
+                (body.version || "current") + " (current config — not yet run)";
+            document.getElementById("avSnapPrompt").textContent = body.prompt || "(none)";
+            document.getElementById("avSnapSchema").textContent =
+                body.schema ? JSON.stringify(body.schema, null, 2) : "(none / free-text)";
+            document.getElementById("avSnapshot").style.display = "block";
+            _status("");
+        } catch (err) {
+            _status("Failed to render current contract: " + err.message, true);
         }
     }
 

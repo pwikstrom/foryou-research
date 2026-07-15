@@ -13,7 +13,7 @@ from flask_login import current_user
 
 from fyp.platform_scraper import get_scraper
 
-from ..process_manager import process_stats, processes
+from ..process_manager import SCRAPER_PROCESS_NAMES, process_stats, processes
 from ..task_status import is_cloud_run, read_task_status
 
 
@@ -75,9 +75,14 @@ def _is_worker_running(name: str) -> bool:
 
 
 def _workers_blocking_consolidate() -> list[str]:
-    """Return the names of scraper/annotator workers currently running."""
+    """Return the names of scraper/annotator workers currently running.
+
+    Scraper processes are per-platform (``queue_scraper_<platform>``, derived
+    from the scrape contract) — the list must come from
+    ``SCRAPER_PROCESS_NAMES``, not a hardcoded legacy name.
+    """
     blocking = []
-    for name in ("queue_scraper", "queue_annotator", "queue_annotator_batch"):
+    for name in [*SCRAPER_PROCESS_NAMES, "queue_annotator", "queue_annotator_batch"]:
         if _is_worker_running(name):
             blocking.append(name)
     return blocking

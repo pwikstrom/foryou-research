@@ -110,6 +110,14 @@ ig_fetch_view_counts = true
 # without redeploying.
 var_schema_admin = true
 
+# aio_aws_fetch: auto-fetch AIO donations + participant metadata from AWS on
+# every ingest refresh. When the key is ABSENT (the committed default) the
+# fetch runs only on Cloud Run (K_SERVICE set) — a fresh local install never
+# scans someone else's DynamoDB just because ambient ~/.aws credentials exist.
+# Set true/false in config.local.toml to force either way. The manual
+# "Fetch AIO" button in Data Management is unaffected.
+# aio_aws_fetch = true
+
 
 ##########################################################################################
 # site / instance branding

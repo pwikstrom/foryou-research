@@ -595,6 +595,10 @@ class ForYouBaseCollection(ABC):
         # Files withheld from this run because their structure deviated from
         # the learned baseline: {filename: verdict dict}.
         self.quarantined_this_run: dict[str, dict] = {}
+        # Files whose load_single_raw raised this run: {filename: error message}.
+        # They stay pending (retried next refresh); tracked so the refresh
+        # summary can tell the user why a file was not ingested.
+        self.load_failed_this_run: dict[str, str] = {}
 
 
     def clear(self):
@@ -798,7 +802,7 @@ class ForYouBaseCollection(ABC):
         if self.raw_path is None:
             raise ValueError("No raw path has been set for this collection.")
 
-
+        self.load_failed_this_run = {}
 
         MANIFEST_FILENAME = "ingestion_manifest.json"
 
@@ -842,6 +846,7 @@ class ForYouBaseCollection(ABC):
                     f"'{self.source_platform}_{self.data_source}': {exc}. "
                     f"Leaving it pending for retry."
                 )
+                self.load_failed_this_run[fn] = str(exc)
                 continue
 
             if len(one_df) > 0:
@@ -902,6 +907,22 @@ class ForYouBaseCollection(ABC):
     @abstractmethod
     def load_single_raw(self, filename: str) -> pd.DataFrame:
         """Subclasses must implement this logic."""
+
+
+
+    @classmethod
+    def accepted_upload_suffixes(cls) -> list[str]:
+        """File suffixes this platform's ``load_single_raw`` can actually parse.
+
+        The upload endpoint rejects mismatched files with a clear message
+        instead of letting them fail cryptically (and retry forever) at
+        ingest time. An empty list means no restriction.
+
+        Returns:
+            Lower-case suffixes including the dot (e.g. ``[".json"]``), or an
+            empty list when any file type is accepted.
+        """
+        return []
 
 
 
@@ -1184,6 +1205,11 @@ class ForYouBaseCollection(ABC):
 
     def add_local_time_features(self) -> None:
         df = self.data
+
+        # A refresh with nothing ingested (fresh install, all files pending)
+        # leaves an empty frame with no columns — nothing to derive.
+        if len(df) == 0 or 'tz_offset' not in df.columns:
+            return
 
         offset_timedelta = pd.to_timedelta(df['tz_offset'], unit='h')
         df["local_timestamp"] = df["utc_timestamp"] + offset_timedelta
@@ -1693,46 +1719,51 @@ class ForYouCollection(ForYouBaseCollection):
         # new, which leaves counts stale whenever events are appended to an
         # existing collection — and (b) restore columns set outside the
         # generator (e.g. ('other','accepted') flipped during acceptance).
-        old_metadata = None
-        if data_io.exists(
-            storage_location=self.processed_storage_location,
-            filename=f"{_collections_label()}_metadata.parquet"):
-            old_metadata = data_io.load_parquet(
+        # A refresh that ingested nothing (fresh install, all files pending)
+        # has no rows to save and no stats to compute — skip the parquet
+        # writes (never clobber existing files with empties) but still fall
+        # through to the ledger + manifest bookkeeping below.
+        if len(self.data) > 0:
+            old_metadata = None
+            if data_io.exists(
+                storage_location=self.processed_storage_location,
+                filename=f"{_collections_label()}_metadata.parquet"):
+                old_metadata = data_io.load_parquet(
+                    storage_location=self.processed_storage_location,
+                    filename=f"{_collections_label()}_metadata.parquet",
+                    verbose=False)
+
+            self.stats = generate_collection_metadata(
+                self.data,
+                update_col=None,
+                sort_by=None,
+                verbose=True,
+                save_to_disk_ok=False,
+                load_from_disk=False)
+
+            if old_metadata is not None and not old_metadata.empty:
+                preserved_cols = [c for c in old_metadata.columns if c not in self.stats.columns]
+                if preserved_cols:
+                    self.stats = pd.merge(
+                        self.stats, old_metadata[preserved_cols],
+                        left_index=True, right_index=True, how='left')
+
+            self.stats[('other','accepted')] = True
+            self.stats[('participants', 'date')] = self.stats[('other', 'ts_added_to_dataset')]
+
+            data_io.save_parquet(
+                df=self.stats,
                 storage_location=self.processed_storage_location,
                 filename=f"{_collections_label()}_metadata.parquet",
-                verbose=False)
-
-        self.stats = generate_collection_metadata(
-            self.data,
-            update_col=None,
-            sort_by=None,
-            verbose=True,
-            save_to_disk_ok=False,
-            load_from_disk=False)
-
-        if old_metadata is not None and not old_metadata.empty:
-            preserved_cols = [c for c in old_metadata.columns if c not in self.stats.columns]
-            if preserved_cols:
-                self.stats = pd.merge(
-                    self.stats, old_metadata[preserved_cols],
-                    left_index=True, right_index=True, how='left')
-
-        self.stats[('other','accepted')] = True
-        self.stats[('participants', 'date')] = self.stats[('other', 'ts_added_to_dataset')]
-
-        data_io.save_parquet(
-            df=self.stats,
-            storage_location=self.processed_storage_location,
-            filename=f"{_collections_label()}_metadata.parquet",
-            asyncronous=False)
+                asyncronous=False)
 
 
-        # activity data
-        data_io.save_parquet(
-            df=self.data,
-            storage_location=self.processed_storage_location,
-            filename=f"{_collections_label()}_recoded.parquet",
-            asyncronous=False)
+            # activity data
+            data_io.save_parquet(
+                df=self.data,
+                storage_location=self.processed_storage_location,
+                filename=f"{_collections_label()}_recoded.parquet",
+                asyncronous=False)
 
 
         # Make sure every too-few-rows filename appended by a sub-collection
@@ -1762,7 +1793,9 @@ class ForYouCollection(ForYouBaseCollection):
         self.save_ledger()
 
         # Clean up ingestion manifests: remove entries for files now in the dataset
-        processed_files = set(self.data['raw_file'].unique().tolist()) | set(self.discarded_raw_files)
+        processed_files = set(self.discarded_raw_files)
+        if 'raw_file' in self.data.columns:
+            processed_files |= set(self.data['raw_file'].unique().tolist())
         MANIFEST_FILENAME = "ingestion_manifest.json"
         for collection in self.collections:
             if collection.raw_path is None:

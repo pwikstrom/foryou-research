@@ -70,6 +70,20 @@ def _active_drain_leases() -> dict:
     return value
 
 
+def _consolidate_blockers() -> list[str]:
+    """Everything that should defer a consolidate: running workers + drain leases.
+
+    A drain lease (a locally-started scraper subprocess, or a laptop drain
+    against the shared bucket) writes scrape data that a concurrent
+    consolidation's queue prune would race — ``start_process`` refuses it
+    anyway, so treating the lease as a blocker here means the endpoint arms
+    instead of surfacing that refusal as an error.
+    """
+    blocking = _workers_blocking_consolidate()
+    blocking += [f"local drain ({p})" for p in sorted(_active_drain_leases())]
+    return blocking
+
+
 
 
 
@@ -218,7 +232,9 @@ def get_enrichment_stats():
         "pipeline_steps": _build_pipeline_step_view(pipeline_active),
         "last_pipeline_partial": bool(consolidate_entry.get("last_pipeline_partial")),
         "last_pipeline_failed_at": consolidate_entry.get("last_pipeline_failed_at"),
-        "workers_blocking_consolidate": _workers_blocking_consolidate(),
+        # Includes fresh drain leases: the browser's armed auto-fire keys off
+        # this list, and a consolidate must defer while a drain writes scrapes.
+        "workers_blocking_consolidate": _consolidate_blockers(),
         "scraper_last_success": max(
             (
                 process_stats.get(f"queue_scraper_{p}", {}).get("last_success")
@@ -695,7 +711,7 @@ def api_consolidate_enrichment():
     # downstream chain by default to keep it debuggable.
     auto_refresh = bool(data.get("auto_refresh", not force))
 
-    blocking = _workers_blocking_consolidate()
+    blocking = _consolidate_blockers()
     if blocking:
         if force:
             return jsonify({

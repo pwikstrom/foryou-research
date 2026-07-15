@@ -237,6 +237,35 @@ def get_annotation_contract_parsed():
 
 
 
+@management_bp.route('/api/manage/annotation-contract/rendered', methods=['GET'])
+@permission_required('tab.admin.schema')
+@login_required
+def rendered_annotation_contract():
+    """Render the LIVE contract's generated prompt + response schema.
+
+    Lets the Versions page show what the next annotation run will send even
+    before any version has been minted (versions are only registered when
+    annotation actually runs).
+    """
+    try:
+        from fyp import annotation_contract as ac
+        from fyp import annotation_schema as sch
+
+        text = ac.effective_contract_text()
+        contract, errors = ac.parse_and_validate(text)
+        if contract is None:
+            return jsonify({"error": "effective contract does not parse", "errors": errors}), 500
+        return jsonify({
+            "version": annotation_versioning.current_annotation_version(),
+            "prompt": sch.build_prompt(contract),
+            "schema": sch.get_annotation_json_schema(contract),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
 @management_bp.route('/api/manage/annotation-contract/preview', methods=['POST'])
 @permission_required('tab.admin.schema')
 @login_required

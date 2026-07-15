@@ -33,6 +33,10 @@ def load_admin_settings() -> dict:
     Returns:
         Parsed JSON object, or an empty dict if not present / unreadable.
     """
+    # A missing file is the normal first-run state — check exists() first so
+    # every fresh boot doesn't print a [DATA_IO] ERROR for it.
+    if not data_io.exists(storage_location="users", filename=SETTINGS_FILENAME):
+        return {}
     data = data_io.load_json(storage_location="users", filename=SETTINGS_FILENAME)
     return data if isinstance(data, dict) else {}
 

@@ -75,6 +75,7 @@ python scripts/gen_route_inventory.py
 | management_bp | `/api/manage/annotation-contract/download` | GET | `management_bp.download_annotation_contract` |
 | management_bp | `/api/manage/annotation-contract/parsed` | GET | `management_bp.get_annotation_contract_parsed` |
 | management_bp | `/api/manage/annotation-contract/preview` | POST | `management_bp.preview_annotation_contract` |
+| management_bp | `/api/manage/annotation-contract/rendered` | GET | `management_bp.rendered_annotation_contract` |
 | management_bp | `/api/manage/annotation-contract/revert` | POST | `management_bp.revert_annotation_contract` |
 | management_bp | `/api/manage/annotation-versions` | GET | `management_bp.list_annotation_versions` |
 | management_bp | `/api/manage/annotation-versions/<version>` | GET | `management_bp.get_annotation_version` |
@@ -141,4 +142,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-130 routes total.
+131 routes total.

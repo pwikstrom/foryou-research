@@ -3780,6 +3780,7 @@ const _ingestOutcomeLabels = {
     discarded_at_load: { label: 'Skipped — too few rows', color: 'var(--color-text-tertiary)' },
     manually_excluded: { label: 'Manually excluded', color: 'var(--color-text-tertiary)' },
     quarantined_structure: { label: 'Quarantined — structure drift (review above)', color: 'var(--color-danger)' },
+    load_failed: { label: 'Failed to read — will retry next refresh', color: 'var(--color-danger)' },
 };
 
 function _formatSiblings(siblings) {
@@ -3873,6 +3874,8 @@ function renderIngestResultsPanel(data) {
     if (filesDiscarded > 0) groupBits.push(`${filesDiscarded} discarded (too few rows)`);
     const filesQuarantined = data.files_quarantined ?? perFile.filter(r => r.outcome === 'quarantined_structure').length;
     if (filesQuarantined > 0) groupBits.push(`${filesQuarantined} quarantined (structure drift)`);
+    const filesLoadFailed = data.files_load_failed ?? perFile.filter(r => r.outcome === 'load_failed').length;
+    if (filesLoadFailed > 0) groupBits.push(`${filesLoadFailed} unreadable (will retry)`);
     if (scanned > 0) {
         summaryBits.push(`Scanned ${scanned} file${scanned === 1 ? '' : 's'}${groupBits.length ? ': ' + groupBits.join(', ') : ''}`);
     }
@@ -3900,7 +3903,7 @@ function renderIngestResultsPanel(data) {
             const siblingsLine = (r.outcome === 'merged_with_existing' && r.merged_with_siblings && r.merged_with_siblings.length)
                 ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">joined with: ${_escapeHtml(_formatSiblings(r.merged_with_siblings))}</div>`
                 : '';
-            const notesLine = (r.outcome === 'quarantined_structure' && r.notes)
+            const notesLine = ((r.outcome === 'quarantined_structure' || r.outcome === 'load_failed') && r.notes)
                 ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${_escapeHtml(r.notes)}</div>`
                 : '';
             return `

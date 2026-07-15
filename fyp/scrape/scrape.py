@@ -876,6 +876,34 @@ def check_existing_media(
 
 
 
+_yt_dlp_plugins_warmed = False
+
+
+def _warm_yt_dlp_plugins() -> None:
+    """Trigger yt-dlp's lazy plugin loading once, on the calling thread.
+
+    yt-dlp imports its plugin modules (e.g. the bgutil PO-token provider) on
+    the first ``YoutubeDL`` instantiation. When that first instantiation
+    happens concurrently in worker threads, the plugin registry races and
+    every loser prints an "already registered" assertion traceback. A single
+    warm-up instantiation before the pool spawns makes the load
+    single-threaded. Never raises — yt-dlp problems surface in the workers.
+    """
+    global _yt_dlp_plugins_warmed
+    if _yt_dlp_plugins_warmed:
+        return
+    try:
+        import yt_dlp
+
+        yt_dlp.YoutubeDL({"quiet": True})
+    except Exception:
+        pass
+    _yt_dlp_plugins_warmed = True
+
+
+
+
+
 def download_video_threads(
     interesting_videos:list[str] = None,
     max_workers:int = 4,
@@ -1011,6 +1039,12 @@ def download_video_threads(
     if verbose:
         logger.info(f"dry_run: {dry_run}")
         logger.info(f"Scraping data for {len(interesting_videos)} items with {max_workers} threads.")
+
+    # Load yt-dlp's plugin registry once before workers spawn: plugin modules
+    # (e.g. the bgutil PO-token provider) are imported on the first YoutubeDL
+    # instantiation, and doing that concurrently from a dozen threads races
+    # the provider registry into "already registered" assertion tracebacks.
+    _warm_yt_dlp_plugins()
 
     # Pool is oversized so the ThrottleController's semaphore governs
     # actual concurrency — allows dynamic resizing without pool restart

@@ -6,6 +6,7 @@ Carved out of the flat ``fyp/ingest.py`` (Phase 8); shared helpers stay in
 docs/fyp-import-graph.md.
 """
 
+import os
 from collections import deque
 from zoneinfo import ZoneInfo
 
@@ -30,6 +31,10 @@ class TikTokDDPCollection(ForYouBaseCollection):
     source_platform = "tiktok"
     raw_path = "ddp_raw"
 
+    @classmethod
+    def accepted_upload_suffixes(cls) -> list[str]:
+        return [".json"]
+
     def __init__(self, collection_id: str = None, verbose: bool = False):
         # The extra_data column is used for the comment string, the account name that was just followed, etc...
         # play_duration is a base activity-contract column (derive_play_duration), no extras needed here.
@@ -46,8 +51,14 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
         donation_dict = data_io.load_json(storage_location = self.raw_path, filename = filename)
 
-        #with open(filename, "r") as f:
-        #    donation_dict = json.load(f)
+        # load_json swallows parse errors and returns None — e.g. when the raw
+        # TikTok export .zip was uploaded instead of the extracted .json.
+        if not isinstance(donation_dict, dict):
+            raise ValueError(
+                f"'{filename}' is not readable as a JSON document. TikTok DDP "
+                f"ingestion expects the extracted user_data_tiktok.json, not "
+                f"the export .zip."
+            )
 
         # find list of dicts
         donation_items = []
@@ -68,11 +79,12 @@ class TikTokDDPCollection(ForYouBaseCollection):
                     stack.append((k, v))
 
         # initialising the dataframe from the raw data.
-        if len(donation_items) > 0:
-            df = pd.DataFrame.from_records(donation_items)
+        if len(donation_items) == 0:
+            return pd.DataFrame()
+        df = pd.DataFrame.from_records(donation_items)
 
-        # a data donation package without at least a few play activities is not useful       
-        # play activities are referred to as 'videolist' by TikTok 
+        # a data donation package without at least a few play activities is not useful
+        # play activities are referred to as 'videolist' by TikTok
         n_play_activities = len(df[df['activity_type'] == 'videolist'])
         if n_play_activities <= 10:
             if self.verbose: logger.info(f"Discarding {filename} as it only has {n_play_activities} play activities.")
@@ -260,12 +272,40 @@ class TikTokAIOCollection(TikTokDDPCollection):
         self.raw_path = "aio_raw"
 
 
+    @staticmethod
+    def _aws_fetch_enabled() -> bool:
+        """Whether the ingest refresh should auto-fetch AIO data from AWS.
+
+        Controlled by ``[features] aio_aws_fetch`` in the config. When the key
+        is absent the default is "on Cloud Run only" (``K_SERVICE`` set): the
+        deployed research instance keeps fetching with zero configuration,
+        while a fresh local install — where ambient ``~/.aws`` credentials may
+        belong to an unrelated account — stays quiet. The manual "Fetch AIO"
+        button in Data Management is unaffected.
+        """
+        from fyp.fyp_config import fyp_cf
+
+        configured = fyp_cf.get("features", {}).get("aio_aws_fetch")
+        if configured is not None:
+            return bool(configured)
+        return bool(os.environ.get("K_SERVICE"))
+
+
     def load_raw(self, skip_these_raw_files: list[str] = []):
         """Fetch recent donations and participant metadata from AWS, then load files."""
         from fyp.donations import (
             get_donation_metadata_from_aio_aws,
             get_recent_data_donations_from_aio_aws,
         )
+        if not self._aws_fetch_enabled():
+            if self.verbose:
+                logger.info(
+                    "AIO AWS auto-fetch disabled ([features].aio_aws_fetch; "
+                    "default off outside Cloud Run). Processing existing local files."
+                )
+            super().load_raw(skip_these_raw_files=skip_these_raw_files)
+            return
+
         if self.verbose:
             logger.info("Fetching recent AIO donations from AWS...")
         try:
@@ -296,6 +336,10 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
     source_platform = "tiktok"
 
     raw_path = "zeeschuimer_raw"
+
+    @classmethod
+    def accepted_upload_suffixes(cls) -> list[str]:
+        return [".ndjson"]
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
         # The extra_data column is used for the timezone name

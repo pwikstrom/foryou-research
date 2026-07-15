@@ -110,6 +110,13 @@ class YouTubeDDPCollection(ForYouBaseCollection):
 
 
     @classmethod
+    def accepted_upload_suffixes(cls) -> list[str]:
+        return [".zip"]
+
+
+
+
+    @classmethod
     def zip_member_suffixes(cls) -> list[str]:
         """Watch-history members (JSON or HTML) plus the engagement CSVs."""
         return [cls._MEMBER_SUFFIX_JSON, cls._MEMBER_SUFFIX_HTML] + [

@@ -67,6 +67,13 @@ class InstagramDDPCollection(ForYouBaseCollection):
 
 
     @classmethod
+    def accepted_upload_suffixes(cls) -> list[str]:
+        return [".zip"]
+
+
+
+
+    @classmethod
     def zip_member_suffixes(cls) -> list[str]:
         """The two activity-stream members read from the export zip."""
         return [suffix for suffix, _ in cls._STREAMS]

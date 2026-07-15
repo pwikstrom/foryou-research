@@ -70,14 +70,11 @@ def get_donation_metadata_from_aio_aws(
     ~/.aws/credentials locally).
     """
 
-    # Compute cut‑off time
-    now = (_dt.datetime.now(_dt.UTC)
-           if not use_local_time
-           else _dt.datetime.now().astimezone())
-    file_stamp = now.strftime("%Y%m%d%H%M%S")
-
-    # Prepare destination
-    filename = f"ddp_metadata_{file_stamp}.json"
+    # Stable destination name: every fetch is a full table scan, so the newest
+    # snapshot supersedes all prior ones — overwriting avoids accumulating a
+    # near-identical multi-hundred-KB file per ingest refresh (older
+    # timestamped ddp_metadata_*.json snapshots keep being read alongside it).
+    filename = "ddp_metadata_latest.json"
     temp_file = os.path.join(_cf()["paths"]["temp"], filename)
     os.makedirs(_cf()["paths"]["temp"], exist_ok=True)
 

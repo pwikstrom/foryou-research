@@ -45,10 +45,14 @@ def _build_per_file_summary(
     discarded_at_load: set[str],
     existing_raw_files: set[str],
     quarantined: dict[str, dict] | None = None,
+    load_failed: dict[str, dict] | None = None,
 ) -> list[dict]:
     """For each new raw_file, produce a row describing what happened.
 
     Outcomes:
+      - ``load_failed``: load_single_raw raised (unreadable/unsupported file);
+        the file stays pending and is retried on the next refresh. The error
+        message is surfaced in ``notes``.
       - ``discarded_at_load``: file failed the min-row check in load_raw.
       - ``quarantined_structure``: the file's structure or parse-output stats
         deviated from the learned baseline; withheld pending admin review.
@@ -59,8 +63,9 @@ def _build_per_file_summary(
       - ``added_as_new``: standalone collection, no overlap with anything.
     """
     quarantined = quarantined or {}
+    load_failed = load_failed or {}
     final_df = main_collection.data
-    candidate_files = set(raw_counts) | discarded_at_load | set(quarantined)
+    candidate_files = set(raw_counts) | discarded_at_load | set(quarantined) | set(load_failed)
     summary: list[dict] = []
 
     for rf in sorted(candidate_files):
@@ -69,6 +74,23 @@ def _build_per_file_summary(
         source = info.get("source")
         raw_rows = raw_counts.get(rf, {}).get("rows", 0)
         processed_rows = processed_counts.get(rf, {}).get("rows", 0)
+
+        if rf in load_failed:
+            fail = load_failed[rf]
+            summary.append({
+                "filename": rf,
+                "platform": platform or fail.get("platform"),
+                "source": source or fail.get("source"),
+                "raw_rows": 0,
+                "processed_rows": 0,
+                "final_rows": 0,
+                "outcome": "load_failed",
+                "canonical_collection_id": None,
+                "merged_with_siblings": [],
+                "deduped_rows": 0,
+                "notes": fail.get("error"),
+            })
+            continue
 
         if rf in quarantined:
             verdict = quarantined[rf]
@@ -228,8 +250,20 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
             )
 
     quarantined_files: dict[str, dict] = {}
+    load_failed_files: dict[str, dict] = {}
     for sub in main_collection.collections:
         quarantined_files.update(sub.quarantined_this_run)
+        for fn, err in sub.load_failed_this_run.items():
+            load_failed_files[fn] = {
+                "error": err,
+                "platform": sub.source_platform,
+                "source": sub.data_source,
+            }
+    if load_failed_files:
+        reporter.log(
+            f"{len(load_failed_files)} file(s) could not be read and stay pending: "
+            + "; ".join(f"{fn} ({v['error']})" for fn, v in sorted(load_failed_files.items()))
+        )
 
     reporter.update_progress(60, "Merging into main collection...")
     _t_phase = time.perf_counter()
@@ -248,6 +282,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         discarded_at_load=discarded_at_load,
         existing_raw_files=existing_raw_files,
         quarantined=quarantined_files,
+        load_failed=load_failed_files,
     )
 
     # Record the active activity-contract version once per ingest run (idempotent,
@@ -339,6 +374,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         "files_fully_deduped": sum(1 for e in per_file_summary if e.get("outcome") == "fully_deduped"),
         "files_discarded_at_load": sum(1 for e in per_file_summary if e.get("outcome") == "discarded_at_load"),
         "files_quarantined": sum(1 for e in per_file_summary if e.get("outcome") == "quarantined_structure"),
+        "files_load_failed": sum(1 for e in per_file_summary if e.get("outcome") == "load_failed"),
         "files_skipped_previously": len(skipped_previously),
         "per_file_summary": per_file_summary,
         "skipped_previously": skipped_previously,

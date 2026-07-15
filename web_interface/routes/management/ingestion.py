@@ -88,6 +88,7 @@ def get_ingestion_sources():
                 "files": files,
                 "ingestion_mode": getattr(col, "ingestion_mode", "upload"),
                 "zip_member_suffixes": col.zip_member_suffixes(),
+                "accepted_upload_suffixes": col.accepted_upload_suffixes(),
             })
         return jsonify({"status": "success", "sources": sources, "total_pending": total_pending})
     except Exception as e:
@@ -147,6 +148,27 @@ def upload_ingestion_file():
     raw_path_key = request.form.get('raw_path')
     if not raw_path_key:
         return jsonify({"error": "raw_path missing"}), 400
+
+    # Reject file types the target platform's parser cannot read — a mismatch
+    # accepted here would fail cryptically (and retry forever) at ingest time.
+    accepted_suffixes: list[str] = []
+    target_col = None
+    for col in get_main_collection(verbose=False).collections:
+        if col.raw_path == raw_path_key:
+            target_col = col
+            accepted_suffixes = col.accepted_upload_suffixes()
+            break
+    if accepted_suffixes:
+        for file in files:
+            if not file.filename:
+                continue
+            if not any(file.filename.lower().endswith(s) for s in accepted_suffixes):
+                label = f"{target_col.source_platform} {target_col.data_source}"
+                msg = (f"'{file.filename}' is not a supported file type for "
+                       f"{label} ingestion — expected {' or '.join(accepted_suffixes)}.")
+                if file.filename.lower().endswith(".zip") and ".json" in accepted_suffixes:
+                    msg += " Unzip the export and upload the extracted .json file."
+                return jsonify({"error": msg}), 400
 
     # Stage uploads in the local temp dir, then hand off to data_io.move()
     # which routes to GCS (production) or the configured local data dir

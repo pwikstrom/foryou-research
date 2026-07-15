@@ -343,6 +343,13 @@
   ]
  ],
  [
+  "/api/manage/annotation-contract/rendered",
+  "management_bp.rendered_annotation_contract",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/manage/annotation-contract/revert",
   "management_bp.revert_annotation_contract",
   [

@@ -1728,9 +1728,13 @@ def apply_enrichment_only_patch(
     annot_schema_cols = set(data_io.get_parquet_columns(storage_location="recoded", filename=annot_filename) or [])
 
     # Columns we will recompute in new_merge(): anything sourced from scrapes or
-    # annotations, plus the four calculated columns. item_id stays — it is the
-    # join key and also lives in the activity data.
-    enrichment_and_calc = (scrape_schema_cols | annot_schema_cols | _CALCULATED_ENRICHMENT_COLUMNS) - {"item_id"}
+    # annotations, plus the four calculated columns. item_id and source_platform
+    # stay — they form the composite join key and also live in the activity
+    # data (dropping source_platform here degraded the merge to item_id-only
+    # and left unscraped rows with an NA platform).
+    enrichment_and_calc = (
+        scrape_schema_cols | annot_schema_cols | _CALCULATED_ENRICHMENT_COLUMNS
+    ) - {"item_id", "source_platform"}
     activity_cols = [c for c in cached_df.columns if c not in enrichment_and_calc]
 
     activity_df = cached_df[activity_cols].copy()

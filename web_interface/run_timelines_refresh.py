@@ -143,9 +143,14 @@ def _discover_collections(reporter: TaskStatusReporter,
                     before = len(all_collections)
                     eligible = set()
                     skipped_low = []
+                    # Column-first access: df.loc[row, <tuple>] re-interprets a
+                    # tuple key as a list of column labels when the columns are
+                    # flat (fresh installs without personas metadata) — select
+                    # the verified column once, then index rows.
+                    active_days_series = df[active_days_col]
                     for did in all_collections:
                         if did in df.index:
-                            ad = df.loc[did, active_days_col]
+                            ad = active_days_series.loc[did]
                             if pd.notna(ad) and int(ad) >= MIN_ACTIVE_DAYS_FOR_TIMELINE:
                                 eligible.add(did)
                             else:
@@ -169,9 +174,10 @@ def _discover_collections(reporter: TaskStatusReporter,
                     first_event_col = 'first_event_ts'
 
                 if first_event_col is not None:
+                    first_event_series = df[first_event_col]
                     for did in all_collections:
                         if did in df.index:
-                            ts = df.loc[did, first_event_col]
+                            ts = first_event_series.loc[did]
                             if pd.notna(ts):
                                 collection_first_event[did] = str(ts)[:10]
                     reporter.log(f"Loaded first_event_ts for {len(collection_first_event)} collections.")
@@ -434,7 +440,11 @@ def run_timelines_refresh(reporter: TaskStatusReporter,
     )
 
     new_processed = collections_processed + len(batch)
-    reporter.log(f"Batch complete. {valid_count}/{len(batch)} succeeded. "
+    skipped_note = (
+        " (the rest had no aggregatable data yet — e.g. no annotated plays — and were skipped)"
+        if valid_count < len(batch) else ""
+    )
+    reporter.log(f"Batch complete. {valid_count}/{len(batch)} produced timeline data{skipped_note}. "
                  f"Overall: {new_processed}/{total_collections}.")
     reporter.emit_data({"collections_remaining": len(remaining_after)})
 
