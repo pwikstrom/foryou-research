@@ -47,6 +47,15 @@ _NETSCAPE_MAGIC_RE = re.compile(r"#( Netscape)? HTTP Cookie File")
 _COOKIE_WORK_DIR = os.path.join(tempfile.gettempdir(), "fyp_cookie_work")
 _COPY_TTL_SEC = 300
 
+# Cookie domain used to probe the local Chrome profile for a live session in
+# dev (see _chrome_session_status). A platform not listed falls back to
+# ``{platform}.com``.
+_PLATFORM_COOKIE_DOMAIN = {
+    "tiktok": "tiktok.com",
+    "instagram": "instagram.com",
+    "youtube": "youtube.com",
+}
+
 
 
 
@@ -203,6 +212,46 @@ def _env_cookie_file(platform: str) -> str:
 def _is_local_dev() -> bool:
     """True when running on a dev machine with a browser (not Cloud Run/Docker)."""
     return not os.environ.get("K_SERVICE") and os.path.exists("/Applications")
+
+
+
+
+def _chrome_session_status(platform: str, session_cookie: str) -> tuple[str, int | None, str | None]:
+    """Probe the local Chrome profile for a platform's login session cookie.
+
+    In dev the scraper authenticates via ``cookiesfrombrowser=("chrome",)``, so
+    the honest health signal is whether Chrome actually holds a session cookie
+    for the platform. Reads the same Chrome cookie store (via ``browser_cookie3``)
+    and looks for ``session_cookie`` on the platform's domain.
+
+    Never raises — a decryption/read failure (e.g. Chrome's app-bound cookie
+    encryption, or no Chrome install) returns ``("unreadable", None, reason)`` so
+    the caller reports ``unknown`` rather than a false ``healthy``.
+
+    Returns:
+        ``(state, expires_epoch, detail)`` where ``state`` is one of
+        ``"present"`` (cookie found), ``"absent"`` (Chrome read fine, no such
+        cookie → not logged in), or ``"unreadable"`` (could not read Chrome).
+        ``expires_epoch`` is the cookie's expiry (may be None), ``detail`` a
+        short human string on the non-present states.
+    """
+    domain = _PLATFORM_COOKIE_DOMAIN.get(platform, f"{platform}.com")
+    try:
+        import browser_cookie3
+    except Exception as e:
+        return "unreadable", None, f"browser_cookie3 unavailable ({e})"
+    try:
+        jar = browser_cookie3.chrome(domain_name=domain)
+    except Exception as e:
+        # App-bound encryption (Chrome ≥127), a locked DB, or no profile.
+        return "unreadable", None, f"could not read Chrome cookies ({type(e).__name__})"
+    for cookie in jar:
+        if cookie.name == session_cookie:
+            # A logged-out browser can retain an empty session-cookie row.
+            if not (cookie.value or "").strip():
+                return "absent", None, f"'{session_cookie}' cookie on {domain} is empty (logged out)"
+            return "present", cookie.expires, None
+    return "absent", None, f"no '{session_cookie}' cookie on {domain} in Chrome"
 
 
 
@@ -372,11 +421,49 @@ def cookie_health(platform: str, session_cookie: str = "sessionid") -> dict:
 
     path = ensure_cookie_file(platform) or _env_cookie_file(platform)
 
-    # Local-dev path: cookies come from Chrome, not a file — declare healthy.
+    # Local-dev path: cookies come from Chrome, not a file. Probe Chrome for a
+    # live session cookie rather than blindly reporting healthy — an operator
+    # who isn't logged into the platform in Chrome would otherwise see a green
+    # chip while every scrape fails on authentication.
     if _is_local_dev():
-        health["present"] = True
-        health["status"] = "healthy"
-        health["message"] = "Local dev: using cookies from Chrome browser"
+        state, expires, detail = _chrome_session_status(platform, session_cookie)
+        if state == "present":
+            health["present"] = True
+            if expires:
+                health["session_expires_at"] = int(expires)
+                health["session_days_left"] = (expires - time.time()) / 86400
+            days_left = health["session_days_left"]
+            if days_left is not None and days_left <= 0:
+                health["status"] = "expired"
+                health["message"] = (
+                    f"Local dev: Chrome's '{session_cookie}' cookie for {platform} "
+                    f"has expired — log into the site again in Chrome."
+                )
+            elif days_left is not None and days_left < 14:
+                health["status"] = "expiring_soon"
+                health["message"] = (
+                    f"Local dev: Chrome's '{session_cookie}' cookie for {platform} "
+                    f"expires in {days_left:.1f} days."
+                )
+            else:
+                health["status"] = "healthy"
+                health["message"] = (
+                    f"Local dev: '{session_cookie}' cookie present in Chrome for {platform}."
+                )
+        elif state == "absent":
+            health["present"] = False
+            health["status"] = "missing"
+            health["message"] = (
+                f"Local dev: not logged in — {detail}. Log into {platform} in "
+                f"Chrome with the research account, then fully quit Chrome."
+            )
+        else:  # unreadable
+            health["present"] = False
+            health["status"] = "unknown"
+            health["message"] = (
+                f"Local dev: {detail}. Can't confirm the {platform} login — if "
+                f"scrapes fail on auth, log into the site in Chrome and fully quit it."
+            )
         return health
 
     if not path or not os.path.exists(path):

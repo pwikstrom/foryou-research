@@ -96,7 +96,13 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
     # Normalize typographic apostrophes so ASCII keyword matching works.
     msg_lower = msg.lower().replace('\u2019', "'")
 
-    if 'there is no video in this post' in msg_lower:
+    # Image-only / carousel-image posts: yt-dlp parses the post but finds no
+    # video stream. Both phrasings mean the same thing — no video to fetch. This
+    # is permanent (retrying can't conjure a video); the donated seed still
+    # carries the caption/author. Without this, image posts churned 3× per run
+    # as 'unknown' and never left the queue.
+    if ('there is no video in this post' in msg_lower
+            or 'no video formats found' in msg_lower):
         return "no_video", msg
 
     # The ambiguous catch-all must be checked before the "removed" patterns —
