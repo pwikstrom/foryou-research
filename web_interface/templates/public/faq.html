@@ -109,9 +109,12 @@
     <details>
         <summary>I found a bug — who do I tell?</summary>
         <p>
-            The hub is under active development, so bugs happen. Email
-            info@foryouresearch.net with what you were doing and what went
-            wrong; screenshots help a lot.
+            The hub is under active development, so bugs happen.
+            {% if contact_email %}Email {{ contact_email }} with what you were
+            doing and what went wrong; screenshots help a lot.
+            {% else %}Let the team running this instance know what you were
+            doing and what went wrong; screenshots help a lot.
+            {% endif %}
         </p>
     </details>
 

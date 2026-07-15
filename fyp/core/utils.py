@@ -16,8 +16,12 @@ logger = get_logger(__name__)
 
 
 
+# Well-known HEAD-tolerant host used for the default connectivity probe.
+DEFAULT_PROBE_HOST = "connectivitycheck.gstatic.com"
+
+
 # check internet connectivity
-def online_ok(url="www.qut.edu.au",
+def online_ok(url=DEFAULT_PROBE_HOST,
                         timeout=3):
     connection = http.client.HTTPConnection(url,
                                         timeout=timeout)

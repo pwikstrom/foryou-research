@@ -4,10 +4,12 @@
 
 <section class="landing-hero">
     <h1 class="hero-title">Use the For You Data Hub in your project</h1>
+    {% if contact_email %}
     <p class="hero-subtitle landing-hero-sub">
-        Email us at <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a> to learn how you
+        Email us at <a href="mailto:{{ contact_email }}">{{ contact_email }}</a> to learn how you
         can use the Data Hub in your project. We'd love to hear from you.
     </p>
+    {% endif %}
     <p class="hero-subtitle landing-hero-sub">
         You're also welcome to try the analysis tools yourself. Sign up, follow the
         instructions below, and you will be able to use Explore, Video Analysis, Timelines,
@@ -96,9 +98,13 @@
     <p class="prose">
         This preview is just a sample of what the Data Hub does. If you're thinking about using it
         for your own research project (ingesting your participants' donations, running the full
-        ingest-to-insight pipeline, and bringing in your team), write to us at
-        <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a>. We'd be glad to show
+        ingest-to-insight pipeline, and bringing in your team),
+        {% if contact_email %}write to us at
+        <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>. We'd be glad to show
         you the full pipeline and talk through what working together could look like.
+        {% else %}get in touch with the team running this instance. The platform itself is
+        open source, so you can also run your own — see the repository's installation guide.
+        {% endif %}
     </p>
 </section>
 

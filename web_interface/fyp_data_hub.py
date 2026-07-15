@@ -116,6 +116,22 @@ def _register_web_ui(app):
         except Exception:
             return {"scrape_platforms": ["tiktok"]}
 
+    @app.context_processor
+    def inject_contact_email():
+        """Expose the instance operator's contact email to every template.
+
+        Comes from [site].contact_email (config.local.toml, or the
+        FYP_CONTACT_EMAIL env var which overrides it at config load);
+        templates render their contact/feedback passages only when it is
+        set, so a third-party install shows no foreign address.
+        """
+        from fyp.fyp_config import get_config
+        try:
+            site = get_config().get("site", {}) or {}
+            return {"contact_email": str(site.get("contact_email", "") or "").strip()}
+        except Exception:
+            return {"contact_email": ""}
+
     @app.errorhandler(403)
     def handle_forbidden(error):
         """Return JSON for API routes so client-side ``res.json()`` doesn't choke.
@@ -218,11 +234,29 @@ if not _IS_TASK_RUNNER and os.environ.get("K_SERVICE"):
     system_health.maybe_start_boot_check()
 
 
+def _debug_enabled(value: str | None) -> bool:
+    """Interpret the ``FLASK_DEBUG`` environment value as a boolean.
+
+    Args:
+        value: The raw environment value, or ``None`` when unset.
+
+    Returns:
+        True when the value is a truthy flag ("1", "true", "yes"), else False.
+    """
+    return (value or "").strip().lower() in ("1", "true", "yes")
+
+
+
+
+
+
 if __name__ == '__main__':
-    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-        # The reloader child is the process that serves requests; the parent
-        # only watches files — checking here avoids a duplicate boot probe.
+    debug = _debug_enabled(os.environ.get("FLASK_DEBUG"))
+    if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        # Under the debug reloader only the child serves requests (the parent
+        # just watches files), so the boot probe runs in the child; without
+        # debug there is no reloader and this process is the server.
         from web_interface.services import system_health
         system_health.maybe_start_boot_check()
     port = int(os.environ.get("PORT", 5002))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=debug)

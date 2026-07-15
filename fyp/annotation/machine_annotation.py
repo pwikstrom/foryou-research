@@ -91,24 +91,43 @@ def initialize_machine():
 
     _cf()["machine"]["client"] = None
 
+    use_vertex = bool(_cf()["machine"]["vertexai"])
+    if use_vertex and not _cf()["machine"].get("project"):
+        logger.warning(
+            "Machine annotation not configured: [machine].project is empty "
+            "while vertexai = true. Set your GCP project in "
+            "config/config.local.toml, or set vertexai = false and provide "
+            "GEMINI_API_KEY to use the plain Gemini API."
+        )
+        return
+
     if fyp_utils.online_ok():
         try:
-            _cf()["machine"]["client"] = google.genai.Client(
-                vertexai=_cf()["machine"]["vertexai"],
-                project=_cf()["machine"]["project"],
-                location=_cf()["machine"]["location"],
-                http_options=google.genai.types.HttpOptions(
-                    api_version=_cf()["machine"]["http_options_api_version"],
-                    timeout=_cf()["machine"]["http_options_timeout"]
-                )
+            http_options = google.genai.types.HttpOptions(
+                api_version=_cf()["machine"]["http_options_api_version"],
+                timeout=_cf()["machine"]["http_options_timeout"]
             )
+            if use_vertex:
+                _cf()["machine"]["client"] = google.genai.Client(
+                    vertexai=True,
+                    project=_cf()["machine"]["project"],
+                    location=_cf()["machine"]["location"],
+                    http_options=http_options
+                )
+            else:
+                # Plain Gemini API path: the key comes from GEMINI_API_KEY
+                # (loaded into machine.key at config init).
+                _cf()["machine"]["client"] = google.genai.Client(
+                    api_key=_cf()["machine"].get("key") or None,
+                    http_options=http_options
+                )
 
             logger.info("Google Gemini initialized successfully")
-            
+
 
         except Exception as e:
             logger.error(f"Error Gemini API key. Gemini won't be available. {e}")
-            
+
     else:
         logger.warning("I'm offline. Can't initialize Google Gemini.")
         
@@ -241,6 +260,12 @@ def _generate_with_retry(contents, gen_config):
         Exception: The last exception if every attempt fails, or any
             non-transient error on its first occurrence.
     """
+    if _cf()["machine"].get("client") is None:
+        raise RuntimeError(
+            "Gemini client not configured - see [machine] in config "
+            "(set a Vertex project, or vertexai = false with GEMINI_API_KEY)."
+        )
+
     max_retries = int(_cf()["machine"].get("max_retries", 2))
     base_delay = float(_cf()["machine"].get("retry_base_delay", 2.0))
 

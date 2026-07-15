@@ -38,15 +38,20 @@ source .venv/bin/activate
 pip install -r requirements-dev.txt   # runtime pins + pytest/ruff/pre-commit
 pip install -e .                       # recommended: editable install of the fyp package
 
-# Configure your machine-local paths (never edit the committed config):
-cp config/config.local.toml.example config/config.local.toml
-#   ... then edit local_data/local_media in it (see docs/configuration.md)
+python scripts/setup.py                # interactive setup wizard → config/config.local.toml
 
 python web_interface/fyp_data_hub.py    # → http://localhost:5002
 ```
 
-Environment variables (Gemini key, GCS bucket, ...) are documented in
-`.env.example`.
+The first boot prints a one-time random password for the default
+`admin@admin.net` account — copy it from the console and change it after
+logging in. Data storage defaults to `~/fyp_local` on the local disk; the
+wizard can point it elsewhere or enable GCS/Gemini. (Manual alternative to
+the wizard: `cp config/config.local.toml.example config/config.local.toml`
+and edit it.) The full walkthrough — prerequisites per platform, optional
+services, first data upload — is in
+[docs/installation.md](docs/installation.md). Environment variables (Gemini
+key, GCS bucket, ...) are documented in `.env.example`.
 
 The editable install is recommended but never required — the app also runs
 from a plain checkout (cwd imports and the workers' `sys.path` bootstrap keep
@@ -89,6 +94,7 @@ Project" and [docs/architecture.md](docs/architecture.md).
 
 ## Documentation
 
+- [docs/installation.md](docs/installation.md) — installing from scratch: prerequisites, setup wizard, first run
 - [docs/architecture.md](docs/architecture.md) — system overview, key design patterns
 - [docs/configuration.md](docs/configuration.md) — config.toml sections, contracts, environment variables
 - [docs/pipeline.md](docs/pipeline.md) — ingestion → scrape → annotation → recode → analysis
@@ -96,7 +102,7 @@ Project" and [docs/architecture.md](docs/architecture.md).
 - [docs/python-versions.md](docs/python-versions.md) — Python 3.12 everywhere (dev and prod)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — workflow, coding style, invariants you must not break
 
-## License
+## License & citation
 
-No license has been chosen yet — until one is added, all rights are
-reserved; contact the repository owner before reusing any part of the code.
+MIT — see [LICENSE](LICENSE). If you use FYP in your research, please cite
+it using the metadata in [CITATION.cff](CITATION.cff).

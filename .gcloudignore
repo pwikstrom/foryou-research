@@ -156,3 +156,7 @@ tmp/
 *.docx
 SESSION_PROFILE_ENTROPY_DISCREPANCY.md
 docs/
+
+# Machine-local config overlay — never bake into the image
+config/config.local.toml
+config/config.local.toml.bak

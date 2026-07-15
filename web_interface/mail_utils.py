@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SENDER_EMAIL = "info@foryouresearch.net"
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -19,6 +18,42 @@ def is_email(value: str) -> bool:
     """Light sanity check that a username is an emailable address."""
     return bool(EMAIL_RE.match(str(value or "")))
 
+
+def _site() -> dict:
+    """Return the [site] config section (instance branding), never raising."""
+    from fyp.fyp_config import get_config
+    try:
+        return get_config().get("site", {}) or {}
+    except Exception:
+        return {}
+
+
+def _app_link() -> str:
+    """HTML link to this instance ([site].app_url), or a neutral phrase."""
+    app_url = str(_site().get("app_url", "") or "").strip()
+    return f'<a href="{app_url}">{app_url}</a>' if app_url else "the Data Hub"
+
+
+def _mail_credentials(context: str):
+    """Return (sender, password) when mail is configured, else None.
+
+    The sender comes from [site].mail_sender (settable via config.local.toml
+    or the FYP_MAIL_SENDER env var); the password from MAIL_PASSWORD.
+
+    Args:
+        context: Short label for the warning log (e.g. "welcome email").
+    """
+    password = os.environ.get("MAIL_PASSWORD")
+    if not password:
+        logger.warning(f"MAIL_PASSWORD not set. Cannot send {context}.")
+        return None
+    sender = str(_site().get("mail_sender", "") or "").strip()
+    if not sender:
+        logger.warning(f"Mail sender not configured ([site].mail_sender / "
+                       f"FYP_MAIL_SENDER). Cannot send {context}.")
+        return None
+    return sender, password
+
 def send_welcome_email_async(to_email):
     """Sends a welcome email in a background thread."""
     thread = threading.Thread(target=send_welcome_email, args=(to_email,))
@@ -26,25 +61,25 @@ def send_welcome_email_async(to_email):
 
 def send_welcome_email(to_email):
     """Sends a welcome email to the approved user."""
-    password = os.environ.get("MAIL_PASSWORD")
-    if not password:
-        logger.warning("MAIL_PASSWORD not set. Cannot send welcome email.")
+    creds = _mail_credentials("welcome email")
+    if not creds:
         return
+    sender, password = creds
 
     try:
         msg = MIMEMultipart()
-        msg["From"] = SENDER_EMAIL
+        msg["From"] = sender
         msg["To"] = to_email
-        msg["Subject"] = "Welcome to ForYouResearch Data Hub"
+        msg["Subject"] = "Welcome to the For You Data Hub"
 
         body = f"""
         <html>
           <body>
             <h2>Welcome!</h2>
-            <p>Your account (<b>{to_email}</b>) has been approved to access the ForYouResearch Data Hub.</p>
-            <p>You can now log in at <a href="http://foryouresearch.net">foryouresearch.net</a> (or your provided URL).</p>
+            <p>Your account (<b>{to_email}</b>) has been approved to access the For You Data Hub.</p>
+            <p>You can now log in at {_app_link()}.</p>
             <br>
-            <p>Best regards,<br>The ForYouResearch Team</p>
+            <p>Best regards,<br>The Data Hub team</p>
           </body>
         </html>
         """
@@ -52,9 +87,9 @@ def send_welcome_email(to_email):
 
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.starttls()
-            server.login(SENDER_EMAIL, password)
-            server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
-        
+            server.login(sender, password)
+            server.sendmail(sender, to_email, msg.as_string())
+
         logger.info(f"Welcome email sent to {to_email}")
         return True
     except Exception as e:
@@ -90,15 +125,15 @@ def send_invitation_email(to_email, run_id, task_type, inviter,
         True when the email was actually sent; False when MAIL_PASSWORD is
         unset (local dev) or the send failed.
     """
-    password = os.environ.get("MAIL_PASSWORD")
-    if not password:
-        logger.warning("MAIL_PASSWORD not set. Cannot send invitation email.")
+    creds = _mail_credentials("invitation email")
+    if not creds:
         return False
+    sender, password = creds
 
     task_label = ("preference-vote" if task_type == "vote" else "blind coding")
     try:
         msg = MIMEMultipart()
-        msg["From"] = SENDER_EMAIL
+        msg["From"] = sender
         msg["To"] = to_email
         msg["Subject"] = "Invitation: help evaluate video annotations on the For You Data Hub"
 
@@ -107,13 +142,13 @@ def send_invitation_email(to_email, run_id, task_type, inviter,
           <body>
             <h2>You have been invited to a {task_label} task</h2>
             <p><b>{inviter}</b> invited you (<b>{to_email}</b>) to contribute human
-               input to an annotation test run on the ForYouResearch Data Hub:
+               input to an annotation test run on the For You Data Hub:
                {n_items} videos, {n_variables} variables.</p>
-            <p>Log in at <a href="http://foryouresearch.net">foryouresearch.net</a>
+            <p>Log in at {_app_link()}
                and open <b>My stuff &rarr; My Tasks</b> to start. Your work is saved
                automatically, so you can pause and come back at any time.</p>
             <br>
-            <p>Best regards,<br>The ForYouResearch Team</p>
+            <p>Best regards,<br>The Data Hub team</p>
           </body>
         </html>
         """
@@ -121,8 +156,8 @@ def send_invitation_email(to_email, run_id, task_type, inviter,
 
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.starttls()
-            server.login(SENDER_EMAIL, password)
-            server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
+            server.login(sender, password)
+            server.sendmail(sender, to_email, msg.as_string())
 
         logger.info(f"Invitation email sent to {to_email} for {run_id}/{task_type}")
         return True
@@ -147,17 +182,17 @@ def send_new_user_pending_email(to_email, new_user_email, new_user_display=None)
         Never raises.
     """
     display = f" ({new_user_display})" if new_user_display else ""
-    subject = "New user pending approval — ForYouResearch Data Hub"
+    subject = "New user pending approval — For You Data Hub"
     body = f"""
     <html>
       <body>
         <h2>A new user is awaiting approval</h2>
         <p><b>{new_user_email}</b>{display} has requested an account on the
-           ForYouResearch Data Hub and is pending administrator approval.</p>
-        <p>Log in at <a href="http://foryouresearch.net">foryouresearch.net</a>
+           For You Data Hub and is pending administrator approval.</p>
+        <p>Log in at {_app_link()}
            and open <b>Admin &rarr; New Users</b> to review and approve.</p>
         <br>
-        <p>Best regards,<br>The ForYouResearch Team</p>
+        <p>Best regards,<br>The Data Hub team</p>
       </body>
     </html>
     """
@@ -191,21 +226,21 @@ def _send_html_email(to_email, subject, body_html) -> bool:
         True when the email was actually sent; False when MAIL_PASSWORD is
         unset (local dev) or the send failed. Never raises.
     """
-    password = os.environ.get("MAIL_PASSWORD")
-    if not password:
-        logger.warning("MAIL_PASSWORD not set. Cannot send email.")
+    creds = _mail_credentials("email")
+    if not creds:
         return False
+    sender, password = creds
     try:
         msg = MIMEMultipart()
-        msg["From"] = SENDER_EMAIL
+        msg["From"] = sender
         msg["To"] = to_email
         msg["Subject"] = subject
         msg.attach(MIMEText(body_html, "html"))
 
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.starttls()
-            server.login(SENDER_EMAIL, password)
-            server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
+            server.login(sender, password)
+            server.sendmail(sender, to_email, msg.as_string())
 
         logger.info(f"Email '{subject}' sent to {to_email}")
         return True
@@ -262,11 +297,10 @@ def _batch_annotation_email_content(kind: str, details: dict) -> tuple[str, str]
       <body>
         <h2>{intro}</h2>
         {detail}
-        <p>Open <b>Data Management &rarr; Scrape &amp; Annotate</b> on the
-           <a href="http://foryouresearch.net">ForYouResearch Data Hub</a> to see the
-           live log.</p>
+        <p>Open <b>Data Management &rarr; Scrape &amp; Annotate</b> on
+           {_app_link()} to see the live log.</p>
         <br>
-        <p>Best regards,<br>The ForYouResearch Team</p>
+        <p>Best regards,<br>The Data Hub team</p>
       </body>
     </html>
     """

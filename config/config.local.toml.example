@@ -1,32 +1,45 @@
 # Machine-local config overlay — copy to config/config.local.toml (gitignored).
 #
+# PREFER THE WIZARD: `python scripts/setup.py` writes this file for you
+# (and checks your environment). This template is the manual alternative.
+#
 # Values here are deep-merged OVER the committed config/config.toml at load
 # time (fyp/fyp_config.py initialize()), so you only list the keys you want
 # to override. Any section/key from config.toml is valid here.
 #
-# The keys below are the ones a new collaborator typically needs.
+# NOTE: a fresh checkout already runs with NO overlay at all — the committed
+# defaults store everything locally under ~/fyp_local. You only need this
+# file to change paths or enable optional services.
 
 [paths]
 # Root directory for all project data (parquets, cache, users, uploads).
-# Must be writable; created on first run.
+# Must be writable; created on first run. A leading ~ expands to your home
+# directory. The config loader refuses to start while ~CHANGE-ME~ is present.
 #   macOS/Linux: local_data = "/Users/you/fyp_local"
 #   Windows:     use forward slashes and a drive letter, e.g.
 #                local_data = "C:/Users/you/fyp_local"
-# On Windows you can also skip this entirely — the committed macOS default is
-# auto-redirected to %USERPROFILE%\fyp_local when no drive path is set here.
 local_data = "~CHANGE-ME~/fyp_local"
 
 # Where locally-stored media (videos) go. Only used when
 # data_io.use_gcs_for_media = false. Can live on a bigger disk.
 local_media = "~CHANGE-ME~/fyp_local/media"
 
+# [site]
+# Instance branding (all optional; hidden/no-op while empty):
+# contact_email = "you@example.org"   # shown on public guide/FAQ + home tab
+# mail_sender = "you@gmail.com"       # outbound mail sender (with MAIL_PASSWORD)
+# app_url = "https://your-hub.example.org"  # "log in at ..." links in emails
+
 # [machine]
-# Your own Vertex AI project for Gemini annotation (API key goes in the
-# GEMINI_API_KEY environment variable, never in a config file).
+# Gemini annotation — either your own Vertex AI project (ADC auth):
 # project = "your-gcp-project"
+# ...or the plain Gemini API (key in the GEMINI_API_KEY environment
+# variable, never in a config file):
+# vertexai = false
 
 # [data_io]
-# Fully local development (no GCS at all):
-# use_gcs_for_data = false
-# use_gcs_for_media = false
-# use_gcs_for_cache = false
+# GCS-backed storage (local disk is the committed default):
+# use_gcs_for_data = true
+# use_gcs_for_media = true
+# use_gcs_for_cache = true
+# GCS_bucket_name = "your-bucket"   # or set FYP_GCS_BUCKET_NAME in the env

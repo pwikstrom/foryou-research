@@ -1,0 +1,34 @@
+# TODO after JOSS acceptance: fill in the preferred-citation DOI block at the bottom.
+cff-version: 1.2.0
+message: >-
+  If you use this software in your research, please cite it using the
+  metadata from this file (and the JOSS paper, once published).
+type: software
+title: "FYP — For You Project: a research data platform for studying algorithmically curated social-media feeds"
+authors:
+  - family-names: Wikstrom
+    given-names: Patrik
+    orcid: "https://orcid.org/0000-0003-4720-0416"
+    affiliation: "Queensland University of Technology, Australia"
+license: MIT
+repository-code: "https://github.com/pwikstrom/fyp_main_v02"
+version: 0.1.0
+date-released: "2026-07-13"
+keywords:
+  - data donation
+  - social media
+  - TikTok
+  - Instagram
+  - YouTube
+  - algorithm auditing
+  - LLM annotation
+  - computational social science
+# preferred-citation:  # Uncomment and complete after the JOSS paper is published.
+#   type: article
+#   title: "FYP: A research data platform for studying algorithmically curated social-media feeds"
+#   authors:
+#     - family-names: Wikstrom
+#       given-names: Patrik
+#   journal: "Journal of Open Source Software"
+#   year: 2026
+#   doi: 10.21105/joss.XXXXX

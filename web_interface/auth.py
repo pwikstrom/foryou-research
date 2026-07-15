@@ -3,6 +3,7 @@ import datetime
 import hashlib
 import logging
 import os
+import secrets
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -344,6 +345,8 @@ class UserManager:
 
         Uses a single ``listdir`` (not an O(N) roster load) so a fresh
         deployment still gets a working admin login without preloading users.
+        The password is randomly generated and shown exactly once, on the
+        console of the first boot — it is never written to the user store.
         """
         try:
             files = data_io.listdir(storage_location=self.storage_location, return_absolute_path=False)
@@ -357,7 +360,27 @@ class UserManager:
             return
         if not has_user:
             logger.info("No users found. Creating default admin.")
-            self.add_user("admin@admin.net", "admin", ROLE_ADMIN, approved=True)
+            password = secrets.token_urlsafe(12)
+            self.add_user("admin@admin.net", password, ROLE_ADMIN, approved=True)
+            print(
+                "\n"
+                "[AUTH] ============================================================\n"
+                "[AUTH] First run: created the default admin account.\n"
+                "[AUTH]\n"
+                f"[AUTH]   username: admin@admin.net\n"
+                f"[AUTH]   password: {password}\n"
+                "[AUTH]\n"
+                "[AUTH] This password is shown ONCE — copy it now and change it\n"
+                "[AUTH] after logging in (Settings). To generate a new one, stop\n"
+                "[AUTH] the app, delete users/admin@admin.net.json from your data\n"
+                "[AUTH] directory, and start the app again.\n"
+                "[AUTH] ============================================================\n",
+                flush=True,
+            )
+            logger.warning(
+                "Default admin admin@admin.net created with a one-time password "
+                "printed to the console."
+            )
 
     def _ensure_loaded(self):
         """Populate the full in-memory roster once, on first roster access."""
