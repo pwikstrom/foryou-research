@@ -37,15 +37,32 @@ from ...services.worker_status import (
 from ._blueprint import management_bp
 
 
+def _aws_credentials_available() -> bool:
+    """Return True when boto3 can resolve credentials (no network call).
+
+    Gates the AIO fetch-from-AWS ingestion source: without credentials the
+    fetch can only fail, so the card is hidden entirely. Checks the standard
+    boto3 chain (env vars, ~/.aws/credentials, instance metadata config).
+    """
+    try:
+        import boto3
+        return boto3.session.Session().get_credentials() is not None
+    except Exception:
+        return False
+
+
 @management_bp.route('/api/manage/ingestion/sources', methods=['GET'])
 @permission_required('tab.data_management.ingestion')
 @login_required
 def get_ingestion_sources():
     try:
         main_collection = get_main_collection(verbose=False)
+        aws_available = _aws_credentials_available()
         sources = []
         total_pending = 0
         for col in main_collection.collections:
+            if getattr(col, "ingestion_mode", "upload") == "fetch" and not aws_available:
+                continue
             files: list[dict] = []
             manifest_fn = "ingestion_manifest.json"
             if col.raw_path and data_io.exists(storage_location=col.raw_path, filename=manifest_fn):
@@ -83,6 +100,13 @@ def get_ingestion_sources():
 def fetch_aio_data():
     """Trigger download of recent AIO donations and metadata from AWS."""
     from fyp.fyp_config import AIO_FETCH_SCRIPT
+
+    if not _aws_credentials_available():
+        return jsonify({
+            "status": "error",
+            "message": "No AWS credentials available - the AIO fetch needs the "
+                       "standard boto3 credential chain (see docs/installation.md).",
+        }), 409
 
     hours_back = 24
     if request.is_json and request.json:

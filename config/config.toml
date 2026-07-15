@@ -17,9 +17,12 @@ model = "gemini-3-flash-preview"
 # drift. The pre-versioning "v0_legacy" prompt file is kept at
 # config/legacy_annotation_prompt.txt purely for the admin Annotation Versions viewer.
 
-# Vertex AI settings
+# Vertex AI settings. Annotation is disabled until configured: either set your
+# own GCP project here or in config.local.toml (Vertex AI, authenticated via
+# Application Default Credentials), or set vertexai = false and provide a
+# GEMINI_API_KEY environment variable to use the plain Gemini API instead.
 vertexai = true
-project = "<gcp-project>"
+project = ""
 location = "global"
 http_options_api_version = "v1"
 http_options_timeout = 180000
@@ -65,12 +68,14 @@ max_duration_for_annotation = 300
 ##########################################################################################
 [paths]
 
-# Path for all project data except for media files (temp and backup dirs end up here as well)
-local_data = "/Users/<user>/fyp_local"
+# Path for all project data except for media files (temp and backup dirs end up
+# here as well). A leading ~ expands to the current user's home directory;
+# override with an absolute path in config/config.local.toml if needed.
+local_data = "~/fyp_local"
 
-# Absolute path for locally-stored media. Used only when data_io.use_gcs_for_media = false.
+# Path for locally-stored media. Used only when data_io.use_gcs_for_media = false.
 # May live outside local_data — keep it on a disk with enough room for videos.
-local_media = "/Users/<user>/Desktop/fyp_mini/media"
+local_media = "~/fyp_local/media"
 
 
 
@@ -82,6 +87,8 @@ local_media = "/Users/<user>/Desktop/fyp_mini/media"
 # this label is added to zeeschuimer ndjson files in the zeeschuimer_raw folder
 TIME_ZONE = "Australia/Brisbane"
 local_mode = false
+# Host used for the fast HEAD connectivity probe before touching GCS/Gemini.
+# connectivity_probe_host = "connectivitycheck.gstatic.com"
 max_duration_for_download = 300
 min_media_object_size = 8_000
 # Supplement Instagram scrapes with play/like/comment counts from Instagram's
@@ -105,6 +112,26 @@ var_schema_admin = true
 
 
 ##########################################################################################
+# site / instance branding
+##########################################################################################
+[site]
+
+# Instance-operator values — committed defaults are deliberately empty so no
+# third-party install shows someone else's contact details. Set them in
+# config/config.local.toml, or via the FYP_CONTACT_EMAIL / FYP_MAIL_SENDER /
+# FYP_APP_URL environment variables (env wins; the deployed services use env).
+# contact_email: shown on the public guide/FAQ pages and the home-tab feedback
+#   note (those passages are hidden while empty).
+# mail_sender: Gmail address outbound mail is sent from (mail no-ops while
+#   empty or while MAIL_PASSWORD is unset).
+# app_url: public URL of this instance, used for "log in at ..." links in
+#   outbound emails.
+contact_email = ""
+mail_sender = ""
+app_url = ""
+
+
+##########################################################################################
 # web server
 ##########################################################################################
 [web]
@@ -122,11 +149,13 @@ health_check_max_age_hours = 6
 # The name of the GCS bucket - set by environment variable FYP_GCS_BUCKET_NAME.
 GCS_bucket_name = "" 
 
+# Local-first defaults: a fresh install stores everything on the local disk.
+# Set these true (typically in config/config.local.toml) to use a GCS bucket.
 # On Cloud Run (K_SERVICE) all three flags are forced true; the env var
 # FYP_FORCE_GCS=1 does the same for a local process (e.g. a local scrape-queue drain).
-use_gcs_for_data = true
-use_gcs_for_media = true
-use_gcs_for_cache = true
+use_gcs_for_data = false
+use_gcs_for_media = false
+use_gcs_for_cache = false
 
 # path/prefix for GCS bucket
 gcs_data_prefix = "data"

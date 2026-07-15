@@ -193,11 +193,51 @@ def initialize(
     if gemini_env_key:
         cf["machine"]["key"] = gemini_env_key
 
+    # Vertex project: the committed default is empty (no third party should
+    # bill the author's project). Deployed services fall back to the
+    # GCP_PROJECT_ID env var they already carry; FYP_VERTEX_PROJECT overrides.
+    if not cf["machine"].get("project"):
+        cf["machine"]["project"] = (
+            os.environ.get("FYP_VERTEX_PROJECT")
+            or os.environ.get("GCP_PROJECT_ID")
+            or ""
+        )
+
+    # Site/branding values ([site]): committed defaults are empty; env vars
+    # override so deployed instances configure them without a config overlay.
+    site = cf.setdefault("site", {})
+    for env_name, site_key in (
+        ("FYP_CONTACT_EMAIL", "contact_email"),
+        ("FYP_MAIL_SENDER", "mail_sender"),
+        ("FYP_APP_URL", "app_url"),
+    ):
+        env_value = os.environ.get(env_name)
+        if env_value:
+            site[site_key] = env_value.strip()
+        else:
+            site.setdefault(site_key, "")
+
 
     # ------------------------------------------------------------------
     # initialize paths
     # ------------------------------------------------------------------
-    # Redirect the committed macOS-style POSIX defaults to a per-user home
+    # Fail loud if the config.local.toml template placeholder was copied but
+    # never edited — silently creating a "~CHANGE-ME~" directory helps nobody.
+    for placeholder_key in ("local_data", "local_media"):
+        if "~CHANGE-ME~" in str(cf["paths"].get(placeholder_key, "")):
+            raise ValueError(
+                "config/config.local.toml still contains the ~CHANGE-ME~ "
+                f"placeholder in paths.{placeholder_key} - edit the file or "
+                "run: python scripts/setup.py"
+            )
+
+    # The committed defaults are home-relative ("~/fyp_local") so a fresh
+    # clone works on any machine; expanduser resolves them per-user on every
+    # OS while absolute paths (e.g. from config.local.toml) pass through.
+    cf["paths"]["local_data"] = os.path.expanduser(cf["paths"]["local_data"])
+    cf["paths"]["local_media"] = os.path.expanduser(cf["paths"]["local_media"])
+
+    # Redirect legacy macOS-style POSIX-absolute values to a per-user home
     # location when running on Windows (no-op on macOS/Linux/Cloud Run). Runs
     # before the project-root join below, so a Windows drive path set in
     # config.local.toml still wins.
@@ -308,8 +348,12 @@ def initialize(
 
 
 
+# Well-known HEAD-tolerant host used for the default connectivity probe.
+_DEFAULT_PROBE_HOST = "connectivitycheck.gstatic.com"
+
+
 # check internet connectivity
-def _online_ok(url="www.qut.edu.au",
+def _online_ok(url=_DEFAULT_PROBE_HOST,
                         timeout=1):
     connection = http.client.HTTPConnection(url,
                                         timeout=timeout)
@@ -340,7 +384,8 @@ def _connect_to_google(cf, verbose=False):
     # On Cloud Run (K_SERVICE set) connectivity and GCS creds are guaranteed, so
     # skip the external HTTP HEAD probe — it only adds latency (and up to a full
     # timeout on a slow response) to every cold start.
-    if os.environ.get("K_SERVICE") or _online_ok():
+    probe_host = cf["misc"].get("connectivity_probe_host") or _DEFAULT_PROBE_HOST
+    if os.environ.get("K_SERVICE") or _online_ok(url=probe_host):
 
         # Initialize a GCS storage client
         try:

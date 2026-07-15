@@ -19,6 +19,8 @@
   - `FLASK_DEBUG` (optional)
   - `FYP_CONFIG_PATH` (optional — use this config TOML directly instead of `__proj__.py` root discovery; the reuse hook)
   - `FYP_LOG_LEVEL` (optional — level for `fyp.logging_setup` loggers, default INFO)
+  - `FYP_CONTACT_EMAIL`, `FYP_MAIL_SENDER`, `FYP_APP_URL` (optional — instance branding; override the `[site]` config section. Committed defaults are empty; prod sets these on both Cloud Run services)
+  - `FYP_VERTEX_PROJECT` (optional — Vertex project when `[machine].project` is empty; falls back to `GCP_PROJECT_ID`, so prod needs nothing)
   - `K_SERVICE` (auto-set by Cloud Run — triggers GCS storage and Cloud Tasks dispatch)
   - `CLOUD_RUN_SERVICE_URL`, `GCP_PROJECT_ID`, `CLOUD_TASKS_LOCATION`, `CLOUD_TASKS_QUEUE`, `CLOUD_TASKS_SA_EMAIL` (Cloud Tasks config)
 
@@ -56,7 +58,7 @@ All visual styling is managed through a **CSS custom property (token) system** i
 - **Backend**: Python 3.12, Flask 3.x, Gunicorn (production)
 - **Data**: Pandas, NumPy, PyArrow, Parquet format, NDJSON
 - **Analysis**: Scikit-learn, SciPy, Statsmodels, Seaborn
-- **Storage**: Local filesystem (`/Users/<user>/fyp_local`) or Google Cloud Storage
+- **Storage**: Local filesystem (default `~/fyp_local`) or Google Cloud Storage
 - **AI/LLM**: Google Gemini (Vertex AI), OpenAI (secondary)
 - **Scraping**: yt-dlp (primary), BeautifulSoup4, browser-cookie3
 - **Frontend**: Vanilla JS + jQuery, Jinja2 templates, no build step
@@ -365,7 +367,7 @@ folds in the locally-written parquets automatically.
 | Section | Key fields |
 |---|---|
 | `[machine]` | Gemini model, prompt file, temperature, Vertex AI project |
-| `[paths]` | `local_data` (default: `/Users/<user>/fyp_local`) |
+| `[paths]` | `local_data` (default: `~/fyp_local`, expanded per-user) |
 | `[data_io]` | GCS bucket, `use_gcs_*` toggles |
 | `[misc]` | Timezone (`Australia/Brisbane`), `local_mode` |
 | `[labels]` | Content categories, generic mapper, irrelevant-words seed (`IRRELEVANT_WORDS` seeds the admin-editable hashtag stoplist `irrelevant_words.json`, location `users`, managed by `fyp/irrelevant_words.py` — Admin → General; squeeze + trailing-`*` prefix matching, applied at recode time, never hash-affecting) |

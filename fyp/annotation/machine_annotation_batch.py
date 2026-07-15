@@ -402,13 +402,34 @@ def build_and_upload_jsonl(video_ids: list, ts_label: str) -> tuple[str, list]:
 
 
 
+def _require_client():
+    """Return the initialized Gemini client or raise a clear error.
+
+    Raises:
+        RuntimeError: When the client could not be configured (empty Vertex
+            project / missing API key) — see ``[machine]`` in config.
+    """
+    initialize_machine()
+    client = _cf()["machine"].get("client")
+    if client is None:
+        raise RuntimeError(
+            "Gemini client not configured - see [machine] in config "
+            "(set a Vertex project, or vertexai = false with GEMINI_API_KEY)."
+        )
+    return client
+
+
+
+
+
+
 def submit_batch_job(jsonl_uri: str, ts_label: str) -> tuple[str, str]:
     """Submit a batch prediction job. Returns (job_name, output_uri)."""
-    initialize_machine()
+    client = _require_client()
     bucket_name = _cf()["data_io"]["GCS_bucket_name"]
     data_prefix = _cf()["data_io"].get("gcs_data_prefix", "data")
     output_uri = f"gs://{bucket_name}/{data_prefix}/{BATCH_OUTPUT_PREFIX}/{ts_label}/"
-    job = _cf()["machine"]["client"].batches.create(
+    job = client.batches.create(
         model=_cf()["machine"]["model"],
         src=jsonl_uri,
         config=google.genai.types.CreateBatchJobConfig(dest=output_uri),
@@ -420,8 +441,7 @@ def submit_batch_job(jsonl_uri: str, ts_label: str) -> tuple[str, str]:
 
 def poll_batch_job(job_name: str) -> str:
     """Return the current ``JobState`` name of a batch job."""
-    initialize_machine()
-    job = _cf()["machine"]["client"].batches.get(name=job_name)
+    job = _require_client().batches.get(name=job_name)
     return str(getattr(job.state, "name", job.state))
 
 
