@@ -30,6 +30,19 @@ def test_no_video_formats_is_permanent_no_video():
 
 
 
+def test_carousel_category_is_retryable():
+    """A partial image-download failure stays queued for a whole-post retry."""
+    from fyp.scrape import instagram_dl
+
+    assert "carousel" in instagram_dl._RETRYABLE
+    assert "carousel" not in instagram_dl._PERMANENT
+    assert instagram_dl.InstagramScraper().classify_error("carousel") == "transient:carousel"
+
+
+
+
+
+
 def test_there_is_no_video_still_classified_no_video():
     from fyp.scrape import instagram_dl
 
