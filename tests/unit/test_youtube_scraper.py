@@ -159,6 +159,27 @@ def test_duration_cap_gates_longform():
 
 
 
+def test_duration_cap_numpy_scalar_regression():
+    """A DataFrame duration scalar (numpy.int64) must still gate the cap.
+
+    Regression: ``fetch()`` reads ``data_row.loc[0, 'duration_raw']``, which is
+    a ``numpy.int64`` — not a Python ``int``. The old ``isinstance(int, float)``
+    guard misread it as an unknown duration and downloaded every over-cap item.
+    """
+    scraper = YouTubeScraper()
+    # The exact scalar type fetch() sees for an over-cap long-form item.
+    row = _info_to_row({**_INFO, 'duration': 2767}, 'pKOOk7f6FHk')
+    dur = row.loc[0, 'duration_raw']
+    assert not isinstance(dur, (int, float))            # it really is numpy.int64
+    assert scraper.should_download_media(dur) is False  # ...and still gated
+    # A Short-length numpy scalar still downloads.
+    short = _info_to_row({**_INFO, 'duration': 30}, 'pKOOk7f6FHk')
+    assert scraper.should_download_media(short.loc[0, 'duration_raw']) is True
+    print("PASS: numpy int64 duration still gates the cap")
+
+
+
+
 def test_throttle_limits_capped():
     scraper = YouTubeScraper()
     assert scraper.throttle_limits(8) == (2, 1, 4)
@@ -175,5 +196,6 @@ if __name__ == "__main__":
     test_classify_error_truth_table()
     test_bot_check_is_throttle_signal()
     test_duration_cap_gates_longform()
+    test_duration_cap_numpy_scalar_regression()
     test_throttle_limits_capped()
     print("All YouTube scraper tests passed.")

@@ -349,12 +349,22 @@ class BaseScraper(ABC):
         sentinel) returns ``True`` — the media phase decides what to do with
         it. Skipping for length is not an error: the metadata row is saved
         with ``scrape_status="ok"`` and ``video_downloaded=False``.
+
+        ``duration`` typically arrives as a DataFrame scalar (e.g.
+        ``numpy.int64``), so it is coerced with ``float()`` rather than an
+        ``isinstance(int, float)`` check — a numpy scalar is not a Python
+        ``int``/``float`` and would otherwise be misread as unknown, letting
+        every over-cap item download.
         """
         if duration is None or pd.isna(duration):
             return True
-        if not isinstance(duration, (int, float)):
+        try:
+            seconds = float(duration)
+        except (TypeError, ValueError):
             return True
-        return duration <= self.media_duration_cap()
+        if seconds < 0:
+            return True
+        return seconds <= self.media_duration_cap()
 
 
     # -----------------------------------------------------------------

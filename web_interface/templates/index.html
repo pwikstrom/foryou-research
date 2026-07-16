@@ -185,10 +185,23 @@
     </div>
 </div>
 
+<!-- Generic app dialog: the pretty replacement for native alert()/confirm().
+     Driven by showAppAlert() / showAppConfirm() in main.js. -->
+<div id="app-dialog-overlay" class="stop-confirm-overlay">
+    <div class="stop-confirm-card" style="max-width: 460px;">
+        <p id="app-dialog-title" class="text-sm font-bold" style="margin: 0 0 8px 0; display: none;"></p>
+        <p id="app-dialog-text" class="text-sm" style="margin: 0 0 16px 0; white-space: pre-line;"></p>
+        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="btn-discreet" id="app-dialog-cancel-btn">Cancel</button>
+            <button class="btn-primary" id="app-dialog-ok-btn">OK</button>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='main.js') }}?v=4"></script>
+<script src="{{ url_for('static', filename='main.js') }}?v=5"></script>
 <script src="{{ url_for('static', filename='js/variable_prefs.js') }}"></script>
 <script src="{{ url_for('static', filename='study_state.js') }}"></script>
 <script src="{{ url_for('static', filename='explore.js') }}?v=8"></script>
@@ -197,6 +210,6 @@
 <script src="{{ url_for('static', filename='semantic_space.js') }}?v=2"></script>
 <script src="{{ url_for('static', filename='timelines.js') }}?v=2"></script>
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
-<script src="{{ url_for('static', filename='js/data_management.js') }}?v=3"></script>
+<script src="{{ url_for('static', filename='js/data_management.js') }}?v=4"></script>
 {% endif %}
 {% endblock %}

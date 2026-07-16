@@ -210,7 +210,20 @@ def get_enrichment_stats():
     # into its health chip below.
     active_alerts = scraper_alerts.load_alerts()
 
+    # Whether Gemini annotation is configured (pure config check). The client
+    # uses this to disable/short-circuit the annotator start with a clear
+    # message instead of booting a worker that can't annotate anything.
+    try:
+        from fyp.annotation.machine_annotation import annotation_configured
+        annotation_ok, annotation_reason = annotation_configured()
+    except Exception as exc:
+        annotation_ok, annotation_reason = False, (
+            f"Gemini annotation is unavailable: google-genai could not be loaded ({exc})."
+        )
+
     return jsonify({
+        "annotation_configured": annotation_ok,
+        "annotation_config_reason": annotation_reason,
         "total_videos": total_videos,
         "scraped_videos": scraped_videos,
         "annotated_videos": annotated_videos,

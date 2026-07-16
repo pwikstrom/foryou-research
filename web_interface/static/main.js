@@ -237,7 +237,9 @@ async function loadAndRenderUserTags() {
 }
 
 async function deleteUserTag(tagName) {
-    if (!confirm(`Are you sure you want to delete the tag "${tagName}"? This will remove it from all videos and cannot be undone.`)) {
+    if (!(await showAppConfirm(
+        `Are you sure you want to delete the tag "${tagName}"? This will remove it from all videos and cannot be undone.`,
+        { title: 'Delete tag', okLabel: 'Delete', danger: true }))) {
         return;
     }
 
@@ -253,12 +255,12 @@ async function deleteUserTag(tagName) {
             // Reload tags
             loadAndRenderUserTags();
         } else {
-            alert("Error deleting tag: " + (data.message || "Unknown error"));
+            showAppAlert("Error deleting tag: " + (data.message || "Unknown error"));
         }
 
     } catch (e) {
         console.error(e);
-        alert("Failed to delete tag.");
+        showAppAlert("Failed to delete tag.");
     }
 }
 
@@ -386,8 +388,8 @@ function _healthEntryForProcess(name) {
 }
 
 // Ask before starting a scraper/annotator whose health chip is yellow or red.
-// Gray (unknown / check not run yet) starts silently. Returns true to proceed.
-function _confirmDegradedHealth(name) {
+// Gray (unknown / check not run yet) starts silently. Resolves true to proceed.
+async function _confirmDegradedHealth(name) {
     const entry = _healthEntryForProcess(name);
     if (!entry || (entry.status !== 'warn' && entry.status !== 'fail')) return true;
     const label = entry.status === 'fail' ? 'Failing' : 'Warning';
@@ -399,11 +401,31 @@ function _confirmDegradedHealth(name) {
         }
     }
     const detail = entry.summary ? `\n\n${entry.summary}` : '';
-    return confirm(`System health for this process is ${label}${checked}.${detail}\n\nStart anyway?`);
+    return showAppConfirm(
+        `System health for this process is ${label}${checked}.${detail}\n\nStart anyway?`,
+        { title: 'Health warning', okLabel: 'Start anyway', danger: true });
 }
 
 async function startProcess(name, extraBody = {}) {
-    if (!_confirmDegradedHealth(name)) return false;
+    // Block the annotator early when Gemini isn't configured — before the
+    // optimistic "Starting…" flip and the arm-consolidate prompt — so the user
+    // gets a clear reason instead of a worker that boots and fails every item.
+    // (The server rejects it too; this is the friendly front door.)
+    if (name === 'queue_annotator' || name === 'queue_annotator_batch') {
+        try {
+            const stats = await fetch('/api/manage/enrichment/stats').then(r => r.json());
+            if (stats && stats.annotation_configured === false) {
+                await showAppAlert(
+                    stats.annotation_config_reason || 'Gemini annotation is not configured.',
+                    { title: 'Gemini not configured' });
+                return false;
+            }
+        } catch (e) {
+            // Fail open — the server-side gate is authoritative and will refuse.
+            console.warn('Annotation-config pre-check failed; deferring to server.', e);
+        }
+    }
+    if (!(await _confirmDegradedHealth(name))) return false;
     let body = {};
     // Determine context (tab) for study name input
     let studyNameInputId = 'global-study-name'; // default for scrape/annotate
@@ -446,7 +468,7 @@ async function startProcess(name, extraBody = {}) {
 
     if (['downloader', 'annotator', 'create_subsets', 'regenerate_datasets', 'create_event_log', 'recode_event_log', 'calculate_pca'].includes(name)) {
         if (!studyName) {
-            alert("Please select or enter a study name.");
+            showAppAlert("Please select or enter a study name.");
             return false;
         }
         body = {
@@ -521,7 +543,7 @@ async function startProcess(name, extraBody = {}) {
             // Dispatch refused — revert the card so it doesn't sit in
             // "Starting…"; the next poll restores the idle UI.
             pendingStarts.delete(name);
-            alert("Error: " + data.message);
+            showAppAlert("Error: " + data.message);
         } else {
             started = true;
             if (window._pendingArmAfterStart) {
@@ -558,14 +580,85 @@ async function startProcess(name, extraBody = {}) {
 async function rebuildNicheMap() {
     const box = document.getElementById('video_map_reset-labels');
     const reset = !!(box && box.checked);
-    if (reset && !confirm(
+    if (reset && !(await showAppConfirm(
         'Reset: regenerate all niche labels from scratch?\n\n' +
         'Existing labels will NOT be preserved. Cluster IDs are kept, so saved ' +
-        'niche-filtered analyses still point at the same clusters.'
-    )) return;
+        'niche-filtered analyses still point at the same clusters.',
+        { title: 'Reset niche labels', okLabel: 'Reset', danger: true }
+    ))) return;
     const started = await startProcess('video_map_refresh', { reset_labels: reset });
     if (started && reset && box) box.checked = false;
 }
+
+// ── Generic pretty dialogs — the app-wide replacement for native alert()/
+// confirm(). Both return Promises so callers can await a choice; the look
+// reuses the stop-worker modal (.stop-confirm-overlay / .stop-confirm-card).
+let _appDialogResolver = null;
+
+function _closeAppDialog(result) {
+    const overlay = document.getElementById('app-dialog-overlay');
+    if (overlay) overlay.classList.remove('visible');
+    document.removeEventListener('keydown', _appDialogKeydown);
+    if (_appDialogResolver) {
+        const r = _appDialogResolver;
+        _appDialogResolver = null;
+        r(result);
+    }
+}
+
+function _appDialogKeydown(e) {
+    if (e.key === 'Escape') _closeAppDialog(false);
+    else if (e.key === 'Enter') _closeAppDialog(true);
+}
+
+function _showAppDialog({ message, title = null, okLabel = 'OK', cancelLabel = null, danger = false }) {
+    const overlay = document.getElementById('app-dialog-overlay');
+    // Defensive fallback if the markup isn't on the page.
+    if (!overlay) {
+        if (cancelLabel === null) { window.alert(message); return Promise.resolve(true); }
+        return Promise.resolve(window.confirm(message));
+    }
+    // Resolve any dialog already open as cancelled before showing a new one.
+    if (_appDialogResolver) _closeAppDialog(false);
+
+    const titleEl = document.getElementById('app-dialog-title');
+    const textEl = document.getElementById('app-dialog-text');
+    const okBtn = document.getElementById('app-dialog-ok-btn');
+    const cancelBtn = document.getElementById('app-dialog-cancel-btn');
+
+    titleEl.textContent = title || '';
+    titleEl.style.display = title ? 'block' : 'none';
+    textEl.textContent = message == null ? '' : String(message);
+    okBtn.textContent = okLabel || 'OK';
+    okBtn.className = danger ? 'btn-stop' : 'btn-primary';
+    cancelBtn.textContent = cancelLabel || 'Cancel';
+    cancelBtn.style.display = cancelLabel === null ? 'none' : '';
+
+    okBtn.onclick = () => _closeAppDialog(true);
+    cancelBtn.onclick = () => _closeAppDialog(false);
+    overlay.onclick = (e) => { if (e.target === overlay) _closeAppDialog(false); };
+
+    document.addEventListener('keydown', _appDialogKeydown);
+    overlay.classList.add('visible');
+    setTimeout(() => { try { okBtn.focus(); } catch (_) { } }, 50);
+    return new Promise(resolve => { _appDialogResolver = resolve; });
+}
+
+// Pretty alert: one OK button. Resolves when dismissed. Safe to fire-and-forget.
+function showAppAlert(message, opts = {}) {
+    return _showAppDialog({ ...opts, message, cancelLabel: null });
+}
+
+// Pretty confirm: OK + Cancel. Resolves to true (OK) / false (Cancel/Esc/backdrop).
+function showAppConfirm(message, opts = {}) {
+    return _showAppDialog({
+        okLabel: 'OK',
+        cancelLabel: 'Cancel',
+        ...opts,
+        message,
+    });
+}
+
 
 // Arm-prompt state (module-scoped). _armPromptResolver is set while the
 // overlay is visible so the Yes/No buttons can resolve the awaited promise.
@@ -688,7 +781,7 @@ function _showAlreadyRunningDialog(name, extraBody) {
     const cancelBtn = document.getElementById('already-running-cancel-btn');
     const stopRetryBtn = document.getElementById('already-running-stop-retry-btn');
     if (!overlay || !textEl || !cancelBtn || !stopRetryBtn) {
-        alert(`${_processDisplayLabel(name)} is already running. Stop it before starting again.`);
+        showAppAlert(`${_processDisplayLabel(name)} is already running. Stop it before starting again.`);
         return;
     }
     const label = _processDisplayLabel(name);

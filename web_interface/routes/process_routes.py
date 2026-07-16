@@ -51,7 +51,24 @@ FORK_START_GRACE_SECONDS = 150
 def api_start(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400
-    
+
+    # Refuse to start the annotator when Gemini is not configured — otherwise the
+    # worker boots, finds no client, and fails every item. A pure config check
+    # (no network); if the import itself fails, google-genai isn't installed, so
+    # Gemini is likewise unavailable. Not a 409 (that drives the "already
+    # running" dialog), so the client surfaces the reason instead.
+    if name in ("queue_annotator", "queue_annotator_batch"):
+        try:
+            from fyp.annotation.machine_annotation import annotation_configured
+            gemini_ok, gemini_reason = annotation_configured()
+        except Exception as exc:
+            gemini_ok, gemini_reason = False, (
+                "Gemini annotation is unavailable: the google-genai library "
+                f"could not be loaded ({exc})."
+            )
+        if not gemini_ok:
+            return jsonify({"status": "error", "message": gemini_reason}), 400
+
     data = request.json or {}
     args = []
     

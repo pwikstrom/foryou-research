@@ -921,7 +921,7 @@ async function saveStudy(btn, event) {
                     btn.disabled = false;
                     renderStudiesTable();
                 } else {
-                    alert("Error saving: " + (data.error || "Unknown error"));
+                    showAppAlert("Error saving: " + (data.error || "Unknown error"));
                     btn.className = 'btn-save';
                     btn.textContent = "Save/Refresh Study";
                     btn.disabled = false;
@@ -930,7 +930,7 @@ async function saveStudy(btn, event) {
             })
             .catch(err => {
                 console.error(err);
-                alert("Save failed.");
+                showAppAlert("Save failed.");
                 savingStudies.delete(studyName);
                 btn.className = 'btn-save';
                 btn.textContent = "Save/Refresh Study";
@@ -1097,7 +1097,7 @@ function _runStudyEstimate(row) {
 }
 
 
-function deleteStudy(btn, event) {
+async function deleteStudy(btn, event) {
     if (event) event.preventDefault();
     const formContainer = btn.closest('.study-edit-form');
     const studyName = formContainer.dataset.studyName;
@@ -1107,7 +1107,8 @@ function deleteStudy(btn, event) {
         return;
     }
 
-    if (!confirm(`Are you sure you want to delete study '${studyName}'? This cannot be undone.`)) return;
+    if (!(await showAppConfirm(`Are you sure you want to delete study '${studyName}'? This cannot be undone.`,
+        { title: 'Delete study', okLabel: 'Delete', danger: true }))) return;
 
     fetch('/api/manage/studies/delete', {
         method: 'POST',
@@ -1118,13 +1119,13 @@ function deleteStudy(btn, event) {
         .then(data => {
             if (data.status === 'success') {
                 closeStudyModal();
-                alert("Study deleted.");
+                showAppAlert("Study deleted.");
                 loadStudies();
             } else {
-                alert("Error: " + data.error);
+                showAppAlert("Error: " + data.error);
             }
         })
-        .catch(err => alert("Delete failed: " + err));
+        .catch(err => showAppAlert("Delete failed: " + err));
 }
 
 function populateEnrichmentStudySelect(studies) {
@@ -2258,7 +2259,7 @@ function queueVideosFromTargetStudy(btnElement) {
     const annotateTargetsDisplay = document.getElementById('enrich_annotate_targets');
 
     if (!studyName) {
-        alert("Please select a target study from the dropdown first.");
+        showAppAlert("Please select a target study from the dropdown first.");
         return;
     }
 
@@ -2337,7 +2338,7 @@ function queueVideosFromTargetStudy(btnElement) {
             annotateTargetsDisplay.textContent = "Failed";
             annotateTargetsDisplay.style.color = 'var(--color-danger)';
             console.error("Error queueing from target study:", err);
-            alert("Error queueing videos from target study.");
+            showAppAlert("Error queueing videos from target study.");
         });
 }
 
@@ -2354,7 +2355,7 @@ function emptyQueue(queueType, platform) {
             if (data.status === 'success') {
                 fetchEnrichmentStats();
             } else {
-                alert("Error: " + data.error);
+                showAppAlert("Error: " + data.error);
             }
         })
         .catch(err => console.error("Failed to empty queue: " + err));
@@ -3004,8 +3005,8 @@ function openStructureReviewModal(verdict) {
     overlay.style.display = 'flex';
 }
 
-function _postStructureReview(btn, endpoint, filename, confirmMessage, done) {
-    if (!confirm(confirmMessage)) return;
+async function _postStructureReview(btn, endpoint, filename, confirmMessage, done) {
+    if (!(await showAppConfirm(confirmMessage, { title: 'Structure review' }))) return;
     btn.disabled = true;
     fetch(endpoint, {
         method: 'POST',
@@ -3164,11 +3165,12 @@ function showToast(message, level = 'success', duration = 5000) {
     }, duration);
 }
 
-function clearPendingUploads(btn) {
-    const ok = confirm(
+async function clearPendingUploads(btn) {
+    const ok = await showAppConfirm(
         'Cancel all pending uploads?\n\n' +
         'This deletes the staged raw files from storage and clears every ingestion manifest. ' +
-        'The action cannot be undone.'
+        'The action cannot be undone.',
+        { title: 'Cancel pending uploads', okLabel: 'Cancel uploads', danger: true }
     );
     if (!ok) return;
 
@@ -3686,15 +3688,15 @@ function renderUploadTags() {
 
 function submitUpload() {
     if (_uploadPreprocessing) {
-        alert('Still scanning the selected donation zip(s) — one moment.');
+        showAppAlert('Still scanning the selected donation zip(s) — one moment.');
         return;
     }
     if (_uploadBlockedFiles.length > 0) {
-        alert('Some selected zips contain none of the files this platform needs. Change the selection first.');
+        showAppAlert('Some selected zips contain none of the files this platform needs. Change the selection first.');
         return;
     }
     if (!uploadPendingFiles || uploadPendingFiles.length === 0) {
-        alert('Please select files first.');
+        showAppAlert('Please select files first.');
         return;
     }
 
@@ -3709,14 +3711,14 @@ function submitUpload() {
         collectionId = document.getElementById('uploadExistingCollectionId').value;
         collectionIdMode = 'single';
         if (!collectionId) {
-            alert('Please select an existing collection.');
+            showAppAlert('Please select an existing collection.');
             return;
         }
     } else if (mode === 'new') {
         collectionId = document.getElementById('uploadNewCollectionId').value.trim();
         collectionIdMode = 'single';
         if (!collectionId) {
-            alert('Please enter a collection ID.');
+            showAppAlert('Please enter a collection ID.');
             return;
         }
     }
@@ -4291,13 +4293,13 @@ window.refreshCollectionMetadata = function (btn) {
                     loadAvailableCollections();
                 }, 5000);
             } else {
-                alert('Error: ' + (data.message || data.error || 'Unknown error'));
+                showAppAlert('Error: ' + (data.message || data.error || 'Unknown error'));
                 btn.textContent = origText;
                 btn.disabled = false;
             }
         })
         .catch(err => {
-            alert('Request failed: ' + err);
+            showAppAlert('Request failed: ' + err);
             btn.textContent = origText;
             btn.disabled = false;
         });
@@ -4505,13 +4507,13 @@ function dm_saveAnnotation() {
                     closeEditCollectionModal();
                     loadAvailableCollections();
                 } else {
-                    alert('Failed to save: ' + (data.error || 'Unknown error'));
+                    showAppAlert('Failed to save: ' + (data.error || 'Unknown error'));
                 }
             })
             .catch(err => {
                 if (saveBtn) saveBtn.disabled = false;
                 console.error("Error saving annotation:", err);
-                alert("Error saving annotation.");
+                showAppAlert("Error saving annotation.");
             });
     } else {
         // Bulk save: compute per-collection tag diffs
@@ -4572,7 +4574,7 @@ function dm_saveAnnotation() {
             }
             if (saveBtn) saveBtn.disabled = false;
             if (failed > 0) {
-                alert(`Saved ${payloads.length - failed} of ${payloads.length} collections. ${failed} failed.`);
+                showAppAlert(`Saved ${payloads.length - failed} of ${payloads.length} collections. ${failed} failed.`);
             }
             closeEditCollectionModal();
             loadAvailableCollections();
@@ -4593,16 +4595,17 @@ function dm_deleteCollection() {
 
     fetch(`/api/manage/collections/affected_studies?collection_id=${encodeURIComponent(id)}`)
         .then(r => r.json())
-        .then(data => {
+        .then(async data => {
             const studies = (data && data.studies) || [];
             const studyClause = studies.length === 0
                 ? "No studies reference this collection."
                 : `${studies.length} study/studies will be refreshed: ${studies.join(", ")}.`;
-            const ok = confirm(
+            const ok = await showAppConfirm(
                 `Delete collection "${displayId}"?\n\n` +
                 `${studyClause}\n\n` +
                 `Raw upload files will be moved to the archive folder and can be restored. ` +
-                `Scraped video data and machine annotations will be kept.`
+                `Scraped video data and machine annotations will be kept.`,
+                { title: 'Delete collection', okLabel: 'Delete', danger: true }
             );
             if (!ok) {
                 if (deleteBtn) deleteBtn.disabled = false;
@@ -4620,14 +4623,14 @@ function dm_deleteCollection() {
                         pollCollectionDeleteStatus(id, displayId, deleteBtn);
                     } else {
                         if (deleteBtn) deleteBtn.disabled = false;
-                        alert('Failed to start delete: ' + ((resp && resp.message) || (resp && resp.error) || 'Unknown error'));
+                        showAppAlert('Failed to start delete: ' + ((resp && resp.message) || (resp && resp.error) || 'Unknown error'));
                     }
                 });
         })
         .catch(err => {
             if (deleteBtn) deleteBtn.disabled = false;
             console.error("Error deleting collection:", err);
-            alert("Error deleting collection.");
+            showAppAlert("Error deleting collection.");
         });
 }
 window.dm_deleteCollection = dm_deleteCollection;
@@ -4667,10 +4670,10 @@ function pollCollectionDeleteStatus(collectionId, displayId, deleteBtn) {
                     msg += `archived ${archived} raw file(s)`;
                     if (failures > 0) msg += ` (${failures} archive failure(s))`;
                     msg += `. Refreshing ${affected} study/studies in the background.`;
-                    alert(msg);
+                    showAppAlert(msg);
                     loadAvailableCollections();
                 } else {
-                    alert(`Failed to delete "${displayId}". Check the task logs for details.`);
+                    showAppAlert(`Failed to delete "${displayId}". Check the task logs for details.`);
                 }
             })
             .catch(err => {
@@ -4799,8 +4802,9 @@ function openEditSelectedCollections() {
 }
 window.openEditSelectedCollections = openEditSelectedCollections;
 
-function queueVotedVideos(btnElement) {
-    if (!confirm("Are you sure you want to add all machine-voted videos to the scrape and annotation queues?")) {
+async function queueVotedVideos(btnElement) {
+    if (!(await showAppConfirm("Are you sure you want to add all machine-voted videos to the scrape and annotation queues?",
+        { title: 'Queue voted videos', okLabel: 'Add to queues' }))) {
         return;
     }
 
@@ -4820,19 +4824,19 @@ function queueVotedVideos(btnElement) {
             btnElement.disabled = false;
 
             if (data.status === 'success') {
-                alert(`Success: Added ${data.added_to_scrape} to scrape queue and ${data.added_to_annotate} to annotate queue.`);
+                showAppAlert(`Success: Added ${data.added_to_scrape} to scrape queue and ${data.added_to_annotate} to annotate queue.`);
                 fetchEnrichmentStats(); // Refresh the stats
             } else if (data.status === 'no_votes' || data.status === 'no_matches') {
-                alert(data.message);
+                showAppAlert(data.message);
             } else {
-                alert('Error queuing voted videos: ' + data.error);
+                showAppAlert('Error queuing voted videos: ' + data.error);
             }
         })
         .catch(error => {
             btnElement.textContent = originalText;
             btnElement.disabled = false;
             console.error('Error queuing voted videos:', error);
-            alert('Error queuing voted videos.');
+            showAppAlert('Error queuing voted videos.');
         });
 }
 

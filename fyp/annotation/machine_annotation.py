@@ -130,7 +130,40 @@ def initialize_machine():
 
     else:
         logger.warning("I'm offline. Can't initialize Google Gemini.")
-        
+
+
+def annotation_configured() -> tuple[bool, str]:
+    """Whether machine (Gemini) annotation is configured to run.
+
+    A pure config check — no network, no client construction — mirroring the
+    credential guard in :func:`initialize_machine`. Vertex AI needs a GCP
+    project; the plain Gemini API needs ``GEMINI_API_KEY`` (loaded into
+    ``[machine].key`` at config init). Used to gate the annotator worker so it
+    is not started when Gemini can never annotate anything.
+
+    Returns:
+        ``(ok, reason)``. When ``ok`` is False, ``reason`` is a user-facing
+        explanation of what to configure; an empty string otherwise.
+    """
+    machine = _cf()["machine"]
+    if bool(machine.get("vertexai")):
+        if not str(machine.get("project") or "").strip():
+            return False, (
+                "Gemini annotation is not configured: Vertex AI is enabled "
+                "([machine].vertexai = true) but no GCP project is set. Set "
+                "[machine].project in config/config.local.toml, or set "
+                "vertexai = false and provide a GEMINI_API_KEY."
+            )
+        return True, ""
+    if not str(machine.get("key") or "").strip():
+        return False, (
+            "Gemini annotation is not configured: the plain Gemini API is "
+            "selected ([machine].vertexai = false) but GEMINI_API_KEY is not "
+            "set. Provide GEMINI_API_KEY, or enable Vertex AI (vertexai = true "
+            "with a GCP project)."
+        )
+    return True, ""
+
 
 
 
