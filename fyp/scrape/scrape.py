@@ -71,6 +71,7 @@ _CONFIG_CONSTANT_ACCESSORS = {
     "FAILED_SCRAPES_LABEL": _failed_scrapes_label,
     "MEMORY_STOP_FRACTION": lambda: _memory_stop_fraction(),
     "SLIDESHOW_MAX_DIMENSION": lambda: _slideshow_max_dimension(),
+    "PERMANENT_STORM_THRESHOLD": lambda: _permanent_storm_threshold(),
 }
 
 
@@ -88,6 +89,21 @@ def __getattr__(name: str):
 # Consecutive throttle-category failures (across all workers) that trip the
 # batch circuit breaker in download_video_threads.
 CIRCUIT_BREAKER_THRESHOLD = 15
+
+# Consecutive same-category *permanent* failures that mark the batch outcome as
+# suspect (a "permanent storm"). A broken/flagged session can make every item
+# fail with the same permanent classification (e.g. Instagram returning 404 for
+# live posts → "removed"); pruning those ids from the queue would be wrong and
+# hard to recover from. A healthy queue produces heterogeneous outcomes, so a
+# long homogeneous run of one permanent category aborts the batch instead, and
+# the affected ids are demoted to transient (kept queued, not recorded as
+# failed). Overridable via ``[misc] scraper_permanent_storm_threshold``.
+def _permanent_storm_threshold() -> int:
+    """Lazy accessor for the permanent-storm guard threshold (see comment above)."""
+    try:
+        return int(_cf()["misc"].get("scraper_permanent_storm_threshold", 15))
+    except (KeyError, TypeError, ValueError):
+        return 15
 
 # Fraction of the container memory limit at which a batch stops launching new
 # downloads, drains in-flight work, saves what completed, and defers the rest
@@ -977,7 +993,13 @@ def download_video_threads(
     # the queue for nothing, so the batch aborts; unprocessed items return as
     # "batch_aborted" (transient) and stay queued.
     breaker_lock = threading.Lock()
-    breaker_state = {"consecutive": 0}
+    breaker_state = {"consecutive": 0, "tripped": False}
+    # Permanent-storm guard: a run of consecutive *identical* permanent
+    # classifications (e.g. permanent:removed) means the session — not the
+    # items — is broken, so the batch aborts and those ids are demoted to
+    # transient instead of being pruned from the queue as permanently failed.
+    storm_state = {"classification": None, "consecutive": 0, "tripped": False}
+    storm_threshold = _permanent_storm_threshold()
     abort_event = threading.Event()
     # Memory safety valve: set once the container's memory cgroup crosses
     # MEMORY_STOP_FRACTION. Workers that have not started downloading yet defer
@@ -991,12 +1013,35 @@ def download_video_threads(
             if category in THROTTLE_CATEGORIES:
                 breaker_state["consecutive"] += 1
                 if breaker_state["consecutive"] >= CIRCUIT_BREAKER_THRESHOLD and not abort_event.is_set():
+                    breaker_state["tripped"] = True
                     abort_event.set()
                     logger.warning(f"  [scrape] Circuit breaker: {breaker_state['consecutive']} "
                                    f"consecutive {sorted(THROTTLE_CATEGORIES)} results — "
                                    f"aborting batch; remaining items stay queued.")
             else:
                 breaker_state["consecutive"] = 0
+            if storm_state["tripped"]:
+                # Frozen once tripped: post-abort "batch_aborted" results are
+                # transient and would otherwise wipe the storm classification.
+                return
+            classification = scraper.classify_error(category)
+            if classification.startswith("permanent"):
+                if classification == storm_state["classification"]:
+                    storm_state["consecutive"] += 1
+                else:
+                    storm_state["classification"] = classification
+                    storm_state["consecutive"] = 1
+                if storm_state["consecutive"] >= storm_threshold and not storm_state["tripped"]:
+                    storm_state["tripped"] = True
+                    abort_event.set()
+                    logger.warning(f"  [scrape] Permanent-storm guard: "
+                                   f"{storm_state['consecutive']} consecutive "
+                                   f"'{classification}' results — the session, not the "
+                                   f"items, is suspect. Aborting batch; affected items "
+                                   f"stay queued and are not recorded as failed.")
+            else:
+                storm_state["classification"] = None
+                storm_state["consecutive"] = 0
 
     def worker(idx_video):
         idx, video = idx_video
@@ -1158,6 +1203,7 @@ def download_video_threads(
     permanent_failed_ids: list[str] = []
     transient_failed_ids: list[str] = []
     media_retry_ids: list[str] = []
+    storm_demoted = 0
     for idx in range(len(interesting_videos)):
         res = results_by_index.get(idx)
         if isinstance(res, pd.DataFrame) and res.shape[1] > 10:
@@ -1174,10 +1220,23 @@ def download_video_threads(
             failed_items += [vid]
             error_type = res.attrs.get('error_type', 'unknown') if isinstance(res, pd.DataFrame) else 'unknown'
             # The scraper owns its platform's permanent-vs-transient taxonomy.
-            if scraper.classify_error(error_type).startswith('permanent'):
-                permanent_failed_ids.append(vid)
+            classification = scraper.classify_error(error_type)
+            if classification.startswith('permanent'):
+                if storm_state["tripped"] and classification == storm_state["classification"]:
+                    # Suspect storm verdict: keep the id queued and off the
+                    # failed record — a later healthy session re-scrapes it.
+                    transient_failed_ids.append(vid)
+                    failed_items.remove(vid)
+                    storm_demoted += 1
+                else:
+                    permanent_failed_ids.append(vid)
             else:
                 transient_failed_ids.append(vid)
+
+    if storm_state["tripped"]:
+        logger.warning(f"  Permanent-storm guard: {storm_demoted} "
+                       f"'{storm_state['classification']}' failures demoted to transient "
+                       f"— kept in queue, not recorded as failed.")
 
     if media_retry_ids:
         logger.info(f"  Media retries: {len(media_retry_ids)} items scraped metadata-only "
@@ -1191,7 +1250,9 @@ def download_video_threads(
     if len(results)==0:
         logger.warning("The scrape procedure did not generate any useful results")
         empty_results = pd.DataFrame()
-        empty_results.attrs['circuit_breaker_tripped'] = abort_event.is_set()
+        empty_results.attrs['circuit_breaker_tripped'] = breaker_state["tripped"]
+        empty_results.attrs['permanent_storm_tripped'] = storm_state["tripped"]
+        empty_results.attrs['permanent_storm_category'] = storm_state["classification"]
         empty_results.attrs['memory_stop'] = mem_stop_event.is_set()
         return empty_results, permanent_failed_ids, transient_failed_ids
 
@@ -1213,12 +1274,14 @@ def download_video_threads(
         logger.info(f"Saved {len(failed_items)} failed items")
 
     # Signal upward (batch loop / queue-scraper chaining) that this batch was
-    # aborted by the rate-limit circuit breaker. Set post-save so pipeline
-    # transforms can't have dropped the attr. ``memory_stop`` is distinct from
-    # the circuit breaker: it does NOT stop chaining — the completed rows are
-    # saved and pruned, and the deferred items are picked up by the next
-    # (fresh-process) chain.
-    results.attrs['circuit_breaker_tripped'] = abort_event.is_set()
+    # aborted by the rate-limit circuit breaker or the permanent-storm guard.
+    # Set post-save so pipeline transforms can't have dropped the attrs.
+    # ``memory_stop`` is distinct from both: it does NOT stop chaining — the
+    # completed rows are saved and pruned, and the deferred items are picked up
+    # by the next (fresh-process) chain.
+    results.attrs['circuit_breaker_tripped'] = breaker_state["tripped"]
+    results.attrs['permanent_storm_tripped'] = storm_state["tripped"]
+    results.attrs['permanent_storm_category'] = storm_state["classification"]
     results.attrs['memory_stop'] = mem_stop_event.is_set()
 
     return results, permanent_failed_ids, transient_failed_ids
@@ -1310,6 +1373,15 @@ def scraper_loop_from_list(
                   "Unfinished items stay in the queue; re-run the scraper later.")
             if reporter is not None:
                 reporter.emit_data({"rate_limit_abort": True})
+            break
+
+        if results_from_scraper.attrs.get('permanent_storm_tripped'):
+            logger.warning(f"  Permanent-failure storm detected "
+                  f"({results_from_scraper.attrs.get('permanent_storm_category')}) — "
+                  f"batch outcome suspect; stopping the batch loop. Affected items "
+                  f"stay in the queue; re-run the scraper once the session is healthy.")
+            if reporter is not None:
+                reporter.emit_data({"permanent_storm_abort": True})
             break
 
         with open(os.path.join(_cf()['paths']['temp'], "temp_failed_scrapes.json"), "w") as f:
