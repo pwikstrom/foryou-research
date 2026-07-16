@@ -351,7 +351,10 @@ def call_machine(
         "annotation_version" : annotation_versioning.current_annotation_version(),
         "structured" : True,
         "usage" : {},
-        "error" : "unknown error",
+        # None until an exception handler fills it — a successful call must
+        # not report an error (nothing downstream reads this field; it exists
+        # for humans debugging the raw output rows and temp JSONs).
+        "error" : None,
         "finish_reason": "did not even start",
         "response" : "",
     }
