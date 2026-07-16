@@ -382,7 +382,7 @@ platform = "tiktok"
 dtype = "int64[pyarrow]"
 section = "backstage"
 display_name = "Image count"
-description = "Number of images in the item's photo carousel (0 for a video)."
+description = "Number of images in the item's photo carousel (0 for a video). Also emitted by the Instagram scraper for image-only posts (the column is kept by the name-based save whitelist)."
 
 [[fields]]
 name = "isAd"

@@ -37,7 +37,7 @@ dependencies = [
     "statsmodels>=0.14",
     "toml>=0.10",
     "tomlkit>=0.15",
-    "yt-dlp>=2026.3.17",
+    "yt-dlp>=2026.7.4",
 ]
 
 [project.optional-dependencies]

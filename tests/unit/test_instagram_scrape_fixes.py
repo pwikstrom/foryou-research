@@ -30,6 +30,19 @@ def test_no_video_formats_is_permanent_no_video():
 
 
 
+def test_carousel_category_is_retryable():
+    """A partial image-download failure stays queued for a whole-post retry."""
+    from fyp.scrape import instagram_dl
+
+    assert "carousel" in instagram_dl._RETRYABLE
+    assert "carousel" not in instagram_dl._PERMANENT
+    assert instagram_dl.InstagramScraper().classify_error("carousel") == "transient:carousel"
+
+
+
+
+
+
 def test_there_is_no_video_still_classified_no_video():
     from fyp.scrape import instagram_dl
 
@@ -81,6 +94,27 @@ def test_scrape_future_success_predicate():
 
     # A future that raised => NOT success (and must not propagate).
     assert scrape._scrape_future_succeeded(_FakeFuture(exc=RuntimeError("boom"))) is False
+
+
+
+
+
+
+def test_requests_cookiejar_local_dev_falls_back_to_chrome(monkeypatch):
+    """With no cookie file, local dev sources plain-requests cookies from Chrome."""
+    from fyp.scrape import scraper_cookies as sc
+
+    sentinel = object()
+    monkeypatch.setattr(sc, "ensure_cookie_file", lambda platform: None)
+    monkeypatch.setattr(sc, "_env_cookie_file", lambda platform: "")
+    monkeypatch.setattr(sc, "_chrome_requests_cookies", lambda platform: sentinel)
+
+    monkeypatch.setattr(sc, "_is_local_dev", lambda: True)
+    assert sc.requests_cookiejar("instagram") is sentinel
+
+    # Headless environments (Cloud Run/Docker) keep the old behavior: None.
+    monkeypatch.setattr(sc, "_is_local_dev", lambda: False)
+    assert sc.requests_cookiejar("instagram") is None
 
 
 

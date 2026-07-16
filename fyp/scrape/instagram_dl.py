@@ -4,13 +4,24 @@ Instagram scraper using yt-dlp as backend.
 
 Fetches metadata + media for Instagram posts/reels identified by their URL
 shortcode (the ``item_id`` produced by :class:`fyp.ingest.InstagramDDPCollection`).
-Requires a logged-in research account's cookies — anonymous Instagram access
-fails for most content (see :mod:`fyp.scraper_cookies`).
 
-Image-only posts (liked photos/carousels) are classified as
-``permanent:no_video`` in this first version: yt-dlp cannot extract them, and
-Instagram has no unauthenticated page-JSON equivalent of TikTok's carousel
-extraction. Their donated enrichment-seed metadata still surfaces downstream.
+Extraction runs **anonymously** (no cookies): as of 2026-07 Instagram killed
+its authenticated web API (``api/v1/media/{pk}/info/`` 404s for web sessions
+and post pages render as an empty SPA shell), so attaching session cookies
+makes every yt-dlp extraction fail — while the logged-out GraphQL path
+yt-dlp ≥2026.7.4 uses works. Follow-gated/private content is therefore
+permanently inaccessible (classified ``private``); the donated enrichment
+seed still surfaces its caption/author.
+
+Image-only posts (single photos and carousels): extraction uses yt-dlp's
+``ignore_no_formats_error`` so an image post returns a full info dict; the
+image URLs come from its thumbnails (single post) or its playlist entries'
+thumbnails (carousel). The images download as ``{item_id}_{NN:02}.jpeg`` and
+the orchestrator assembles a silent ``{item_id}.mp4`` slideshow — the same
+division of labor as TikTok's photo posts (see
+:class:`fyp.scrape.platform_scraper.BaseScraper`). Phase-2 candidates:
+muxing the post's music (slideshows are silent for now) and video segments
+inside mixed carousels (currently skipped).
 """
 
 
@@ -32,7 +43,12 @@ from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
 from fyp.scrape import scraper_cookies
-from fyp.scrape.platform_scraper import BaseScraper, cleanup_temp_files, empty_fail
+from fyp.scrape.platform_scraper import (
+    SLIDESHOW_SECONDS_PER_IMAGE,
+    BaseScraper,
+    cleanup_temp_files,
+    empty_fail,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +70,10 @@ def _cf():
 # or login required" conflates removed, throttled, and logged-out — it is kept
 # retryable (rate_limited) so genuinely throttled items stay queued; permanently
 # removed items behind it will keep retrying (accepted for now).
-_RETRYABLE = {"rate_limited", "login_required", "network", "server_error", "unknown"}
+# "carousel" is produced only by the image-post path (a partial image-download
+# failure), never parsed from an exception, so it cannot reach the
+# _extract_metadata/_download_media retry loops.
+_RETRYABLE = {"rate_limited", "login_required", "network", "server_error", "carousel", "unknown"}
 _PERMANENT = {"removed", "private", "no_video", "geo_blocked"}
 
 _META_MAX_RETRIES = 3
@@ -106,8 +125,10 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
         return "no_video", msg
 
     # The ambiguous catch-all must be checked before the "removed" patterns —
-    # it contains "not available" but usually means throttled/logged out.
-    if 'rate-limit reached' in msg_lower or 'rate limit' in msg_lower:
+    # it contains "not available" but usually means throttled/logged out. The
+    # bare hyphenated form also catches yt-dlp's anonymous-access limit
+    # ("exceeded the rate-limit for accessing posts anonymously").
+    if 'rate-limit' in msg_lower or 'rate limit' in msg_lower:
         return "rate_limited", msg
 
     if ('http error 403' in msg_lower or 'http error 429' in msg_lower
@@ -115,7 +136,9 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
             or 'empty media response' in msg_lower):
         return "rate_limited", msg
 
-    if 'private' in msg_lower:
+    # Follow-gated content is permanently inaccessible to the anonymous
+    # extraction path — without this it churned forever as retryable unknown.
+    if 'private' in msg_lower or 'only available for registered users' in msg_lower:
         return "private", msg
 
     if 'login required' in msg_lower or 'log in' in msg_lower or 'logged-in' in msg_lower:
@@ -163,8 +186,10 @@ def _info_to_row(info: dict, item_id: str) -> pd.DataFrame:
         'desc': info.get('description', '') or '',
         'create_time_raw': create_time,
         'duration_raw': info.get('duration') or -1,
-        'author_id': str(info.get('channel_id', '') or info.get('uploader_id', '') or ''),
-        'ig_author_handle': str(info.get('uploader_id', '') or info.get('channel', '') or ''),
+        # yt-dlp ≥2026.7 fills uploader_id with the numeric user pk and channel
+        # with the @username (older versions had the username in uploader_id).
+        'author_id': str(info.get('uploader_id', '') or info.get('channel_id', '') or ''),
+        'ig_author_handle': str(info.get('channel', '') or info.get('uploader_id', '') or ''),
         'author_name_raw': str(info.get('uploader', '') or info.get('channel', '') or ''),
         'play_count_raw': info.get('view_count') if info.get('view_count') is not None else -1,
         'ig_like_count': info.get('like_count') if info.get('like_count') is not None else -1,
@@ -178,13 +203,19 @@ def _info_to_row(info: dict, item_id: str) -> pd.DataFrame:
 
 
 def _extract_metadata(url: str, item_id: str, verbose: bool = False):
-    """yt-dlp metadata extraction with retry. Returns (info, None) or (None, fail_df)."""
+    """yt-dlp metadata extraction with retry. Returns (info, None) or (None, fail_df).
+
+    Runs anonymously (see module docstring — session cookies make every
+    extraction fail since Instagram's 2026-07 web-API change).
+    ``ignore_no_formats_error`` lets image-only posts return their info dict
+    (metadata + image thumbnails) instead of raising ``no_video``.
+    """
     ydl_opts: dict = {
         'quiet': True,
         'no_warnings': not verbose,
-        **scraper_cookies.cookie_opts("instagram"),
         'skip_download': True,
         'no_color': True,
+        'ignore_no_formats_error': True,
         'extractor_retries': 3,
         'socket_timeout': 30,
     }
@@ -231,7 +262,6 @@ def _download_media(
     dl_opts: dict = {
         'quiet': True,
         'no_warnings': not verbose,
-        **scraper_cookies.cookie_opts("instagram"),
         'outtmpl': out_template,
         'no_color': True,
         'overwrites': True,
@@ -424,6 +454,12 @@ def _parse_page_counts(html_text: str, item_id: str) -> dict | None:
 # a randomized inter-call delay plus a process-wide circuit breaker that pauses
 # supplementation for the rest of a batch after repeated rate-limit/challenge
 # responses (so a flagged account is not hammered).
+#
+# NOTE (2026-07): Instagram's web-API change broke this endpoint for web
+# sessions — it currently serves the SPA HTML shell, so supplementation
+# degrades gracefully to None (play_count stays NA). The machinery is kept in
+# case the endpoint returns; disable outright with [misc]
+# ig_fetch_view_counts = false to save one dead request per reel.
 
 # Instagram's public web app id (the value the web client sends).
 _IG_WEB_APP_ID = "936619743392459"
@@ -536,26 +572,26 @@ def _parse_media_info_counts(payload: dict, item_id: str) -> dict | None:
 
 
 
-def _fetch_media_info_counts(item_id: str) -> dict | None:
-    """Fetch play/like/comment counts from the authenticated media-info endpoint.
+def _fetch_media_info_payload(item_id: str) -> tuple[dict | None, str | None]:
+    """Fetch the full media-info JSON payload for a post. Never raises.
 
-    Returns ``{"play_count": int|None, "like_count": int|None,
-    "comment_count": int|None}`` or None. Never raises — supplementation must
-    not fail a scrape. Honors the config gate ``[misc] ig_fetch_view_counts``,
-    a randomized inter-call delay, and the module circuit breaker.
+    Returns ``(payload, None)`` on success, or ``(None, error_category)``
+    where the category maps into the module error taxonomy (``rate_limited``,
+    ``login_required``, ``network``, ``removed``, ``no_video``). Honors the
+    randomized inter-call delay and the module circuit breaker — but NOT the
+    ``ig_fetch_view_counts`` config gate, which only governs optional count
+    supplementation (the image-post path needs this payload regardless).
     """
-    if not _cf()["misc"].get("ig_fetch_view_counts", True):
-        return None
     if _media_info_circuit_open():
-        return None
+        return None, "rate_limited"
 
     pk = _shortcode_to_mediaid(item_id)
     if pk is None:
-        return None
+        return None, "no_video"
 
     jar = scraper_cookies.requests_cookiejar("instagram")
     if jar is None:
-        return None
+        return None, "login_required"
 
     from requests import get as requests_get
 
@@ -575,22 +611,161 @@ def _fetch_media_info_counts(item_id: str) -> dict | None:
                             cookies=jar, timeout=20)
     except Exception as e:
         logger.debug("IG media-info fetch failed for %s: %s", item_id, e)
-        return None
+        return None, "network"
 
     if resp.status_code in (401, 403, 429):
         _note_media_info_block(item_id, resp.status_code)
-        return None
+        return None, "rate_limited"
+    if resp.status_code in (400, 404):
+        logger.debug("IG media-info %s → HTTP %s", item_id, resp.status_code)
+        return None, "removed"
     if resp.status_code != 200:
         logger.debug("IG media-info %s → HTTP %s", item_id, resp.status_code)
-        return None
+        return None, "no_video"
 
     _reset_media_info_blocks()
     try:
         payload = resp.json()
     except Exception as e:
         logger.debug("IG media-info JSON parse failed for %s: %s", item_id, e)
+        return None, "no_video"
+    if not (payload.get("items") or []):
+        return None, "no_video"
+    return payload, None
+
+
+
+
+def _fetch_media_info_counts(item_id: str) -> dict | None:
+    """Fetch play/like/comment counts from the authenticated media-info endpoint.
+
+    Returns ``{"play_count": int|None, "like_count": int|None,
+    "comment_count": int|None}`` or None. Never raises — supplementation must
+    not fail a scrape. Honors the config gate ``[misc] ig_fetch_view_counts``
+    plus (via :func:`_fetch_media_info_payload`) the randomized inter-call
+    delay and the module circuit breaker.
+    """
+    if not _cf()["misc"].get("ig_fetch_view_counts", True):
+        return None
+    payload, _ = _fetch_media_info_payload(item_id)
+    if payload is None:
         return None
     return _parse_media_info_counts(payload, item_id)
+
+
+
+
+# -------------------------------------------------------------------------
+# Image-only posts (photos and carousels → orchestrator-assembled slideshows)
+# -------------------------------------------------------------------------
+
+
+def _best_thumbnail_url(media: dict) -> str | None:
+    """Largest image rendition from a yt-dlp media dict (pure).
+
+    yt-dlp's Instagram extractor emits ``thumbnails`` as the *reversed*
+    ``image_versions2.candidates`` list, so the last entry is the largest
+    rendition; explicit widths win when present.
+    """
+    thumbs = [t for t in (media.get('thumbnails') or []) if t.get('url')]
+    if not thumbs:
+        return None
+    if any(t.get('width') for t in thumbs):
+        return max(thumbs, key=lambda t: t.get('width') or 0)['url']
+    return thumbs[-1]['url']
+
+
+
+
+def _image_urls_from_info(info: dict) -> list[str]:
+    """Extract source-image URLs from a yt-dlp info dict (pure, no network).
+
+    With ``ignore_no_formats_error`` an image-only post extracts into an info
+    dict without formats whose thumbnails are the image renditions; a carousel
+    is a playlist whose image entries have no formats. Video media (formats or
+    a duration) yields nothing — video segments in mixed carousels are skipped
+    (phase 2) and a plain video post returns ``[]``.
+    """
+    if info.get('_type') == 'playlist':
+        urls = []
+        for entry in info.get('entries') or []:
+            if not entry or entry.get('formats') or entry.get('duration'):
+                continue
+            url = _best_thumbnail_url(entry)
+            if url:
+                urls.append(url)
+        return urls
+
+    if info.get('formats') or info.get('duration'):
+        return []
+    url = _best_thumbnail_url(info)
+    return [url] if url else []
+
+
+
+
+def _download_images(
+    image_urls: list[str],
+    item_id: str,
+    save_path: str,
+    stream_to_bucket=None,
+    verbose: bool = False,
+) -> bool:
+    """Download an image post's source images. Returns True on success.
+
+    Writes ``{item_id}_{NN:02}.jpeg`` (1-based, consecutive — the
+    orchestrator's slideshow NN-walk contract) into ``save_path`` locally or
+    streamed to the bucket.
+    """
+    from requests import get as requests_get
+
+    _CHUNK = 8 * 1024 * 1024
+
+    headers = {
+        'User-Agent': _PAGE_HEADERS['User-Agent'],
+        'Referer': 'https://www.instagram.com/',
+    }
+
+    cookies = scraper_cookies.requests_cookiejar("instagram")
+    written: list[str] = []
+    try:
+        for k, one_image in enumerate(image_urls):
+            if k:
+                # Gentle pacing between CDN requests (ban-happy platform).
+                sleep(random.uniform(0.5, 1.5))
+            image_fn = f"{item_id}_{k + 1:02}.jpeg"
+            if stream_to_bucket is None:
+                resp = requests_get(one_image, allow_redirects=True, headers=headers,
+                                    cookies=cookies, timeout=60)
+                with open(join(save_path, image_fn), 'wb') as f:
+                    f.write(resp.content)
+                written.append(join(save_path, image_fn))
+            else:
+                resp = requests_get(one_image, headers=headers, cookies=cookies,
+                                    stream=True, timeout=60)
+                blob = stream_to_bucket.blob(f"{save_path}/{image_fn}")
+                with blob.open('wb') as gcs_file:
+                    for chunk in resp.iter_content(chunk_size=_CHUNK):
+                        if chunk:
+                            gcs_file.write(chunk)
+                written.append(blob.name)
+        return True
+    except Exception as e:
+        if verbose:
+            logger.warning("Failed to download images for '%s': %s", item_id, e)
+        # Remove the partial image set: the orchestrator's slideshow assembly
+        # walks consecutive NN suffixes, so a stale partial set from this
+        # attempt could be concatenated into a later retry's slideshow.
+        for name in written:
+            try:
+                if stream_to_bucket is None:
+                    remove(name)
+                else:
+                    stream_to_bucket.blob(name).delete()
+            except Exception:
+                pass
+        sleep(3)
+        return False
 
 
 
@@ -613,18 +788,20 @@ _RAW_TO_CANONICAL: dict[str, str] = {
 
 
 class InstagramScraper(BaseScraper):
-    """Instagram platform scraper (yt-dlp, authenticated via research-account cookies).
+    """Instagram platform scraper (yt-dlp, anonymous logged-out extraction).
 
-    Handles video posts and reels; image-only posts fail permanently with
-    ``no_video`` (see module docstring). All threads share one authenticated
-    session, so concurrency is capped hard — Instagram is the most ban-happy
-    of the supported platforms.
+    Handles video posts and reels via yt-dlp's anonymous GraphQL path; image
+    posts (photos and carousels) extract to format-less info dicts whose
+    thumbnails carry the source images, downloaded for the orchestrator's
+    silent-slideshow assembly (see module docstring). Anonymous access is
+    tightly rate-limited by Instagram, so concurrency stays capped hard —
+    Instagram is the most ban-happy of the supported platforms.
     """
 
     platform = "instagram"
     # /p/ serves reel and tv shortcodes too (Instagram redirects).
     url_template = "https://www.instagram.com/p/{item_id}/"
-    slideshow_image_column = None
+    slideshow_image_column = "image_list"
 
 
     def item_url(self, item_id: str) -> str:
@@ -647,6 +824,21 @@ class InstagramScraper(BaseScraper):
             return fail
         if info is None:
             return _empty_fail("extraction", "No info returned by yt-dlp")
+
+        # Image-only post (photo/carousel): no video formats, image renditions
+        # in the thumbnails. Route to image download + slideshow assembly.
+        image_urls = _image_urls_from_info(info)
+        if image_urls:
+            return self._fetch_image_post(
+                info, image_urls, item_id, save_media=save_media,
+                save_path=save_path, stream_to_bucket=stream_to_bucket,
+                verbose=verbose)
+        if info.get('_type') == 'playlist':
+            # A carousel with no image segments (all-video) — nothing phase 1
+            # can fetch. Single posts drop through to the video path, whose
+            # download phase classifies its own failure.
+            return _empty_fail("no_video",
+                               "carousel has no image segments to fetch")
 
         data_row = _info_to_row(info, item_id)
 
@@ -689,12 +881,63 @@ class InstagramScraper(BaseScraper):
         return data_row
 
 
+    def _fetch_image_post(
+        self,
+        info: dict,
+        image_urls: list[str],
+        item_id: str,
+        *,
+        save_media: bool,
+        save_path: str,
+        stream_to_bucket=None,
+        verbose: bool = False,
+    ) -> pd.DataFrame:
+        """Fetch an image-only post (photo/carousel) from its extracted info.
+
+        Builds the metadata row from the yt-dlp info dict (caption, author,
+        timestamp and like/comment counts ride on it for image posts too),
+        stamps the raw ``image_list`` column (`` | ``-joined source URLs, read
+        by the base ``image_count`` hook), and downloads the images for the
+        orchestrator's slideshow assembly. A partial image download fails
+        transient ``carousel`` so the whole post is retried.
+        """
+        data_row = _info_to_row(info, item_id)
+        data_row.loc[0, 'image_list'] = " | ".join(image_urls)
+
+        if not save_media:
+            return data_row
+
+        # No media_duration_cap check: slideshow duration is image_count × 2s
+        # (≤ ~20s for the largest carousels), always far under any cap.
+        ok = _download_images(image_urls, item_id, save_path,
+                              stream_to_bucket=stream_to_bucket, verbose=verbose)
+        if not ok:
+            return _empty_fail("carousel",
+                               f"failed downloading {len(image_urls)} carousel images")
+        data_row.loc[0, 'video_downloaded'] = True
+        return data_row
+
+
     def map_to_canonical(self, raw: pd.DataFrame) -> pd.DataFrame:
         return raw.rename(columns=_RAW_TO_CANONICAL)
 
 
     def prepare_raw_batch(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Raw fix-ups: the -1 unknown-duration sentinel becomes NA."""
+        """Raw fix-ups: image_list URLs → count (+ slideshow duration), -1 → NA.
+
+        The raw ``image_list`` column holds `` | ``-joined source URLs at fetch
+        time (what ``image_count`` reads); it is stored as the integer image
+        count, and image posts get ``duration = count × 2s`` — matching the
+        slideshow the orchestrator assembles.
+        """
+        if 'image_list' in df.columns:
+            df['image_list'] = df['image_list'].map(
+                lambda x: len(x.split("|")) if isinstance(x, str) and x else 0
+            ).astype("int64[pyarrow]")
+            mask = (df['image_list'] > 0).fillna(False)
+            if 'duration_raw' in df.columns:
+                df.loc[mask, 'duration_raw'] = (
+                    df.loc[mask, 'image_list'] * SLIDESHOW_SECONDS_PER_IMAGE)
         if 'duration_raw' in df.columns:
             df.loc[(df['duration_raw'] < 1).fillna(False), 'duration_raw'] = pd.NA
         return df
@@ -725,7 +968,6 @@ class InstagramScraper(BaseScraper):
         ydl_opts: dict = {
             'quiet': True,
             'no_warnings': True,
-            **scraper_cookies.cookie_opts("instagram"),
             'skip_download': True,
             'no_color': True,
             'socket_timeout': 30,
