@@ -338,6 +338,64 @@ def test_instagram_slideshow_hooks_and_prepare_raw_batch():
 
 
 
+def test_probe_duration_parses_and_degrades(monkeypatch):
+    import subprocess
+
+    class _Result:
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _Result("12.34\n"))
+    assert instagram_dl._probe_duration("/tmp/x.mp4") == 12.34
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _Result(""))
+    assert instagram_dl._probe_duration("/tmp/x.mp4") is None
+
+    def _no_ffprobe(*a, **kw):
+        raise FileNotFoundError("ffprobe")
+    monkeypatch.setattr(subprocess, "run", _no_ffprobe)
+    assert instagram_dl._probe_duration("/tmp/x.mp4") is None
+
+
+
+
+
+
+def test_fetch_backfills_duration_from_downloaded_file(monkeypatch):
+    scraper = InstagramScraper()
+    info = {**_VIDEO_INFO}
+    del info['duration']  # the anonymous extractor returns no duration
+    monkeypatch.setattr(instagram_dl, "_extract_metadata",
+                        lambda url, item_id, verbose=False: (info, None))
+    monkeypatch.setattr(instagram_dl, "_download_media",
+                        lambda *a, **kw: (True, None, "", 33.5))
+
+    row = scraper.fetch("DY1zHU_xQM2", save_media=True, save_path="/tmp/x")
+    assert row.loc[0, 'video_downloaded'] == True  # noqa: E712
+    assert row.loc[0, 'duration_raw'] == 33.5
+
+    # A metadata-supplied duration is never overwritten by the probe.
+    monkeypatch.setattr(instagram_dl, "_extract_metadata",
+                        lambda url, item_id, verbose=False: (_VIDEO_INFO, None))
+    row = scraper.fetch("DY1zHU_xQM2", save_media=True, save_path="/tmp/x")
+    assert row.loc[0, 'duration_raw'] == 17.4
+
+
+
+
+
+
+def test_health_check_reports_anonymous_no_cookies():
+    h = InstagramScraper().health_check()
+    assert h["status"] == "healthy"
+    assert "cookie" in h["message"].lower()
+    assert h["present"] is False
+
+
+
+
+
+
 def test_media_info_counts_wrapper_still_gated(monkeypatch):
     from fyp.fyp_config import fyp_cf
 

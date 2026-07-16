@@ -185,7 +185,8 @@ def _info_to_row(info: dict, item_id: str) -> pd.DataFrame:
         'item_id': str(item_id),
         'desc': info.get('description', '') or '',
         'create_time_raw': create_time,
-        'duration_raw': info.get('duration') or -1,
+        # Float: the download phase may backfill an ffprobe'd fractional value.
+        'duration_raw': float(info.get('duration') or -1),
         # yt-dlp ≥2026.7 fills uploader_id with the numeric user pk and channel
         # with the @username (older versions had the username in uploader_id).
         'author_id': str(info.get('uploader_id', '') or info.get('channel_id', '') or ''),
@@ -243,19 +244,44 @@ def _extract_metadata(url: str, item_id: str, verbose: bool = False):
 
 
 
+def _probe_duration(path: str) -> float | None:
+    """Read a media file's duration in seconds via ffprobe. Never raises.
+
+    Backfills the ``duration`` yt-dlp's anonymous Instagram extraction stopped
+    returning (2026-07). ffprobe ships with the ffmpeg dependency already
+    required for slideshow/DASH work; its absence degrades to ``None``.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", path],
+            capture_output=True, text=True, timeout=30)
+        duration = float(result.stdout.strip())
+        return duration if duration > 0 else None
+    except Exception as e:
+        logger.debug("ffprobe duration failed for %s: %s", path, e)
+        return None
+
+
+
+
 def _download_media(
     url: str,
     item_id: str,
     save_path: str,
     stream_to_bucket=None,
     verbose: bool = False,
-) -> tuple[bool, str | None, str]:
+) -> tuple[bool, str | None, str, float | None]:
     """Download the post's video to temp and move/upload it.
 
     Returns:
-        ``(ok, error_category, error_detail)`` — category/detail are ``None``/""
-        on success, otherwise the :func:`_classify_error` result of the last
-        failure so the caller can distinguish transient from permanent.
+        ``(ok, error_category, error_detail, duration)`` — category/detail are
+        ``None``/"" on success, otherwise the :func:`_classify_error` result of
+        the last failure so the caller can distinguish transient from
+        permanent. ``duration`` is ffprobe'd from the downloaded file (``None``
+        on failure or when the probe yields nothing).
     """
     temp_dir = _cf()['paths']['temp']
     out_template = join(temp_dir, f"{item_id}.%(ext)s")
@@ -284,7 +310,11 @@ def _download_media(
 
             if not downloaded or not exists(downloaded):
                 logger.warning("Download succeeded but file not found for '%s'", item_id)
-                return False, "unknown", "download finished but no output file found"
+                return False, "unknown", "download finished but no output file found", None
+
+            # Probe while the file is still local — metadata extraction no
+            # longer returns a duration (see _probe_duration).
+            duration = _probe_duration(downloaded)
 
             video_fn = f"{item_id}.mp4"
             if stream_to_bucket is not None:
@@ -300,7 +330,7 @@ def _download_media(
                     # Atomic rename when src and dst share a filesystem —
                     # avoids partial-file reads by concurrent consumers.
                     os.replace(downloaded, target)
-            return True, None, ""
+            return True, None, "", duration
 
         except (yt_dlp.utils.DownloadError, ExtractorError) as e:
             category, detail = _classify_error(e)
@@ -312,14 +342,14 @@ def _download_media(
                 logger.info("Retrying download %s in %ds...", item_id, backoff)
                 sleep(backoff)
                 continue
-            return False, category, detail
+            return False, category, detail, None
 
         except Exception as e:
             logger.error("Scrape %s download unexpected error: %s", item_id, e)
             _cleanup_temp_files(temp_dir, item_id)
-            return False, "unknown", str(e)
+            return False, "unknown", str(e), None
 
-    return False, "unknown", "download retries exhausted"
+    return False, "unknown", "download retries exhausted", None
 
 
 
@@ -867,11 +897,16 @@ class InstagramScraper(BaseScraper):
                         item_id, duration, self.media_duration_cap())
             return data_row
 
-        ok, media_category, media_detail = _download_media(
+        ok, media_category, media_detail, media_duration = _download_media(
             url, item_id, save_path,
             stream_to_bucket=stream_to_bucket, verbose=verbose)
         if ok:
             data_row.loc[0, 'video_downloaded'] = True
+            # Backfill the duration metadata extraction no longer returns
+            # from the downloaded file itself.
+            current = data_row.loc[0, 'duration_raw']
+            if media_duration and (pd.isna(current) or current < 1):
+                data_row.loc[0, 'duration_raw'] = media_duration
         else:
             # Metadata row is still saved; the orchestrator uses these attrs
             # to keep transient media failures queued for retry (see
@@ -961,7 +996,14 @@ class InstagramScraper(BaseScraper):
 
 
     def health_check(self) -> dict | None:
-        return scraper_cookies.cookie_health("instagram", session_cookie="sessionid")
+        # Instagram scraping is anonymous (see module docstring) — there is no
+        # login session to monitor, and reporting cookie state here would send
+        # users chasing cookie renewals that have no effect.
+        return {
+            "present": False,
+            "status": "healthy",
+            "message": "Anonymous access — Instagram scraping does not use login cookies.",
+        }
 
 
     def media_probe_url(self, item_id: str) -> dict | None:
