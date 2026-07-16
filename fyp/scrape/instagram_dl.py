@@ -186,8 +186,10 @@ def _info_to_row(info: dict, item_id: str) -> pd.DataFrame:
         'desc': info.get('description', '') or '',
         'create_time_raw': create_time,
         'duration_raw': info.get('duration') or -1,
-        'author_id': str(info.get('channel_id', '') or info.get('uploader_id', '') or ''),
-        'ig_author_handle': str(info.get('uploader_id', '') or info.get('channel', '') or ''),
+        # yt-dlp ≥2026.7 fills uploader_id with the numeric user pk and channel
+        # with the @username (older versions had the username in uploader_id).
+        'author_id': str(info.get('uploader_id', '') or info.get('channel_id', '') or ''),
+        'ig_author_handle': str(info.get('channel', '') or info.get('uploader_id', '') or ''),
         'author_name_raw': str(info.get('uploader', '') or info.get('channel', '') or ''),
         'play_count_raw': info.get('view_count') if info.get('view_count') is not None else -1,
         'ig_like_count': info.get('like_count') if info.get('like_count') is not None else -1,
