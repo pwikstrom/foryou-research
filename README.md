@@ -51,7 +51,10 @@ the wizard: `cp config/config.local.toml.example config/config.local.toml`
 and edit it.) The full walkthrough — prerequisites per platform, optional
 services, first data upload — is in
 [docs/installation.md](docs/installation.md). Environment variables (Gemini
-key, GCS bucket, ...) are documented in `.env.example`.
+key, GCS bucket, ...) are documented in `.env.example`. Installed without
+Gemini and want annotation later? See
+[Enabling Gemini later](docs/installation.md#enabling-gemini-later) — no
+reinstall needed and your data is untouched.
 
 The editable install is recommended but never required — the app also runs
 from a plain checkout (cwd imports and the workers' `sys.path` bootstrap keep

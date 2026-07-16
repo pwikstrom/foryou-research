@@ -28,6 +28,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 
+import fyp.core.gemini_client as gemini_client
 import fyp.data_io as data_io
 from fyp.logging_setup import get_logger
 from google import genai
@@ -37,12 +38,6 @@ logger = get_logger(__name__)
 
 
 
-
-def _cf():
-    """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
-    from fyp.fyp_config import fyp_cf
-
-    return fyp_cf
 
 # Embedding model configuration. gemini-embedding-001 supports Matryoshka
 # truncation to 768 / 1536 / 3072 dims; 1536 is the quality/size sweet spot.
@@ -95,22 +90,23 @@ _client: genai.Client | None = None
 
 
 def _get_client() -> genai.Client:
-    """Return a process-wide Vertex GenAI client for embedding calls.
+    """Return a process-wide GenAI client for embedding calls.
 
-    Reuses the project from config but pins the location to
-    :data:`EMBED_LOCATION` (the annotation client uses ``global``, which is for
-    generation, not the embedding endpoint).
+    Honours whichever Gemini mode is configured — Vertex AI or the plain Gemini
+    API — via :func:`fyp.core.gemini_client.make_client`. In Vertex mode the
+    location is pinned to :data:`EMBED_LOCATION`, because the annotation
+    client's ``global`` endpoint serves generation, not embeddings; in API-key
+    mode the endpoint takes no region and the argument is ignored.
 
     Returns:
-        A cached :class:`google.genai.Client` configured for Vertex AI.
+        A cached :class:`google.genai.Client`.
+
+    Raises:
+        GeminiNotConfiguredError: When no usable Gemini mode is configured.
     """
     global _client
     if _client is None:
-        _client = genai.Client(
-            vertexai=True,
-            project=_cf()["machine"]["project"],
-            location=EMBED_LOCATION,
-        )
+        _client = gemini_client.make_client(location=EMBED_LOCATION)
     return _client
 
 

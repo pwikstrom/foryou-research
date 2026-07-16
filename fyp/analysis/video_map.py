@@ -27,6 +27,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import normalize
 
+import fyp.core.gemini_client as gemini_client
 import fyp.data_io as data_io
 import fyp.embeddings as embeddings
 from fyp.logging_setup import get_logger
@@ -94,18 +95,23 @@ _naming_client: genai.Client | None = None
 
 
 def _get_naming_client() -> genai.Client:
-    """Return a cached Vertex client at the generation location for niche naming.
+    """Return a cached client at the generation endpoint for niche naming.
+
+    Honours whichever Gemini mode is configured — Vertex AI or the plain Gemini
+    API — via :func:`fyp.core.gemini_client.make_client`. Naming is a text-only
+    call, so both modes serve it; in Vertex mode it uses the
+    ``[machine].location`` generation endpoint (not the embedding endpoint).
 
     Returns:
-        A :class:`google.genai.Client` configured for the ``[machine].location``
-        generation endpoint (not the embedding endpoint).
+        A :class:`google.genai.Client`.
+
+    Raises:
+        GeminiNotConfiguredError: When no usable Gemini mode is configured.
     """
     global _naming_client
     if _naming_client is None:
-        _naming_client = genai.Client(
-            vertexai=_cf()["machine"]["vertexai"],
-            project=_cf()["machine"]["project"],
-            location=_cf()["machine"]["location"],
+        _naming_client = gemini_client.make_client(
+            location=_cf()["machine"]["location"]
         )
     return _naming_client
 
@@ -323,10 +329,10 @@ def _name_niches(
 
     renamed = _dedupe_niche_names(meta, _exemplars, _ask)
     if naming_errors:
+        mode, _ = gemini_client.gemini_mode()
         warn = (
             f"WARNING: {len(naming_errors)} niche-naming call(s) failed "
-            f"(model={naming_model}, project={_cf()['machine']['project']}, "
-            f"location={_cf()['machine']['location']}); affected niches fall "
+            f"(model={naming_model}, gemini_mode={mode}); affected niches fall "
             f"back to generic 'Niche N' labels. First error: {naming_errors[0][:300]}"
         )
         if reporter is not None:

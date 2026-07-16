@@ -27,6 +27,7 @@ import fyp.media_paths as media_paths
 import fyp.scrape_queues as scrape_queues
 import fyp.utils as fyp_utils
 import fyp.annotation_versioning as annotation_versioning
+import fyp.core.gemini_client as gemini_client
 from fyp.logging_setup import get_logger
 
 #from fyp.organize_datasets import select_videos_from_study_dataset
@@ -91,14 +92,9 @@ def initialize_machine():
 
     _cf()["machine"]["client"] = None
 
-    use_vertex = bool(_cf()["machine"]["vertexai"])
-    if use_vertex and not _cf()["machine"].get("project"):
-        logger.warning(
-            "Machine annotation not configured: [machine].project is empty "
-            "while vertexai = true. Set your GCP project in "
-            "config/config.local.toml, or set vertexai = false and provide "
-            "GEMINI_API_KEY to use the plain Gemini API."
-        )
+    mode, reason = gemini_client.gemini_mode()
+    if mode is None:
+        logger.warning(reason)
         return
 
     if fyp_utils.online_ok():
@@ -107,26 +103,15 @@ def initialize_machine():
                 api_version=_cf()["machine"]["http_options_api_version"],
                 timeout=_cf()["machine"]["http_options_timeout"]
             )
-            if use_vertex:
-                _cf()["machine"]["client"] = google.genai.Client(
-                    vertexai=True,
-                    project=_cf()["machine"]["project"],
-                    location=_cf()["machine"]["location"],
-                    http_options=http_options
-                )
-            else:
-                # Plain Gemini API path: the key comes from GEMINI_API_KEY
-                # (loaded into machine.key at config init).
-                _cf()["machine"]["client"] = google.genai.Client(
-                    api_key=_cf()["machine"].get("key") or None,
-                    http_options=http_options
-                )
+            _cf()["machine"]["client"] = gemini_client.make_client(
+                http_options=http_options
+            )
 
-            logger.info("Google Gemini initialized successfully")
+            logger.info(f"Google Gemini initialized successfully (mode: {mode})")
 
 
         except Exception as e:
-            logger.error(f"Error Gemini API key. Gemini won't be available. {e}")
+            logger.error(f"Could not initialize Gemini. Gemini won't be available. {e}")
 
     else:
         logger.warning("I'm offline. Can't initialize Google Gemini.")
@@ -135,33 +120,36 @@ def initialize_machine():
 def annotation_configured() -> tuple[bool, str]:
     """Whether machine (Gemini) annotation is configured to run.
 
-    A pure config check — no network, no client construction — mirroring the
-    credential guard in :func:`initialize_machine`. Vertex AI needs a GCP
-    project; the plain Gemini API needs ``GEMINI_API_KEY`` (loaded into
-    ``[machine].key`` at config init). Used to gate the annotator worker so it
-    is not started when Gemini can never annotate anything.
+    A pure config check — no network, no client construction. Delegates the
+    credential question to :func:`fyp.core.gemini_client.gemini_mode`, the same
+    resolver :func:`initialize_machine` uses, so this gate cannot approve a
+    configuration the worker would then fail on.
+
+    Adds the one requirement specific to *annotation*: media. GCS-stored media
+    is handed to Gemini as a ``gs://`` URI, which only Vertex can read — the
+    plain Gemini API only ever sees media inlined from local disk (see
+    :func:`call_machine`). Embeddings and niche naming are text-only and carry
+    no such constraint.
 
     Returns:
         ``(ok, reason)``. When ``ok`` is False, ``reason`` is a user-facing
         explanation of what to configure; an empty string otherwise.
     """
-    machine = _cf()["machine"]
-    if bool(machine.get("vertexai")):
-        if not str(machine.get("project") or "").strip():
-            return False, (
-                "Gemini annotation is not configured: Vertex AI is enabled "
-                "([machine].vertexai = true) but no GCP project is set. Set "
-                "[machine].project in config/config.local.toml, or set "
-                "vertexai = false and provide a GEMINI_API_KEY."
-            )
-        return True, ""
-    if not str(machine.get("key") or "").strip():
+    mode, reason = gemini_client.gemini_mode()
+    if mode is None:
+        return False, reason
+
+    if mode == gemini_client.MODE_API_KEY and _cf()["data_io"]["use_gcs_for_media"]:
         return False, (
-            "Gemini annotation is not configured: the plain Gemini API is "
-            "selected ([machine].vertexai = false) but GEMINI_API_KEY is not "
-            "set. Provide GEMINI_API_KEY, or enable Vertex AI (vertexai = true "
-            "with a GCP project)."
+            "Gemini annotation is not configured: media is stored on GCS "
+            "(use_gcs_for_media = true), which is passed to Gemini as a gs:// "
+            "URI that only Vertex AI can read. The plain Gemini API can only "
+            "annotate media on local disk. Either configure Vertex AI "
+            "([machine].vertexai = true with a GCP project), or set "
+            "use_gcs_for_media = false to store media locally. "
+            "See docs/installation.md#enabling-gemini-later."
         )
+
     return True, ""
 
 

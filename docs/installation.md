@@ -76,6 +76,105 @@ config/config.local.toml` and edit it. Key reference:
 **not** auto-loaded — `set -a; source .env; set +a` or export the values
 yourself.
 
+## Enabling Gemini later
+
+Everything in this section is for the common case: you installed without
+Gemini, used the app happily for a while, and now want machine annotation
+(and the embeddings / semantic map / Correlations that build on it). Nothing
+here requires reinstalling or touching your data.
+
+Pick one of two ways to reach Gemini. **The API key is the easier one** and
+needs no Google Cloud account at all.
+
+### Option A — plain Gemini API key
+
+1. Create a key at [Google AI Studio](https://aistudio.google.com/apikey).
+2. Tell the app to use the plain API rather than Vertex, by adding this to
+   `config/config.local.toml` (create the file if it doesn't exist):
+
+   ```toml
+   [machine]
+   vertexai = false
+   ```
+
+3. Provide the key. Either export it in the shell you start the app from:
+
+   ```bash
+   export GEMINI_API_KEY=your-key-here
+   ```
+
+   or put `GEMINI_API_KEY=your-key-here` in a `.env` file at the project root
+   and load it — `.env` is **not** read automatically:
+
+   ```bash
+   set -a; source .env; set +a
+   ```
+
+4. Restart the app. Data Management → Enrichment will now let you queue
+   annotation.
+
+> **Don't skip step 2.** `vertexai = true` is the default, and it is what
+> decides which service the app talks to — the key alone does not switch it.
+> As a safety net the app recognises the specific case of "Vertex enabled, no
+> project set, but a key available" and falls back to the key rather than
+> failing, so setting only the key does work. It logs a warning each run until
+> you set `vertexai = false` to make the choice explicit.
+
+### Option B — Vertex AI
+
+Choose this if you already have a Google Cloud project, or want billing and
+quota handled through GCP.
+
+1. A GCP project with billing enabled and the **Vertex AI API** turned on.
+2. Authenticate with Application Default Credentials:
+
+   ```bash
+   gcloud auth application-default login
+   ```
+
+3. Point the app at the project in `config/config.local.toml`:
+
+   ```toml
+   [machine]
+   vertexai = true
+   project = "your-gcp-project-id"
+   ```
+
+4. Restart the app.
+
+### Or just re-run the wizard
+
+`python scripts/setup.py` walks through the same choice, writes the config for
+you, and backs up your existing overlay first. Your answers from last time are
+the defaults, so you can change only the Gemini question and press Enter
+through the rest. It never touches your data directory.
+
+### Which features each option enables
+
+| | Vertex AI | API key |
+|---|---|---|
+| Machine annotation (media on local disk) | yes | yes |
+| Machine annotation (media on GCS) | yes | **no** |
+| Embeddings, semantic map, niche naming | yes | yes |
+
+The one real difference is media storage. Media kept on GCS is handed to
+Gemini as a `gs://` URI, which only Vertex AI can read; the plain Gemini API
+is only ever given media inlined from local disk. This affects nobody running
+the default local setup (`use_gcs_for_media = false`) — but if you have
+switched media storage to GCS, annotation needs Vertex. The app checks this
+combination up front and explains it rather than failing per video.
+
+### Checking it worked
+
+Data Management → Enrichment shows the annotator's status, and refuses to
+start with the reason when Gemini is not configured. From a shell:
+
+```bash
+python -c "from fyp.annotation.machine_annotation import annotation_configured; print(annotation_configured())"
+```
+
+`(True, '')` means you're set. Otherwise the message names exactly what to fix.
+
 ## First run
 
 ```bash

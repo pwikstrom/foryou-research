@@ -2145,6 +2145,23 @@ function renderScraperAlerts(alerts) {
     });
 }
 
+// Show the "Gemini not configured" notice from the enrichment-stats payload,
+// so the state is visible on the card rather than only on a refused Start.
+// Not dismissable: unlike a scraper alert it is a standing setup state, and it
+// disappears by itself once Gemini is configured.
+function renderAnnotationConfigNotice(stats) {
+    const notice = document.getElementById('annotation-config-notice');
+    if (!notice) return;
+    if (!stats || stats.annotation_configured !== false) {
+        notice.style.display = 'none';
+        return;
+    }
+    const reason = stats.annotation_config_reason || 'Gemini annotation is not configured.';
+    notice.querySelector('.config-notice-text').textContent =
+        `⚙ ${reason} See docs/installation.md#enabling-gemini-later`;
+    notice.style.display = 'block';
+}
+
 function dismissScraperAlert(platform) {
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     fetch('/api/manage/enrichment/scraper_alert/dismiss', {
@@ -2190,6 +2207,7 @@ function fetchEnrichmentStats() {
                 renderCardHealth(data.card_health);
             }
             renderScraperAlerts(data.scraper_alerts);
+            renderAnnotationConfigNotice(data);
             if (data.annotate_queue_len !== undefined) {
                 document.getElementById('enrich_annotate_targets').textContent = data.annotate_queue_len.toLocaleString();
                 document.getElementById('enrich_annotate_targets').style.color = 'var(--color-success-light)';

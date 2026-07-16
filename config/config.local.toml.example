@@ -34,8 +34,12 @@ local_media = "~CHANGE-ME~/fyp_local/media"
 # Gemini annotation — either your own Vertex AI project (ADC auth):
 # project = "your-gcp-project"
 # ...or the plain Gemini API (key in the GEMINI_API_KEY environment
-# variable, never in a config file):
+# variable, never in a config file). Note vertexai defaults to true, and
+# the key is only used when it is false — so the API-key route needs the
+# line below, not just the environment variable:
 # vertexai = false
+# Enabling Gemini after installing without it, both routes in full:
+# docs/installation.md#enabling-gemini-later
 
 # [data_io]
 # GCS-backed storage (local disk is the committed default):

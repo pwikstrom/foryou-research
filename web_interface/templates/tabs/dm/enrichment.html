@@ -115,6 +115,14 @@
             <button type="button" class="btn-stop text-xs" onclick="emptyQueue('annotate')"
                 style="padding: 4px 8px;">Empty Queue</button>
         </div>
+
+        <!-- Shown whenever Gemini is not configured, so the state is visible
+             without having to click Start and be refused. Rendered by
+             renderAnnotationConfigNotice() from the enrichment-stats payload. -->
+        <div id="annotation-config-notice" class="config-notice" style="display: none;">
+            <span class="config-notice-text"></span>
+        </div>
+
         <p class="text-xs" style="color: var(--color-text-tertiary); margin: 0 0 12px 0;">
             Annotates the queue above with Gemini in real time (many concurrent workers, ~minutes
             per batch). This is the urgent / default path &mdash; use the Async Annotator below for large,

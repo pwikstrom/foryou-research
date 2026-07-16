@@ -126,6 +126,31 @@ def build_config_toml(answers: Answers, generated_on: str = "") -> str:
         lines += ["", "[machine]", f'project = "{answers.vertex_project}"']
     elif answers.gemini_mode == "api_key":
         lines += ["", "[machine]", "vertexai = false"]
+    else:
+        # Gemini off: leave the committed defaults alone, but say so here —
+        # this file is where someone looks when they change their mind, and
+        # "no [machine] section" is otherwise a silent, unexplained state.
+        lines += [
+            "",
+            "# Gemini annotation is off (no [machine] overrides).",
+            "# To turn it on later, uncomment ONE of the two blocks below and",
+            "# restart the app - or just re-run: python scripts/setup.py",
+            "#",
+            "# Plain Gemini API (easiest; no Google Cloud account needed).",
+            "# Both the line below AND the GEMINI_API_KEY environment variable",
+            "# are required - the key alone is not enough, because vertexai",
+            "# defaults to true and decides which service is used.",
+            "# [machine]",
+            "# vertexai = false",
+            "#",
+            "# Vertex AI (needs a GCP project with billing + the Vertex AI API,",
+            "# authenticated via: gcloud auth application-default login).",
+            "# [machine]",
+            "# vertexai = true",
+            '# project = "your-gcp-project-id"',
+            "#",
+            "# Full walkthrough: docs/installation.md#enabling-gemini-later",
+        ]
 
     if answers.contact_email:
         lines += ["", "[site]", f'contact_email = "{answers.contact_email}"']
@@ -460,6 +485,17 @@ def print_next_steps(answers: Answers, in_venv: bool) -> None:
     if answers.gemini_api_key or answers.flask_secret:
         print("\n  .env is NOT auto-loaded - export its values or run:")
         print("     set -a; source .env; set +a")
+
+    if answers.gemini_mode == "off":
+        print("\nGemini annotation is off. Everything else works without it;")
+        print("machine annotation, embeddings, the semantic map and the")
+        print("Correlations tab stay unavailable until it is configured.")
+        print("To turn it on later, re-run this wizard or see:")
+        print("  docs/installation.md#enabling-gemini-later")
+    elif answers.gemini_mode == "api_key" and not answers.gemini_api_key:
+        print("\nGemini is set to the plain API - remember to provide the key:")
+        print("  export GEMINI_API_KEY=your-key-here")
+        print("(it is not stored in config; .env is not auto-loaded)")
 
     notes = []
     if "youtube" in answers.platforms:

@@ -12,7 +12,7 @@ import-cycle rule in `CONTRIBUTING.md`.
 
 | Section | Purpose | Keys you'll actually touch |
 |---|---|---|
-| `[machine]` | Gemini annotation | model name, prompt file, temperature, Vertex AI project |
+| `[machine]` | Gemini annotation | `vertexai` — **which service to use: Vertex AI (default) or the plain Gemini API**; `project` (the GCP project, required by Vertex); model name, temperature. Turning Gemini on after a no-Gemini install: [Enabling Gemini later](installation.md#enabling-gemini-later) |
 | `[paths]` | local storage roots | `local_data` — **set this to a writable directory on your machine**; everything (cache, recoded, users, media) lives under it locally |
 | `[misc]` | runtime behavior | timezone, `local_mode`, media duration caps (`max_duration_for_download[_<platform>]`, `max_duration_for_annotation`) |
 | `[features]` | feature toggles | rarely changed |
@@ -66,7 +66,7 @@ tests and the golden safety net use this.
 
 | Variable | Effect |
 |---|---|
-| `GEMINI_API_KEY` | Gemini API access for annotation/embeddings |
+| `GEMINI_API_KEY` | Gemini API access for annotation/embeddings. Used only when `[machine].vertexai = false`: with the default `vertexai = true` the app talks to Vertex AI and this key plays no part (the one exception is when no `project` is set, where the app falls back to the key and warns). Not auto-loaded from `.env` — see [Enabling Gemini later](installation.md#enabling-gemini-later) |
 | `FLASK_SECRET_KEY` | Flask session secret (falls back to a dev key locally) |
 | `FYP_GCS_BUCKET_NAME` | GCS bucket (production) |
 | `K_SERVICE` | Set automatically by Cloud Run — switches storage to GCS and job dispatch to Cloud Tasks |
