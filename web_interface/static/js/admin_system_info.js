@@ -125,9 +125,27 @@ function _renderHealthCheckRow(key, check) {
 }
 
 
+// Banner rows for active scraper alerts (raised by the scrape worker when a
+// platform's scraper looks systematically broken — e.g. a permanent-failure
+// storm). Dismissal lives on the Data Management → enrichment card; here the
+// alert is informational.
+function _renderScraperAlertBanners(alerts) {
+    return Object.entries(alerts || {}).map(([platform, alert]) => {
+        const raised = _relativeTime(alert.raised_at);
+        const seen = alert.occurrences > 1
+            ? ` — seen ${alert.occurrences}× since ${raised || '?'}`
+            : (raised ? ` — raised ${raised}` : '');
+        const text = `${platform} scraper needs attention${seen}: ${alert.message || alert.kind}`;
+        return `<div class="scraper-alert"><span class="scraper-alert-text">⚠ ${_escapeAttr(text)}</span></div>`;
+    }).join('');
+}
+
+
 function _renderHealth(doc) {
     const container = document.getElementById('system-health-container');
     if (!container) return;
+
+    const alertBanners = _renderScraperAlertBanners(doc.scraper_alerts);
 
     const overallPill = _healthPill(doc.overall, doc.interrupted ? 'Previous run was interrupted' : '');
     const lastRun = _relativeTime(doc.finished_at);
@@ -144,7 +162,7 @@ function _renderHealth(doc) {
     const rows = Object.entries(doc.checks || {})
         .map(([key, check]) => _renderHealthCheckRow(key, check)).join('');
 
-    container.innerHTML = header + rows;
+    container.innerHTML = alertBanners + header + rows;
 
     const btn = document.getElementById('run-health-check-btn');
     if (doc.overall === 'running') {

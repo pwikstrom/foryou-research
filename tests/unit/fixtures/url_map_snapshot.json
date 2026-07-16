@@ -455,6 +455,13 @@
   ]
  ],
  [
+  "/api/manage/enrichment/scraper_alert/dismiss",
+  "management_bp.dismiss_scraper_alert",
+  [
+   "POST"
+  ]
+ ],
+ [
   "/api/manage/enrichment/stats",
   "management_bp.get_enrichment_stats",
   [

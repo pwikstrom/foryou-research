@@ -2123,6 +2123,39 @@ function renderCardHealth(cardHealth) {
     _renderHealthChip(document.getElementById('annotation-health'), 'Gemini', cardHealth.annotation);
 }
 
+// Show/hide the per-platform scraper alert banners from the enrichment-stats
+// payload's scraper_alerts (raised by the worker on a systematic failure such
+// as a permanent-failure storm; cleared on the next healthy batch or by the
+// Dismiss button).
+function renderScraperAlerts(alerts) {
+    document.querySelectorAll('[id^="scraper-alert-"]').forEach(banner => {
+        const platform = banner.id.replace('scraper-alert-', '');
+        const alert = (alerts || {})[platform];
+        if (!alert) {
+            banner.style.display = 'none';
+            return;
+        }
+        const raised = _healthRelativeTime(alert.raised_at);
+        const seen = alert.occurrences > 1 ? ` (seen ${alert.occurrences}× since ${raised || '?'})`
+                                           : (raised ? ` (${raised})` : '');
+        banner.querySelector('.scraper-alert-text').textContent =
+            `⚠ Scraper needs attention${seen}: ${alert.message || alert.kind}`;
+        banner.style.display = 'flex';
+    });
+}
+
+function dismissScraperAlert(platform) {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    fetch('/api/manage/enrichment/scraper_alert/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ platform: platform }),
+    })
+        .then(res => res.json())
+        .then(() => fetchEnrichmentStats())
+        .catch(err => console.error('Failed to dismiss scraper alert:', err));
+}
+
 function fetchEnrichmentStats() {
     // The enrichment sub-page only renders for users with
     // 'tab.data_management.enrichment'. Without it the endpoint aborts 403
@@ -2155,6 +2188,7 @@ function fetchEnrichmentStats() {
                 window._cardHealth = data.card_health;
                 renderCardHealth(data.card_health);
             }
+            renderScraperAlerts(data.scraper_alerts);
             if (data.annotate_queue_len !== undefined) {
                 document.getElementById('enrich_annotate_targets').textContent = data.annotate_queue_len.toLocaleString();
                 document.getElementById('enrich_annotate_targets').style.color = 'var(--color-success-light)';

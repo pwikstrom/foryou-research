@@ -50,6 +50,15 @@
             <button type="button" class="btn-stop text-xs" onclick="emptyQueue('scrape', '{{ platform }}')"
                 style="padding: 4px 8px;">Empty Queue</button>
         </div>
+        <!-- Scraper alert banner: shown when the worker raised a persistent
+             alert for this platform (e.g. a permanent-failure storm — the
+             scraper itself is likely broken). Rendered by renderScraperAlerts()
+             from the enrichment-stats payload. -->
+        <div id="scraper-alert-{{ platform }}" class="scraper-alert" style="display: none;">
+            <span class="scraper-alert-text"></span>
+            <button type="button" class="btn-discreet text-xs"
+                onclick="dismissScraperAlert('{{ platform }}')">Dismiss</button>
+        </div>
         <p class="text-xs" style="color: var(--color-text-tertiary); margin: 0 0 12px 0;">
             Downloads each queued item's media and metadata, working through this platform's Scrape Queue
             in batches of the size below. Runs synchronously across many workers; successful and failed

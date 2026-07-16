@@ -30,7 +30,7 @@ from fyp.logging_setup import get_logger
 # partially-initialized shim during the boot cascade (shim-poisoning rule,
 # docs/fyp-import-graph.md).
 from fyp.scrape import scrape_contract as sc
-from fyp.scrape import scrape_queues, scrape_versioning
+from fyp.scrape import scrape_queues, scrape_versioning, scraper_alerts
 from fyp.scrape.platform_scraper import (
     SLIDESHOW_SECONDS_PER_IMAGE,
     THROTTLE_CATEGORIES,
@@ -1237,6 +1237,29 @@ def download_video_threads(
         logger.warning(f"  Permanent-storm guard: {storm_demoted} "
                        f"'{storm_state['classification']}' failures demoted to transient "
                        f"— kept in queue, not recorded as failed.")
+
+    # Durable, user-visible alert: a storm means the scraper (or its session)
+    # is likely broken — e.g. the platform changed its site/API — and needs a
+    # human look. Raise it on a storm; clear it once a batch produces real
+    # results again with no storm. Best-effort on both sides (never blocks
+    # scraping), and skipped in dry runs.
+    if not dry_run:
+        if storm_state["tripped"]:
+            scraper_alerts.raise_alert(
+                platform=scraper.platform,
+                kind=scraper_alerts.KIND_PERMANENT_STORM,
+                category=storm_state["classification"],
+                count=storm_state["consecutive"],
+                message=(
+                    f"{storm_state['consecutive']} consecutive items failed with the same "
+                    f"permanent verdict ({storm_state['classification']}) — the platform has "
+                    f"likely changed something and the {scraper.platform} scraper (or its "
+                    f"session) needs attention. Scraping was stopped; the affected items "
+                    f"remain queued and were not recorded as failed."
+                ),
+            )
+        elif results:
+            scraper_alerts.clear_alert(scraper.platform, reason="healthy batch")
 
     if media_retry_ids:
         logger.info(f"  Media retries: {len(media_retry_ids)} items scraped metadata-only "

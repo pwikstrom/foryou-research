@@ -146,7 +146,8 @@ def _platform_summary(check: dict, cookie: dict) -> str:
 
 
 
-def derive_card_health(live_cookie: dict | None = None) -> dict:
+def derive_card_health(live_cookie: dict | None = None,
+                       alerts: dict | None = None) -> dict:
     """Collapse the health doc + live cookie health into enrichment-card chips.
 
     Produces one green/yellow/red/grey status per scraper platform (combining
@@ -158,6 +159,9 @@ def derive_card_health(live_cookie: dict | None = None) -> dict:
         live_cookie: optional ``{platform: cookie_health_dict}`` from the
             enrichment endpoint's 5-minute cache, preferred over the (possibly
             hours-old) cookie captured inside the last health check.
+        alerts: optional ``{platform: alert_dict}`` from
+            ``fyp.scrape.scraper_alerts`` — an active alert forces the
+            platform's chip to ``fail`` and leads its summary.
 
     Returns:
         ``{"ran": bool, "platforms": {p: {status, summary, checked_at}},
@@ -168,6 +172,7 @@ def derive_card_health(live_cookie: dict | None = None) -> dict:
     checks = doc.get("checks") or {}
     ran = doc.get("overall") not in (None, "never_run")
     live_cookie = live_cookie or {}
+    alerts = alerts or {}
 
     platforms: dict[str, dict] = {}
     try:
@@ -178,13 +183,18 @@ def derive_card_health(live_cookie: dict | None = None) -> dict:
     for platform in platform_list:
         check = checks.get(f"scrape_{platform}") or {}
         cookie = live_cookie.get(platform) or check.get("cookie") or {}
+        alert = alerts.get(platform) or {}
         status = _worst_chip(
             _chip_from_check_status(check.get("status")),
             _COOKIE_TO_CHIP.get(cookie.get("status", "unknown"), "unknown"),
+            "fail" if alert else "unknown",
         )
+        summary = _platform_summary(check, cookie)
+        if alert:
+            summary = f"ALERT: {alert.get('message') or alert.get('kind')} · {summary}"
         platforms[platform] = {
             "status": status,
-            "summary": _platform_summary(check, cookie),
+            "summary": summary,
             "checked_at": check.get("checked_at"),
         }
 

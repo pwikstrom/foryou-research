@@ -9,6 +9,7 @@ from flask_login import login_required
 
 import fyp.data_io as data_io
 import fyp.scrape_queues as scrape_queues
+from fyp.scrape import scraper_alerts
 from fyp.platform_scraper import get_scraper
 from fyp.organize_datasets import (
     COLLECTIONS_LABEL,
@@ -204,6 +205,11 @@ def get_enrichment_stats():
         for p in scrape_queues.registered_platforms()
     }
 
+    # Active scraper alerts (e.g. a permanent-failure storm raised by the
+    # worker): shown as a banner on the platform's scraper card and folded
+    # into its health chip below.
+    active_alerts = scraper_alerts.load_alerts()
+
     return jsonify({
         "total_videos": total_videos,
         "scraped_videos": scraped_videos,
@@ -212,10 +218,12 @@ def get_enrichment_stats():
         "scrape_queue_len": scrape_queue_len,
         "scrape_queues": scrape_queues_by_platform,
         "cookie_health": cookie_health,
+        "scraper_alerts": active_alerts,
         # Per-card health chips: combine the last system-health check (test
         # scrape + media) with the fresh cookie status into one green/yellow/red
         # per platform, plus an annotation chip from the Gemini ping.
-        "card_health": system_health.derive_card_health(live_cookie=cookie_health),
+        "card_health": system_health.derive_card_health(
+            live_cookie=cookie_health, alerts=active_alerts),
         "annotate_queue_len": annotate_queue_len,
         "annotate_claimed_len": annotate_claimed_len,
         # Fresh local-drain leases (laptop draining a queue against the shared
@@ -300,6 +308,24 @@ def empty_enrichment_queue(queue_type):
         return jsonify({"status": "success", "message": f"{queue_type.capitalize()} queue emptied."})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@management_bp.route('/api/manage/enrichment/scraper_alert/dismiss', methods=['POST'])
+@permission_required('tab.data_management.enrichment')
+@login_required
+def dismiss_scraper_alert():
+    """Dismiss a platform's scraper alert ({"platform": ...} in the body).
+
+    Manual counterpart of the auto-clear on the next healthy batch — for the
+    case where the admin has investigated (or fixed the scraper) and wants the
+    banner gone before a new run proves it.
+    """
+    body = request.get_json(silent=True) or {}
+    platform = str(body.get("platform") or "")
+    if platform not in scrape_queues.registered_platforms():
+        return jsonify({"error": f"Unknown platform: {platform!r}"}), 400
+    scraper_alerts.clear_alert(platform, reason="dismissed by admin")
+    return jsonify({"status": "success"})
+
 
 @management_bp.route('/api/manage/enrichment/queue_voted', methods=['POST'])
 @permission_required('tab.data_management.enrichment')

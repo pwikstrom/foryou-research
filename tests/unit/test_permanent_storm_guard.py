@@ -171,11 +171,12 @@ def test_rate_limit_breaker_unaffected():
 
 
 def test_storm_ids_excluded_from_failed_record():
-    """Demoted ids never reach the failed-scrapes JSON (no scrape_fail=True)."""
+    """Demoted ids never reach the failed-scrapes JSON, and an alert is raised."""
     n_ok = 3
     ids = [f"v{i}" for i in range(n_ok + STORM_THRESHOLD + 4)]
     calls = {"n": 0}
     saved = {}
+    alerts = []
 
     def fake_dl(video_id=None, **kwargs):
         calls["n"] += 1
@@ -189,7 +190,10 @@ def test_storm_ids_excluded_from_failed_record():
     with patch.object(scrape, "check_existing_media", return_value={}), \
          patch.object(scrape, "_canonicalize_recode_save",
                       side_effect=lambda results, *a, **k: results), \
-         patch.object(scrape.data_io, "save_json", side_effect=fake_save_json):
+         patch.object(scrape.data_io, "save_json", side_effect=fake_save_json), \
+         patch.object(scrape.scraper_alerts, "raise_alert",
+                      side_effect=lambda **kw: alerts.append(kw)), \
+         patch.object(scrape.scraper_alerts, "clear_alert", side_effect=Exception):
         results, perm, trans = _run_batch(
             ids, fake_dl, "instagram", max_workers=1, dry_run=False)
 
@@ -202,7 +206,37 @@ def test_storm_ids_excluded_from_failed_record():
     n_aborted = len(ids) - n_ok - STORM_THRESHOLD
     assert len(saved.get("failed", [])) == n_aborted, (
         f"demoted storm ids must be excluded from the failed record: {saved}")
-    print("PASS: storm ids excluded from the failed record")
+    # The storm raises a persistent, user-visible scraper alert.
+    assert len(alerts) == 1
+    assert alerts[0]["platform"] == "instagram"
+    assert alerts[0]["category"] == "permanent:removed"
+    print("PASS: storm ids excluded from the failed record; alert raised")
+
+
+
+
+def test_healthy_batch_clears_alert():
+    """A batch with real results and no storm auto-clears the platform alert."""
+    ids = ["v0", "v1"]
+    cleared = []
+
+    def fake_dl(video_id=None, **kwargs):
+        return _metadata_row(video_id)
+
+    with patch.object(scrape, "check_existing_media", return_value={}), \
+         patch.object(scrape, "_canonicalize_recode_save",
+                      side_effect=lambda results, *a, **k: results), \
+         patch.object(scrape.data_io, "save_json", side_effect=Exception), \
+         patch.object(scrape.scraper_alerts, "raise_alert", side_effect=Exception), \
+         patch.object(scrape.scraper_alerts, "clear_alert",
+                      side_effect=lambda platform, **kw: cleared.append(platform)):
+        results, perm, trans = _run_batch(
+            ids, fake_dl, "instagram", dry_run=False)
+
+    assert results.attrs.get("permanent_storm_tripped") is False
+    assert len(results) == len(ids)
+    assert cleared == ["instagram"]
+    print("PASS: healthy batch clears the alert")
 
 
 
@@ -262,5 +296,6 @@ if __name__ == "__main__":
     test_demotion_is_category_precise()
     test_rate_limit_breaker_unaffected()
     test_storm_ids_excluded_from_failed_record()
+    test_healthy_batch_clears_alert()
     test_batch_loop_stops_and_does_not_prune()
     print("All permanent-storm guard tests passed.")

@@ -996,6 +996,29 @@ button {
 .cookie-pill--unknown { color: var(--color-text-tertiary); border-color: var(--color-border); }
 .cookie-pill--unknown::before { background: var(--color-text-tertiary); }
 
+/* Persistent scraper alert banner on an enrichment scraper card (raised by the
+   worker when a platform's scraper looks systematically broken, e.g. a
+   permanent-failure storm). Outline style: a danger border + danger text on the
+   card's own background keeps it readable in both themes without a dedicated
+   danger-surface token. */
+.scraper-alert {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 12px 0;
+    padding: 8px 12px;
+    border: 1px solid var(--color-danger);
+    border-left: 4px solid var(--color-danger);
+    border-radius: 4px;
+}
+
+.scraper-alert .scraper-alert-text {
+    color: var(--color-danger-soft);
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+}
+
 .action-btn {
     background: var(--btn-primary-bg);
     color: var(--btn-primary-text);

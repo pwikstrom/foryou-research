@@ -8,6 +8,7 @@ from flask_login import current_user, login_required
 
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
+from fyp.scrape import scraper_alerts
 
 from .. import explorer_backend as explorer
 from ..data_service import (
@@ -824,8 +825,15 @@ def system_info():
 @explorer_bp.route('/api/system-health')
 @permission_required('tab.admin.system_info')
 def get_system_health():
-    """Return the current system-health document for the Information panel."""
-    return jsonify(system_health.get_health())
+    """Return the current system-health document for the Information panel.
+
+    Includes the active per-platform scraper alerts (raised by the scrape
+    worker on systematic failures such as a permanent-failure storm) so the
+    panel can flag "scraper needs revision" conditions alongside the checks.
+    """
+    doc = system_health.get_health()
+    doc["scraper_alerts"] = scraper_alerts.load_alerts()
+    return jsonify(doc)
 
 
 @explorer_bp.route('/api/system-health/run', methods=['POST'])

@@ -210,6 +210,18 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.emit_data({"rate_limit_abort": True})
         return None
 
+    if results_df.attrs.get('permanent_storm_tripped'):
+        reporter.log(
+            f"Permanent-failure storm detected "
+            f"({results_df.attrs.get('permanent_storm_category')}): every item is "
+            f"failing with the same permanent verdict, so the scraper or its "
+            f"session is likely broken — not the items. Stopping the chain; the "
+            f"affected items stay queued. A scraper alert was raised on the "
+            f"enrichment page — revise the scraper before re-running."
+        )
+        reporter.emit_data({"permanent_storm_abort": True})
+        return None
+
     if reporter.check_cancelled():
         reporter.log("Cancellation requested. Stopping after this batch.")
         return None
