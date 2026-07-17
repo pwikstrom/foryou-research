@@ -53,6 +53,7 @@ const _HEALTH_CHECK_LABELS = {
     // Historical key — the check now covers whichever annotation backend is
     // active (Gemini ping, or the local backend's requirement checks).
     gemini:           'Annotation backend',
+    embedding:        'Embedding backend',
 };
 
 let _healthPollTimer = null;

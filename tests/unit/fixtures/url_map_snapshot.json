@@ -413,6 +413,13 @@
   ]
  ],
  [
+  "/api/manage/embedding/backends",
+  "management_bp.get_embedding_backends",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/manage/enrichment/calculate_to_annotate",
   "management_bp.calculate_to_annotate",
   [

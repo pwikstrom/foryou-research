@@ -6,6 +6,10 @@ open: keys may be added over time without migrations.
 """
 
 import fyp.data_io as data_io
+from fyp.analysis.embedding_backends.settings import (
+    EMBEDDING_BACKEND_KEY,
+    get_embedding_backend as get_embedding_backend,  # re-export (read side lives in fyp)
+)
 from fyp.annotation.backends.settings import (
     ANNOTATION_BACKEND_KEY,
     MACHINE_OVERRIDE_KEYS,
@@ -27,6 +31,7 @@ DEFAULTS: dict = {
     "new_user_admin_approval_required": False,
     "default_new_user_role": "viewer",
     **_ANNOTATION_DEFAULTS,
+    EMBEDDING_BACKEND_KEY: "gemini",
 }
 
 
@@ -39,6 +44,7 @@ SETTING_TYPES: dict = {
     "new_user_admin_approval_required": bool,
     "default_new_user_role": str,
     ANNOTATION_BACKEND_KEY: str,
+    EMBEDDING_BACKEND_KEY: str,
     "machine_model": str,
     "machine_temperature": (int, float, str),
     "machine_thinking_budget": (int, str),
@@ -81,6 +87,10 @@ def validate_setting_value(key: str, value) -> str | None:
         from fyp.annotation.backends import BACKEND_IDS
         if value not in BACKEND_IDS:
             return f"Unknown annotation backend: {value!r} (known: {list(BACKEND_IDS)})"
+    elif key == EMBEDDING_BACKEND_KEY:
+        from fyp.analysis.embedding_backends import BACKEND_IDS
+        if value not in BACKEND_IDS:
+            return f"Unknown embedding backend: {value!r} (known: {list(BACKEND_IDS)})"
     elif key == "machine_media_resolution":
         if str(value).upper() not in MEDIA_RESOLUTION_VALUES:
             return f"machine_media_resolution must be one of {MEDIA_RESOLUTION_VALUES}"

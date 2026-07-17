@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 from datetime import UTC, datetime
@@ -191,9 +192,25 @@ def _build_downstream_pipeline(impact: dict | None) -> list[dict]:
     # it preserves the existing niche names (reset_labels stays False) and does
     # NOT trigger its own auto_refresh downstream chain (that would duplicate the
     # recode/meta/pca/timelines steps the consolidate pipeline already carries).
-    if new_annotation_count > 0:
+    # On Cloud Run a local-only embedding backend can't serve the embeddings
+    # step (the pipeline dispatches Cloud Tasks directly, bypassing the
+    # start_process guard) — skip embeddings + map; they run when the user
+    # triggers an embeddings refresh on the host machine. The map alone is
+    # skipped too: rebuilding it without the top-up would just re-cluster the
+    # same vectors.
+    embeddings_dispatchable = True
+    if os.environ.get("K_SERVICE"):
+        try:
+            from fyp.analysis.embedding_backends import active_backend_name, get_backend
+            embeddings_dispatchable = get_backend(active_backend_name()).cloud_run_capable
+        except Exception:
+            embeddings_dispatchable = False
+    if new_annotation_count > 0 and embeddings_dispatchable:
         candidates.append({"task": "embeddings_refresh", "task_args": {}})
         candidates.append({"task": "video_map_refresh", "task_args": {}})
+    elif new_annotation_count > 0:
+        print("Skipping embeddings/video-map pipeline steps: the active "
+              "embedding backend runs only on a local machine.")
 
     if not candidates:
         return []

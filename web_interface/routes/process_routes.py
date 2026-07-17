@@ -69,6 +69,20 @@ def api_start(name):
         if not gemini_ok:
             return jsonify({"status": "error", "message": gemini_reason}), 400
 
+    # Same gate for the embeddings worker: refuse to start it when the active
+    # embedding backend isn't usable (missing credentials for Gemini, missing
+    # deps/model for a local backend). video_map_refresh stays ungated — it
+    # only reads the store, and niche naming degrades to term-based labels.
+    if name == "embeddings_refresh":
+        try:
+            from fyp.analysis.embedding_backends import active_backend_name, get_backend
+            avail = get_backend(active_backend_name()).availability()
+            embed_ok, embed_reason = avail.ok, avail.reason
+        except Exception as exc:
+            embed_ok, embed_reason = False, f"Embedding backend unavailable: {exc}"
+        if not embed_ok:
+            return jsonify({"status": "error", "message": embed_reason}), 400
+
     data = request.json or {}
     args = []
     

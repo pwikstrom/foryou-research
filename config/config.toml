@@ -81,6 +81,23 @@ with_audio = true
 
 
 ##########################################################################################
+# embedding
+##########################################################################################
+# Local Qwen text-embedding backend for the semantic space pipeline (select it
+# via Admin → General → Embeddings). Runs on MPS / CUDA / CPU via
+# sentence-transformers; the 0.6B model is ~1.2 GB. dim is the Matryoshka
+# truncation (0.6B supports 32–1024). The embedding store is scoped per model,
+# so switching backends re-embeds under the new model (old vectors are kept).
+# Install: pip install -e ".[local_embeddings]" — see
+# docs/installation.md#enabling-local-embeddings.
+[embedding.qwen_local]
+model_id = "Qwen/Qwen3-Embedding-0.6B"
+dim = 1024
+batch_size = 64
+
+
+
+##########################################################################################
 # paths
 ##########################################################################################
 [paths]

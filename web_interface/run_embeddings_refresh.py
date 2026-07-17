@@ -39,7 +39,7 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
         Dict with ``chain=True`` and ``next_task_args`` if more batches remain,
         else ``None``.
     """
-    from fyp.embeddings import EMBED_DIM, EMBED_MODEL, embed_pending
+    from fyp.embeddings import active_embedding_backend, embed_pending
 
     task_args = task_args or {}
     batch_size = int(task_args.get("batch_size") or DEFAULT_BATCH_SIZE)
@@ -49,7 +49,11 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
     chunk_index = int(task_args.get("chunk_index", 0))
     initial_total = int(task_args.get("initial_total", 0))
 
-    reporter.log(f"Embeddings refresh batch {chunk_index + 1} ({EMBED_MODEL}@{EMBED_DIM})...")
+    backend = active_embedding_backend()
+    reporter.log(
+        f"Embeddings refresh batch {chunk_index + 1} "
+        f"(backend={backend.name}, {backend.model_id()}@{backend.dim()})..."
+    )
 
     result = embed_pending(batch_size=batch_size, reporter=reporter)
     embedded = result["embedded"]

@@ -55,6 +55,11 @@ dev = [
 local_qwen = [
     "mlx-vlm>=0.6.4,<0.7; sys_platform == 'darwin'",
 ]
+# Local text-embedding backend (Qwen3-Embedding via sentence-transformers).
+# Separate from local_qwen so annotation-only installs don't pull torch.
+local_embeddings = [
+    "sentence-transformers>=3.0",
+]
 
 [tool.setuptools.packages.find]
 # Only the fyp library is packaged; web_interface stays app code.

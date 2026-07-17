@@ -328,6 +328,45 @@ def get_annotation_backends():
 
 
 
+@management_bp.route('/api/manage/embedding/backends', methods=['GET'])
+@permission_required('tab.admin.general')
+@login_required
+def get_embedding_backends():
+    """Availability of every embedding backend, for the requirements panel.
+
+    Same shape as ``/api/manage/annotation/backends``:
+    ``{backends: [{name, active, implemented, availability:
+    {ok, reason, checks}}]}``.
+    """
+    from fyp.analysis.embedding_backends import BACKEND_IDS, active_backend_name, get_backend
+
+    active = active_backend_name()
+    out = []
+    for name in BACKEND_IDS:
+        entry = {"name": name, "active": name == active}
+        try:
+            backend = get_backend(name)
+            result = backend.availability()
+            entry["implemented"] = True
+            entry["availability"] = {"ok": result.ok, "reason": result.reason,
+                                     "checks": result.checks}
+        except ValueError as exc:
+            # Module import failed — fall back to the dependency checks so the
+            # panel still shows actionable fixes.
+            entry["implemented"] = False
+            if name == "qwen_local":
+                from fyp.analysis.embedding_backends import qwen_support
+                result = qwen_support.availability()
+                entry["availability"] = {"ok": False, "reason": result.reason,
+                                         "checks": result.checks}
+            else:
+                entry["availability"] = {"ok": False, "reason": str(exc), "checks": []}
+        out.append(entry)
+    return jsonify({"backends": out})
+
+
+
+
 @management_bp.route('/api/manage/enrichment/empty_queue/<queue_type>', methods=['POST'])
 @permission_required('tab.data_management.enrichment')
 @login_required

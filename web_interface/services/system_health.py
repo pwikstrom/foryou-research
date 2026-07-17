@@ -355,6 +355,14 @@ def _run_all_checks(trigger: str) -> None:
     except Exception as e:
         doc["checks"]["gemini"] = {"status": "fail", "message": "Annotation backend check crashed",
                                    "detail": repr(e), "duration_s": None, "checked_at": _now_iso()}
+    doc["checks"]["embedding"] = {"status": "running", "message": "Checking...",
+                                  "detail": None, "duration_s": None, "checked_at": None}
+    _persist(doc)
+    try:
+        doc["checks"]["embedding"] = _check_embedding_backend()
+    except Exception as e:
+        doc["checks"]["embedding"] = {"status": "fail", "message": "Embedding backend check crashed",
+                                      "detail": repr(e), "duration_s": None, "checked_at": _now_iso()}
     doc["overall"] = _overall(doc["checks"])
     doc["finished_at"] = _now_iso()
     _persist(doc)
@@ -641,6 +649,31 @@ def _check_annotation_backend() -> dict:
                 "detail": str(e), "duration_s": None, "checked_at": _now_iso()}
     return {"status": "ok" if result.ok else "fail",
             "message": f"{backend_name} ready" if result.ok else result.reason,
+            "detail": None, "duration_s": None, "checked_at": _now_iso()}
+
+
+def _check_embedding_backend() -> dict:
+    """Health-check the ACTIVE embedding backend (cheap availability check).
+
+    No live embedding call is issued — Gemini's check is pure config, a local
+    backend's checks are dependency/model-cache probes.
+    """
+    from fyp.analysis.embedding_backends import active_backend_name, get_backend
+
+    backend_name = active_backend_name()
+    try:
+        result = get_backend(backend_name).availability()
+    except ValueError as e:
+        return {"status": "fail", "message": f"Embedding backend '{backend_name}' unavailable",
+                "detail": str(e), "duration_s": None, "checked_at": _now_iso()}
+    model_id = None
+    try:
+        model_id = get_backend(backend_name).model_id()
+    except Exception:
+        pass
+    ready = f"{backend_name} ready" + (f" ({model_id})" if model_id else "")
+    return {"status": "ok" if result.ok else "fail",
+            "message": ready if result.ok else result.reason,
             "detail": None, "duration_s": None, "checked_at": _now_iso()}
 
 

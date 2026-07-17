@@ -217,16 +217,37 @@
             }
             el.disabled = false;
         }
-        // The backend selector needs per-backend availability, not just
+        // The backend selectors need per-backend availability, not just
         // "module importable" — fetch the requirement checks and render both.
         loadBackendRequirements(settings.annotation_backend || 'gemini');
+        loadEmbeddingBackendRequirements(settings.embedding_backend || 'gemini');
     }
 
-    async function loadBackendRequirements(currentBackend) {
-        const backendSelect = document.getElementById('setting-annotation-backend');
-        const panel = document.getElementById('backend-requirements');
+    // The embeddings card mirrors the annotation one: same endpoint shape,
+    // its own select + requirements panel.
+    function loadEmbeddingBackendRequirements(currentBackend) {
+        return _loadBackendRequirementsInto(
+            '/api/manage/embedding/backends',
+            'setting-embedding-backend',
+            'embedding-backend-requirements',
+            currentBackend,
+        );
+    }
+
+    function loadBackendRequirements(currentBackend) {
+        return _loadBackendRequirementsInto(
+            '/api/manage/annotation/backends',
+            'setting-annotation-backend',
+            'backend-requirements',
+            currentBackend,
+        );
+    }
+
+    async function _loadBackendRequirementsInto(endpoint, selectId, panelId, currentBackend) {
+        const backendSelect = document.getElementById(selectId);
+        const panel = document.getElementById(panelId);
         try {
-            const response = await fetch('/api/manage/annotation/backends');
+            const response = await fetch(endpoint);
             if (!response.ok) throw new Error('Failed to load backends');
             const data = await response.json();
             const backends = data.backends || [];
@@ -296,7 +317,8 @@
             }
             (window._adminSettings || (window._adminSettings = {}))[key] = value;
             if (status) {
-                status.textContent = key === 'annotation_backend' ? 'Saved' : 'Saved — forks a new annotation version';
+                status.textContent = (key === 'annotation_backend' || key === 'embedding_backend')
+                    ? 'Saved' : 'Saved — forks a new annotation version';
                 setTimeout(() => { if (status.textContent.startsWith('Saved')) status.textContent = ''; }, 4000);
             }
         } catch (e) {

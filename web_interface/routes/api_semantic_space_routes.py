@@ -195,6 +195,28 @@ def api_semantic_space_status():
     if isinstance(embedded, (int, float)) and isinstance(map_built_from, (int, float)):
         behind = max(0, int(embedded) - int(map_built_from))
 
+    # A map built by a different embedding model than the active backend's is
+    # explicitly stale — a backend switch requires an embeddings refresh + map
+    # rebuild before the tab reflects the new model. Older maps predate the
+    # meta file; they can't be attributed, so no mismatch is claimed.
+    map_meta = None
+    model_mismatch = False
+    if map_exists and data_io.exists(
+            storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_META_FILE):
+        try:
+            map_meta = data_io.load_json(
+                storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_META_FILE)
+        except Exception:
+            map_meta = None
+    active_model = None
+    try:
+        active_model = embeddings.active_embedding_backend().model_id()
+    except Exception:
+        pass
+    if isinstance(map_meta, dict) and active_model:
+        built_model = map_meta.get("embedding_model")
+        model_mismatch = bool(built_model) and built_model != active_model
+
     if map_running:
         phase = "mapping"
     elif emb_running:
@@ -209,14 +231,19 @@ def api_semantic_space_status():
         "embeddings_updating": bool(emb_running or pipeline_in_flight),
         # A new map is actively being calculated.
         "map_rebuilding": bool(map_running),
-        # The visible map is behind the embedding store.
-        "map_stale": behind > 0,
+        # The visible map is behind the embedding store, or was built by a
+        # different embedding model than the active backend's.
+        "map_stale": behind > 0 or model_mismatch,
         "behind": behind,
         "phase": phase,
         "map_exists": bool(map_exists),
         "map_built_at": map_built_at,
         "embedded": int(embedded) if isinstance(embedded, (int, float)) else None,
         "map_built_from": int(map_built_from) if isinstance(map_built_from, (int, float)) else None,
+        # Build provenance (None for maps predating the meta file).
+        "map_meta": map_meta if isinstance(map_meta, dict) else None,
+        "active_embedding_model": active_model,
+        "model_mismatch": model_mismatch,
     })
 
 
