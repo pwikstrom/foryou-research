@@ -17,6 +17,7 @@ from ..admin_settings import (
     get_new_user_approval_required,
     load_admin_settings,
     save_admin_settings,
+    validate_setting_value,
 )
 from .. import activity_log
 from ..mail_utils import is_email, send_new_user_pending_email_async, send_welcome_email_async
@@ -432,7 +433,14 @@ def api_admin_role_permissions(role_name):
 def api_admin_settings():
     if request.method == 'GET':
         merged = {**ADMIN_SETTINGS_DEFAULTS, **load_admin_settings()}
-        return jsonify({"settings": merged})
+        # Config-file baselines for the runtime-overridable [machine] keys, so
+        # the General page can show "config default: X" placeholders.
+        import fyp.machine_annotation as machine_annotation
+        from fyp.annotation.backends import BACKEND_IDS, implemented_backend_ids
+        return jsonify({"settings": merged,
+                        "machine_defaults": machine_annotation.machine_config_baseline(),
+                        "backend_ids": list(BACKEND_IDS),
+                        "implemented_backends": list(implemented_backend_ids())})
 
     # PUT — only the General sub-page can write settings.
     from ..permissions import user_has_permission
@@ -453,14 +461,26 @@ def api_admin_settings():
     for k, v in data.items():
         expected = ADMIN_SETTING_TYPES.get(k, bool)
         if not isinstance(v, expected):
-            return jsonify({"error": f"Setting '{k}' must be a {expected.__name__}"}), 400
+            names = "/".join(t.__name__ for t in (expected if isinstance(expected, tuple) else (expected,)))
+            return jsonify({"error": f"Setting '{k}' must be a {names}"}), 400
         # Extra check: the default-role setting must reference an existing role.
         if k == "default_new_user_role" and not auth.role_manager.role_exists(v):
             return jsonify({"error": f"Unknown role: {v!r}"}), 400
+        semantic_error = validate_setting_value(k, v)
+        if semantic_error:
+            return jsonify({"error": semantic_error}), 400
 
     current = load_admin_settings()
     current.update(data)
     save_admin_settings(current)
+
+    # Annotation keys feed live config on this service; re-apply so the web
+    # process (health pings, ab_eval previews) sees the new values without a
+    # restart. Workers re-read at run start in their own processes.
+    from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY, MACHINE_OVERRIDE_KEYS
+    if any(k in data for k in (ANNOTATION_BACKEND_KEY, *MACHINE_OVERRIDE_KEYS)):
+        import fyp.machine_annotation as machine_annotation
+        machine_annotation.apply_admin_machine_overrides()
 
     merged = {**ADMIN_SETTINGS_DEFAULTS, **current}
     return jsonify({"status": "success", "message": "Settings updated", "settings": merged})

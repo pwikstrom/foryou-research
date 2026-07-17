@@ -6,23 +6,99 @@ open: keys may be added over time without migrations.
 """
 
 import fyp.data_io as data_io
+from fyp.annotation.backends.settings import (
+    ANNOTATION_BACKEND_KEY,
+    MACHINE_OVERRIDE_KEYS,
+    get_annotation_backend as get_annotation_backend,  # re-export (read side lives in fyp)
+    get_machine_overrides as get_machine_overrides,  # re-export
+)
 
 
 SETTINGS_FILENAME = "admin_settings.json"
 
+# Annotation settings: the backend selector plus runtime overrides of the five
+# [machine] config values. Empty string = "no override, use config.toml".
+# Key names are owned by fyp.annotation.backends.settings (the read side);
+# get_annotation_backend / get_machine_overrides are re-exported from there.
+_ANNOTATION_DEFAULTS = {ANNOTATION_BACKEND_KEY: "gemini",
+                        **{key: "" for key in MACHINE_OVERRIDE_KEYS}}
+
 DEFAULTS: dict = {
     "new_user_admin_approval_required": False,
     "default_new_user_role": "viewer",
+    **_ANNOTATION_DEFAULTS,
 }
 
 
 # Per-key type for /api/admin/settings PUT validation. Keys not listed here
 # default to bool (legacy behaviour). Add an entry whenever a non-bool setting
 # is introduced so the route can validate it without growing a switch statement.
+# The machine_* numeric keys accept int/float or "" (cleared); the route layers
+# range/enum checks on top of these base types.
 SETTING_TYPES: dict = {
     "new_user_admin_approval_required": bool,
     "default_new_user_role": str,
+    ANNOTATION_BACKEND_KEY: str,
+    "machine_model": str,
+    "machine_temperature": (int, float, str),
+    "machine_thinking_budget": (int, str),
+    "machine_media_resolution": str,
+    "machine_max_output_tokens": (int, str),
 }
+
+
+
+
+MEDIA_RESOLUTION_VALUES = ("", "LOW", "MEDIUM", "HIGH")
+
+
+
+
+
+
+def validate_setting_value(key: str, value) -> str | None:
+    """Validate one settings value beyond its base type.
+
+    Args:
+        key: Settings key (already checked against the allowed set).
+        value: The proposed value (already checked against ``SETTING_TYPES``).
+
+    Returns:
+        A user-facing error message, or ``None`` when the value is valid.
+    """
+    numeric_keys = ("machine_temperature", "machine_thinking_budget",
+                    "machine_max_output_tokens")
+    # bool is an int subclass — reject it explicitly for the numeric keys.
+    if key in numeric_keys and isinstance(value, bool):
+        return f"Setting '{key}' must be a number"
+    if value == "" or value is None:
+        return None  # cleared override — always valid
+    # str is allowed in SETTING_TYPES only as the "" cleared sentinel.
+    if key in numeric_keys and isinstance(value, str):
+        return f"Setting '{key}' must be a number (or \"\" to clear the override)"
+
+    if key == ANNOTATION_BACKEND_KEY:
+        from fyp.annotation.backends import BACKEND_IDS
+        if value not in BACKEND_IDS:
+            return f"Unknown annotation backend: {value!r} (known: {list(BACKEND_IDS)})"
+    elif key == "machine_media_resolution":
+        if str(value).upper() not in MEDIA_RESOLUTION_VALUES:
+            return f"machine_media_resolution must be one of {MEDIA_RESOLUTION_VALUES}"
+    elif key == "machine_temperature":
+        if not 0.0 <= float(value) <= 2.0:
+            return "machine_temperature must be between 0.0 and 2.0"
+    elif key == "machine_thinking_budget":
+        if int(value) < -1:
+            return "machine_thinking_budget must be >= -1"
+    elif key == "machine_max_output_tokens":
+        if int(value) <= 0:
+            return "machine_max_output_tokens must be positive"
+    elif key == "machine_model":
+        if not str(value).strip():
+            return "machine_model must be a non-empty model id"
+    return None
+
+
 
 
 

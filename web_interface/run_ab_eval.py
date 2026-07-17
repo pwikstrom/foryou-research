@@ -40,9 +40,14 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
     """
     from fyp import ab_eval
     from fyp import annotation_contract as ac
+    from fyp import machine_annotation
 
     task_args = task_args or {}
     _t_start = time.perf_counter()
+
+    # Pick up admin-set model/parameter overrides so arms without explicit
+    # per-arm params run against the effective production configuration.
+    machine_annotation.apply_admin_machine_overrides()
 
     run_id = task_args.get("run_id") or ab_eval.new_run_id()
     names = task_args.get("candidate_names") or []
@@ -52,12 +57,19 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
 
     reporter.update_progress(0, "Loading candidate contracts and evaluation set...")
 
+    # Optional per-arm overrides from the run form: {arm_name: {backend,
+    # model, temperature}} — the live arm is keyed "live". Validated at the
+    # route; execute_run re-validates backend availability before any call.
+    arm_params = task_args.get("arm_params") or {}
+
     arms: list[dict] = []
     for name in names:
         cand = ab_eval.load_candidate(name)   # raises on missing/invalid → fail fast
-        arms.append({"name": name, "source": "candidate", "text": cand["text"]})
+        arms.append({"name": name, "source": "candidate", "text": cand["text"],
+                     **arm_params.get(name, {})})
     if include_live:
-        arms.append({"name": "live", "source": "live", "text": ac.effective_contract_text()})
+        arms.append({"name": "live", "source": "live", "text": ac.effective_contract_text(),
+                     **arm_params.get("live", {})})
     if not arms:
         raise ValueError("no contracts selected (pass candidate_names and/or include_live)")
 

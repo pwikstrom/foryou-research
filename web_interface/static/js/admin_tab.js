@@ -117,6 +117,10 @@
             if (defaultRoleLabel) {
                 defaultRoleLabel.textContent = settings.default_new_user_role || 'viewer';
             }
+
+            // General → Machine annotation card
+            populateMachineSettings(settings, data.machine_defaults || {},
+                data.backend_ids || ['gemini'], data.implemented_backends || ['gemini']);
         } catch (e) {
             console.error('loadAdminSettings:', e);
             const status = document.getElementById('setting-new-user-approval-status');
@@ -187,6 +191,120 @@
             if (status) status.textContent = 'Failed — reverted';
         } finally {
             checkbox.disabled = false;
+        }
+    }
+
+    // --- Machine annotation backend + parameter overrides ---
+
+    // settings key -> {input element id, [machine] config key for placeholders}
+    const MACHINE_SETTING_FIELDS = {
+        machine_model: { id: 'setting-machine-model', configKey: 'model' },
+        machine_temperature: { id: 'setting-machine-temperature', configKey: 'temperature' },
+        machine_thinking_budget: { id: 'setting-machine-thinking-budget', configKey: 'thinking_budget' },
+        machine_media_resolution: { id: 'setting-machine-media-resolution', configKey: 'media_resolution' },
+        machine_max_output_tokens: { id: 'setting-machine-max-output-tokens', configKey: 'max_output_tokens' },
+    };
+
+    function populateMachineSettings(settings, machineDefaults, backendIds, implementedBackends) {
+        for (const [key, field] of Object.entries(MACHINE_SETTING_FIELDS)) {
+            const el = document.getElementById(field.id);
+            if (!el) continue;
+            const value = settings[key];
+            el.value = (value === undefined || value === null) ? '' : String(value);
+            const dflt = machineDefaults[field.configKey];
+            if (el.tagName === 'INPUT') {
+                el.placeholder = `config default: ${dflt === '' || dflt === undefined ? '(unset)' : dflt}`;
+            }
+            el.disabled = false;
+        }
+        // The backend selector needs per-backend availability, not just
+        // "module importable" — fetch the requirement checks and render both.
+        loadBackendRequirements(settings.annotation_backend || 'gemini');
+    }
+
+    async function loadBackendRequirements(currentBackend) {
+        const backendSelect = document.getElementById('setting-annotation-backend');
+        const panel = document.getElementById('backend-requirements');
+        try {
+            const response = await fetch('/api/manage/annotation/backends');
+            if (!response.ok) throw new Error('Failed to load backends');
+            const data = await response.json();
+            const backends = data.backends || [];
+
+            if (backendSelect) {
+                backendSelect.innerHTML = backends.map(b => {
+                    const ok = b.availability && b.availability.ok;
+                    const selectable = ok || b.name === currentBackend;
+                    const label = b.name + (ok ? '' : ' (requirements not met)');
+                    return `<option value="${b.name}" ${b.name === currentBackend ? 'selected' : ''}
+                        ${selectable ? '' : 'disabled'}>${label}</option>`;
+                }).join('');
+                backendSelect.disabled = false;
+            }
+
+            // Requirements panel: show the checks for every non-gemini backend
+            // (gemini state is already covered by the enrichment-card notice).
+            if (panel) {
+                const rows = [];
+                for (const b of backends) {
+                    if (b.name === 'gemini') continue;
+                    const checks = (b.availability && b.availability.checks) || [];
+                    if (!checks.length) continue;
+                    rows.push(`<div class="font-semibold" style="margin-bottom: 4px; color: var(--color-text-primary);">${b.name} requirements</div>`);
+                    for (const c of checks) {
+                        const mark = c.ok ? '✓' : '✗';
+                        const color = c.ok ? 'var(--color-success)' : 'var(--color-danger)';
+                        rows.push(`<div style="margin-left: 4px;">
+                            <span style="color: ${color};">${mark}</span>
+                            ${c.name} <span style="color: var(--color-text-muted);">— ${c.detail}</span>
+                            ${!c.ok && c.fix ? `<div class="font-mono" style="margin-left: 18px; color: var(--color-text-muted);">fix: ${c.fix}</div>` : ''}
+                        </div>`);
+                    }
+                }
+                panel.innerHTML = rows.join('');
+                panel.style.display = rows.length ? 'block' : 'none';
+            }
+        } catch (e) {
+            console.error('loadBackendRequirements:', e);
+            if (backendSelect) {
+                backendSelect.innerHTML = `<option value="${currentBackend}" selected>${currentBackend}</option>`;
+                backendSelect.disabled = false;
+            }
+        }
+    }
+
+    async function saveMachineSetting(el, key) {
+        const status = document.getElementById(el.id + '-status');
+        const previous = (window._adminSettings || {})[key];
+        let value = el.value;
+        // Numeric inputs: empty string clears the override; otherwise send a number.
+        if (el.type === 'number' && value !== '') {
+            value = Number(value);
+            if (Number.isNaN(value)) { if (status) status.textContent = 'Not a number'; return; }
+        }
+        el.disabled = true;
+        if (status) status.textContent = 'Saving…';
+        try {
+            const response = await fetch('/api/admin/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ [key]: value })
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'Save failed');
+            }
+            (window._adminSettings || (window._adminSettings = {}))[key] = value;
+            if (status) {
+                status.textContent = key === 'annotation_backend' ? 'Saved' : 'Saved — forks a new annotation version';
+                setTimeout(() => { if (status.textContent.startsWith('Saved')) status.textContent = ''; }, 4000);
+            }
+        } catch (e) {
+            console.error('saveMachineSetting:', key, e);
+            el.value = (previous === undefined || previous === null) ? '' : String(previous); // revert
+            if (status) status.textContent = `Failed — reverted (${e.message})`;
+        } finally {
+            el.disabled = false;
         }
     }
 
