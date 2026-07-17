@@ -67,13 +67,38 @@ def test_manifest_records_backend_and_overrides():
 
 
 
-def test_unavailable_backend_fails_before_any_call():
+def test_unavailable_backend_fails_before_any_call(monkeypatch):
+    # Force the availability check to fail regardless of what this host has
+    # installed (on a fully-provisioned Mac qwen_local is genuinely available).
+    from fyp.annotation.backends import BackendAvailability
+    from fyp.annotation.backends.qwen_local import QwenLocalBackend
+
+    monkeypatch.setattr(QwenLocalBackend, "availability",
+                        lambda self, deep=False: BackendAvailability(
+                            ok=False, reason="forced unavailable (test)"))
     live_text = ac._read_baked_text()
-    with pytest.raises(ValueError, match="qwen_local"):
+    with pytest.raises(ValueError, match="forced unavailable"):
         ab_eval.execute_run(
             run_id=ab_eval.new_run_id(),
             arms=[{"name": "q", "source": "live", "text": live_text,
                    "backend": "qwen_local"}],
+            item_ids=["1"],
+            started_by="tester",
+            runner=_StubRunner(),
+        )
+
+
+
+
+
+
+def test_unknown_backend_id_fails_before_any_call():
+    live_text = ac._read_baked_text()
+    with pytest.raises(ValueError, match="Unknown annotation backend"):
+        ab_eval.execute_run(
+            run_id=ab_eval.new_run_id(),
+            arms=[{"name": "q", "source": "live", "text": live_text,
+                   "backend": "nonexistent"}],
             item_ids=["1"],
             started_by="tester",
             runner=_StubRunner(),
