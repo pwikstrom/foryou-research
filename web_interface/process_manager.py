@@ -596,6 +596,21 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
     if lease_msg:
         return False, lease_msg
 
+    # Defense in depth: never dispatch an annotation Cloud Task when a
+    # local-only backend is selected (annotation_configured gates the Start
+    # button, but a mid-flight settings change could race past it).
+    if is_cloud_run() and name in ("queue_annotator", "queue_annotator_batch"):
+        try:
+            from fyp.annotation.backends import active_backend_name, get_backend
+
+            backend_name = active_backend_name()
+            if not get_backend(backend_name).cloud_run_capable:
+                return False, (f"The '{backend_name}' annotation backend runs only on a "
+                               f"local machine — switch the backend to Gemini in "
+                               f"Admin → General, or run the annotator locally.")
+        except ValueError as exc:
+            return False, f"Annotation backend unavailable: {exc}"
+
     # Cloud Tasks path for eligible processes on Cloud Run
     if is_cloud_run() and name in CLOUD_TASK_ELIGIBLE:
         # For study_refresh, use a study-specific status key so multiple

@@ -85,6 +85,87 @@ def __getattr__(name: str):
 
 
 
+# Snapshot of the config-file [machine] baseline for the keys admins may
+# override at runtime. Taken once, before the first override apply, so
+# clearing an override reverts to the config.toml value.
+_MACHINE_BASE: dict | None = None
+
+
+
+
+
+
+def invalidate_caches():
+    """Drop the cached Gemini client and generation config.
+
+    Both rebuild lazily on next use. Call after any runtime change to
+    ``[machine]`` values (the cached ``GenerateContentConfig`` bakes in
+    temperature / max_output_tokens / media_resolution / thinking_budget, and
+    the client bakes in the credential mode). The version descriptor cache in
+    :mod:`fyp.annotation_versioning` self-invalidates via its config signature.
+    """
+    _cf()["machine"]["structured_generation_config"] = None
+    _cf()["machine"]["client"] = None
+
+
+
+
+
+
+def apply_admin_machine_overrides() -> dict:
+    """Overlay admin-settings overrides onto ``_cf()["machine"]``.
+
+    Reads the admin settings store (see
+    :mod:`fyp.annotation.backends.settings`) and writes ``baseline | overrides``
+    into the live config for the five runtime-editable keys, then invalidates
+    the derived caches. The config-file baseline is snapshotted on first call,
+    so clearing an override reverts cleanly. Workers call this once at run
+    start (each task-runner run is a fresh process); the web service calls it
+    after a settings save.
+
+    Returns:
+        The applied overrides ``{config_key: value}`` (empty when none set).
+    """
+    from fyp.annotation.backends.settings import MACHINE_OVERRIDE_KEYS, get_machine_overrides
+
+    global _MACHINE_BASE
+    machine = _cf()["machine"]
+    if _MACHINE_BASE is None:
+        _MACHINE_BASE = {key: machine[key] for key in MACHINE_OVERRIDE_KEYS.values()}
+
+    overrides = get_machine_overrides()
+    effective = {**_MACHINE_BASE, **overrides}
+    changed = any(machine.get(key) != value for key, value in effective.items())
+    machine.update(effective)
+    if changed:
+        invalidate_caches()
+        logger.info(f"Applied admin [machine] overrides: {overrides or '(none — config baseline)'}")
+    return overrides
+
+
+
+
+
+
+def machine_config_baseline() -> dict:
+    """The config-file values of the runtime-overridable ``[machine]`` keys.
+
+    Returns:
+        ``{config_key: value}`` for the five admin-overridable keys — the
+        pre-override snapshot when overrides have been applied in this
+        process, else the live config values.
+    """
+    from fyp.annotation.backends.settings import MACHINE_OVERRIDE_KEYS
+
+    if _MACHINE_BASE is not None:
+        return dict(_MACHINE_BASE)
+    return {key: _cf()["machine"][key] for key in MACHINE_OVERRIDE_KEYS.values()}
+
+
+
+
+
+
 def initialize_machine():
 
     if _cf()["machine"].get("client", None) is not None:
@@ -118,39 +199,27 @@ def initialize_machine():
 
 
 def annotation_configured() -> tuple[bool, str]:
-    """Whether machine (Gemini) annotation is configured to run.
+    """Whether machine annotation is configured to run on the active backend.
 
-    A pure config check — no network, no client construction. Delegates the
-    credential question to :func:`fyp.core.gemini_client.gemini_mode`, the same
-    resolver :func:`initialize_machine` uses, so this gate cannot approve a
-    configuration the worker would then fail on.
-
-    Adds the one requirement specific to *annotation*: media. GCS-stored media
-    is handed to Gemini as a ``gs://`` URI, which only Vertex can read — the
-    plain Gemini API only ever sees media inlined from local disk (see
-    :func:`call_machine`). Embeddings and niche naming are text-only and carry
-    no such constraint.
+    A pure config/dependency check — no network, no client construction.
+    Dispatches to the active backend's ``availability()`` (see
+    :mod:`fyp.annotation.backends`): for Gemini that reproduces the historical
+    credential + gs://-media rules byte-identically; for a local backend it
+    covers platform / dependency / model-download requirements instead.
 
     Returns:
         ``(ok, reason)``. When ``ok`` is False, ``reason`` is a user-facing
         explanation of what to configure; an empty string otherwise.
     """
-    mode, reason = gemini_client.gemini_mode()
-    if mode is None:
-        return False, reason
+    from fyp.annotation.backends import active_backend_name, get_backend
 
-    if mode == gemini_client.MODE_API_KEY and _cf()["data_io"]["use_gcs_for_media"]:
-        return False, (
-            "Gemini annotation is not configured: media is stored on GCS "
-            "(use_gcs_for_media = true), which is passed to Gemini as a gs:// "
-            "URI that only Vertex AI can read. The plain Gemini API can only "
-            "annotate media on local disk. Either configure Vertex AI "
-            "([machine].vertexai = true with a GCP project), or set "
-            "use_gcs_for_media = false to store media locally. "
-            "See docs/installation.md#enabling-gemini-later."
-        )
-
-    return True, ""
+    name = active_backend_name()
+    try:
+        backend = get_backend(name)
+    except ValueError as exc:
+        return False, str(exc)
+    result = backend.availability(deep=False)
+    return result.ok, result.reason
 
 
 
@@ -511,8 +580,18 @@ def call_machine_threads(
     if notebook_mode:
         verbose = True
 
+    # Per-backend dispatch: Gemini keeps the historical path verbatim; another
+    # backend (local model) runs its own annotate_one with its own worker
+    # width (a resident local model is effectively sequential).
+    from fyp.annotation.backends import active_backend_name, get_backend
 
-    initialize_machine()
+    backend_name = active_backend_name()
+    backend = get_backend(backend_name) if backend_name != "gemini" else None
+    if backend is not None:
+        max_workers = backend.max_workers
+
+    if backend is None:
+        initialize_machine()
 
     annotation_versioning.ensure_current_version_registered()
 
@@ -522,9 +601,19 @@ def call_machine_threads(
         idx, video = idx_video
 
         # Maybe Gemini doesn't like to get to many request at once.
-        # Sleeping for a bit with the first ones solves the problem
-        if idx < max_workers:
+        # Sleeping for a bit with the first ones solves the problem.
+        # (Local backends are sequential — no stagger needed.)
+        if backend is None and idx < max_workers:
             time.sleep(3+random()*max_workers/2)
+
+        if backend is not None:
+            if dry_run:
+                time.sleep(1)
+                return idx, {"item_id": video, "error": "dry run",
+                             "finish_reason": "dry run", "response": "dry run"}
+            rr = backend.annotate_one(
+                str(video), platform=(platform_by_id or {}).get(str(video)))
+            return idx, rr
 
         t1 = _dt.datetime.now()
         rr = call_machine(
@@ -537,10 +626,12 @@ def call_machine_threads(
         return idx, rr
 
 
+    _effective_model = (backend.effective_model_id() if backend is not None
+                        else _cf()['machine']['model'])
     if verbose:
         if dry_run:
             print("  [dry run] - ", end="", flush=True)
-        logger.info(f"Calling {_cf()['machine']['model']} to annotate {len(interesting_videos):,} videos with {max_workers} threads.")
+        logger.info(f"Calling {_effective_model} to annotate {len(interesting_videos):,} videos with {max_workers} threads.")
 
     def _annotation_ok(fut):
         try:
@@ -553,7 +644,9 @@ def call_machine_threads(
     # SDK's http_options_timeout (observed in practice — SDK timeout is not
     # always honored). Deadline scales with the number of waves the thread
     # pool needs to process, with 1.5x safety margin plus startup-jitter buffer.
-    _per_call_seconds = 180       # matches http_options_timeout (ms→s)
+    # Gemini: matches http_options_timeout (ms→s). Local backend: the first
+    # item also loads the model (~1-2 min) on top of ~30-60s inference.
+    _per_call_seconds = 180 if backend is None else 600
     _safety_margin = 1.5
     _startup_sleep = 3 + max_workers / 2  # upper bound of worker() sleep
     _waves = max(1, (len(interesting_videos) + max_workers - 1) // max_workers)
@@ -642,7 +735,7 @@ def call_machine_threads(
                 "error": f"worker did not complete within its {int(per_item_deadline)}s deadline",
                 "finish_reason": "DNF - worker timeout",
                 "response": "",
-                "model": _cf()["machine"]["model"],
+                "model": _effective_model,
             }
 
         monitor_thread.join(timeout=10)

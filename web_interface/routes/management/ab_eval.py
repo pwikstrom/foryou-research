@@ -385,6 +385,51 @@ def estimate_ab_eval():
 
 
 
+def _clean_arm_params(raw) -> tuple[dict, str | None]:
+    """Validate the optional per-arm parameter overrides from the run form.
+
+    Args:
+        raw: ``{arm_name: {backend?, model?, temperature?}}`` or falsy.
+
+    Returns:
+        ``(cleaned, error)`` — cleaned dict (possibly empty) and a user-facing
+        error string when validation fails.
+    """
+    if not raw:
+        return {}, None
+    if not isinstance(raw, dict):
+        return {}, "arm_params must be an object"
+    from fyp.annotation.backends import BACKEND_IDS
+
+    cleaned: dict = {}
+    for arm_name, params in raw.items():
+        if not isinstance(params, dict):
+            return {}, f"arm_params['{arm_name}'] must be an object"
+        entry: dict = {}
+        backend = params.get("backend")
+        if backend not in (None, ""):
+            if backend not in BACKEND_IDS:
+                return {}, f"arm '{arm_name}': unknown backend '{backend}'"
+            entry["backend"] = backend
+        model = params.get("model")
+        if model not in (None, ""):
+            if not isinstance(model, str) or not model.strip():
+                return {}, f"arm '{arm_name}': model must be a non-empty string"
+            entry["model"] = model.strip()
+        temperature = params.get("temperature")
+        if temperature not in (None, ""):
+            if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
+                return {}, f"arm '{arm_name}': temperature must be a number"
+            if not 0.0 <= float(temperature) <= 2.0:
+                return {}, f"arm '{arm_name}': temperature must be between 0.0 and 2.0"
+            entry["temperature"] = float(temperature)
+        if entry:
+            cleaned[str(arm_name)] = entry
+    return cleaned, None
+
+
+
+
 @management_bp.route('/api/manage/ab-eval/run', methods=['POST'])
 @permission_required('tab.admin.schema')
 @login_required
@@ -416,6 +461,9 @@ def start_ab_eval_run():
         for name in names:
             if not ab_eval.validate_candidate_name(name):
                 return jsonify({"error": f"invalid candidate name '{name}'"}), 400
+        arm_params, param_error = _clean_arm_params(body.get('arm_params'))
+        if param_error:
+            return jsonify({"error": param_error}), 400
         stored = ab_eval.load_eval_set(body.get('eval_set') or None)
         item_ids = stored.get("item_ids", [])
         if not item_ids:
@@ -428,6 +476,7 @@ def start_ab_eval_run():
             "name": run_name,
             "candidate_names": names,
             "include_live": include_live,
+            "arm_params": arm_params,
             "eval_set": stored.get("name"),
             "started_by": _actor(),
         }

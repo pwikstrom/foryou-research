@@ -50,7 +50,9 @@ const _HEALTH_CHECK_LABELS = {
     scrape_tiktok:    'TikTok scraper',
     scrape_instagram: 'Instagram scraper',
     scrape_youtube:   'YouTube scraper',
-    gemini:           'Gemini annotation',
+    // Historical key — the check now covers whichever annotation backend is
+    // active (Gemini ping, or the local backend's requirement checks).
+    gemini:           'Annotation backend',
 };
 
 let _healthPollTimer = null;

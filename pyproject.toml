@@ -47,6 +47,14 @@ dev = [
     "ruff>=0.15",
     "pre-commit>=3.7",
 ]
+# Local Qwen annotation backend (Apple Silicon + MLX only). Deliberately NOT
+# in requirements.txt — that file is the production Docker lock and mlx does
+# not exist on linux/amd64. The 0.6.x pin matches the workarounds in
+# fyp/annotation/backends/qwen_rope_fix.py (upstream Blaizzy/mlx-vlm #1619,
+# #1620); re-validate before moving the pin.
+local_qwen = [
+    "mlx-vlm>=0.6.4,<0.7; sys_platform == 'darwin'",
+]
 
 [tool.setuptools.packages.find]
 # Only the fyp library is packaged; web_interface stays app code.

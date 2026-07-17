@@ -378,6 +378,13 @@
   ]
  ],
  [
+  "/api/manage/annotation/backends",
+  "management_bp.get_annotation_backends",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/manage/collection/save_annotation",
   "management_bp.save_collection_annotation",
   [

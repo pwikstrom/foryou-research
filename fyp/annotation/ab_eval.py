@@ -623,13 +623,24 @@ def _build_contents(item_id: str, platform: str | None):
 
 
 
-def annotate_one(item_id: str, platform: str | None, prompt_text: str, response_schema) -> dict:
+def annotate_one(item_id: str, platform: str | None, prompt_text: str, response_schema,
+                 gen_overrides: dict | None = None) -> dict:
     """Annotate ONE video against an explicit prompt + response schema.
 
     The A/B analogue of ``machine_annotation.call_machine``: same client, same
     ``[machine]`` generation parameters (so per-call cost matches production),
     but the prompt/schema come from the caller's candidate contract and the
     result is returned — NEVER persisted, stamped, or queued.
+
+    Args:
+        item_id: The item to annotate.
+        platform: The item's source platform (media resolution).
+        prompt_text: The arm's rendered system instruction.
+        response_schema: The arm's rendered response schema.
+        gen_overrides: Optional per-arm overrides of the ``[machine]``
+            generation parameters (``model`` / ``temperature`` /
+            ``thinking_budget`` / ``max_output_tokens``); absent keys fall
+            back to the production values, so old callers are unaffected.
 
     Returns:
         ``{item_id, model, parsed, response, finish_reason, usage,
@@ -641,18 +652,21 @@ def annotate_one(item_id: str, platform: str | None, prompt_text: str, response_
 
     initialize_machine()
     machine = _cf()["machine"]
+    effective = {key: machine[key] for key in
+                 ("model", "temperature", "thinking_budget", "max_output_tokens")}
+    effective.update({k: v for k, v in (gen_overrides or {}).items() if v is not None})
     config = gt.GenerateContentConfig(
         system_instruction=prompt_text,
-        temperature=machine["temperature"],
-        max_output_tokens=machine["max_output_tokens"],
+        temperature=effective["temperature"],
+        max_output_tokens=effective["max_output_tokens"],
         response_mime_type="application/json",
         response_schema=response_schema,
-        thinking_config=gt.ThinkingConfig(thinking_budget=machine["thinking_budget"]),
+        thinking_config=gt.ThinkingConfig(thinking_budget=effective["thinking_budget"]),
     )
 
     out: dict = {
         "item_id": str(item_id),
-        "model": machine["model"],
+        "model": effective["model"],
         "parsed": None,
         "response": "",
         "finish_reason": "did not start",
@@ -671,7 +685,7 @@ def annotate_one(item_id: str, platform: str | None, prompt_text: str, response_
     start = _dt.datetime.now()
     try:
         resp = machine["client"].models.generate_content(
-            model=machine["model"], config=config, contents=contents,
+            model=effective["model"], config=config, contents=contents,
         )
     except Exception as exc:
         out["error"] = f"generate: {exc}"
@@ -712,9 +726,13 @@ class SyncThreadedRunner:
     :func:`run_arm` without touching the worker.
     """
 
-    def __init__(self, max_workers: int = MAX_WORKERS, cancel_cb=None):
+    def __init__(self, max_workers: int = MAX_WORKERS, cancel_cb=None,
+                 gen_overrides: dict | None = None):
         self.max_workers = max_workers
         self.cancel_cb = cancel_cb
+        # Per-arm generation overrides (model/temperature/...) threaded through
+        # the constructor so run()'s signature stays stable for other runners.
+        self.gen_overrides = gen_overrides
 
 
 
@@ -731,7 +749,7 @@ class SyncThreadedRunner:
             futures = {
                 pool.submit(
                     annotate_one, item_id, platform_map.get(str(item_id)),
-                    prompt_text, response_schema,
+                    prompt_text, response_schema, self.gen_overrides,
                 ): str(item_id)
                 for item_id in item_ids
             }
@@ -755,6 +773,131 @@ class SyncThreadedRunner:
                         pending.cancel()
                     raise RunCancelled()
         return [results[str(i)] for i in item_ids if str(i) in results]
+
+
+
+
+def _validate_arm_backend(arm_name: str | None, backend_name: str) -> None:
+    """Fail fast when an arm names a backend that cannot run right now.
+
+    Args:
+        arm_name: The arm's display name (error messages only).
+        backend_name: The requested backend id.
+
+    Raises:
+        ValueError: For an unknown/unimplemented backend or one whose
+            availability check fails (the reason is included verbatim).
+    """
+    from fyp.annotation.backends import get_backend
+
+    try:
+        backend = get_backend(backend_name)
+    except ValueError as exc:
+        raise ValueError(f"arm '{arm_name}': {exc}") from exc
+    if backend_name == "gemini":
+        return  # gemini readiness is checked once by the worker's config gate
+    result = backend.availability(deep=False)
+    if not result.ok:
+        raise ValueError(f"arm '{arm_name}': backend '{backend_name}' unavailable — {result.reason}")
+
+
+
+
+
+
+def _runner_for_arm(arm: dict, cancel_cb=None):
+    """Build the runner matching an arm's backend and generation overrides.
+
+    Args:
+        arm: A parsed arm dict (``backend`` + ``gen_overrides`` keys).
+        cancel_cb: Cancellation callback threaded into the runner.
+
+    Returns:
+        An object with the ``SyncThreadedRunner.run`` signature.
+    """
+    backend_name = arm.get("backend") or "gemini"
+    gen_overrides = arm.get("gen_overrides") or None
+    if backend_name == "gemini":
+        return SyncThreadedRunner(cancel_cb=cancel_cb, gen_overrides=gen_overrides)
+    from fyp.annotation.backends import get_backend
+
+    # Non-Gemini backends constrain decoding with the PORTABLE JSON schema
+    # (run_arm passes the google-genai form, which only Gemini understands).
+    schema_json = sch.get_annotation_json_schema(arm.get("contract")) if arm.get("contract") else None
+    return BackendSequentialRunner(get_backend(backend_name), cancel_cb=cancel_cb,
+                                   gen_overrides=gen_overrides, schema_json=schema_json)
+
+
+
+
+
+
+class BackendSequentialRunner:
+    """Arm runner for non-Gemini backends: a sequential loop over the backend.
+
+    Local backends hold the whole model in memory, so ``max_workers`` is
+    effectively 1 — a plain loop with a cancellation check between items.
+    Implements the same ``run()`` signature as :class:`SyncThreadedRunner` and
+    returns the same raw-row keys, translating the backend's production
+    raw-row dict (``response``/``structured``) into the A/B row shape
+    (``parsed`` extracted here).
+    """
+
+    def __init__(self, backend, cancel_cb=None, gen_overrides: dict | None = None,
+                 schema_json: dict | None = None):
+        self.backend = backend
+        self.cancel_cb = cancel_cb
+        self.gen_overrides = gen_overrides
+        # Portable JSON schema for the arm's contract; preferred over the
+        # genai-typed schema run() receives (backends can't consume that).
+        self.schema_json = schema_json
+
+
+
+
+    def run(self, prompt_text: str, response_schema, item_ids: list[str],
+            platform_map: dict[str, str], progress_cb=None) -> list[dict]:
+        """Annotate every item sequentially; returns rows in input order.
+
+        Raises:
+            RunCancelled: when ``cancel_cb`` returns True between items.
+        """
+        rows: list[dict] = []
+        for done, item_id in enumerate(item_ids, start=1):
+            if self.cancel_cb and self.cancel_cb():
+                raise RunCancelled()
+            try:
+                raw = self.backend.annotate_one(
+                    str(item_id), platform=platform_map.get(str(item_id)),
+                    gen_overrides=self.gen_overrides,
+                    prompt_text=prompt_text,
+                    response_schema=self.schema_json if self.schema_json is not None else response_schema,
+                )
+                row = {
+                    "item_id": str(item_id),
+                    "model": raw.get("model"),
+                    "parsed": None,
+                    "response": raw.get("response", ""),
+                    "finish_reason": raw.get("finish_reason", "unknown"),
+                    "usage": raw.get("usage", {}),
+                    "inference_duration": raw.get("inference_duration", -1.0),
+                    "error": raw.get("error", ""),
+                }
+                if not row["error"] and row["response"]:
+                    try:
+                        row["parsed"] = json.loads(row["response"])
+                    except Exception as exc:
+                        row["error"] = f"parse: {exc}"
+            except Exception as exc:
+                row = {"item_id": str(item_id), "model": getattr(self.backend, "name", "?"),
+                       "parsed": None, "response": "", "finish_reason": "DNF - runner error",
+                       "usage": {}, "inference_duration": -1.0, "error": str(exc)}
+            rows.append(row)
+            if progress_cb:
+                progress_cb(done, len(item_ids))
+        return rows
+
+
 
 
 
@@ -1408,18 +1551,27 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
     if len(set(names)) != len(names):
         raise ValueError("arm names must be unique")
 
-    # Parse every arm up front (fail fast before any Gemini call is made).
+    # Parse every arm up front (fail fast before any model call is made).
+    # backend/model/temperature are optional per-arm overrides — absent keys
+    # mean "production defaults", so pre-existing callers and stored runs are
+    # unaffected.
     parsed_arms = []
     for arm in arms:
         contract, errors = ac.parse_and_validate(arm["text"])
         if contract is None or errors:
             raise ValueError(f"arm '{arm.get('name')}' contract invalid: {'; '.join(errors)}")
+        backend_name = arm.get("backend") or "gemini"
+        gen_overrides = {k: arm[k] for k in ("model", "temperature") if arm.get(k) not in (None, "")}
+        gen_overrides.update(arm.get("gen_params") or {})
+        _validate_arm_backend(arm.get("name"), backend_name)
         parsed_arms.append({
             "name": arm["name"],
             "source": arm.get("source", "candidate"),
             "etag": ac._etag(arm["text"], arm.get("source", "candidate")),
             "contract": contract,
             "text": arm["text"],
+            "backend": backend_name,
+            "gen_overrides": gen_overrides,
         })
 
     item_ids = [str(i) for i in item_ids]
@@ -1435,7 +1587,8 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
         "item_ids": item_ids,
         "n_items": len(item_ids),
         "arms": [
-            {"name": a["name"], "source": a["source"], "etag": a["etag"]}
+            {"name": a["name"], "source": a["source"], "etag": a["etag"],
+             "backend": a["backend"], "gen_overrides": a["gen_overrides"]}
             for a in parsed_arms
         ],
     }
@@ -1454,7 +1607,7 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
                 if progress_cb:
                     progress_cb(_name, done, total)
 
-            arm_runner = runner or SyncThreadedRunner(cancel_cb=cancel_cb)
+            arm_runner = runner or _runner_for_arm(arm, cancel_cb)
             flat_rows, raw_rows = run_arm(
                 arm["name"], arm["contract"], item_ids, platform_map,
                 runner=arm_runner, progress_cb=_cb,

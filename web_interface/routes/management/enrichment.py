@@ -210,20 +210,26 @@ def get_enrichment_stats():
     # into its health chip below.
     active_alerts = scraper_alerts.load_alerts()
 
-    # Whether Gemini annotation is configured (pure config check). The client
-    # uses this to disable/short-circuit the annotator start with a clear
-    # message instead of booting a worker that can't annotate anything.
+    # Whether annotation is configured on the ACTIVE backend (pure config
+    # check). The client uses this to disable/short-circuit the annotator
+    # start with a clear message instead of booting a worker that can't
+    # annotate anything.
     try:
+        from fyp.annotation.backends import active_backend_name
         from fyp.annotation.machine_annotation import annotation_configured
         annotation_ok, annotation_reason = annotation_configured()
+        annotation_backend = active_backend_name()
     except Exception as exc:
         annotation_ok, annotation_reason = False, (
-            f"Gemini annotation is unavailable: google-genai could not be loaded ({exc})."
+            f"Machine annotation is unavailable: the annotation backend could "
+            f"not be loaded ({exc})."
         )
+        annotation_backend = "gemini"
 
     return jsonify({
         "annotation_configured": annotation_ok,
         "annotation_config_reason": annotation_reason,
+        "annotation_backend": annotation_backend,
         "total_videos": total_videos,
         "scraped_videos": scraped_videos,
         "annotated_videos": annotated_videos,
@@ -278,6 +284,46 @@ def get_enrichment_stats():
     })
 
 
+
+
+
+
+@management_bp.route('/api/manage/annotation/backends', methods=['GET'])
+@permission_required('tab.admin.general')
+@login_required
+def get_annotation_backends():
+    """Availability of every annotation backend, for the requirements panel.
+
+    Returns:
+        ``{backends: [{name, active, implemented, availability:
+        {ok, reason, checks}}]}`` — ``checks`` rows carry actionable ``fix``
+        strings for anything missing on this host.
+    """
+    from fyp.annotation.backends import BACKEND_IDS, active_backend_name, get_backend
+
+    active = active_backend_name()
+    out = []
+    for name in BACKEND_IDS:
+        entry = {"name": name, "active": name == active}
+        try:
+            backend = get_backend(name)
+            result = backend.availability()
+            entry["implemented"] = True
+            entry["availability"] = {"ok": result.ok, "reason": result.reason,
+                                     "checks": result.checks}
+        except ValueError as exc:
+            # Module import failed (e.g. mlx-vlm absent) — fall back to the
+            # dependency checks so the panel still shows actionable fixes.
+            entry["implemented"] = False
+            if name == "qwen_local":
+                from fyp.annotation.backends import qwen_support
+                result = qwen_support.availability()
+                entry["availability"] = {"ok": False, "reason": result.reason,
+                                         "checks": result.checks}
+            else:
+                entry["availability"] = {"ok": False, "reason": str(exc), "checks": []}
+        out.append(entry)
+    return jsonify({"backends": out})
 
 
 

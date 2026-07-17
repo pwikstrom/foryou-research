@@ -2121,7 +2121,11 @@ function renderCardHealth(cardHealth) {
     for (const [platform, entry] of Object.entries(cardHealth.platforms || {})) {
         _renderHealthChip(document.getElementById('cookie-health-' + platform), 'Scraper', entry);
     }
-    _renderHealthChip(document.getElementById('annotation-health'), 'Gemini', cardHealth.annotation);
+    // Label follows the active backend (renderAnnotationConfigNotice keeps
+    // window._annotationBackend current from the same stats payload).
+    const backendLabel = (window._annotationBackend && window._annotationBackend !== 'gemini')
+        ? window._annotationBackend : 'Gemini';
+    _renderHealthChip(document.getElementById('annotation-health'), backendLabel, cardHealth.annotation);
 }
 
 // Show/hide the per-platform scraper alert banners from the enrichment-stats
@@ -2150,15 +2154,27 @@ function renderScraperAlerts(alerts) {
 // Not dismissable: unlike a scraper alert it is a standing setup state, and it
 // disappears by itself once Gemini is configured.
 function renderAnnotationConfigNotice(stats) {
+    // Backend badge: which engine the annotator card will run (Gemini vs a
+    // local model, selected in Admin → General).
+    const backend = (stats && stats.annotation_backend) || 'gemini';
+    window._annotationBackend = backend;
+    const badge = document.getElementById('annotation-backend-badge');
+    if (badge) {
+        badge.textContent = backend === 'gemini' ? 'Gemini' : backend;
+        badge.style.display = 'inline-block';
+    }
+
     const notice = document.getElementById('annotation-config-notice');
     if (!notice) return;
     if (!stats || stats.annotation_configured !== false) {
         notice.style.display = 'none';
         return;
     }
-    const reason = stats.annotation_config_reason || 'Gemini annotation is not configured.';
-    notice.querySelector('.config-notice-text').textContent =
-        `⚙ ${reason} See docs/installation.md#enabling-gemini-later`;
+    const reason = stats.annotation_config_reason || 'Machine annotation is not configured.';
+    const docsAnchor = (stats.annotation_backend === 'qwen_local')
+        ? 'docs/installation.md#enabling-local-qwen-annotation'
+        : 'docs/installation.md#enabling-gemini-later';
+    notice.querySelector('.config-notice-text').textContent = `⚙ ${reason} See ${docsAnchor}`;
     notice.style.display = 'block';
 }
 

@@ -108,6 +108,8 @@ def build_version_descriptor(
     schema_json: dict | None,
     gen_params: dict,
     label: str | None = None,
+    extra_params: dict | None = None,
+    backend: str | None = None,
 ) -> dict:
     """Build a self-describing version descriptor and its deterministic id.
 
@@ -118,6 +120,12 @@ def build_version_descriptor(
         gen_params: The output-affecting generation parameters.
         label: Optional human-readable label; defaults to the model plus a short
             prompt fingerprint.
+        extra_params: Backend-specific output-affecting parameters merged into
+            the identity ONLY when non-empty — Gemini passes nothing here, so
+            every pre-existing ``av_`` hash is unchanged.
+        backend: Backend id recorded on the descriptor as non-identity
+            metadata (display/provenance only; the model id + params already
+            uniquely determine the identity).
 
     Returns:
         A descriptor dict including the computed ``annotation_version``.
@@ -128,6 +136,8 @@ def build_version_descriptor(
     # Constant since the free-text path was removed; kept in the identity so
     # existing av_ hashes do not shift.
     normalized_params["use_structured_output"] = True
+    if extra_params:
+        normalized_params.update(extra_params)
 
     identity = {
         "model": model,
@@ -138,7 +148,7 @@ def build_version_descriptor(
     canonical = json.dumps(identity, sort_keys=True, ensure_ascii=False)
     version = "av_" + _sha256_hex(canonical, 12)
 
-    return {
+    descriptor = {
         "annotation_version": version,
         "label": label or f"{model}:{prompt_hash[:6]}",
         "model": model,
@@ -146,6 +156,9 @@ def build_version_descriptor(
         "schema_hash": schema_hash,
         "gen_params": normalized_params,
     }
+    if backend and backend != "gemini":
+        descriptor["backend"] = backend
+    return descriptor
 
 
 
@@ -221,6 +234,16 @@ def current_version_descriptor(fresh: bool = False) -> dict:
         contract_etag = _ac.contract_etag()
     except Exception:
         contract_etag = None
+    # A non-Gemini backend changes the effective model / prompt / params — its
+    # identity feeds the signature and the descriptor below. Gemini keeps the
+    # exact historical path (byte-identical av_ ids).
+    try:
+        from fyp.annotation.backends import active_backend_name, get_backend
+
+        backend_name = active_backend_name()
+        backend = get_backend(backend_name) if backend_name != "gemini" else None
+    except Exception:
+        backend_name, backend = "gemini", None
     signature = (
         machine.get("model"),
         machine.get("temperature"),
@@ -228,6 +251,8 @@ def current_version_descriptor(fresh: bool = False) -> dict:
         machine.get("media_resolution"),
         machine.get("max_output_tokens"),
         contract_etag,
+        backend_name,
+        tuple(sorted(backend.version_extra_params().items())) if backend else None,
     )
     if not fresh and _DESCRIPTOR_CACHE.get("signature") == signature:
         return _DESCRIPTOR_CACHE["descriptor"]
@@ -236,14 +261,25 @@ def current_version_descriptor(fresh: bool = False) -> dict:
     from fyp.annotation_schema import get_annotation_json_schema
 
     schema_json = get_annotation_json_schema()
-    gen_params = {key: machine.get(key) for key in _VERSION_GEN_PARAM_KEYS}
-    descriptor = build_version_descriptor(
-        model=machine.get("model"),
-        prompt_text=prompt_text,
-        schema_json=schema_json,
-        gen_params=gen_params,
-        label=machine.get("version_label"),
-    )
+    if backend is None:
+        gen_params = {key: machine.get(key) for key in _VERSION_GEN_PARAM_KEYS}
+        descriptor = build_version_descriptor(
+            model=machine.get("model"),
+            prompt_text=prompt_text,
+            schema_json=schema_json,
+            gen_params=gen_params,
+            label=machine.get("version_label"),
+        )
+    else:
+        prompt_text = prompt_text + backend.prompt_suffix()
+        descriptor = build_version_descriptor(
+            model=backend.effective_model_id(),
+            prompt_text=prompt_text,
+            schema_json=schema_json,
+            gen_params=backend.version_gen_params(),
+            extra_params=backend.version_extra_params(),
+            backend=backend_name,
+        )
     descriptor["prompt_fn"] = active_prompt_label()
 
     _DESCRIPTOR_CACHE["signature"] = signature
