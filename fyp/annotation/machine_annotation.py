@@ -577,8 +577,18 @@ def call_machine_threads(
     if notebook_mode:
         verbose = True
 
+    # Per-backend dispatch: Gemini keeps the historical path verbatim; another
+    # backend (local model) runs its own annotate_one with its own worker
+    # width (a resident local model is effectively sequential).
+    from fyp.annotation.backends import active_backend_name, get_backend
 
-    initialize_machine()
+    backend_name = active_backend_name()
+    backend = get_backend(backend_name) if backend_name != "gemini" else None
+    if backend is not None:
+        max_workers = backend.max_workers
+
+    if backend is None:
+        initialize_machine()
 
     annotation_versioning.ensure_current_version_registered()
 
@@ -588,9 +598,19 @@ def call_machine_threads(
         idx, video = idx_video
 
         # Maybe Gemini doesn't like to get to many request at once.
-        # Sleeping for a bit with the first ones solves the problem
-        if idx < max_workers:
+        # Sleeping for a bit with the first ones solves the problem.
+        # (Local backends are sequential — no stagger needed.)
+        if backend is None and idx < max_workers:
             time.sleep(3+random()*max_workers/2)
+
+        if backend is not None:
+            if dry_run:
+                time.sleep(1)
+                return idx, {"item_id": video, "error": "dry run",
+                             "finish_reason": "dry run", "response": "dry run"}
+            rr = backend.annotate_one(
+                str(video), platform=(platform_by_id or {}).get(str(video)))
+            return idx, rr
 
         t1 = _dt.datetime.now()
         rr = call_machine(
@@ -603,10 +623,12 @@ def call_machine_threads(
         return idx, rr
 
 
+    _effective_model = (backend.effective_model_id() if backend is not None
+                        else _cf()['machine']['model'])
     if verbose:
         if dry_run:
             print("  [dry run] - ", end="", flush=True)
-        logger.info(f"Calling {_cf()['machine']['model']} to annotate {len(interesting_videos):,} videos with {max_workers} threads.")
+        logger.info(f"Calling {_effective_model} to annotate {len(interesting_videos):,} videos with {max_workers} threads.")
 
     def _annotation_ok(fut):
         try:
@@ -619,7 +641,9 @@ def call_machine_threads(
     # SDK's http_options_timeout (observed in practice — SDK timeout is not
     # always honored). Deadline scales with the number of waves the thread
     # pool needs to process, with 1.5x safety margin plus startup-jitter buffer.
-    _per_call_seconds = 180       # matches http_options_timeout (ms→s)
+    # Gemini: matches http_options_timeout (ms→s). Local backend: the first
+    # item also loads the model (~1-2 min) on top of ~30-60s inference.
+    _per_call_seconds = 180 if backend is None else 600
     _safety_margin = 1.5
     _startup_sleep = 3 + max_workers / 2  # upper bound of worker() sleep
     _waves = max(1, (len(interesting_videos) + max_workers - 1) // max_workers)
@@ -708,7 +732,7 @@ def call_machine_threads(
                 "error": f"worker did not complete within its {int(per_item_deadline)}s deadline",
                 "finish_reason": "DNF - worker timeout",
                 "response": "",
-                "model": _cf()["machine"]["model"],
+                "model": _effective_model,
             }
 
         monitor_thread.join(timeout=10)

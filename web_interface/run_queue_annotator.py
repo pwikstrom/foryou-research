@@ -26,9 +26,17 @@ MAX_BATCH_SIZE = 2000
 _SECONDS_PER_VIDEO = 90
 _WORKERS = 50
 _SAFETY_MARGIN = 1.5
+# Local backend: sequential, ~30-60s/item (pilot: ~30s) + one-time model load.
+_LOCAL_SECONDS_PER_VIDEO = 60
+_LOCAL_MODEL_LOAD_SECONDS = 120
 
 
 def _estimate_seconds(batch_size: int) -> float:
+    from fyp.annotation.backends import active_backend_name
+
+    if active_backend_name() != "gemini":
+        return (batch_size * _LOCAL_SECONDS_PER_VIDEO * _SAFETY_MARGIN
+                + _LOCAL_MODEL_LOAD_SECONDS)
     return batch_size * _SECONDS_PER_VIDEO / _WORKERS * _SAFETY_MARGIN
 
 
@@ -50,10 +58,19 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
         should be dispatched, or ``None`` when the work is done.
     """
     import fyp.data_io as data_io
+    import fyp.machine_annotation as machine_annotation
     from fyp.machine_annotation import annotate_from_video_id_list
 
     if not task_args:
         task_args = {}
+
+    # Pick up admin-set backend/model/parameter overrides for this run (each
+    # chain link is a fresh process/request, so read-at-start is sufficient).
+    overrides = machine_annotation.apply_admin_machine_overrides()
+    from fyp.annotation.backends import active_backend_name
+    _backend = active_backend_name()
+    reporter.log(f"Annotation backend: {_backend}"
+                 + (f" (admin overrides: {overrides})" if overrides else ""))
 
     batch_size: int = int(task_args.get("batch_size", 500))
     max_batches: int | None = task_args.get("max_batches")
