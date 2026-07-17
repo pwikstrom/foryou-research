@@ -351,9 +351,9 @@ def _run_all_checks(trigger: str) -> None:
                                "detail": None, "duration_s": None, "checked_at": None}
     _persist(doc)
     try:
-        doc["checks"]["gemini"] = _check_gemini()
+        doc["checks"]["gemini"] = _check_annotation_backend()
     except Exception as e:
-        doc["checks"]["gemini"] = {"status": "fail", "message": "Gemini check crashed",
+        doc["checks"]["gemini"] = {"status": "fail", "message": "Annotation backend check crashed",
                                    "detail": repr(e), "duration_s": None, "checked_at": _now_iso()}
     doc["overall"] = _overall(doc["checks"])
     doc["finished_at"] = _now_iso()
@@ -619,6 +619,29 @@ def _check_platform(platform: str, status_df: pd.DataFrame | None,
 
 
 
+
+
+def _check_annotation_backend() -> dict:
+    """Health-check the ACTIVE annotation backend.
+
+    Gemini gets the live 1-token ping; a local backend gets its (cheap)
+    hardware/dependency availability check — loading a 20 GB model for a
+    health ping would be counterproductive. Stored under the historical
+    ``gemini`` key so the UI chip wiring is unchanged.
+    """
+    from fyp.annotation.backends import active_backend_name, get_backend
+
+    backend_name = active_backend_name()
+    if backend_name == "gemini":
+        return _check_gemini()
+    try:
+        result = get_backend(backend_name).availability()
+    except ValueError as e:
+        return {"status": "fail", "message": f"Backend '{backend_name}' unavailable",
+                "detail": str(e), "duration_s": None, "checked_at": _now_iso()}
+    return {"status": "ok" if result.ok else "fail",
+            "message": f"{backend_name} ready" if result.ok else result.reason,
+            "detail": None, "duration_s": None, "checked_at": _now_iso()}
 
 
 def _check_gemini() -> dict:

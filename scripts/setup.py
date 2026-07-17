@@ -284,6 +284,49 @@ def check_environment() -> list[CheckResult]:
             detail="Linux: Chrome-profile cookie extraction is macOS-only",
             needed_for="authenticated scraping (Instagram needs cookies; TikTok/YouTube degrade to public access)",
         ))
+    results.extend(check_local_qwen())
+    return results
+
+
+
+
+
+
+def check_local_qwen() -> list[CheckResult]:
+    """Readiness checks for the OPTIONAL local Qwen annotation backend.
+
+    Delegates to :mod:`fyp.annotation.backends.qwen_support` (the same checks
+    the admin UI's requirements panel shows). On a non-Apple-Silicon host the
+    first check simply reports that the backend is unsupported there — the
+    Gemini backend is unaffected either way.
+    """
+    try:
+        # setup.py runs pre-install from a plain checkout — make the repo root
+        # importable so the shared check module can be reused.
+        root = str(Path(__file__).resolve().parent.parent)
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        from fyp.annotation.backends import qwen_support
+
+        checks = qwen_support.check_all()
+    except Exception as exc:
+        return [CheckResult(
+            name="local qwen annotation",
+            ok=False,
+            detail=f"checks unavailable: {exc}",
+            needed_for="optional local Qwen annotation backend",
+        )]
+    results = []
+    for check in checks:
+        needed = "optional local Qwen annotation backend"
+        if not check["ok"] and check["fix"]:
+            needed += f" — fix: {check['fix']}"
+        results.append(CheckResult(
+            name=f"local qwen: {check['name']}",
+            ok=check["ok"],
+            detail=check["detail"],
+            needed_for=needed,
+        ))
     return results
 
 

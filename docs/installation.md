@@ -164,6 +164,131 @@ the default local setup (`use_gcs_for_media = false`) — but if you have
 switched media storage to GCS, annotation needs Vertex. The app checks this
 combination up front and explains it rather than failing per video.
 
+## Enabling local Qwen annotation
+
+The app can annotate with a **local open-weights model** instead of Gemini:
+Qwen3-Omni-30B (Apache 2.0) running entirely on your own machine via Apple's
+MLX. Nothing leaves your computer and there are no API costs. In a 20-video
+evaluation against Gemini Flash it matched well on categorical/visual fields
+and produced near-verbatim speech transcripts (it hears the audio track);
+Gemini remains somewhat stronger on exhaustive lists and prose detail.
+
+**Is your machine suitable?** The short version:
+
+| Requirement | Minimum | Notes |
+|---|---|---|
+| Computer | Apple Silicon Mac (M1–M4) | Intel Macs, Windows, Linux and Cloud Run are **not supported** in this version — keep using Gemini there |
+| Memory | 32 GB unified memory | 48 GB+ recommended; the model peaks at ~23 GB, so on 32 GB close other big apps |
+| Disk | ~20 GB free | one-time model download (~18 GB), stored in your Hugging Face cache |
+| Tools | `ffmpeg` | used to sample video frames and extract the audio track |
+
+You never have to check these by hand — the app does it for you and tells you
+exactly what to fix (see step 1).
+
+### Step-by-step
+
+1. **Check your machine.** Either of these shows the same seven checks, each
+   failing row with a copy-pasteable fix:
+
+   ```bash
+   python scripts/setup.py --check-only     # look for the "local qwen:" rows
+   ```
+
+   or, in the running app: **Admin → General → Machine annotation** — the
+   requirements panel under the backend selector.
+
+2. **Install the local runtime** into the app's virtualenv (~a few minutes;
+   this pulls `mlx-vlm` and its dependencies — it is *not* part of the normal
+   install because it only exists for Apple Silicon):
+
+   ```bash
+   source .venv/bin/activate
+   pip install -e ".[local_qwen]"
+   ```
+
+3. **Download the model weights once** (~18 GB — allow time on slow
+   connections; the download resumes if interrupted):
+
+   ```bash
+   hf download mlx-community/Qwen3-Omni-30B-A3B-Instruct-4bit
+   ```
+
+   The weights land in `~/.cache/huggingface/` and are shared with anything
+   else that uses Hugging Face. To store them elsewhere, set `HF_HOME` before
+   downloading (and start the app with the same variable set).
+
+4. **Install ffmpeg** if the check flagged it:
+
+   ```bash
+   brew install ffmpeg
+   ```
+
+5. **Switch the backend.** Restart the app if it was running during the
+   installs, then go to **Admin → General → Machine annotation**, confirm the
+   requirements panel is all green, and set the backend to `qwen_local`.
+   From now on Data Management → Enrichment's annotator runs the local model
+   (the card shows a `qwen_local` badge). Switch back to `gemini` at any
+   time — it's just a setting.
+
+6. **Sanity-check with a small batch first.** Queue a handful of videos and
+   start the annotator. The first item is slow (the model loads once,
+   ~1–2 minutes); after that expect roughly **30 s per video**. Spot-check
+   the results in Video Analysis before committing to a big run.
+
+### Tips and things to know
+
+* **Your annotations get their own version.** The local model, its prompt
+  addendum and its sampling parameters are part of the annotation-version
+  identity, so Qwen-produced rows land under their own `av_` id — they never
+  silently mix with Gemini rows. See Admin → Annotation Versions. The same
+  applies when you later switch back.
+* **Try it in Annotation Testing first.** An A/B run with the live contract
+  on `gemini` vs `qwen_local` (Admin → Annotation Testing, per-arm backend
+  selector) shows you field-by-field agreement on your own data before you
+  change the production backend.
+* **It's sequential.** One video at a time — the model occupies the whole
+  GPU. Batch-mode (async) annotation stays Gemini-only; the app refuses the
+  combination rather than failing mid-run.
+* **Laptop practicalities.** Keep the Mac on power and awake for long runs
+  (`caffeinate -i` in the terminal that runs the worker, or just run it from
+  the app and disable sleep). Expect the fans.
+* **Tuning** lives in `config/config.toml` `[machine.qwen_local]` (frames per
+  video, frame resolution, audio on/off). The defaults are pilot-validated —
+  doubling the frame budget measurably did not improve agreement, so change
+  them only with an A/B run to back it up (changes fork a new version).
+* **mlx-vlm version pin.** The integration patches two known mlx-vlm 0.6.x
+  bugs at load ([#1619](https://github.com/Blaizzy/mlx-vlm/issues/1619),
+  [#1620](https://github.com/Blaizzy/mlx-vlm/issues/1620)); on newer mlx-vlm
+  releases the patches step aside automatically. Don't upgrade the pin in
+  `pyproject.toml` without re-validating annotation output.
+
+### Troubleshooting
+
+* **"mlx-vlm installed: not installed in this environment"** — you installed
+  it into a different virtualenv. Activate the app's `.venv` and re-run
+  step 2.
+* **"Model downloaded: … not found"** after downloading — the app is looking
+  in a different Hugging Face cache. If you set `HF_HOME`/`HF_HUB_CACHE` when
+  downloading, start the app with the same variable.
+* **The backend selector is greyed out** — hover the requirements panel: any
+  red row explains why, with the fix command.
+* **First annotation takes minutes** — that's the one-time model load; watch
+  the worker log line "Loading local Qwen model…". Subsequent items are fast.
+* **Out-of-memory crashes** — close memory-heavy apps (browsers with many
+  tabs, IDEs); on 32 GB machines consider reducing `max_frames` to 6 in
+  `[machine.qwen_local]`.
+
+### A hosted Qwen API instead?
+
+Alibaba's Model Studio serves Qwen Omni models with native video input
+(`qwen3.5-omni-flash`, OpenAI-compatible endpoint). The backend registry
+reserves the `qwen_api` id for it, but it is deliberately not implemented:
+the hosted API offers JSON *mode* rather than schema-enforced output,
+audio-track ingestion is not clearly documented, and data residency/retention
+(Singapore region) needs an ethics review for donation data. If pursued, the
+first step is a smoke-test script under `scripts/adhoc/` that verifies the
+audio path before any integration work.
+
 ### Checking it worked
 
 Data Management → Enrichment shows the annotator's status, and refuses to
