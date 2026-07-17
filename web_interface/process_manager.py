@@ -611,6 +611,20 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         except ValueError as exc:
             return False, f"Annotation backend unavailable: {exc}"
 
+    # Same defense for the embeddings worker: a local embedding backend can
+    # only run on the host machine.
+    if is_cloud_run() and name == "embeddings_refresh":
+        try:
+            from fyp.analysis.embedding_backends import active_backend_name, get_backend
+
+            backend_name = active_backend_name()
+            if not get_backend(backend_name).cloud_run_capable:
+                return False, (f"The '{backend_name}' embedding backend runs only on a "
+                               f"local machine — switch the backend to Gemini in "
+                               f"Admin → General, or run the embeddings refresh locally.")
+        except ValueError as exc:
+            return False, f"Embedding backend unavailable: {exc}"
+
     # Cloud Tasks path for eligible processes on Cloud Run
     if is_cloud_run() and name in CLOUD_TASK_ELIGIBLE:
         # For study_refresh, use a study-specific status key so multiple

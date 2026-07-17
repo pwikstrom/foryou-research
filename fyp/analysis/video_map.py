@@ -6,13 +6,22 @@ Consumes the dense embeddings written by :mod:`fyp.embeddings` and produces:
       id and (for a sampled subset) 2D map coordinates. The map is sampled
       because a browser scatter cannot usefully render 256k points; clustering,
       however, covers every video.
-    * ``recoded/video_niches.json`` — per-niche metadata (Gemini-generated name,
-      size, distinctive terms, dominant content categories).
+    * ``recoded/video_niches.json`` — per-niche metadata (name, size,
+      distinctive terms, dominant content categories).
+    * ``recoded/video_map_meta.json`` — build provenance (embedding model/dim,
+      vector count, naming mode, build timestamp).
 
-Pipeline: load raw vectors → mean-centre → L2-normalise → PCA(50) →
-MiniBatchKMeans (every video gets a niche) → t-SNE on a sample (the visual
-map) → Gemini niche naming from centroid-nearest exemplars, with a dedupe
-pass so every niche label is unique.
+Pipeline: load raw vectors (active embedding backend's model only) →
+mean-centre → L2-normalise → PCA(50) → MiniBatchKMeans (every video gets a
+niche) → t-SNE on a sample (the visual map) → niche naming from
+centroid-nearest exemplars, with a dedupe pass so every niche label is unique.
+
+Niche naming uses Gemini when it is configured; otherwise it degrades to
+deterministic term-based labels (the top c-TF-IDF terms), so a fully-local
+install builds a complete map with no cloud calls. A future ``local_llm``
+naming mode could route the naming prompts through the local annotation
+backend's model instead — the ``_ask``/``ask_fn`` seam in ``_name_niches`` /
+``_dedupe_niche_names`` is the intended hook.
 """
 
 from collections.abc import Callable
@@ -43,9 +52,12 @@ def _cf():
 
     return fyp_cf
 
-# Output artifacts in the "recoded" store.
+# Output artifacts in the "recoded" store. The meta file is separate from
+# NICHES_FILE because that JSON's consumers iterate it assuming every key is a
+# niche id.
 MAP_FILE = "video_map.parquet"
 NICHES_FILE = "video_niches.json"
+MAP_META_FILE = "video_map_meta.json"
 
 # Defaults. n_niches mirrors niche_detection's micro-genre granularity; the
 # map sample keeps the dashboard scatter renderable while clustering stays
@@ -120,11 +132,48 @@ def _get_naming_client() -> genai.Client:
 
 
 
+def _naming_available() -> bool:
+    """Whether Gemini is configured for niche naming.
+
+    When False the map still builds — niches get deterministic term-based
+    labels instead of Gemini-generated ones (see ``_term_name``).
+
+    Returns:
+        True iff a usable Gemini mode resolves.
+    """
+    mode, _ = gemini_client.gemini_mode()
+    return mode is not None
+
+
+
+
+
+
+def _term_name(meta: dict[int, dict], niche: int) -> str:
+    """Deterministic niche label from its most distinctive c-TF-IDF terms.
+
+    Args:
+        meta: Niche id → metadata dict (must carry ``terms``).
+        niche: The niche id to name.
+
+    Returns:
+        A short title-cased label, e.g. ``"Cat Mischief / Funny Pets"``.
+    """
+    terms = [t for t in (meta[niche].get("terms") or []) if str(t).strip()]
+    if not terms:
+        return f"Niche {niche}"
+    return " / ".join(str(t).title() for t in terms[:2])[:48]
+
+
+
+
+
+
 def _reduce(matrix: np.ndarray, pca_dim: int) -> np.ndarray:
     """Mean-centre, L2-normalise, then PCA-reduce the raw embedding matrix.
 
-    Centring removes the gemini-embedding-001 anisotropy (high baseline
-    cosine); randomised SVD keeps PCA tractable at 256k×1536.
+    Centring removes the anisotropy (high baseline cosine) common to dense
+    embedding models; randomised SVD keeps PCA tractable at 256k×1536.
 
     Args:
         matrix: Raw ``(n, dim)`` embedding matrix.
@@ -243,7 +292,10 @@ def _name_niches(
     carried_names: dict[int, str] | None = None,
     reporter=None,
 ) -> dict[int, dict]:
-    """Build per-niche metadata: Gemini name, size, top terms, top categories.
+    """Build per-niche metadata: name, size, top terms, top categories.
+
+    Names come from Gemini when it is configured, else deterministically from
+    each niche's top c-TF-IDF terms (see the module docstring).
 
     Args:
         item_ids: Item ids aligned to ``labels``/``reduced`` rows.
@@ -283,16 +335,34 @@ def _name_niches(
             "name": carried_names.get(niche, f"Niche {niche}"),
         }
 
-    client = _get_naming_client()
-    naming_model = _cf()["machine"]["model"]
-    naming_errors: list[str] = []
-
     def _exemplars(niche: int) -> str:
         rows = np.where(labels == niche)[0]
         centroid = reduced[rows].mean(axis=0)
         order = np.argsort(np.linalg.norm(reduced[rows] - centroid, axis=1))
         picks = rows[order[:_EXEMPLARS_PER_NICHE]]
         return "\n".join(f"- {str(story_list[i])[:160]}" for i in picks)
+
+    to_name = [n for n in niches if n not in carried_names]
+
+    # No Gemini configured: deterministic term-based labels instead of LLM
+    # ones, so a fully-local install still gets a named map. The dedupe pass
+    # runs with a no-op ask_fn, which resolves collisions via its
+    # deterministic distinctive-term suffix path.
+    if not _naming_available():
+        for niche in to_name:
+            meta[niche]["name"] = _term_name(meta, niche)
+        renamed = _dedupe_niche_names(meta, _exemplars, lambda prompt: None)
+        if reporter is not None:
+            reporter.log(
+                f"Named {len(to_name)} niches from top terms (Gemini not "
+                f"configured; {len(carried_names)} carried over from previous "
+                f"build, {renamed} duplicate labels renamed)."
+            )
+        return meta
+
+    client = _get_naming_client()
+    naming_model = _cf()["machine"]["model"]
+    naming_errors: list[str] = []
 
     def _ask(prompt: str) -> str | None:
         try:
@@ -321,7 +391,6 @@ def _name_niches(
         )
         return niche, _ask(prompt) or f"Niche {niche}"
 
-    to_name = [n for n in niches if n not in carried_names]
     with ThreadPoolExecutor(max_workers=10) as ex:
         for fut in as_completed([ex.submit(_name, n) for n in to_name]):
             niche, name = fut.result()
@@ -444,10 +513,14 @@ def build_niche_map(
         else:
             logger.info(msg)
 
-    _log("Loading embedding store...")
-    item_ids, matrix = embeddings.load_embeddings(reporter=reporter)
+    embed_backend = embeddings.active_embedding_backend()
+    embed_model = embed_backend.model_id()
+    _log(f"Loading embedding store (model={embed_model})...")
+    item_ids, matrix = embeddings.load_embeddings(reporter=reporter, model=embed_model)
     if len(item_ids) == 0:
-        _log("Embedding store is empty; nothing to map.")
+        _log(f"Embedding store holds no vectors for {embed_model}; nothing to map. "
+             "Run an embeddings refresh first (a backend switch starts from an "
+             "empty store for the new model).")
         return {"videos": 0, "niches": 0, "mapped": 0}
     _log(f"Loaded {len(item_ids):,} embeddings ({matrix.shape[1]}d).")
 
@@ -489,8 +562,9 @@ def build_niche_map(
         lambda x: str(x[0]) if x is not None and hasattr(x, "__len__") and len(x) > 0 else "none"
     ).reset_index(drop=True)
 
+    naming_mode = "gemini" if _naming_available() else "terms"
     if reporter is not None:
-        reporter.update_progress(60, "Naming niches (Gemini)...")
+        reporter.update_progress(60, f"Naming niches ({naming_mode})...")
     niche_meta = _name_niches(
         item_ids, labels, reduced, stories, categories,
         carried_names=niche_carry, reporter=reporter,
@@ -586,5 +660,19 @@ def build_niche_map(
     niches_payload = {str(k): v for k, v in niche_meta.items()}
     data_io.save_json(data=niches_payload, storage_location=embeddings.STORE_LOCATION, filename=NICHES_FILE)
 
-    _log(f"Saved {MAP_FILE} ({len(map_df):,} rows) and {NICHES_FILE} ({len(niche_meta)} niches).")
+    # Build provenance — a separate file (NICHES_FILE consumers assume every
+    # key there is a niche id). Lets the UI label the map with the embedding
+    # model that built it and detect a backend switch as staleness.
+    meta_payload = {
+        "embedding_model": embed_model,
+        "dim": int(matrix.shape[1]),
+        "n_vectors": int(n),
+        "naming_mode": naming_mode,
+        "built_at": pd.Timestamp.now(tz="UTC").isoformat(),
+        "n_niches": len(niche_meta),
+    }
+    data_io.save_json(data=meta_payload, storage_location=embeddings.STORE_LOCATION, filename=MAP_META_FILE)
+
+    _log(f"Saved {MAP_FILE} ({len(map_df):,} rows), {NICHES_FILE} ({len(niche_meta)} niches) "
+         f"and {MAP_META_FILE} (model={embed_model}, naming={naming_mode}).")
     return {"videos": n, "niches": len(niche_meta), "mapped": int(len(sample_idx))}

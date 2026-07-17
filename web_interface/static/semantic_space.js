@@ -1041,6 +1041,14 @@ function _ssRenderBanner(s) {
         action = { label: 'Reload map', fn: _ssReloadMap };
     } else if (s.map_rebuilding) {
         text = '⟳ A new map is being calculated — showing the previous version…';
+    } else if (s.model_mismatch) {
+        const built = (s.map_meta && s.map_meta.embedding_model) || 'a different model';
+        text = `This map was built with ${built}, but the active embedding backend is ` +
+            `${s.active_embedding_model || 'different'} — run an embeddings refresh, then rebuild the map.`;
+        warn = true;
+        if (window.USER_IS_ADMIN) {
+            action = { label: 'Rebuild map', fn: _ssRebuildMap };
+        }
     } else if (s.map_stale) {
         const n = (s.behind || 0).toLocaleString();
         text = `This map is out of date — ${n} newer video${s.behind === 1 ? '' : 's'} embedded since it was built.`;

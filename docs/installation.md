@@ -300,6 +300,58 @@ python -c "from fyp.annotation.machine_annotation import annotation_configured; 
 
 `(True, '')` means you're set. Otherwise the message names exactly what to fix.
 
+## Enabling local embeddings
+
+The Semantic Space pipeline (video embeddings → niche clustering → 2D map)
+normally embeds with Gemini (`gemini-embedding-001`). A local embedding
+backend runs a small Qwen3-Embedding model instead, so combined with local
+Qwen annotation the whole embeddings + semantic map path makes **no cloud
+calls**. Unlike the 30B annotation model this is lightweight: the default
+`Qwen/Qwen3-Embedding-0.6B` is ~1.2 GB and runs via sentence-transformers on
+Apple Silicon (MPS), NVIDIA GPUs (CUDA), or plain CPU (slower, still fine for
+small corpora).
+
+### Step-by-step
+
+```bash
+pip install -e ".[local_embeddings]"      # sentence-transformers + torch
+hf download Qwen/Qwen3-Embedding-0.6B    # ~1.2 GB, one-time
+```
+
+Then in **Admin → General → Embeddings**, set the embedding backend to
+`qwen_local`. The requirements panel below the dropdown shows what (if
+anything) is still missing, with the exact command to fix it.
+
+### Things to know
+
+- **The embedding store is scoped per model.** Every stored vector records
+  which model produced it, and all readers filter to the active backend's
+  model. Switching backends means the next *Embeddings refresh* re-embeds the
+  corpus under the new model; the old model's vectors are kept, so switching
+  back costs nothing. Rebuild the video map after the re-embed — the Semantic
+  Space tab shows a "built with a different model" banner until you do.
+- **Niche naming degrades gracefully.** Naming the ~150 niches is a Gemini
+  text call when Gemini is configured; without it, niches get deterministic
+  labels built from their most distinctive terms. (Routing naming through the
+  local annotation model is a possible future `local_llm` mode.)
+- **Cloud Run never runs a local backend.** On a deployed instance the
+  embeddings worker refuses to start (and the consolidate pipeline skips the
+  embeddings step) while a local backend is selected — run the refresh on the
+  host machine, or switch back to Gemini.
+- Config lives in `config/config.toml` under `[embedding.qwen_local]`
+  (`model_id`, `dim` for Matryoshka truncation, `batch_size`).
+
+### Checking it worked
+
+```bash
+python -c "from fyp.analysis.embedding_backends import get_backend, active_backend_name; \
+b = get_backend(active_backend_name()); print(b.name, b.model_id(), b.availability())"
+```
+
+Then run `python web_interface/run_embeddings_refresh.py --batch-size 50` —
+the boot log names the backend and model, and a new
+`video_embeddings__*.parquet` shard appears with the model stamped per row.
+
 ## First run
 
 ```bash

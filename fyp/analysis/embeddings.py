@@ -1,11 +1,11 @@
 """Dense semantic embeddings for annotated videos.
 
-Builds one labelled text document per annotated video from the Gemini
+Builds one labelled text document per annotated video from the machine
 annotation fields (``recoded/machine_annotations_recoded.parquet``) plus a few
 scrape metadata fields (``recoded/scrapes_recoded.parquet``), embeds it with
-the Vertex ``gemini-embedding-001`` model (Matryoshka-truncated to
-:data:`EMBED_DIM` dimensions), and persists the vectors as append-only sharded
-parquet files in the ``recoded`` store.
+the active embedding backend (see :mod:`fyp.analysis.embedding_backends` —
+Gemini by default, or a local Qwen3-Embedding model), and persists the vectors
+as append-only sharded parquet files in the ``recoded`` store.
 
 Design notes:
     * Vectors are stored **raw** (not mean-centred). Mean-centring and
@@ -17,39 +17,29 @@ Design notes:
       rows. This keeps every incremental run O(new items) instead of rewriting
       the full store, and makes the backfill restartable.
     * Each vector is stored as float16 raw bytes in a binary column
-      (``EMBED_DIM * 2`` bytes/row) — about half the size of float32 lists and
-      a clean round-trip through :mod:`fyp.data_io`.
+      (``dim * 2`` bytes/row) — about half the size of float32 lists and a
+      clean round-trip through :mod:`fyp.data_io`.
+    * The store is **model-scoped**: every row carries the ``model`` and
+      ``dim`` that produced it, and all readers filter to one model. Switching
+      the embedding backend therefore re-embeds the corpus under the new model
+      into new shards while the old model's shards stay untouched — switching
+      back costs nothing.
 """
 
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 
-import fyp.core.gemini_client as gemini_client
 import fyp.data_io as data_io
+from fyp.analysis.embedding_backends import active_backend_name, get_backend
 from fyp.logging_setup import get_logger
-from google import genai
-from google.genai.types import EmbedContentConfig
 
 logger = get_logger(__name__)
 
 
 
-
-# Embedding model configuration. gemini-embedding-001 supports Matryoshka
-# truncation to 768 / 1536 / 3072 dims; 1536 is the quality/size sweet spot.
-EMBED_MODEL = "gemini-embedding-001"
-EMBED_DIM = 1536
-EMBED_LOCATION = "us-central1"
-EMBED_TASK_TYPE = "CLUSTERING"
-
-# Concurrency / batching for the Vertex embedding calls.
-_EMBED_BATCH = 20
-_EMBED_WORKERS = 8
-_EMBED_RETRIES = 4
 
 # Store layout in the "recoded" named location.
 STORE_LOCATION = "recoded"
@@ -82,32 +72,18 @@ _CAP_OBJECTS = 300
 _CAP_HASHTAGS = 200
 _CAP_SHORT = 120
 
-_client: genai.Client | None = None
 
 
 
 
 
-
-def _get_client() -> genai.Client:
-    """Return a process-wide GenAI client for embedding calls.
-
-    Honours whichever Gemini mode is configured — Vertex AI or the plain Gemini
-    API — via :func:`fyp.core.gemini_client.make_client`. In Vertex mode the
-    location is pinned to :data:`EMBED_LOCATION`, because the annotation
-    client's ``global`` endpoint serves generation, not embeddings; in API-key
-    mode the endpoint takes no region and the argument is ignored.
+def active_embedding_backend():
+    """Return the admin-selected embedding backend instance.
 
     Returns:
-        A cached :class:`google.genai.Client`.
-
-    Raises:
-        GeminiNotConfiguredError: When no usable Gemini mode is configured.
+        The active :class:`fyp.analysis.embedding_backends.EmbeddingBackend`.
     """
-    global _client
-    if _client is None:
-        _client = gemini_client.make_client(location=EMBED_LOCATION)
-    return _client
+    return get_backend(active_backend_name())
 
 
 
@@ -192,68 +168,6 @@ def build_documents(df: pd.DataFrame) -> pd.Series:
 
 
 
-def _embed_batch(client: genai.Client, chunk: list[str]) -> list[list[float]] | None:
-    """Embed one batch of texts with retry, returning vectors or None on failure."""
-    config = EmbedContentConfig(task_type=EMBED_TASK_TYPE, output_dimensionality=EMBED_DIM)
-    for attempt in range(_EMBED_RETRIES):
-        try:
-            resp = client.models.embed_content(model=EMBED_MODEL, contents=chunk, config=config)
-            return [e.values for e in resp.embeddings]
-        except Exception:
-            if attempt == _EMBED_RETRIES - 1:
-                return None
-            import time
-            time.sleep(1.5 * (attempt + 1))
-    return None
-
-
-
-
-
-
-def embed_texts(texts: list[str], reporter=None) -> np.ndarray:
-    """Embed a list of texts into an ``(n, EMBED_DIM)`` float32 matrix.
-
-    Calls the Vertex embedding endpoint in concurrent batches. A batch that
-    fails after all retries yields zero-vectors for its rows; the caller is
-    expected to detect and skip those item_ids (they retry on the next run).
-
-    Args:
-        texts: Documents to embed (empty strings are replaced with a space).
-        reporter: Optional status reporter for progress logging.
-
-    Returns:
-        A float32 array of shape ``(len(texts), EMBED_DIM)``.
-    """
-    client = _get_client()
-    safe = [t if t else " " for t in texts]
-    batches = [(i, safe[i:i + _EMBED_BATCH]) for i in range(0, len(safe), _EMBED_BATCH)]
-    out: dict[int, list[list[float]]] = {}
-    done = 0
-
-    with ThreadPoolExecutor(max_workers=_EMBED_WORKERS) as ex:
-        futures = {ex.submit(_embed_batch, client, chunk): i for i, chunk in batches}
-        for fut in as_completed(futures):
-            i = futures[fut]
-            vecs = fut.result()
-            if vecs is None:
-                vecs = [[0.0] * EMBED_DIM] * len(safe[i:i + _EMBED_BATCH])
-            out[i] = vecs
-            done += 1
-            if reporter is not None and done % 50 == 0:
-                pct = int(done / len(batches) * 100)
-                reporter.update_progress(pct, f"Embedded {done}/{len(batches)} batches")
-
-    matrix: list[list[float]] = []
-    for i in range(0, len(safe), _EMBED_BATCH):
-        matrix.extend(out[i])
-    return np.asarray(matrix, dtype=np.float32)
-
-
-
-
-
-
 def _encode_matrix(matrix: np.ndarray) -> list[bytes]:
     """Encode an ``(n, dim)`` float matrix to a list of float16 byte strings."""
     m16 = matrix.astype(np.float16)
@@ -264,12 +178,14 @@ def _encode_matrix(matrix: np.ndarray) -> list[bytes]:
 
 
 
-def decode_embeddings(byte_values, dim: int = EMBED_DIM) -> np.ndarray:
+def decode_embeddings(byte_values, dim: int | None = None) -> np.ndarray:
     """Decode a column of float16 byte strings back to an ``(n, dim)`` float32 array.
 
     Args:
         byte_values: Iterable of ``bytes`` (the stored ``embedding`` column).
-        dim: Vector dimensionality.
+        dim: Vector dimensionality (kept for documentation/validation — the
+            float16 rows carry their own length; None accepts whatever the
+            bytes decode to).
 
     Returns:
         A float32 array of shape ``(n, dim)``.
@@ -294,14 +210,51 @@ def _list_shards() -> list[str]:
 
 
 
-def embedded_item_ids() -> set[str]:
-    """Return the set of item_ids already present in the embedding store."""
+def _model_mask(df: pd.DataFrame, model: str) -> pd.Series:
+    """Boolean mask of the shard rows produced by ``model``.
+
+    Every shard written since the store's introduction stamps ``model``
+    per-row; a hypothetical shard without the column is attributed to the
+    original Gemini model rather than dropped.
+
+    Args:
+        df: A shard frame (or its column subset) to filter.
+        model: The embedding model id to match.
+
+    Returns:
+        A boolean Series aligned to ``df``.
+    """
+    if "model" not in df.columns:
+        return pd.Series(model == "gemini-embedding-001", index=df.index)
+    return df["model"].astype("string") == model
+
+
+
+
+
+
+def embedded_item_ids(model: str | None = None) -> set[str]:
+    """Return the item_ids already embedded **by the given model**.
+
+    Args:
+        model: Embedding model id to scope to; None = the active backend's.
+            Scoping means a backend switch sees an empty store and re-embeds
+            the corpus under the new model (old shards are kept).
+
+    Returns:
+        The set of item_ids with a stored vector from ``model``.
+    """
+    if model is None:
+        model = active_embedding_backend().model_id()
     ids: set[str] = set()
     for shard in _list_shards():
         df = data_io.load_parquet_selective(
-            storage_location=STORE_LOCATION, filename=shard, columns=["item_id"],
+            storage_location=STORE_LOCATION, filename=shard, columns=["item_id", "model"],
         )
-        if df is not None and len(df) > 0:
+        if df is None or len(df) == 0:
+            continue
+        df = df[_model_mask(df, model)]
+        if len(df) > 0:
             ids.update(df["item_id"].astype("string").tolist())
     return ids
 
@@ -332,19 +285,28 @@ def annotated_ok_item_ids() -> list[str]:
 
 
 
-def _write_shard(item_ids: list[str], matrix: np.ndarray) -> str:
+def _write_shard(item_ids: list[str], matrix: np.ndarray, model: str, dim: int) -> str:
     """Persist one batch of embeddings as a new shard; return its filename.
 
     The frame is built with explicit Arrow dtypes so :func:`data_io.save_parquet`
     takes its all-ArrowDtype fast path (the float16 vectors live in a binary
     column).
+
+    Args:
+        item_ids: Item ids aligned to ``matrix`` rows.
+        matrix: The ``(n, dim)`` embedding matrix.
+        model: Embedding model id stamped per-row (scopes the store).
+        dim: Vector dimensionality stamped per-row.
+
+    Returns:
+        The new shard's filename.
     """
     created = pd.Timestamp.now(tz="UTC")
     df = pd.DataFrame({
         "item_id": pd.array(item_ids, dtype="string[pyarrow]"),
         "embedding": pd.array(_encode_matrix(matrix), dtype=pd.ArrowDtype(pa.large_binary())),
-        "model": pd.array([EMBED_MODEL] * len(item_ids), dtype="string[pyarrow]"),
-        "dim": pd.array([EMBED_DIM] * len(item_ids), dtype="int32[pyarrow]"),
+        "model": pd.array([model] * len(item_ids), dtype="string[pyarrow]"),
+        "dim": pd.array([dim] * len(item_ids), dtype="int32[pyarrow]"),
         "created_at": pd.array([created] * len(item_ids), dtype=pd.ArrowDtype(pa.timestamp("ns", tz="UTC"))),
     })
     shard = f"{SHARD_PREFIX}{uuid.uuid4().hex}{SHARD_SUFFIX}"
@@ -359,9 +321,10 @@ def _write_shard(item_ids: list[str], matrix: np.ndarray) -> str:
 def embed_pending(batch_size: int = 20000, reporter=None) -> dict:
     """Embed up to ``batch_size`` not-yet-embedded annotated videos.
 
-    Computes the backlog (annotated_ok minus already-embedded), embeds the head
-    slice, and writes a new shard. Items whose batch failed (all-zero vectors)
-    are skipped so they retry on a later run.
+    Computes the backlog (annotated_ok minus already-embedded-by-the-active-
+    model), embeds the head slice with the active backend, and writes a new
+    shard. Items whose batch failed (all-zero vectors) are skipped so they
+    retry on a later run.
 
     Args:
         batch_size: Maximum number of videos to embed in this call.
@@ -377,10 +340,14 @@ def embed_pending(batch_size: int = 20000, reporter=None) -> dict:
         else:
             logger.info(msg)
 
+    backend = active_embedding_backend()
+    model = backend.model_id()
+    dim = backend.dim()
+
     all_ids = annotated_ok_item_ids()
-    have = embedded_item_ids()
+    have = embedded_item_ids(model=model)
     todo = [i for i in all_ids if i not in have]
-    _log(f"Annotated={len(all_ids):,}  embedded={len(have):,}  pending={len(todo):,}")
+    _log(f"Annotated={len(all_ids):,}  embedded={len(have):,}  pending={len(todo):,}  (model={model})")
 
     if not todo:
         return {"embedded": 0, "remaining": 0, "total": len(all_ids), "shard": None}
@@ -406,8 +373,8 @@ def embed_pending(batch_size: int = 20000, reporter=None) -> dict:
     _log(f"Building documents for {len(merged):,} videos...")
     docs = build_documents(merged)
 
-    _log(f"Embedding {len(docs):,} documents with {EMBED_MODEL}@{EMBED_DIM}...")
-    matrix = embed_texts(docs.tolist(), reporter=reporter)
+    _log(f"Embedding {len(docs):,} documents with {model}@{dim}...")
+    matrix = backend.embed_texts(docs.tolist(), reporter=reporter)
 
     # Drop rows whose batch failed (all-zero vectors) so they retry next run.
     nonzero = np.abs(matrix).sum(axis=1) > 0
@@ -419,7 +386,7 @@ def embed_pending(batch_size: int = 20000, reporter=None) -> dict:
 
     shard = None
     if len(kept_ids) > 0:
-        shard = _write_shard(kept_ids, kept_matrix)
+        shard = _write_shard(kept_ids, kept_matrix, model=model, dim=dim)
         _log(f"Wrote shard {shard} with {len(kept_ids):,} embeddings.")
 
     remaining = len(todo) - len(slice_ids)
@@ -435,27 +402,42 @@ def embed_pending(batch_size: int = 20000, reporter=None) -> dict:
 
 
 
-def load_embeddings(reporter=None) -> tuple[list[str], np.ndarray]:
-    """Load the full embedding store as ``(item_ids, matrix)``.
+def load_embeddings(reporter=None, model: str | None = None) -> tuple[list[str], np.ndarray]:
+    """Load the embedding store for one model as ``(item_ids, matrix)``.
+
+    Only shards (and rows) whose ``model`` stamp matches are loaded — mixing
+    vectors from different embedding models in one matrix would be
+    geometrically meaningless. Each shard decodes at its own stored ``dim``.
 
     Args:
         reporter: Optional status reporter.
+        model: Embedding model id to load; None = the active backend's.
 
     Returns:
-        A tuple of the item_id list and an ``(n, EMBED_DIM)`` float32 matrix.
-        Returns ``([], empty array)`` when the store is empty.
+        A tuple of the item_id list and an ``(n, dim)`` float32 matrix.
+        Returns ``([], empty array)`` when the store holds nothing for the
+        model.
     """
+    backend = active_embedding_backend()
+    if model is None:
+        model = backend.model_id()
+    empty_dim = backend.dim() if model == backend.model_id() else 0
+
     shards = _list_shards()
     if not shards:
-        return [], np.empty((0, EMBED_DIM), dtype=np.float32)
+        return [], np.empty((0, empty_dim), dtype=np.float32)
 
     ids: list[str] = []
     parts: list[np.ndarray] = []
     for shard in shards:
         df = data_io.load_parquet_selective(
-            storage_location=STORE_LOCATION, filename=shard, columns=["item_id", "embedding"],
+            storage_location=STORE_LOCATION, filename=shard,
+            columns=["item_id", "embedding", "model"],
         )
         if df is None or len(df) == 0:
+            continue
+        df = df[_model_mask(df, model)]
+        if len(df) == 0:
             continue
         ids.extend(df["item_id"].astype("string").tolist())
         parts.append(decode_embeddings(df["embedding"].tolist()))
@@ -463,5 +445,5 @@ def load_embeddings(reporter=None) -> tuple[list[str], np.ndarray]:
             reporter.log(f"Loaded shard {shard} ({len(df):,} rows)")
 
     if not parts:
-        return [], np.empty((0, EMBED_DIM), dtype=np.float32)
+        return [], np.empty((0, empty_dim), dtype=np.float32)
     return ids, np.vstack(parts)
