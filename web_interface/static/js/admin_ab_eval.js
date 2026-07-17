@@ -660,20 +660,49 @@
 
     // ---------- run ----------
 
+    // Per-arm generation overrides (model / temperature; backend from Phase 3).
+    // Rendered as a compact inline row that appears when the arm is checked.
+    function _armParamRow(armKey) {
+        const inputStyle = 'width: 90px; padding: 2px 6px; border: 1px solid var(--color-border);'
+            + ' border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);';
+        return `<span class="abe-arm-params text-xs" data-arm="${_esc(armKey)}"
+                style="display: none; margin-left: 22px; gap: 6px; align-items: center; color: var(--color-text-muted);">
+            <input type="text" class="abe-arm-model" placeholder="model (default)" title="Model override for this arm"
+                style="${inputStyle} width: 170px;" onchange="abeRefreshEstimate()">
+            <input type="number" class="abe-arm-temp" placeholder="temp" title="Temperature override for this arm"
+                min="0" max="2" step="0.1" style="${inputStyle}" onchange="abeRefreshEstimate()">
+        </span>`;
+    }
+
     function renderArmPicker() {
         const el = document.getElementById("abe-arm-picker");
         if (!el) return;
         const rows = st.candidates.map(m =>
-            `<label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-                <input type="checkbox" class="abe-arm" value="${_esc(m.name)}"
-                    onchange="abeRefreshEstimate()">
-                <span class="font-mono">${_esc(m.name)}</span>
-            </label>`);
-        rows.push(`<label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-            <input type="checkbox" class="abe-arm" value="__live__" checked onchange="abeRefreshEstimate()">
-            <span>active contract</span>
-        </label>`);
+            `<div>
+                <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
+                    <input type="checkbox" class="abe-arm" value="${_esc(m.name)}"
+                        onchange="abeArmToggled(this)">
+                    <span class="font-mono">${_esc(m.name)}</span>
+                </label>
+                ${_armParamRow(m.name)}
+            </div>`);
+        rows.push(`<div>
+            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
+                <input type="checkbox" class="abe-arm" value="__live__" checked onchange="abeArmToggled(this)">
+                <span>active contract</span>
+            </label>
+            ${_armParamRow("__live__")}
+        </div>`);
         el.innerHTML = rows.join("");
+        // Show param inputs for the pre-checked live arm.
+        document.querySelectorAll(".abe-arm:checked").forEach(b => armToggled(b));
+        refreshEstimate();
+    }
+
+    function armToggled(checkbox) {
+        const key = checkbox.value;
+        const row = document.querySelector(`.abe-arm-params[data-arm="${CSS.escape(key)}"]`);
+        if (row) row.style.display = checkbox.checked ? "inline-flex" : "none";
         refreshEstimate();
     }
 
@@ -681,11 +710,21 @@
         const boxes = document.querySelectorAll(".abe-arm:checked");
         const names = [];
         let live = false;
+        const armParams = {};
         boxes.forEach(b => {
+            const key = b.value === "__live__" ? "live" : b.value;
             if (b.value === "__live__") live = true;
             else names.push(b.value);
+            const row = document.querySelector(`.abe-arm-params[data-arm="${CSS.escape(b.value)}"]`);
+            if (!row) return;
+            const model = (row.querySelector(".abe-arm-model") || {}).value?.trim();
+            const tempRaw = (row.querySelector(".abe-arm-temp") || {}).value;
+            const params = {};
+            if (model) params.model = model;
+            if (tempRaw !== undefined && tempRaw !== "") params.temperature = Number(tempRaw);
+            if (Object.keys(params).length) armParams[key] = params;
         });
-        return { names, live };
+        return { names, live, armParams };
     }
 
     function refreshEstimate() {
@@ -731,8 +770,10 @@
             _setRunning(true);
             _status("Starting run…");
             const nameInput = document.getElementById("abe-run-name");
+            const { armParams } = _selectedArms();
             const body = await _postJson(`${EVAL}/run`, {
                 candidate_names: names, include_live: live,
+                arm_params: Object.keys(armParams).length ? armParams : undefined,
                 eval_set: st.evalSet.name || undefined,
                 name: (nameInput && nameInput.value.trim()) || undefined,
             });
@@ -931,9 +972,17 @@
             const c = (report.costs || {})[arm] || {};
             const meta = (manifest.arms || []).find(a => a.name === arm) || {};
             const isCandidate = meta.source === "candidate";
+            const ov = meta.gen_overrides || {};
+            const ovParts = [];
+            if (meta.backend && meta.backend !== "gemini") ovParts.push(`backend ${meta.backend}`);
+            if (ov.model) ovParts.push(`model ${ov.model}`);
+            if (ov.temperature !== undefined) ovParts.push(`temp ${ov.temperature}`);
             html += `<div style="border: 1px solid var(--color-border); border-radius: 6px;
                     padding: 10px 14px; min-width: 190px;">
                 <div class="font-semibold font-mono">${_esc(arm)}</div>
+                ${ovParts.length
+                    ? `<div class="text-xxs" style="color: var(--color-text-muted); margin-top: 2px;">${_esc(ovParts.join(" · "))}</div>`
+                    : ""}
                 <div class="text-xs" style="color: var(--color-text-muted); margin-top: 4px;">
                     ${_esc(String(c.total_tokens ?? "—"))} tokens ·
                     ${_esc(String(c.n_errors ?? "—"))} errors ·
@@ -1590,6 +1639,7 @@
     window.abeRenderAdjudication = abeRenderAdjudication;
     window.abeCloseItemModal = abeCloseItemModal;
     window.abeRefreshEstimate = refreshEstimate;
+    window.abeArmToggled = armToggled;
 
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", _watchForActivation);
