@@ -285,6 +285,7 @@ def check_environment() -> list[CheckResult]:
             needed_for="authenticated scraping (Instagram needs cookies; TikTok/YouTube degrade to public access)",
         ))
     results.extend(check_local_qwen())
+    results.extend(check_local_minicpm())
     return results
 
 
@@ -323,6 +324,45 @@ def check_local_qwen() -> list[CheckResult]:
             needed += f" — fix: {check['fix']}"
         results.append(CheckResult(
             name=f"local qwen: {check['name']}",
+            ok=check["ok"],
+            detail=check["detail"],
+            needed_for=needed,
+        ))
+    return results
+
+
+
+
+
+
+def check_local_minicpm() -> list[CheckResult]:
+    """Readiness checks for the OPTIONAL local MiniCPM annotation backend.
+
+    Delegates to :mod:`fyp.annotation.backends.minicpm_support` (the same
+    checks the admin UI's requirements panel shows). On a non-Apple-Silicon
+    host the first check simply reports that the backend is unsupported there.
+    """
+    try:
+        root = str(Path(__file__).resolve().parent.parent)
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        from fyp.annotation.backends import minicpm_support
+
+        checks = minicpm_support.check_all()
+    except Exception as exc:
+        return [CheckResult(
+            name="local minicpm annotation",
+            ok=False,
+            detail=f"checks unavailable: {exc}",
+            needed_for="optional local MiniCPM annotation backend",
+        )]
+    results = []
+    for check in checks:
+        needed = "optional local MiniCPM annotation backend"
+        if not check["ok"] and check["fix"]:
+            needed += f" — fix: {check['fix']}"
+        results.append(CheckResult(
+            name=f"local minicpm: {check['name']}",
             ok=check["ok"],
             detail=check["detail"],
             needed_for=needed,

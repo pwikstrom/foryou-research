@@ -13,12 +13,13 @@ not implemented — selecting it fails validation until a module ships for it.
 from fyp.annotation.backends.base import AnnotationBackend, BackendAvailability
 
 # Stable, settings-visible backend ids. Order = UI display order.
-BACKEND_IDS = ("gemini", "qwen_local")
+BACKEND_IDS = ("gemini", "qwen_local", "minicpm_local")
 
 # Backend id -> implementing module (imported lazily on first get_backend()).
 _BACKEND_MODULES = {
     "gemini": "fyp.annotation.backends.gemini",
     "qwen_local": "fyp.annotation.backends.qwen_local",
+    "minicpm_local": "fyp.annotation.backends.minicpm_local",
 }
 
 _instances: dict = {}

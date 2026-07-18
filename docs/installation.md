@@ -300,6 +300,46 @@ python -c "from fyp.annotation.machine_annotation import annotation_configured; 
 
 `(True, '')` means you're set. Otherwise the message names exactly what to fix.
 
+## Enabling local MiniCPM annotation
+
+A second local backend runs **MiniCPM-o 4.5** (OpenBMB, 9B, Apache 2.0) — the
+lighter alternative to the Qwen backend for Macs with less memory. In the
+20-video evaluation it ran at ~24 s/video with an 8 GB memory peak (vs ~30 s
+and 23 GB for the 30B Qwen model), with agreement against Gemini slightly
+below Qwen overall but stronger on some fields (on-screen text, country,
+advertising) and weaker on others (face demographics, cultural-trend
+detection). It hears the audio track: transcripts were near-verbatim,
+including non-English speech.
+
+| Requirement | Minimum | Notes |
+|---|---|---|
+| Computer | Apple Silicon Mac (M1–M4) | same restriction as the Qwen backend |
+| Memory | 16 GB unified memory | 24 GB+ recommended; the model peaks at ~8 GB |
+| Disk | ~8 GB free | one-time model download (~6 GB) |
+| Tools | `ffmpeg` | frame sampling + audio extraction |
+
+Setup mirrors the [Qwen steps](#enabling-local-qwen-annotation) exactly, with
+these substitutions:
+
+```bash
+python scripts/setup.py --check-only     # look for the "local minicpm:" rows
+pip install -e ".[local_minicpm]"        # same mlx-vlm runtime as local_qwen
+hf download mlx-community/MiniCPM-o-4_5-4bit   # ~6 GB, one-time
+```
+
+Then set the backend to `minicpm_local` in **Admin → General → Machine
+annotation** (requirements panel must be green). Everything from the Qwen
+section's tips applies unchanged: MiniCPM rows get their own `av_` annotation
+version, A/B testing supports a `minicpm_local` arm, annotation is
+sequential, and tuning lives in `[machine.minicpm_local]`.
+
+One MiniCPM-specific note: the published MLX conversions of this model fail
+to load on stock mlx-vlm 0.6.x ("Missing … parameters" — a checkpoint-naming
+mismatch in mlx-vlm's weight sanitizer). The app patches this automatically
+at model load (`minicpm_sanitize_fix`); on newer mlx-vlm releases the patch
+steps aside. If you see that error anyway, you are likely running the model
+outside the app.
+
 ## Enabling local embeddings
 
 The Semantic Space pipeline (video embeddings → niche clustering → 2D map)

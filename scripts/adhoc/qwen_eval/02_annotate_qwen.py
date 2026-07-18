@@ -30,7 +30,6 @@ import tempfile
 import time
 
 import mlx.core as mx
-import qwen3_omni_rope_fix  # noqa: F401  # patches broken Omni decode positions in mlx-vlm 0.6.5
 from mlx_vlm import load
 from mlx_vlm.generate import generate
 from mlx_vlm.prompt_utils import apply_chat_template
@@ -199,6 +198,15 @@ def main() -> None:
     if os.path.exists(out_path):
         with open(out_path) as f:
             results = json.load(f)
+
+    if "qwen" in args.model_id.lower():
+        # Patches broken Omni decode positions + audio-mask scaling in
+        # mlx-vlm 0.6.5. Qwen-specific: must not run for other model families.
+        import qwen3_omni_rope_fix  # noqa: F401
+    elif "minicpm" in args.model_id.lower():
+        # Patches the sanitizer to accept mlx-community's pre-sanitized
+        # checkpoint naming (mlx-vlm 0.6.5 drops the towers otherwise).
+        import minicpmo_sanitize_fix  # noqa: F401
 
     print(f"loading {args.model_id} ...")
     model, processor = load(args.model_id)

@@ -127,3 +127,27 @@ def test_qwen_descriptor_registers_cleanly():
     # The legacy-metadata harvester (var_schema "Gemini"-source rows) is
     # independent of registry contents — it must keep working untouched.
     assert isinstance(av._harvest_orphan_metadata(), dict)
+
+
+
+
+
+def test_current_descriptor_forks_when_minicpm_active(monkeypatch):
+    """Each local backend forks its own distinct av_ version."""
+    from fyp.annotation.backends import settings as backend_settings
+
+    monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
+    gemini_id = av.current_version_descriptor(fresh=True)["annotation_version"]
+
+    monkeypatch.setattr(backend_settings, "_load_settings",
+                        lambda: {"annotation_backend": "minicpm_local"})
+    minicpm_descriptor = av.current_version_descriptor(fresh=True)
+    assert minicpm_descriptor["annotation_version"] != gemini_id
+    assert minicpm_descriptor["backend"] == "minicpm_local"
+    assert minicpm_descriptor["model"].startswith("mlx-community/MiniCPM")
+    assert minicpm_descriptor["gen_params"]["n_frames"] == 8
+
+    monkeypatch.setattr(backend_settings, "_load_settings",
+                        lambda: {"annotation_backend": "qwen_local"})
+    qwen_id = av.current_version_descriptor(fresh=True)["annotation_version"]
+    assert minicpm_descriptor["annotation_version"] != qwen_id

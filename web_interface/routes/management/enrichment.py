@@ -320,6 +320,11 @@ def get_annotation_backends():
                 result = qwen_support.availability()
                 entry["availability"] = {"ok": False, "reason": result.reason,
                                          "checks": result.checks}
+            elif name == "minicpm_local":
+                from fyp.annotation.backends import minicpm_support
+                result = minicpm_support.availability()
+                entry["availability"] = {"ok": False, "reason": result.reason,
+                                         "checks": result.checks}
             else:
                 entry["availability"] = {"ok": False, "reason": str(exc), "checks": []}
         out.append(entry)

@@ -84,3 +84,17 @@ def test_gemini_availability_shape():
     assert isinstance(result.checks, list)
     for check in result.checks:
         assert {"name", "ok", "detail", "fix"} <= set(check)
+
+
+
+
+
+def test_minicpm_id_registered(monkeypatch):
+    """minicpm_local is a first-class id: in BACKEND_IDS and settings-valid."""
+    from fyp.annotation.backends import settings as backend_settings
+
+    assert "minicpm_local" in backends.BACKEND_IDS
+    assert "minicpm_local" in backends._BACKEND_MODULES
+    monkeypatch.setattr(backend_settings, "_load_settings",
+                        lambda: {"annotation_backend": "minicpm_local"})
+    assert backends.active_backend_name() == "minicpm_local"

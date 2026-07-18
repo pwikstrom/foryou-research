@@ -55,6 +55,12 @@ dev = [
 local_qwen = [
     "mlx-vlm>=0.6.4,<0.7; sys_platform == 'darwin'",
 ]
+# Local MiniCPM annotation backend (Apple Silicon + MLX only). Same runtime
+# and pin rationale as local_qwen; the 0.6.x pin also matches the checkpoint-
+# naming workaround in fyp/annotation/backends/minicpm_sanitize_fix.py.
+local_minicpm = [
+    "mlx-vlm>=0.6.4,<0.7; sys_platform == 'darwin'",
+]
 # Local text-embedding backend (Qwen3-Embedding via sentence-transformers).
 # Separate from local_qwen so annotation-only installs don't pull torch.
 local_embeddings = [

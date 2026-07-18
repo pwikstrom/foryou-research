@@ -2171,9 +2171,12 @@ function renderAnnotationConfigNotice(stats) {
         return;
     }
     const reason = stats.annotation_config_reason || 'Machine annotation is not configured.';
-    const docsAnchor = (stats.annotation_backend === 'qwen_local')
-        ? 'docs/installation.md#enabling-local-qwen-annotation'
-        : 'docs/installation.md#enabling-gemini-later';
+    const localAnchors = {
+        qwen_local: 'docs/installation.md#enabling-local-qwen-annotation',
+        minicpm_local: 'docs/installation.md#enabling-local-minicpm-annotation',
+    };
+    const docsAnchor = localAnchors[stats.annotation_backend]
+        || 'docs/installation.md#enabling-gemini-later';
     notice.querySelector('.config-notice-text').textContent = `⚙ ${reason} See ${docsAnchor}`;
     notice.style.display = 'block';
 }

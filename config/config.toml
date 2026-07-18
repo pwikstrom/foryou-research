@@ -78,6 +78,21 @@ max_tokens = 4096
 repetition_penalty = 1.08
 with_audio = true
 
+# Local MiniCPM-o annotation backend (Apple Silicon + MLX only) — the lighter
+# alternative to the Qwen backend for 16–32 GB Macs: 9B model, ~24 s/video and
+# 8 GB peak in the 2026-07 pilot, agreement vs Gemini slightly below the 30B
+# Qwen model. Same frames+audio recipe; sampling parameters are part of the
+# annotation version identity. Install: pip install -e ".[local_minicpm]" —
+# see docs/installation.md#enabling-local-minicpm-annotation.
+[machine.minicpm_local]
+model_id = "mlx-community/MiniCPM-o-4_5-4bit"
+max_frames = 8
+frame_scale = 448
+fps = 1.0
+max_tokens = 4096
+repetition_penalty = 1.08
+with_audio = true
+
 
 
 ##########################################################################################

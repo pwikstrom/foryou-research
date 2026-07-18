@@ -114,14 +114,17 @@ def render_report(cmp: dict, qwen_raw: dict, gemini_raw: dict,
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--workdir", default=os.path.expanduser("~/qwen_eval_work"))
-    ap.add_argument("--qwen-file", default="qwen_raw.json")
+    ap.add_argument("--qwen-file", default="qwen_raw.json",
+                    help="challenger arm raw file (any local model's output)")
+    ap.add_argument("--reference-file", default="gemini_reference.json",
+                    help="reference arm raw file (default: the Gemini reference)")
     ap.add_argument("--out-prefix", default="",
                     help="prefix for comparison.json / report.md filenames")
     ap.add_argument("--title",
                     default="Qwen3-VL-30B-A3B (4-bit, local) vs Gemini Flash 3.0 preview")
     args = ap.parse_args()
 
-    with open(os.path.join(args.workdir, "gemini_reference.json")) as f:
+    with open(os.path.join(args.workdir, args.reference_file)) as f:
         gemini_raw = json.load(f)
     with open(os.path.join(args.workdir, args.qwen_file)) as f:
         qwen_raw = json.load(f)
