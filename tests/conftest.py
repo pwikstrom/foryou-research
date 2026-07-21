@@ -21,3 +21,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+from tests._storage_guard import assert_local_storage  # noqa: E402
+
+# Module level, not a sessionstart hook: the root conftest loads before any
+# per-directory conftest can boot the config, so a GCS-resolving environment
+# is refused before anything touches data_io.
+assert_local_storage()
