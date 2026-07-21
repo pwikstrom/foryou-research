@@ -17,6 +17,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
     from fyp.fyp_config import fyp_cf
     from fyp.organize_datasets import create_study_recoded_dataset
     from fyp.studies import init_study_defs, save_study_defs
+    from web_interface.services.stats_service import compute_study_dataset_stats
 
     task_args = task_args or {}
     force_full_rebuild: bool = bool(task_args.get("force_full_rebuild", False))
@@ -75,10 +76,14 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
             if df_study is None:
                 reporter.log(f"Skipping {study_name}: No data generated.")
                 studies[study_name]['stats'] = {
+                    "total_activities": 0,
                     "unique_videos": 0,
                     "scraped_videos": 0,
                     "annotated_videos": 0,
-                    "unique_collections": 0
+                    "activities_scraped": 0,
+                    "activities_annotated": 0,
+                    "unique_collections": 0,
+                    "active_days": 0,
                 }
             else:
                 refresh_action = df_study.attrs.get("refresh_action", "full_rebuild")
@@ -89,31 +94,11 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
                 else:
                     reporter.log(f"  Successfully refreshed data for {study_name} ({len(df_study)} rows)")
 
-                unique_collections = int(df_study['collection_id'].nunique())
-                unique_videos = int(df_study['item_id'].nunique())
-
-                scraped_videos = 0
-                annotated_videos = 0
-
-                if df_status is not None and not df_status.empty and 'item_id' in df_status.columns:
-                    try:
-                        study_ids = df_study['item_id'].astype("string[pyarrow]")
-                        status_ids = df_status['item_id'].astype("string[pyarrow]")
-                        matched = df_status.loc[status_ids.isin(study_ids)]
-
-                        if 'scraped_ok' in matched.columns:
-                            scraped_videos = int(matched['scraped_ok'].fillna(False).sum())
-                        if 'annotated_ok' in matched.columns:
-                            annotated_videos = int(matched['annotated_ok'].fillna(False).sum())
-                    except Exception as e:
-                        reporter.log(f"  Warning: Could not match enrichment status for {study_name}: {e}")
-
-                studies[study_name]['stats'] = {
-                    "unique_videos": unique_videos,
-                    "scraped_videos": scraped_videos,
-                    "annotated_videos": annotated_videos,
-                    "unique_collections": unique_collections
-                }
+                # Same stats definition (and full key set, incl. total_activities)
+                # as the single-study refresh — see compute_study_dataset_stats.
+                selected = config.get("SELECTED_COLLECTIONS") or []
+                studies[study_name]['stats'] = compute_study_dataset_stats(
+                    df_study, df_status, selected)
                 studies[study_name]['last_updated'] = datetime.now(UTC).isoformat()
 
         except Exception as e:

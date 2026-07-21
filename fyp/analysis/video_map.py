@@ -580,8 +580,20 @@ def build_niche_map(
     else:
         sample_idx = np.arange(n)
     _log(f"Projecting {len(sample_idx):,} sampled videos to 2D...")
-    tsne = TSNE(n_components=2, perplexity=30, init="pca", random_state=0, max_iter=1000)
-    xy_sample = tsne.fit_transform(reduced[sample_idx])
+    n_sampled = len(sample_idx)
+    if n_sampled < 3:
+        # Too few points for t-SNE (perplexity must be < n_samples) — a tiny
+        # corpus gets a trivial deterministic layout instead of a failed build.
+        xy_sample = np.column_stack([np.arange(n_sampled, dtype=np.float64),
+                                     np.zeros(n_sampled, dtype=np.float64)])
+    else:
+        # sklearn requires perplexity < n_samples; the usual ~n/3 heuristic
+        # keeps small corpora (e.g. a 20-video pilot) working, capped at the
+        # historical 30 for full-size builds.
+        perplexity = min(30.0, max(2.0, (n_sampled - 1) / 3))
+        tsne = TSNE(n_components=2, perplexity=perplexity, init="pca",
+                    random_state=0, max_iter=1000)
+        xy_sample = tsne.fit_transform(reduced[sample_idx])
 
     x = np.full(n, np.nan, dtype=np.float64)
     y = np.full(n, np.nan, dtype=np.float64)

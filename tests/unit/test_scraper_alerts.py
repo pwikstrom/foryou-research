@@ -28,6 +28,9 @@ class FakeDataIO:
         self.files = {}
         self.writes = 0
 
+    def exists(self, storage_location="", filename="", **kwargs):
+        return filename in self.files
+
     def load_json(self, storage_location="", filename="", **kwargs):
         return self.files.get(filename)
 

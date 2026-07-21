@@ -42,6 +42,11 @@ def _now_iso() -> str:
 def load_alerts() -> dict:
     """Return the active alerts as ``{platform: alert_dict}`` (never raises)."""
     try:
+        # A missing file is the normal no-alerts state — check exists() first
+        # so every status poll doesn't log a [DATA_IO] load error for it.
+        if not data_io.exists(storage_location=ALERTS_LOCATION,
+                              filename=ALERTS_FILENAME):
+            return {}
         alerts = data_io.load_json(storage_location=ALERTS_LOCATION,
                                    filename=ALERTS_FILENAME)
         return alerts if isinstance(alerts, dict) else {}

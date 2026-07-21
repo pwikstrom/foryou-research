@@ -37,8 +37,10 @@ _PREVIEW_WINDOW_CACHE_MAXSIZE = 2
 _PREVIEW_DISK_PREFIX = "study_precheck_frame__"
 _PREVIEW_DISK_MAXFILES = 24
 _preview_cache_lock = threading.Lock()
-_preview_frame_cache: dict = {}    # frozenset(collection_ids) -> (monotonic_ts, df | None)
-_preview_status_cache: dict = {}   # "status" -> (monotonic_ts, df | None)
+_preview_frame_cache: dict = {}    # frozenset(collection_ids) -> (monotonic_ts, df | None, src_mtime)
+_preview_status_cache: dict = {}   # "status" -> (monotonic_ts, df | None, src_mtime)
+_SOURCES_MTIME_MEMO_S = 5.0
+_sources_mtime_memo: tuple[float, float] | None = None  # (monotonic_ts, sources_mtime)
 _preview_warming: set = set()      # collection-set keys with a prewarm thread in flight
 _preview_build_locks: dict = {}    # collection-set key -> Lock (one build at a time)
 
@@ -83,6 +85,29 @@ def _preview_sources_mtime() -> float:
         except Exception:
             pass
     return newest
+
+
+
+
+def _preview_sources_mtime_cached() -> float:
+    """``_preview_sources_mtime`` behind a short memo.
+
+    The in-memory cache tiers validate against the source mtimes on every read
+    so a consolidation invalidates them immediately (not after the 5-min TTL);
+    the memo bounds that to one stat sweep per few seconds, which also caps the
+    worst-case staleness window.
+    """
+
+    global _sources_mtime_memo
+    now = _time.monotonic()
+    with _preview_cache_lock:
+        memo = _sources_mtime_memo
+        if memo is not None and (now - memo[0]) < _SOURCES_MTIME_MEMO_S:
+            return memo[1]
+    value = _preview_sources_mtime()
+    with _preview_cache_lock:
+        _sources_mtime_memo = (now, value)
+    return value
 
 
 
@@ -145,14 +170,15 @@ def _get_enrichment_status_cached() -> pd.DataFrame | None:
     """Return the projected enrichment_status, cached in-process with the preview TTL."""
 
     now = _time.monotonic()
+    src_mtime = _preview_sources_mtime_cached()
     with _preview_cache_lock:
         hit = _preview_status_cache.get("status")
-        if hit is not None and (now - hit[0]) < _PREVIEW_CACHE_TTL_S:
+        if hit is not None and (now - hit[0]) < _PREVIEW_CACHE_TTL_S and hit[2] >= src_mtime:
             return hit[1]
 
     df = _load_enrichment_status_min()
     with _preview_cache_lock:
-        _preview_status_cache["status"] = (now, df)
+        _preview_status_cache["status"] = (now, df, src_mtime)
     return df
 
 
@@ -248,11 +274,16 @@ def _prepare_preview_frame(selected: list, df_status: pd.DataFrame | None) -> pd
 
 
 
-def _cache_frame_in_memory(key: frozenset, frame: pd.DataFrame | None, now: float) -> None:
-    """Store a frame in the in-process cache, expiring stale entries and capping size."""
+def _cache_frame_in_memory(key: frozenset, frame: pd.DataFrame | None, now: float,
+                           src_mtime: float) -> None:
+    """Store a frame in the in-process cache, expiring stale entries and capping size.
+
+    ``src_mtime`` is the sources mtime the frame was built against — a read
+    whose current sources mtime exceeds it treats the entry as stale.
+    """
 
     with _preview_cache_lock:
-        _preview_frame_cache[key] = (now, frame)
+        _preview_frame_cache[key] = (now, frame, src_mtime)
         for stale in [k for k, v in _preview_frame_cache.items() if (now - v[0]) >= _PREVIEW_CACHE_TTL_S]:
             _preview_frame_cache.pop(stale, None)
         while len(_preview_frame_cache) > _PREVIEW_WINDOW_CACHE_MAXSIZE:
@@ -279,17 +310,18 @@ def _read_cached_frame(key: frozenset, disk_fn: str) -> tuple[bool, pd.DataFrame
     """Try the in-memory then on-disk tiers. Returns (hit, frame)."""
 
     now = _time.monotonic()
+    src_mtime = _preview_sources_mtime_cached()
     with _preview_cache_lock:
         hit = _preview_frame_cache.get(key)
-        if hit is not None and (now - hit[0]) < _PREVIEW_CACHE_TTL_S:
+        if hit is not None and (now - hit[0]) < _PREVIEW_CACHE_TTL_S and hit[2] >= src_mtime:
             return True, hit[1]
 
     try:
         if data_io.exists(storage_location="cache", filename=disk_fn):
-            if float(data_io.getmtime(storage_location="cache", filename=disk_fn)) >= _preview_sources_mtime():
+            if float(data_io.getmtime(storage_location="cache", filename=disk_fn)) >= src_mtime:
                 frame = _load_prepared_from_disk(disk_fn)
                 if frame is not None:
-                    _cache_frame_in_memory(key, frame, now)
+                    _cache_frame_in_memory(key, frame, now, src_mtime)
                     return True, frame
     except Exception as e:
         print(f"[preview-cache] disk load failed for {disk_fn}: {e}")
@@ -326,8 +358,11 @@ def _get_prepared_frame_cached(selected: list, df_status: pd.DataFrame | None) -
         if hit:
             return frame
 
+        # Probe the sources mtime BEFORE building: a consolidation write that
+        # lands mid-build then correctly marks this entry stale on next read.
+        src_mtime = _preview_sources_mtime_cached()
         frame = _prepare_preview_frame(selected, df_status)
-        _cache_frame_in_memory(key, frame, _time.monotonic())
+        _cache_frame_in_memory(key, frame, _time.monotonic(), src_mtime)
         if frame is not None:
             try:
                 _save_prepared_to_disk(frame, disk_fn)

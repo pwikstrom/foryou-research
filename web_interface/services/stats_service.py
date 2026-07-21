@@ -343,13 +343,46 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
         data_io.remove(storage_location="cache", filename=f"{study_name}_PCA.parquet")
         return empty_stats, None, df_status
 
-    # 3. Count unique items. Filter to play/observe within each collection's
-    # event window so the displayed "included" counts use the same definition
-    # as the per-collection metadata (personas.total_events / active_days) and
-    # the "potential" column on the right of the modal. Without this filter the
-    # included Activities would include likes, shares, search, follow, and
-    # events outside the persona window — making "included" exceed "potential".
     _t_phase = _time.perf_counter()
+    stats = compute_study_dataset_stats(df_study, df_status, selected)
+    _t_count = _time.perf_counter() - _t_phase
+    _t_stats_total = _time.perf_counter() - _t_total
+    print(
+        f"[STATS][TIMING] study={study_name} "
+        f"status_load={_t_status:.2f}s recode={_t_recode:.2f}s "
+        f"count={_t_count:.2f}s total={_t_stats_total:.2f}s"
+    )
+
+    return stats, df_study, df_status
+
+
+
+
+def compute_study_dataset_stats(df_study: pd.DataFrame, df_status: pd.DataFrame | None,
+                                selected: list) -> dict:
+    """Count a study dataset's activities/videos and their enrichment status.
+
+    The single definition of the per-study stats dict persisted to
+    ``studies.json`` — used by both the study refresh (via ``_calculate_stats``)
+    and the bulk recode refresh, so the two writers can never diverge in keys.
+
+    Filters to play/observe within each collection's event window so the
+    displayed "included" counts use the same definition as the per-collection
+    metadata (personas.total_events / active_days) and the "potential" column
+    on the right of the modal. Without this filter the included Activities
+    would include likes, shares, search, follow, and events outside the
+    persona window — making "included" exceed "potential".
+
+    Args:
+        df_study: The study's recoded dataset.
+        df_status: Projected enrichment_status frame, or ``None``.
+        selected: The study's selected collection ids (event-window lookup).
+
+    Returns:
+        Stats dict with total_activities / unique_videos / scraped_videos /
+        annotated_videos / activities_scraped / activities_annotated /
+        unique_collections / active_days.
+    """
     df_counts = df_study
     if 'collection_id' in df_study.columns and 'local_timestamp' in df_study.columns:
         windows = _load_collection_event_windows(selected)
@@ -405,7 +438,7 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
                 annotated_set = set(m_ids[matched_status['annotated_ok'].fillna(False).to_numpy()])
                 activities_annotated = int(study_ids_str.isin(annotated_set).sum())
 
-    stats = {
+    return {
         "total_activities": int(total_activities),
         "unique_videos": int(unique_videos),
         "scraped_videos": scraped_videos,
@@ -415,16 +448,6 @@ def _calculate_stats(study_config, save_to_cache=True) -> tuple[dict, pd.DataFra
         "unique_collections": int(unique_collections),
         "active_days": active_days,
     }
-
-    _t_count = _time.perf_counter() - _t_phase
-    _t_stats_total = _time.perf_counter() - _t_total
-    print(
-        f"[STATS][TIMING] study={study_name} "
-        f"status_load={_t_status:.2f}s recode={_t_recode:.2f}s "
-        f"count={_t_count:.2f}s total={_t_stats_total:.2f}s"
-    )
-
-    return stats, df_study, df_status
 
 
 
