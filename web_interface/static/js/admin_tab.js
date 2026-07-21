@@ -118,9 +118,8 @@
                 defaultRoleLabel.textContent = settings.default_new_user_role || 'viewer';
             }
 
-            // General → Machine annotation card
-            populateMachineSettings(settings, data.machine_defaults || {},
-                data.backend_ids || ['gemini'], data.implemented_backends || ['gemini']);
+            // General → Machine annotation + Embeddings cards
+            populateMachineSettings(settings);
         } catch (e) {
             console.error('loadAdminSettings:', e);
             const status = document.getElementById('setting-new-user-approval-status');
@@ -194,29 +193,10 @@
         }
     }
 
-    // --- Machine annotation backend + parameter overrides ---
+    // --- Annotation + embedding backend selection ---
+    // ([machine] model/generation parameters are config-file-only — no UI.)
 
-    // settings key -> {input element id, [machine] config key for placeholders}
-    const MACHINE_SETTING_FIELDS = {
-        machine_model: { id: 'setting-machine-model', configKey: 'model' },
-        machine_temperature: { id: 'setting-machine-temperature', configKey: 'temperature' },
-        machine_thinking_budget: { id: 'setting-machine-thinking-budget', configKey: 'thinking_budget' },
-        machine_media_resolution: { id: 'setting-machine-media-resolution', configKey: 'media_resolution' },
-        machine_max_output_tokens: { id: 'setting-machine-max-output-tokens', configKey: 'max_output_tokens' },
-    };
-
-    function populateMachineSettings(settings, machineDefaults, backendIds, implementedBackends) {
-        for (const [key, field] of Object.entries(MACHINE_SETTING_FIELDS)) {
-            const el = document.getElementById(field.id);
-            if (!el) continue;
-            const value = settings[key];
-            el.value = (value === undefined || value === null) ? '' : String(value);
-            const dflt = machineDefaults[field.configKey];
-            if (el.tagName === 'INPUT') {
-                el.placeholder = `config default: ${dflt === '' || dflt === undefined ? '(unset)' : dflt}`;
-            }
-            el.disabled = false;
-        }
+    function populateMachineSettings(settings) {
         // The backend selectors need per-backend availability, not just
         // "module importable" — fetch the requirement checks and render both.
         loadBackendRequirements(settings.annotation_backend || 'gemini');
@@ -263,25 +243,33 @@
                 backendSelect.disabled = false;
             }
 
-            // Requirements panel: show the checks for every non-gemini backend
-            // (gemini state is already covered by the enrichment-card notice).
+            // Health panel: one block per backend (including gemini), each
+            // with an overall status line plus its detailed requirement checks.
             if (panel) {
                 const rows = [];
-                for (const b of backends) {
-                    if (b.name === 'gemini') continue;
-                    const checks = (b.availability && b.availability.checks) || [];
-                    if (!checks.length) continue;
-                    rows.push(`<div class="font-semibold" style="margin-bottom: 4px; color: var(--color-text-primary);">${b.name} requirements</div>`);
-                    for (const c of checks) {
+                backends.forEach((b, i) => {
+                    const avail = b.availability || {};
+                    const ok = !!avail.ok;
+                    const statusColor = ok ? 'var(--color-success)' : 'var(--color-danger)';
+                    const statusLabel = ok ? 'available' : 'unavailable';
+                    rows.push(`<div class="font-semibold" style="margin: ${i ? '10px' : '0'} 0 4px 0; color: var(--color-text-primary);">
+                        ${b.name}
+                        <span style="color: ${statusColor};">● ${statusLabel}</span>
+                        ${b.active ? '<span style="color: var(--color-text-muted);">— active</span>' : ''}
+                    </div>`);
+                    if (!ok && avail.reason) {
+                        rows.push(`<div style="margin-left: 4px; color: var(--color-text-muted);">${avail.reason}</div>`);
+                    }
+                    for (const c of (avail.checks || [])) {
                         const mark = c.ok ? '✓' : '✗';
                         const color = c.ok ? 'var(--color-success)' : 'var(--color-danger)';
                         rows.push(`<div style="margin-left: 4px;">
                             <span style="color: ${color};">${mark}</span>
-                            ${c.name} <span style="color: var(--color-text-muted);">— ${c.detail}</span>
+                            ${c.name}${c.detail ? ` <span style="color: var(--color-text-muted);">— ${c.detail}</span>` : ''}
                             ${!c.ok && c.fix ? `<div class="font-mono" style="margin-left: 18px; color: var(--color-text-muted);">fix: ${c.fix}</div>` : ''}
                         </div>`);
                     }
-                }
+                });
                 panel.innerHTML = rows.join('');
                 panel.style.display = rows.length ? 'block' : 'none';
             }
@@ -317,8 +305,7 @@
             }
             (window._adminSettings || (window._adminSettings = {}))[key] = value;
             if (status) {
-                status.textContent = (key === 'annotation_backend' || key === 'embedding_backend')
-                    ? 'Saved' : 'Saved — forks a new annotation version';
+                status.textContent = 'Saved';
                 setTimeout(() => { if (status.textContent.startsWith('Saved')) status.textContent = ''; }, 4000);
             }
         } catch (e) {

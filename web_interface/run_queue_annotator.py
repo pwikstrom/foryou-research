@@ -58,19 +58,16 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
         should be dispatched, or ``None`` when the work is done.
     """
     import fyp.data_io as data_io
-    import fyp.machine_annotation as machine_annotation
     from fyp.machine_annotation import annotate_from_video_id_list
 
     if not task_args:
         task_args = {}
 
-    # Pick up admin-set backend/model/parameter overrides for this run (each
-    # chain link is a fresh process/request, so read-at-start is sufficient).
-    overrides = machine_annotation.apply_admin_machine_overrides()
+    # Pick up the admin-selected backend for this run (each chain link is a
+    # fresh process/request, so read-at-start is sufficient).
     from fyp.annotation.backends import active_backend_name
     _backend = active_backend_name()
-    reporter.log(f"Annotation backend: {_backend}"
-                 + (f" (admin overrides: {overrides})" if overrides else ""))
+    reporter.log(f"Annotation backend: {_backend}")
 
     batch_size: int = int(task_args.get("batch_size", 500))
     max_batches: int | None = task_args.get("max_batches")

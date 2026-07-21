@@ -40,14 +40,9 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
     """
     from fyp import ab_eval
     from fyp import annotation_contract as ac
-    from fyp import machine_annotation
 
     task_args = task_args or {}
     _t_start = time.perf_counter()
-
-    # Pick up admin-set model/parameter overrides so arms without explicit
-    # per-arm params run against the effective production configuration.
-    machine_annotation.apply_admin_machine_overrides()
 
     run_id = task_args.get("run_id") or ab_eval.new_run_id()
     names = task_args.get("candidate_names") or []

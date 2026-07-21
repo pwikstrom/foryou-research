@@ -31,16 +31,16 @@
     </div>
 </section>
 
-<!-- Machine annotation backend + parameters -->
+<!-- Machine annotation backend -->
 <section style="margin-bottom: 28px;">
     <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Machine annotation</h3>
     <p class="text-xs" style="margin: 0 0 12px 0; color: var(--color-text-muted); max-width: 680px;">
-        Runtime overrides of the <span class="font-mono">[machine]</span> configuration. Leave a field
-        empty to use the config default (shown as the placeholder). Changes apply from the next
-        annotation run — no restart needed.
+        The backend that annotates videos. Model and generation parameters (temperature, thinking
+        budget, media resolution, max output tokens) are set in the <span class="font-mono">[machine]</span>
+        section of <span class="font-mono">config/config.toml</span> and require a rebuild/redeploy to change.
     </p>
     <p class="text-xs font-semibold" style="margin: 0 0 12px 0; color: var(--color-text-warning, var(--color-text-primary)); max-width: 680px;">
-        Changing the model or any generation parameter forks a new annotation version
+        Changing the backend (or the configured model/parameters) forks a new annotation version
         (<span class="font-mono">av_…</span>). Existing annotations stay under their version;
         see Admin &rarr; Annotation Versions.
     </p>
@@ -56,51 +56,11 @@
         <span id="setting-annotation-backend-status" class="text-xs" style="color: var(--color-text-muted);"></span>
     </div>
 
-    <!-- Per-backend requirement checks (rendered by renderBackendRequirements
+    <!-- Per-backend health + requirement checks for every backend (rendered
          from GET /api/manage/annotation/backends; each failing row carries an
          actionable fix command). -->
     <div id="backend-requirements" class="text-xs"
         style="display: none; margin: 0 0 14px 0; padding: 10px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-elevated); max-width: 680px;">
-    </div>
-
-    <div id="machine-param-grid" style="display: grid; grid-template-columns: auto minmax(180px, 320px) auto; gap: 8px 10px; align-items: center; max-width: 680px;">
-        <label for="setting-machine-model" class="text-sm" style="color: var(--color-text-primary);">Model</label>
-        <input type="text" id="setting-machine-model" disabled
-            onchange="saveMachineSetting(this, 'machine_model')"
-            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);" />
-        <span id="setting-machine-model-status" class="text-xs" style="color: var(--color-text-muted);"></span>
-
-        <label for="setting-machine-temperature" class="text-sm" style="color: var(--color-text-primary);">Temperature</label>
-        <input type="number" id="setting-machine-temperature" min="0" max="2" step="0.1" disabled
-            onchange="saveMachineSetting(this, 'machine_temperature')"
-            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);" />
-        <span id="setting-machine-temperature-status" class="text-xs" style="color: var(--color-text-muted);"></span>
-
-        <label for="setting-machine-thinking-budget" class="text-sm meta-tooltip" data-tooltip="-1 = dynamic; 0 = thinking off"
-            style="color: var(--color-text-primary);">Thinking budget</label>
-        <input type="number" id="setting-machine-thinking-budget" min="-1" step="1" disabled
-            onchange="saveMachineSetting(this, 'machine_thinking_budget')"
-            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);" />
-        <span id="setting-machine-thinking-budget-status" class="text-xs" style="color: var(--color-text-muted);"></span>
-
-        <label for="setting-machine-media-resolution" class="text-sm meta-tooltip"
-            data-tooltip="Video frame resolution sent to the model. Empty = API default (HIGH). LOW saves ~41% input tokens but degrades brand/logo + sensitivity fields."
-            style="color: var(--color-text-primary);">Media resolution</label>
-        <select id="setting-machine-media-resolution" disabled
-            onchange="saveMachineSetting(this, 'machine_media_resolution')"
-            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);">
-            <option value="">(config default)</option>
-            <option value="LOW">LOW</option>
-            <option value="MEDIUM">MEDIUM</option>
-            <option value="HIGH">HIGH</option>
-        </select>
-        <span id="setting-machine-media-resolution-status" class="text-xs" style="color: var(--color-text-muted);"></span>
-
-        <label for="setting-machine-max-output-tokens" class="text-sm" style="color: var(--color-text-primary);">Max output tokens</label>
-        <input type="number" id="setting-machine-max-output-tokens" min="1" step="1" disabled
-            onchange="saveMachineSetting(this, 'machine_max_output_tokens')"
-            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);" />
-        <span id="setting-machine-max-output-tokens-status" class="text-xs" style="color: var(--color-text-muted);"></span>
     </div>
 </section>
 

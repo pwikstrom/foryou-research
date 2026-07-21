@@ -433,12 +433,8 @@ def api_admin_role_permissions(role_name):
 def api_admin_settings():
     if request.method == 'GET':
         merged = {**ADMIN_SETTINGS_DEFAULTS, **load_admin_settings()}
-        # Config-file baselines for the runtime-overridable [machine] keys, so
-        # the General page can show "config default: X" placeholders.
-        import fyp.machine_annotation as machine_annotation
         from fyp.annotation.backends import BACKEND_IDS, implemented_backend_ids
         return jsonify({"settings": merged,
-                        "machine_defaults": machine_annotation.machine_config_baseline(),
                         "backend_ids": list(BACKEND_IDS),
                         "implemented_backends": list(implemented_backend_ids())})
 
@@ -473,14 +469,6 @@ def api_admin_settings():
     current = load_admin_settings()
     current.update(data)
     save_admin_settings(current)
-
-    # Annotation keys feed live config on this service; re-apply so the web
-    # process (health pings, ab_eval previews) sees the new values without a
-    # restart. Workers re-read at run start in their own processes.
-    from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY, MACHINE_OVERRIDE_KEYS
-    if any(k in data for k in (ANNOTATION_BACKEND_KEY, *MACHINE_OVERRIDE_KEYS)):
-        import fyp.machine_annotation as machine_annotation
-        machine_annotation.apply_admin_machine_overrides()
 
     merged = {**ADMIN_SETTINGS_DEFAULTS, **current}
     return jsonify({"status": "success", "message": "Settings updated", "settings": merged})

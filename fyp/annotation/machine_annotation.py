@@ -85,14 +85,6 @@ def __getattr__(name: str):
 
 
 
-# Snapshot of the config-file [machine] baseline for the keys admins may
-# override at runtime. Taken once, before the first override apply, so
-# clearing an override reverts to the config.toml value.
-_MACHINE_BASE: dict | None = None
-
-
-
-
 
 
 def invalidate_caches():
@@ -106,60 +98,6 @@ def invalidate_caches():
     """
     _cf()["machine"]["structured_generation_config"] = None
     _cf()["machine"]["client"] = None
-
-
-
-
-
-
-def apply_admin_machine_overrides() -> dict:
-    """Overlay admin-settings overrides onto ``_cf()["machine"]``.
-
-    Reads the admin settings store (see
-    :mod:`fyp.annotation.backends.settings`) and writes ``baseline | overrides``
-    into the live config for the five runtime-editable keys, then invalidates
-    the derived caches. The config-file baseline is snapshotted on first call,
-    so clearing an override reverts cleanly. Workers call this once at run
-    start (each task-runner run is a fresh process); the web service calls it
-    after a settings save.
-
-    Returns:
-        The applied overrides ``{config_key: value}`` (empty when none set).
-    """
-    from fyp.annotation.backends.settings import MACHINE_OVERRIDE_KEYS, get_machine_overrides
-
-    global _MACHINE_BASE
-    machine = _cf()["machine"]
-    if _MACHINE_BASE is None:
-        _MACHINE_BASE = {key: machine[key] for key in MACHINE_OVERRIDE_KEYS.values()}
-
-    overrides = get_machine_overrides()
-    effective = {**_MACHINE_BASE, **overrides}
-    changed = any(machine.get(key) != value for key, value in effective.items())
-    machine.update(effective)
-    if changed:
-        invalidate_caches()
-        logger.info(f"Applied admin [machine] overrides: {overrides or '(none — config baseline)'}")
-    return overrides
-
-
-
-
-
-
-def machine_config_baseline() -> dict:
-    """The config-file values of the runtime-overridable ``[machine]`` keys.
-
-    Returns:
-        ``{config_key: value}`` for the five admin-overridable keys — the
-        pre-override snapshot when overrides have been applied in this
-        process, else the live config values.
-    """
-    from fyp.annotation.backends.settings import MACHINE_OVERRIDE_KEYS
-
-    if _MACHINE_BASE is not None:
-        return dict(_MACHINE_BASE)
-    return {key: _cf()["machine"][key] for key in MACHINE_OVERRIDE_KEYS.values()}
 
 
 

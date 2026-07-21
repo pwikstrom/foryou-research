@@ -380,7 +380,6 @@ def run_queue_annotator_batch(reporter: TaskStatusReporter, task_args: dict | No
         A chain dict (next phase) or ``None`` when the work is done / failed.
     """
     import fyp.data_io as data_io
-    import fyp.machine_annotation as machine_annotation
     import fyp.machine_annotation_batch as batch
     from fyp.annotation.backends import active_backend_name
 
@@ -388,7 +387,6 @@ def run_queue_annotator_batch(reporter: TaskStatusReporter, task_args: dict | No
 
     # Batch mode is intrinsically Gemini (Batch API + GCS JSONL) — refuse
     # cleanly when another backend is selected instead of failing mid-flight.
-    machine_annotation.apply_admin_machine_overrides()
     backend = active_backend_name()
     if backend != "gemini":
         reporter.log(f"Batch annotation only supports the Gemini backend "

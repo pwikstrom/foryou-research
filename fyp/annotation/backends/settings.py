@@ -13,16 +13,6 @@ import fyp.data_io as data_io
 # admin-settings machinery; fyp only reads the same file via data_io).
 SETTINGS_FILENAME = "admin_settings.json"
 
-# Admin-settings key -> [machine] config key. Empty-string / None values mean
-# "no override — use the config.toml baseline".
-MACHINE_OVERRIDE_KEYS = {
-    "machine_model": "model",
-    "machine_temperature": "temperature",
-    "machine_thinking_budget": "thinking_budget",
-    "machine_media_resolution": "media_resolution",
-    "machine_max_output_tokens": "max_output_tokens",
-}
-
 ANNOTATION_BACKEND_KEY = "annotation_backend"
 
 
@@ -55,25 +45,3 @@ def get_annotation_backend() -> str:
     """
     value = _load_settings().get(ANNOTATION_BACKEND_KEY)
     return value if isinstance(value, str) and value else "gemini"
-
-
-
-
-
-
-def get_machine_overrides() -> dict:
-    """Admin overrides of ``[machine]`` config values, only the set ones.
-
-    Returns:
-        ``{config_key: value}`` for every override the admin has set — an
-        empty string or ``None`` stored value means "not overridden" and is
-        omitted, so callers can overlay the result onto the config baseline.
-    """
-    settings = _load_settings()
-    overrides: dict = {}
-    for settings_key, config_key in MACHINE_OVERRIDE_KEYS.items():
-        value = settings.get(settings_key)
-        if value is None or value == "":
-            continue
-        overrides[config_key] = value
-    return overrides
