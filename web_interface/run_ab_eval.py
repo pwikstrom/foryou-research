@@ -52,21 +52,39 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
 
     reporter.update_progress(0, "Loading candidate contracts and evaluation set...")
 
-    # Optional per-arm overrides from the run form: {arm_name: {backend,
-    # model, temperature}} — the live arm is keyed "live". Validated at the
-    # route; execute_run re-validates backend availability before any call.
-    arm_params = task_args.get("arm_params") or {}
-
     arms: list[dict] = []
-    for name in names:
-        cand = ab_eval.load_candidate(name)   # raises on missing/invalid → fail fast
-        arms.append({"name": name, "source": "candidate", "text": cand["text"],
-                     **arm_params.get(name, {})})
-    if include_live:
-        arms.append({"name": "live", "source": "live", "text": ac.effective_contract_text(),
-                     **arm_params.get("live", {})})
+    arms_spec = task_args.get("arms_spec")
+    if arms_spec:
+        # Explicit arm list (route-validated): the same contract may appear as
+        # several arms under distinct labels (e.g. once per backend). The
+        # label is the arm's report/manifest key.
+        live_text = None
+        for spec in arms_spec:
+            arm = {"name": spec["label"], "source": spec["source"]}
+            if spec["source"] == "candidate":
+                cand = ab_eval.load_candidate(spec["name"])  # raises → fail fast
+                arm["text"] = cand["text"]
+                arm["candidate"] = spec["name"]
+            else:
+                if live_text is None:
+                    live_text = ac.effective_contract_text()
+                arm["text"] = live_text
+            if spec.get("backend"):
+                arm["backend"] = spec["backend"]
+            arms.append(arm)
+    else:
+        # Legacy shape: candidate name list + include_live + per-arm overrides
+        # keyed by arm name ("live" for the live arm).
+        arm_params = task_args.get("arm_params") or {}
+        for name in names:
+            cand = ab_eval.load_candidate(name)   # raises on missing/invalid → fail fast
+            arms.append({"name": name, "source": "candidate", "text": cand["text"],
+                         **arm_params.get(name, {})})
+        if include_live:
+            arms.append({"name": "live", "source": "live", "text": ac.effective_contract_text(),
+                         **arm_params.get("live", {})})
     if not arms:
-        raise ValueError("no contracts selected (pass candidate_names and/or include_live)")
+        raise ValueError("no contracts selected (pass arms_spec, or candidate_names/include_live)")
 
     stored = ab_eval.load_eval_set(task_args.get("eval_set") or None)
     eval_set = stored.get("name") or ""
@@ -77,7 +95,7 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
     n_calls = len(item_ids) * len(arms)
     reporter.log(
         f"Run {run_id}: {len(arms)} contract(s) × {len(item_ids)} item(s) from set "
-        f"'{eval_set}' = {n_calls} Gemini calls."
+        f"'{eval_set}' = {n_calls} annotation calls."
     )
     reporter.emit_data({"run_id": run_id, "n_arms": len(arms), "eval_set": eval_set,
                         "n_items": len(item_ids), "n_calls": n_calls})

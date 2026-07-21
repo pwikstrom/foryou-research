@@ -3,9 +3,9 @@
 <h2 style="margin: 0 0 8px 0;">Annotation testing</h2>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
     Compare annotation-contract <strong>candidate contracts</strong> against
-    each other (and/or the active contract) on a fixed evaluation set of
-    already-downloaded videos. Runs make <strong>real Gemini calls</strong>
-    (candidate contracts &times; videos) but results are stored in an isolated
+    each other (and/or the active contract) on a fixed test set of
+    already-downloaded videos. Test runs make <strong>real annotation calls</strong>
+    (contracts &times; videos) but results are stored in an isolated
     location &mdash; they never enter the machine-annotation archive or studies.
     A winning candidate graduates through the normal contract activation flow
     (dry-run impact &rarr; confirm &rarr; activate its version under
@@ -65,12 +65,12 @@
     </div>
 </section>
 
-<!-- 2. Evaluation sets -->
+<!-- 2. Test sets -->
 <section class="text-sm" style="margin: 0 0 20px 0; padding: 14px 16px;
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-        <h3 style="margin: 0; color: var(--color-text-heading);">Evaluation set</h3>
+        <h3 style="margin: 0; color: var(--color-text-heading);">Test set</h3>
         <select id="abe-set-picker" class="text-sm" onchange="abeSelectSet(this.value)"
             style="padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 4px;
             background: var(--color-bg-input); color: var(--color-text-primary); min-width: 180px;">
@@ -78,11 +78,11 @@
         <button onclick="abeNewSet()" class="btn-discreet btn-compact">New</button>
         <button onclick="abeRenameSet()" class="btn-discreet btn-compact">Rename</button>
         <button onclick="abeDuplicateSet()" class="btn-discreet btn-compact">Duplicate</button>
-        <button id="abe-set-delete" onclick="abeDeleteSet(this)" class="btn-danger btn-compact">Delete</button>
+        <button id="abe-set-save" onclick="abeSaveEvalSet()" class="btn-save btn-compact"
+            disabled>Save</button>
         <span id="abe-set-count" class="text-xs" style="color: var(--color-text-muted);"></span>
         <span style="flex: 1;"></span>
-        <button id="abe-set-save" onclick="abeSaveEvalSet()" class="btn-save btn-compact"
-            disabled>Save set</button>
+        <button id="abe-set-delete" onclick="abeDeleteSet(this)" class="btn-danger btn-compact">Delete</button>
     </div>
 
     <!-- Inline naming row for new/rename/duplicate (no native prompt) -->
@@ -130,9 +130,8 @@
 <section class="text-sm" style="margin: 0 0 20px 0; padding: 14px 16px;
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
-    <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 0 0 8px 0;">
-        <h3 style="margin: 0; color: var(--color-text-heading);">Run an evaluation</h3>
-        <div style="flex: 1;"></div>
+    <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 0 0 6px 0;">
+        <h3 style="margin: 0; color: var(--color-text-heading);">Run a test</h3>
         <input id="abe-run-name" type="text" maxlength="60"
             placeholder="run name (optional)" class="text-sm"
             style="padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 4px;
@@ -142,19 +141,16 @@
         <button id="abe-cancel-btn" onclick="abeCancelRun(this)" class="btn-stop btn-compact"
             style="display: none;">Cancel run</button>
     </div>
-    <div style="display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap;">
-        <div>
-            <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 4px;">
-                Candidate contracts</div>
-            <div id="abe-arm-picker" style="display: flex; flex-direction: column; gap: 4px;"></div>
-        </div>
-        <div style="flex: 1; min-width: 240px;">
-            <div id="abe-estimate" class="text-sm" style="color: var(--color-text-primary);
-                margin-bottom: 8px;"></div>
-            <div id="abe-run-progress" class="text-xs" style="color: var(--color-text-muted);
-                margin-bottom: 8px;"></div>
-        </div>
+    <div id="abe-estimate" class="text-sm" style="color: var(--color-text-primary);
+        margin: 0 0 10px 0;"></div>
+    <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 4px;">
+        Contracts in this test</div>
+    <div id="abe-arm-picker" style="display: flex; flex-direction: column; gap: 4px;"></div>
+    <div style="margin-top: 6px;">
+        <button onclick="abeAddLiveToTest()" class="btn-discreet btn-compact">+ active contract</button>
     </div>
+    <div id="abe-run-progress" class="text-xs" style="color: var(--color-text-muted);
+        margin-top: 8px;"></div>
 </section>
 
 <!-- 4. Results -->

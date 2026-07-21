@@ -360,16 +360,20 @@ def sample_ab_eval_set():
 @permission_required('tab.admin.schema')
 @login_required
 def estimate_ab_eval():
-    """Estimate a run's Gemini call count for the confirm dialog.
+    """Estimate a run's annotation call count for the confirm dialog.
 
-    Body: ``{candidate_names, include_live}``.
+    Body: ``{n_arms}`` (preferred) or the legacy
+    ``{candidate_names, include_live}``.
     """
     try:
         from fyp import ab_eval
 
         body = request.get_json(silent=True) or {}
-        names = body.get('candidate_names') or []
-        n_arms = len(names) + (1 if body.get('include_live') else 0)
+        if body.get('n_arms') is not None:
+            n_arms = max(0, int(body['n_arms']))
+        else:
+            names = body.get('candidate_names') or []
+            n_arms = len(names) + (1 if body.get('include_live') else 0)
         stored = ab_eval.load_eval_set()
         n_items = len(stored.get("item_ids", []))
         return jsonify({
@@ -430,14 +434,66 @@ def _clean_arm_params(raw) -> tuple[dict, str | None]:
 
 
 
+def _clean_arms_spec(raw) -> tuple[list | None, str | None]:
+    """Validate the explicit test-arm list from the run form.
+
+    Args:
+        raw: ``[{source: 'live'|'candidate', name?, label, backend?}, ...]``.
+            The same contract may appear multiple times under distinct labels
+            (e.g. once per backend).
+
+    Returns:
+        ``(cleaned, error)`` — the cleaned list or a user-facing error string.
+    """
+    from fyp import ab_eval
+    from fyp.annotation.backends import BACKEND_IDS
+
+    if not isinstance(raw, list) or not raw:
+        return None, "add at least one contract to the test"
+    if len(raw) > 12:
+        return None, "a test is capped at 12 contracts"
+    cleaned: list = []
+    labels: set = set()
+    for entry in raw:
+        if not isinstance(entry, dict):
+            return None, "each test arm must be an object"
+        source = entry.get("source")
+        if source not in ("live", "candidate"):
+            return None, f"unknown arm source {source!r}"
+        label = str(entry.get("label") or "").strip()
+        if not label or len(label) > 60:
+            return None, f"invalid arm label {label!r}"
+        if label in labels:
+            return None, f"duplicate arm label '{label}'"
+        labels.add(label)
+        arm = {"source": source, "label": label}
+        if source == "candidate":
+            name = str(entry.get("name") or "")
+            if not ab_eval.validate_candidate_name(name):
+                return None, f"invalid candidate name '{name}'"
+            arm["name"] = name
+        backend = entry.get("backend")
+        if backend not in (None, ""):
+            if backend not in BACKEND_IDS:
+                return None, f"arm '{label}': unknown backend '{backend}'"
+            arm["backend"] = backend
+        cleaned.append(arm)
+    return cleaned, None
+
+
+
+
 @management_bp.route('/api/manage/ab-eval/run', methods=['POST'])
 @permission_required('tab.admin.schema')
 @login_required
 def start_ab_eval_run():
-    """Start an A/B evaluation run as the ``ab_eval`` background task.
+    """Start a test run as the ``ab_eval`` background task.
 
-    Body: ``{candidate_names, include_live}``. Mints the run id here so the
-    UI can follow the run immediately; the worker snapshots each arm's
+    Body: ``{arms_spec: [{source, name?, label, backend?}], eval_set?, name?}``
+    (preferred — the same contract may appear as several arms under distinct
+    labels, e.g. once per backend) or the legacy
+    ``{candidate_names, include_live, arm_params}``. Mints the run id here so
+    the UI can follow the run immediately; the worker snapshots each arm's
     contract text at start.
     """
     try:
@@ -445,29 +501,38 @@ def start_ab_eval_run():
         from fyp.fyp_config import AB_EVAL_SCRIPT
 
         # Explicit gate on top of start_process's own check: one A/B run at a
-        # time (a second concurrent run would double the Gemini spend and race
-        # on the runs index).
+        # time (a second concurrent run would double the annotation spend and
+        # race on the runs index).
         if _is_worker_running("ab_eval"):
             return jsonify({"status": "error",
-                            "message": "An A/B evaluation run is already in progress."}), 409
+                            "message": "A test run is already in progress."}), 409
 
         body = request.get_json(silent=True) or {}
-        names = body.get('candidate_names') or []
-        if isinstance(names, str):
-            names = [n.strip() for n in names.split(",") if n.strip()]
-        include_live = bool(body.get('include_live'))
-        if not names and not include_live:
-            return jsonify({"error": "select at least one candidate or include the live contract"}), 400
-        for name in names:
-            if not ab_eval.validate_candidate_name(name):
-                return jsonify({"error": f"invalid candidate name '{name}'"}), 400
-        arm_params, param_error = _clean_arm_params(body.get('arm_params'))
-        if param_error:
-            return jsonify({"error": param_error}), 400
+        arms_spec = body.get('arms_spec')
+        names: list = []
+        include_live = False
+        arm_params: dict = {}
+        if arms_spec is not None:
+            arms_spec, spec_error = _clean_arms_spec(arms_spec)
+            if spec_error:
+                return jsonify({"error": spec_error}), 400
+        else:
+            names = body.get('candidate_names') or []
+            if isinstance(names, str):
+                names = [n.strip() for n in names.split(",") if n.strip()]
+            include_live = bool(body.get('include_live'))
+            if not names and not include_live:
+                return jsonify({"error": "add at least one contract to the test"}), 400
+            for name in names:
+                if not ab_eval.validate_candidate_name(name):
+                    return jsonify({"error": f"invalid candidate name '{name}'"}), 400
+            arm_params, param_error = _clean_arm_params(body.get('arm_params'))
+            if param_error:
+                return jsonify({"error": param_error}), 400
         stored = ab_eval.load_eval_set(body.get('eval_set') or None)
         item_ids = stored.get("item_ids", [])
         if not item_ids:
-            return jsonify({"error": "the evaluation set is empty — curate it first"}), 400
+            return jsonify({"error": "the test set is empty — curate it first"}), 400
 
         run_id = ab_eval.new_run_id()
         run_name = str(body.get('name') or "").strip()[:60]
@@ -480,12 +545,15 @@ def start_ab_eval_run():
             "eval_set": stored.get("name"),
             "started_by": _actor(),
         }
+        if arms_spec is not None:
+            task_args["arms_spec"] = arms_spec
         success, msg = start_process("ab_eval", AB_EVAL_SCRIPT, task_args=task_args)
         if not success:
             return jsonify({"status": "error", "message": msg}), 409
         activity_log.record(actor=_actor(), category="admin", action="ab_eval.run",
                             details={"run_id": run_id, "candidates": names,
                                      "include_live": include_live,
+                                     "arms_spec": arms_spec,
                                      "eval_set": stored.get("name"),
                                      "n_items": len(item_ids)})
         return jsonify({"status": "started", "run_id": run_id, "message": msg,

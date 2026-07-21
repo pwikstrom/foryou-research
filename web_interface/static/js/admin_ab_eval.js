@@ -64,6 +64,12 @@
     const st = {
         candidates: [],
         backends: [],            // [{name, active, availability:{ok,...}}] for the per-arm picker
+        // Contracts explicitly added to the current test. Each entry is one
+        // arm: {label (unique arm key), source: 'live'|'candidate', name
+        // (candidate name, '' for live), backend ('' = gemini default)}.
+        // The same contract may be added multiple times (e.g. once per
+        // backend); labels get a ~2 / ~3 suffix to stay unique.
+        testArms: [{ label: "live", source: "live", name: "", backend: "" }],
         evalSet: { item_ids: [], resolved: [], max_items: 50, name: "" },
         evalSets: { active: "", sets: [] },
         setDirty: false,
@@ -192,11 +198,15 @@
                 <span style="color: var(--color-text-muted);">${_esc(m.created_by || "")}</span></td>
             <td style="${cell}" class="text-xs">${_esc(m.note || "")}</td>
             <td style="${cell}; white-space: nowrap;">
-                <button class="btn-discreet btn-compact abe-view" data-n="${_esc(m.name)}">View</button>
-                <button class="btn-discreet btn-compact abe-edit" data-n="${_esc(m.name)}">Edit</button>
-                <button class="btn-discreet btn-compact abe-dup" data-n="${_esc(m.name)}">Duplicate</button>
-                <button class="btn-primary btn-compact abe-activate" data-n="${_esc(m.name)}">Activate</button>
-                <button class="btn-danger btn-compact abe-del" data-n="${_esc(m.name)}">✕</button>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                    <button class="btn-discreet btn-compact abe-view" data-n="${_esc(m.name)}">View</button>
+                    <button class="btn-discreet btn-compact abe-edit" data-n="${_esc(m.name)}">Edit</button>
+                    <button class="btn-discreet btn-compact abe-dup" data-n="${_esc(m.name)}">Duplicate</button>
+                    <button class="btn-discreet btn-compact abe-add" data-n="${_esc(m.name)}">Add to test</button>
+                    <span style="flex: 1; min-width: 16px;"></span>
+                    <button class="btn-primary btn-compact abe-activate" data-n="${_esc(m.name)}">Activate</button>
+                    <button class="btn-danger btn-compact abe-del" data-n="${_esc(m.name)}">✕</button>
+                </div>
             </td>
         </tr>`).join("");
         tbody.querySelectorAll(".abe-view").forEach(b =>
@@ -205,6 +215,8 @@
             b.addEventListener("click", () => editCandidate(b.dataset.n)));
         tbody.querySelectorAll(".abe-dup").forEach(b =>
             b.addEventListener("click", () => duplicateCandidate(b.dataset.n, b)));
+        tbody.querySelectorAll(".abe-add").forEach(b =>
+            b.addEventListener("click", () => abeAddToTest(b.dataset.n)));
         tbody.querySelectorAll(".abe-activate").forEach(b =>
             b.addEventListener("click", () => activateCandidate(b.dataset.n, b)));
         tbody.querySelectorAll(".abe-del").forEach(b =>
@@ -401,20 +413,22 @@
             await _busy(btn, "…", () =>
                 _postJson(`${CAND}/${encodeURIComponent(name)}`, undefined, "DELETE"));
             _status(`Candidate '${name}' deleted.`);
+            // Drop any test arms that referenced the deleted candidate.
+            st.testArms = st.testArms.filter(a => a.source !== "candidate" || a.name !== name);
             await loadCandidates();
         } catch (e) {
             _status(`Delete failed: ${e.message}`, true);
         }
     }
 
-    // ---------- evaluation sets ----------
+    // ---------- test sets ----------
 
     async function loadEvalSets() {
         try {
             st.evalSets = await _getJson(EVALSETS);
             renderSetPicker();
         } catch (e) {
-            _status(`Failed to load evaluation sets: ${e.message}`, true);
+            _status(`Failed to load test sets: ${e.message}`, true);
         }
     }
 
@@ -439,7 +453,7 @@
             st.setDirty = false;
             renderEvalSet();
         } catch (e) {
-            _status(`Failed to load evaluation set: ${e.message}`, true);
+            _status(`Failed to load test set: ${e.message}`, true);
         }
     }
 
@@ -457,7 +471,7 @@
             st.evalSets.active = name;
             renderEvalSet();
             refreshEstimate();
-            _status(`Evaluation set '${name}' selected.`);
+            _status(`Test set '${name}' selected.`);
         } catch (e) {
             _status(`Select failed: ${e.message}`, true);
         }
@@ -496,7 +510,7 @@
 
     function abeNewSet() {
         if (st.setDirty && !_confirmDiscard()) return;
-        _showSetNameRow("new", "Name the new (empty) evaluation set:", "");
+        _showSetNameRow("new", "Name the new (empty) test set:", "");
     }
 
     function abeDuplicateSet() {
@@ -532,7 +546,7 @@
             await loadEvalSets();
             await loadEvalSet(name);
             refreshEstimate();
-            _status(`Evaluation set '${name}' ready.`);
+            _status(`Test set '${name}' ready.`);
         } catch (e) {
             if (err) err.textContent = e.message;
         } finally {
@@ -551,7 +565,7 @@
             await loadEvalSets();
             await loadEvalSet(st.evalSets.active);
             refreshEstimate();
-            _status(`Evaluation set '${name}' deleted.`);
+            _status(`Test set '${name}' deleted.`);
         } catch (e) {
             _status(`Delete failed: ${e.message}`, true);
         }
@@ -664,7 +678,7 @@
     async function abeSaveEvalSet() {
         const btn = document.getElementById("abe-set-save");
         if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
-        _status("Saving evaluation set…");
+        _status("Saving test set…");
         try {
             const body = await _postJson(EVALSET, {
                 item_ids: st.evalSet.item_ids || [], name: st.evalSet.name || undefined,
@@ -677,7 +691,7 @@
             const warnings = [];
             if (unknown.length) warnings.push(`${unknown.length} id(s) not found in the dataset: ${unknown.join(", ")}`);
             if (notDownloaded) warnings.push(`${notDownloaded} item(s) have no downloaded media`);
-            _status(warnings.length ? `Saved — warning: ${warnings.join("; ")}.` : "Evaluation set saved.", warnings.length > 0);
+            _status(warnings.length ? `Saved — warning: ${warnings.join("; ")}.` : "Test set saved.", warnings.length > 0);
             await loadEvalSets();
             renderEvalSet();
             refreshEstimate();
@@ -690,77 +704,110 @@
 
     // ---------- run ----------
 
-    // Per-arm backend selector (the only per-arm override; run-scoped and
-    // recorded in the run manifest — production config untouched). Always
-    // visible next to the arm name, whether or not the arm is checked.
-    function _armBackendSelect(armKey) {
+    // Per-arm backend selector (the only per-arm setting; run-scoped and
+    // recorded in the run manifest — production config untouched).
+    function _armBackendSelect(arm) {
         const selectStyle = 'padding: 2px 6px; border: 1px solid var(--color-border);'
             + ' border-radius: 4px; background: var(--color-bg-input);'
             + ' color: var(--color-text-primary); width: 150px;';
-        const options = ['<option value="">gemini (default)</option>'].concat(
+        const opt = (value, label, disabled, selected) =>
+            `<option value="${_esc(value)}" ${disabled ? "disabled" : ""}
+                ${selected ? "selected" : ""}>${_esc(label)}</option>`;
+        const options = [opt("", "gemini (default)", false, !arm.backend)].concat(
             st.backends
                 .filter(b => b.name !== "gemini")
                 .map(b => {
                     const ok = b.availability && b.availability.ok;
-                    return `<option value="${_esc(b.name)}" ${ok ? "" : "disabled"}>`
-                        + `${_esc(b.name)}${ok ? "" : " (unavailable)"}</option>`;
+                    return opt(b.name, b.name + (ok ? "" : " (unavailable)"),
+                        !ok, arm.backend === b.name);
                 }));
-        return `<select class="abe-arm-backend text-xs" data-arm="${_esc(armKey)}"
-            title="Annotation backend for this candidate contract"
-            style="${selectStyle}" onchange="abeRefreshEstimate()">${options.join("")}</select>`;
+        return `<select class="abe-arm-backend text-xs" data-arm="${_esc(arm.label)}"
+            title="Annotation backend for this contract"
+            style="${selectStyle}" onchange="abeArmBackendChanged(this)">${options.join("")}</select>`;
+    }
+
+    // Mint a unique arm label for one more instance of a contract.
+    function _newArmLabel(base) {
+        const taken = new Set(st.testArms.map(a => a.label));
+        if (!taken.has(base)) return base;
+        let i = 2;
+        while (taken.has(`${base}~${i}`)) i++;
+        return `${base}~${i}`;
+    }
+
+    function abeAddToTest(name) {
+        st.testArms.push({ label: _newArmLabel(name), source: "candidate", name, backend: "" });
+        renderArmPicker();
+    }
+
+    function abeAddLiveToTest() {
+        st.testArms.push({ label: _newArmLabel("live"), source: "live", name: "", backend: "" });
+        renderArmPicker();
+    }
+
+    function abeRemoveFromTest(label) {
+        st.testArms = st.testArms.filter(a => a.label !== label);
+        renderArmPicker();
+    }
+
+    function abeArmBackendChanged(select) {
+        const arm = st.testArms.find(a => a.label === select.dataset.arm);
+        if (arm) arm.backend = select.value;
+        refreshEstimate();
     }
 
     function renderArmPicker() {
         const el = document.getElementById("abe-arm-picker");
         if (!el) return;
-        const row = (value, labelHtml, checked) =>
-            `<div style="display: flex; align-items: center; gap: 8px;">
-                <label class="text-sm" style="display: flex; align-items: center; gap: 6px; min-width: 180px;">
-                    <input type="checkbox" class="abe-arm" value="${_esc(value)}"
-                        ${checked ? "checked" : ""} onchange="abeRefreshEstimate()">
-                    ${labelHtml}
-                </label>
-                ${_armBackendSelect(value)}
+        if (!st.testArms.length) {
+            el.innerHTML = '<div class="text-sm" style="color: var(--color-text-muted);">'
+                + 'No contracts in this test yet — use “Add to test” on a candidate contract'
+                + ' (or “+ active contract” below).</div>';
+            refreshEstimate();
+            return;
+        }
+        el.innerHTML = st.testArms.map(arm => {
+            const display = arm.source === "live"
+                ? "<span>active contract</span>"
+                : `<span class="font-mono">${_esc(arm.name)}</span>`;
+            const suffix = arm.label.includes("~")
+                ? ` <span class="text-xs" style="color: var(--color-text-muted);">(${_esc(arm.label.split("~")[1])})</span>`
+                : "";
+            return `<div style="display: flex; align-items: center; gap: 8px;">
+                <span class="text-sm" style="min-width: 180px;">${display}${suffix}</span>
+                ${_armBackendSelect(arm)}
+                <button class="btn-discreet btn-compact" title="Remove from test"
+                    onclick="abeRemoveFromTest('${_esc(arm.label)}')">&times;</button>
             </div>`;
-        const rows = st.candidates.map(m =>
-            row(m.name, `<span class="font-mono">${_esc(m.name)}</span>`, false));
-        rows.push(row("__live__", "<span>active contract</span>", true));
-        el.innerHTML = rows.join("");
+        }).join("");
         refreshEstimate();
     }
 
-    function _selectedArms() {
-        const boxes = document.querySelectorAll(".abe-arm:checked");
-        const names = [];
-        let live = false;
-        const armParams = {};
-        boxes.forEach(b => {
-            const key = b.value === "__live__" ? "live" : b.value;
-            if (b.value === "__live__") live = true;
-            else names.push(b.value);
-            const select = document.querySelector(`.abe-arm-backend[data-arm="${CSS.escape(b.value)}"]`);
-            if (select && select.value) armParams[key] = { backend: select.value };
-        });
-        return { names, live, armParams };
+    // The arms_spec payload for /run: one entry per test arm, labels unique.
+    function _armsSpec() {
+        return st.testArms.map(a => ({
+            source: a.source,
+            name: a.name || undefined,
+            label: a.label,
+            backend: a.backend || undefined,
+        }));
     }
 
     function refreshEstimate() {
         const el = document.getElementById("abe-estimate");
         if (!el) return;
-        const { names, live } = _selectedArms();
-        const nArms = names.length + (live ? 1 : 0);
+        const nArms = st.testArms.length;
         const nItems = (st.evalSet.item_ids || []).length;
         const unsaved = st.setDirty ? " (using the SAVED set — you have unsaved set edits)" : "";
         const setName = st.evalSet.name ? ` from set '${st.evalSet.name}'` : "";
         el.textContent = nArms && nItems
-            ? `${nArms} candidate contract(s) × ${nItems} video(s)${setName} = `
+            ? `${nArms} contract(s) × ${nItems} video(s)${setName} = `
                 + `${nArms * nItems} annotation calls${unsaved}`
-            : "Select at least one candidate contract and curate a non-empty evaluation set.";
+            : "Add at least one contract to the test and curate a non-empty test set.";
     }
 
     async function abeStartRun() {
-        const { names, live } = _selectedArms();
-        if (!names.length && !live) { _status("Select at least one candidate contract.", true); return; }
+        if (!st.testArms.length) { _status("Add at least one contract to the test.", true); return; }
         const runBtn = document.getElementById("abe-run-btn");
         try {
             // First click: fetch the authoritative estimate (visible feedback
@@ -770,11 +817,11 @@
                 _status("Checking run cost…");
                 let est;
                 try {
-                    est = await _postJson(`${EVAL}/estimate`, { candidate_names: names, include_live: live });
+                    est = await _postJson(`${EVAL}/estimate`, { n_arms: st.testArms.length });
                 } finally {
                     if (runBtn) { runBtn.disabled = false; runBtn.textContent = "Run…"; }
                 }
-                if (!est.n_items) { _status("The saved evaluation set is empty — save it first.", true); return; }
+                if (!est.n_items) { _status("The saved test set is empty — save it first.", true); return; }
                 _armTwoClick(runBtn, `Confirm: ${est.n_calls} annotation calls?`);
                 _status(st.setDirty
                     ? "Note: the run uses the last SAVED set — you have unsaved set edits. Click again to start."
@@ -787,10 +834,8 @@
             _setRunning(true);
             _status("Starting run…");
             const nameInput = document.getElementById("abe-run-name");
-            const { armParams } = _selectedArms();
             const body = await _postJson(`${EVAL}/run`, {
-                candidate_names: names, include_live: live,
-                arm_params: Object.keys(armParams).length ? armParams : undefined,
+                arms_spec: _armsSpec(),
                 eval_set: st.evalSet.name || undefined,
                 name: (nameInput && nameInput.value.trim()) || undefined,
             });
@@ -1345,7 +1390,7 @@
             tiles.push(tile("Annotation succeeded",
                 Object.values(okRates).map(_pct).join(" / "),
                 Object.keys(okRates).map(_esc).join(" / "),
-                "Share of evaluation-set videos each contract returned a usable annotation for."));
+                "Share of test-set videos each contract returned a usable annotation for."));
         }
 
         const legend = KINDS.map(k =>
@@ -1657,6 +1702,9 @@
     window.abeRenderAdjudication = abeRenderAdjudication;
     window.abeCloseItemModal = abeCloseItemModal;
     window.abeRefreshEstimate = refreshEstimate;
+    window.abeAddLiveToTest = abeAddLiveToTest;
+    window.abeRemoveFromTest = abeRemoveFromTest;
+    window.abeArmBackendChanged = abeArmBackendChanged;
 
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", _watchForActivation);
