@@ -3,7 +3,8 @@
 A research data platform for studying algorithmically curated social-media
 feeds. FYP ingests personal feed activity — TikTok data captures and zipped
 data-donation exports from TikTok, Instagram, and YouTube — enriches it via
-web scraping and LLM annotation (Google Gemini), runs statistical analysis
+web scraping and LLM annotation (Google Gemini by default; pluggable hosted
+and local backends), runs statistical analysis
 (PCA, ANOVA, PERMANOVA, sequence and timeline analysis), and presents
 findings through a Flask web dashboard with role-based access control.
 

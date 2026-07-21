@@ -93,4 +93,7 @@ self-register their raw-upload directories.
   (never affects the schema hash)
 - `irrelevant_words.json` — hashtag stoplist (seeded from `[labels]`)
 - `annotation_contract.toml` — runtime-uploaded annotation contract, if any
+- `admin_settings.json` — site settings incl. the annotation/embedding
+  backend choice. The `[machine]` model/generation parameters are deliberately
+  NOT here: they are config-file-only and need a restart/redeploy to change
 - user accounts and per-user settings (JSON files)
