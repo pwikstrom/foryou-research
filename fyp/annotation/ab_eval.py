@@ -1243,7 +1243,11 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
             diffs = (xa[both] - xb[both]).abs()
             exact = float(diffs.le(1e-9).mean()) if n_compared else None
             mad = float(diffs.mean()) if n_compared else None
-            constant = n_compared > 0 and (xa[both].std() == 0 or xb[both].std() == 0)
+            # std() over an arrow-backed series is pd.NA for a single value —
+            # any comparison against it would propagate NA into the flag.
+            std_a, std_b = xa[both].std(), xb[both].std()
+            constant = n_compared > 1 and any(
+                (not pd.isna(s)) and float(s) == 0 for s in (std_a, std_b))
             corr = (
                 float(xa[both].corr(xb[both]))
                 if n_compared >= _MIN_CORR_N and not constant
@@ -1258,8 +1262,8 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
             low_variance = False
             if corr is not None:
                 level = max(float(pd.concat([xa[both], xb[both]]).abs().mean()), 1e-12)
-                low_variance = (xa[both].std() / level < 0.15
-                                or xb[both].std() / level < 0.15)
+                low_variance = (float(std_a) / level < 0.15
+                                or float(std_b) / level < 0.15)
             caveat = None
             if corr is None:
                 # Distinguish "both arms answered identically every time" (r is

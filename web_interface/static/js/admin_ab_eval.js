@@ -1652,6 +1652,31 @@
         return st.rowsCache[arm];
     }
 
+    // Ordered item list for the modal's prev/next navigation (the run's
+    // manifest order — same order as the "All items" chips).
+    function _modalItems() {
+        return (((st.currentRun || {}).manifest || {}).item_ids || []).map(String);
+    }
+
+    function abeItemNav(step) {
+        const items = _modalItems();
+        const current = document.getElementById("abe-item-id");
+        const idx = items.indexOf(current ? current.textContent : "");
+        if (idx < 0 || !items.length) return;
+        const next = (idx + step + items.length) % items.length;
+        openItemView(items[next]);
+    }
+
+    function abeToggleItemVideo() {
+        const video = document.getElementById("abe-item-video");
+        const label = document.getElementById("abe-item-video-toggle-label");
+        if (!video) return;
+        const hidden = video.style.display === "none";
+        video.style.display = hidden ? "block" : "none";
+        if (!hidden) video.pause();
+        if (label) label.textContent = hidden ? "Hide video" : "Show video";
+    }
+
     async function openItemView(itemId) {
         const modal = document.getElementById("abe-item-modal");
         const body = document.getElementById("abe-item-body");
@@ -1660,6 +1685,20 @@
         document.getElementById("abe-item-id").textContent = itemId;
         body.innerHTML = '<span style="color: var(--color-text-muted);">Loading…</span>';
         modal.style.display = "flex";
+
+        // Position indicator + mini player (platform resolved server-side).
+        const items = _modalItems();
+        const pos = document.getElementById("abe-item-pos");
+        const idx = items.indexOf(String(itemId));
+        if (pos) pos.textContent = idx >= 0 ? `${idx + 1} / ${items.length}` : "";
+        const video = document.getElementById("abe-item-video");
+        if (video) {
+            const src = `/api/video/eval/${encodeURIComponent(itemId)}`;
+            if (video.getAttribute("src") !== src) {
+                video.pause();
+                video.setAttribute("src", src);
+            }
+        }
         try {
             // Human coders join the side-by-side as extra contract columns.
             const unified = _unifiedComparisons();
@@ -1700,6 +1739,12 @@
     function abeCloseItemModal() {
         const modal = document.getElementById("abe-item-modal");
         if (modal) modal.style.display = "none";
+        const video = document.getElementById("abe-item-video");
+        if (video) {
+            video.pause();
+            video.removeAttribute("src");
+            video.load();
+        }
     }
 
     // ---------- bootstrap ----------
@@ -1768,6 +1813,8 @@
     window.abeDeleteRun = abeDeleteRun;
     window.abeRenderAdjudication = abeRenderAdjudication;
     window.abeCloseItemModal = abeCloseItemModal;
+    window.abeItemNav = abeItemNav;
+    window.abeToggleItemVideo = abeToggleItemVideo;
     window.abeRefreshEstimate = refreshEstimate;
     window.abeAddLiveToTest = abeAddLiveToTest;
     window.abeRemoveFromTest = abeRemoveFromTest;

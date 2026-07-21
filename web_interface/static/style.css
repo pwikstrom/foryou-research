@@ -2682,6 +2682,24 @@ button.meta-tooltip:disabled {
     background: transparent;
 }
 
+/* Scrollable panels whose content must be discoverable: force the scrollbar
+   gutter and thumb to stay visible instead of the overlay/hidden default
+   (e.g. the human-test variable list — hidden rows were being missed). */
+.always-scroll {
+    overflow-y: scroll;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) var(--color-bg-elevated);
+}
+
+.always-scroll::-webkit-scrollbar-track {
+    background: var(--color-bg-elevated);
+    border-radius: 8px;
+}
+
+.always-scroll::-webkit-scrollbar-thumb {
+    background-color: var(--color-border-strong);
+}
+
 
 /* ============================================================
    Small-screen responsive layer

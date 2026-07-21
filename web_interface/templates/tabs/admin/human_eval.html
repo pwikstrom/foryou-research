@@ -55,11 +55,19 @@
 
     <div style="display: flex; gap: 20px; flex-wrap: wrap;">
         <div style="flex: 2; min-width: 300px;">
-            <div id="hev-var-title" class="text-xs font-semibold"
-                style="color: var(--color-text-muted); margin-bottom: 6px;">
-                Variables the coders provide input for
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                <div id="hev-var-title" class="text-xs font-semibold"
+                    style="color: var(--color-text-muted);">
+                    Variables the coders provide input for
+                </div>
+                <span style="flex: 1;"></span>
+                <label class="text-xs" style="color: var(--color-text-muted); display: flex;
+                    align-items: center; gap: 5px; cursor: pointer;">
+                    <input type="checkbox" id="hev-var-check-all" onchange="hevToggleAllVars(this)">
+                    check/uncheck all
+                </label>
             </div>
-            <div id="hev-var-list" class="text-sm" style="max-height: 260px; overflow-y: auto;
+            <div id="hev-var-list" class="text-sm always-scroll" style="max-height: 260px;
                 border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 10px;">
                 <span style="color: var(--color-text-muted);">Select a run first.</span>
             </div>
@@ -76,6 +84,7 @@
     </div>
 
     <div style="margin-top: 12px; display: flex; gap: 10px; align-items: center;">
+        <button onclick="hevPreviewTask()" class="btn-discreet btn-compact">Preview task</button>
         <button onclick="hevCreateTask(this)" class="btn-primary btn-compact">Create task</button>
         <span id="hev-create-error" class="text-xs" style="color: var(--color-danger);"></span>
     </div>
@@ -93,5 +102,23 @@
         <span class="text-sm" style="color: var(--color-text-muted);">Loading&hellip;</span>
     </div>
 </section>
+
+<!-- Task preview modal: the coder's form for the currently selected
+     variables, rendered read-only before any task is created. -->
+<div id="hev-preview-modal" class="modal" style="display: none; align-items: flex-start;
+        justify-content: center; padding-top: 5vh;" onclick="hevClosePreview()">
+    <div class="modal-content" onclick="event.stopPropagation()"
+        style="width: 92%; max-width: 720px; max-height: 88vh; overflow-y: auto; position: relative;">
+        <span class="close" onclick="hevClosePreview()"
+            style="position: absolute; top: 12px; right: 16px; cursor: pointer;
+                   font-size: var(--text-h3);">&times;</span>
+        <h3 style="margin: 0 0 4px 0; color: var(--color-text-heading);">Task preview</h3>
+        <p class="text-xs" style="color: var(--color-text-muted); margin: 0 0 12px 0;">
+            What a coder will see per video (alongside the video player), for the
+            variables currently selected. Nothing is saved from this preview.
+        </p>
+        <div id="hev-preview-body" class="text-sm"></div>
+    </div>
+</div>
 
 <script src="{{ url_for('static', filename='js/admin_human_eval.js') }}" defer></script>

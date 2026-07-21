@@ -368,6 +368,20 @@ def test_compare_arms_excludes_failed_items_and_flags_low_variance_r():
            f"col={col} n_items={report['n_items']} excluded={report.get('n_items_excluded')}")
 
 
+def test_single_paired_numeric_value_does_not_crash():
+    """Arrow-backed std() over one value is pd.NA — the constant flag must not
+    propagate it (regression: human-eval Recompute with one coded item raised
+    "boolean value of NA is ambiguous")."""
+    a = pd.DataFrame({"item_id": pd.array(["1"], dtype="string[pyarrow]"),
+                      "score": pd.array([0.3], dtype="double[pyarrow]")})
+    b = pd.DataFrame({"item_id": pd.array(["1"], dtype="string[pyarrow]"),
+                      "score": pd.array([0.4], dtype="double[pyarrow]")})
+    report = ab_eval.compare_arms(a, b, scales={"score": "numeric"})
+    col = report["columns"]["score"]
+    _check("test_single_paired_numeric_value_does_not_crash",
+           col["caveat"] == "too_few" and col["n_compared"] == 1, f"col={col}")
+
+
 def test_extra_na_sentinels_and_freetext_list_summary_exclusion():
     """'unknown'/'unclear'/'other' count as NA; free-text lists stay out of the
     summary Jaccard means; adjudication skips items an arm failed outright."""

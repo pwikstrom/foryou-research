@@ -99,6 +99,7 @@
             // Refresh the mobile subnav so the item (dis)appears there too.
             if (typeof _buildTabSubnavs === 'function') _buildTabSubnavs();
         }
+        _updateTopLevelBadge();
         renderTaskList();
     }
 
@@ -119,6 +120,28 @@
             btn.appendChild(badge);
         }
         badge.textContent = String(pending);
+    }
+
+    // Dot on the top-level "My stuff" tab button — visible from any tab when
+    // the user has unfinished coding/vote work.
+    function _updateTopLevelBadge() {
+        const btn = document.querySelector('button[data-subpages-for="my_stuff"]');
+        if (!btn) return;
+        const pending = st.tasks.filter(t => t.my_status !== "submitted").length;
+        let dot = btn.querySelector(".hc-top-badge");
+        if (!pending) {
+            if (dot) dot.remove();
+            return;
+        }
+        if (!dot) {
+            dot = document.createElement("span");
+            dot.className = "hc-top-badge";
+            dot.style.cssText = "display: inline-block; width: 8px; height: 8px;" +
+                "margin-left: 5px; border-radius: 50%; background: var(--color-accent);" +
+                "vertical-align: super;";
+            dot.title = "You have unfinished tasks under My stuff → My Tasks";
+            btn.appendChild(dot);
+        }
     }
 
     function renderTaskList() {
@@ -555,9 +578,19 @@
     window.hcPickOption = hcPickOption;
     window.hcNoteChanged = hcNoteChanged;
 
-    if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", refreshTasks);
-    } else {
+    function _bootstrap() {
         refreshTasks();
+        // A task assigned mid-session must show up without a full reload:
+        // re-check whenever the My stuff tab is opened, plus a slow poll so
+        // the top-level marker appears even while working in another tab.
+        const tabBtn = document.querySelector('button[data-subpages-for="my_stuff"]');
+        if (tabBtn) tabBtn.addEventListener("click", () => refreshTasks());
+        setInterval(refreshTasks, 120000);
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", _bootstrap);
+    } else {
+        _bootstrap();
     }
 })();

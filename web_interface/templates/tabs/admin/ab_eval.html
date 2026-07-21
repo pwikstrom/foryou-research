@@ -176,14 +176,33 @@
 <div id="abe-item-modal" class="modal" style="display: none; align-items: flex-start;
         justify-content: center; padding-top: 5vh;" onclick="abeCloseItemModal()">
     <div class="modal-content" onclick="event.stopPropagation()"
-        style="width: 94%; max-width: 1100px; max-height: 88vh; overflow-y: auto; position: relative;">
+        style="width: 94%; max-width: 1250px; max-height: 88vh; overflow-y: auto; position: relative;">
         <span class="close" onclick="abeCloseItemModal()"
             style="position: absolute; top: 12px; right: 16px; cursor: pointer;
                    font-size: var(--text-h3);">&times;</span>
-        <h3 style="margin: 0 0 12px 0; color: var(--color-text-heading);">
-            Item <span id="abe-item-id" class="font-mono"></span> &mdash; field by field
-        </h3>
-        <div id="abe-item-body" class="text-xs" style="overflow-x: auto;"></div>
+        <div style="display: flex; align-items: center; gap: 12px; margin: 0 28px 12px 0; flex-wrap: wrap;">
+            <h3 style="margin: 0; color: var(--color-text-heading);">
+                Item <span id="abe-item-id" class="font-mono"></span> &mdash; field by field
+            </h3>
+            <span id="abe-item-pos" class="text-xs" style="color: var(--color-text-muted);"></span>
+            <span style="flex: 1;"></span>
+            <button id="abe-item-prev" onclick="abeItemNav(-1)" class="btn-discreet btn-compact"
+                >&larr; Prev</button>
+            <button id="abe-item-next" onclick="abeItemNav(1)" class="btn-discreet btn-compact"
+                >Next &rarr;</button>
+        </div>
+        <div style="display: flex; gap: 14px; align-items: flex-start;">
+            <div id="abe-item-video-panel" style="flex: 0 0 auto;">
+                <button onclick="abeToggleItemVideo()" class="btn-discreet btn-compact"
+                    style="margin-bottom: 6px;">
+                    <span id="abe-item-video-toggle-label">Hide video</span>
+                </button>
+                <video id="abe-item-video" controls muted playsinline
+                    style="display: block; width: 240px; max-height: 60vh;
+                    background: var(--color-bg-elevated); border-radius: 6px;"></video>
+            </div>
+            <div id="abe-item-body" class="text-xs" style="overflow-x: auto; flex: 1; min-width: 0;"></div>
+        </div>
     </div>
 </div>
 
