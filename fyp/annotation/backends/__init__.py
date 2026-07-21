@@ -5,19 +5,18 @@ class definition. ``get_backend`` imports backend modules lazily so importing
 this package never pulls optional dependencies (the local Qwen backend needs
 ``mlx_vlm``, which only exists on Apple Silicon dev machines).
 
-``BACKEND_IDS`` is the closed set of ids the settings layer accepts;
-``"qwen_api"`` is reserved for a future hosted-Qwen (DashScope) backend and is
-not implemented — selecting it fails validation until a module ships for it.
+``BACKEND_IDS`` is the closed set of ids the settings layer accepts.
 """
 
 from fyp.annotation.backends.base import AnnotationBackend, BackendAvailability
 
 # Stable, settings-visible backend ids. Order = UI display order.
-BACKEND_IDS = ("gemini", "qwen_local", "minicpm_local")
+BACKEND_IDS = ("gemini", "qwen_api", "qwen_local", "minicpm_local")
 
 # Backend id -> implementing module (imported lazily on first get_backend()).
 _BACKEND_MODULES = {
     "gemini": "fyp.annotation.backends.gemini",
+    "qwen_api": "fyp.annotation.backends.qwen_api",
     "qwen_local": "fyp.annotation.backends.qwen_local",
     "minicpm_local": "fyp.annotation.backends.minicpm_local",
 }

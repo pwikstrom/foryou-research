@@ -278,16 +278,38 @@ exactly what to fix (see step 1).
   tabs, IDEs); on 32 GB machines consider reducing `max_frames` to 6 in
   `[machine.qwen_local]`.
 
-### A hosted Qwen API instead?
+## Enabling hosted Qwen annotation
 
-Alibaba's Model Studio serves Qwen Omni models with native video input
-(`qwen3.5-omni-flash`, OpenAI-compatible endpoint). The backend registry
-reserves the `qwen_api` id for it, but it is deliberately not implemented:
-the hosted API offers JSON *mode* rather than schema-enforced output,
-audio-track ingestion is not clearly documented, and data residency/retention
-(Singapore region) needs an ethics review for donation data. If pursued, the
-first step is a smoke-test script under `scripts/adhoc/` that verifies the
-audio path before any integration work.
+The `qwen_api` backend annotates via Alibaba Model Studio's hosted Qwen omni
+models (default `qwen3.5-omni-flash`, DashScope OpenAI-compatible endpoint,
+international/Singapore region). Unlike the local backends it needs no special
+hardware, runs on Cloud Run, and consumes the whole video natively — audio
+track included (verified in the 2026-07 pilot: near-verbatim transcripts,
+enum agreement vs Gemini above both local backends).
+
+1. Create an Alibaba Cloud account, activate **Model Studio** in the
+   **international** region, and create an API key.
+2. Set the `DASHSCOPE_API_KEY` environment variable where the annotation
+   worker runs (locally in your shell; on Cloud Run on the `fyp-task-runner`
+   service).
+3. Select **Hosted Qwen (DashScope)** under Admin → General → Annotation.
+   The requirements panel runs the key/endpoint checks.
+
+Notes:
+
+* Data residency: donated media is uploaded (base64) to Alibaba's Singapore
+  region for inference. Clear this with your ethics process before enabling.
+* Throughput is bound by the account-level rate limits (2026-07: 60 requests
+  and 100k tokens per minute for the omni models — roughly 5 videos/minute at
+  typical short-form lengths), not by worker threads. The backend uses a small
+  thread pool (`[machine.qwen_api].max_workers`, default 4) and retries 429s
+  with backoff; raising the worker count does not raise throughput.
+* JSON output uses the API's `json_object` mode with the contract schema
+  embedded in the prompt; occasional unparseable responses are retried and
+  otherwise recorded as in-band failures, exactly like other backends.
+* Overrides live in `[machine.qwen_api]` (`model_id`, `temperature`,
+  `max_tokens`, `max_workers`, `max_attempts`, `max_video_mb`). Changing the
+  model or params forks a new `av_` annotation version automatically.
 
 ### Checking it worked
 

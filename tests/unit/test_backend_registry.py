@@ -31,10 +31,13 @@ def test_unknown_backend_raises():
 
 
 
-def test_reserved_qwen_api_id_not_accepted():
-    """'qwen_api' is documented as reserved but must not resolve until built."""
-    with pytest.raises(ValueError):
-        backends.get_backend("qwen_api")
+def test_qwen_api_backend_registers():
+    """qwen_api is a first-class id: registered, hosted, API-key gated."""
+    assert "qwen_api" in backends.BACKEND_IDS
+    b = backends.get_backend("qwen_api")
+    assert b.name == "qwen_api"
+    assert b.supports_batch_mode is False
+    assert b.cloud_run_capable is True
 
 
 
@@ -68,7 +71,7 @@ def test_active_backend_name_rejects_unknown_value(monkeypatch):
     from fyp.annotation.backends import settings as backend_settings
 
     monkeypatch.setattr(backend_settings, "_load_settings",
-                        lambda: {"annotation_backend": "qwen_api"})
+                        lambda: {"annotation_backend": "nope_backend"})
     assert backends.active_backend_name() == "gemini"
 
 

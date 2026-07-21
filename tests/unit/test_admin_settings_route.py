@@ -77,7 +77,7 @@ def test_get_includes_annotation_keys_and_defaults(client):
 
 
 def test_put_rejects_unknown_backend(client):
-    res = client.put("/api/admin/settings", json={"annotation_backend": "qwen_api"})
+    res = client.put("/api/admin/settings", json={"annotation_backend": "nope_backend"})
     assert res.status_code == 400
     assert "backend" in res.get_json()["error"]
 
