@@ -63,6 +63,7 @@
 
     const st = {
         candidates: [],
+        backends: [],            // [{name, active, availability:{ok,...}}] for the per-arm picker
         evalSet: { item_ids: [], resolved: [], max_items: 50, name: "" },
         evalSets: { active: "", sets: [] },
         setDirty: false,
@@ -157,6 +158,19 @@
             renderArmPicker();
         } catch (e) {
             _status(`Failed to load candidates: ${e.message}`, true);
+        }
+    }
+
+    // Per-backend availability for the per-arm backend picker. A failure just
+    // leaves the picker at its gemini-only default (the worker validates the
+    // backend again at run start regardless).
+    async function loadBackends() {
+        try {
+            const body = await _getJson("/api/manage/annotation/backends");
+            st.backends = body.backends || [];
+            renderArmPicker();
+        } catch (e) {
+            console.warn("ab_eval: backend list unavailable:", e.message);
         }
     }
 
@@ -660,13 +674,26 @@
 
     // ---------- run ----------
 
-    // Per-arm generation overrides (model / temperature; backend from Phase 3).
-    // Rendered as a compact inline row that appears when the arm is checked.
+    // Per-arm run overrides (backend / model / temperature). Rendered as a
+    // compact inline row that appears when the arm is checked. These are
+    // run-scoped (recorded in the run manifest) — production config untouched.
     function _armParamRow(armKey) {
         const inputStyle = 'width: 90px; padding: 2px 6px; border: 1px solid var(--color-border);'
             + ' border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);';
+        const backendOptions = ['<option value="">gemini (default)</option>'].concat(
+            st.backends
+                .filter(b => b.name !== "gemini")
+                .map(b => {
+                    const ok = b.availability && b.availability.ok;
+                    return `<option value="${_esc(b.name)}" ${ok ? "" : "disabled"}>`
+                        + `${_esc(b.name)}${ok ? "" : " (unavailable)"}</option>`;
+                }));
         return `<span class="abe-arm-params text-xs" data-arm="${_esc(armKey)}"
                 style="display: none; margin-left: 22px; gap: 6px; align-items: center; color: var(--color-text-muted);">
+            <select class="abe-arm-backend" title="Annotation backend for this arm"
+                style="${inputStyle} width: 140px;" onchange="abeRefreshEstimate()">
+                ${backendOptions.join("")}
+            </select>
             <input type="text" class="abe-arm-model" placeholder="model (default)" title="Model override for this arm"
                 style="${inputStyle} width: 170px;" onchange="abeRefreshEstimate()">
             <input type="number" class="abe-arm-temp" placeholder="temp" title="Temperature override for this arm"
@@ -717,9 +744,11 @@
             else names.push(b.value);
             const row = document.querySelector(`.abe-arm-params[data-arm="${CSS.escape(b.value)}"]`);
             if (!row) return;
+            const backend = (row.querySelector(".abe-arm-backend") || {}).value;
             const model = (row.querySelector(".abe-arm-model") || {}).value?.trim();
             const tempRaw = (row.querySelector(".abe-arm-temp") || {}).value;
             const params = {};
+            if (backend) params.backend = backend;
             if (model) params.model = model;
             if (tempRaw !== undefined && tempRaw !== "") params.temperature = Number(tempRaw);
             if (Object.keys(params).length) armParams[key] = params;
@@ -737,7 +766,7 @@
         const setName = st.evalSet.name ? ` from set '${st.evalSet.name}'` : "";
         el.textContent = nArms && nItems
             ? `${nArms} candidate contract(s) × ${nItems} video(s)${setName} = `
-                + `${nArms * nItems} Gemini calls${unsaved}`
+                + `${nArms * nItems} annotation calls${unsaved}`
             : "Select at least one candidate contract and curate a non-empty evaluation set.";
     }
 
@@ -758,7 +787,7 @@
                     if (runBtn) { runBtn.disabled = false; runBtn.textContent = "Run…"; }
                 }
                 if (!est.n_items) { _status("The saved evaluation set is empty — save it first.", true); return; }
-                _armTwoClick(runBtn, `Confirm: ${est.n_calls} Gemini calls?`);
+                _armTwoClick(runBtn, `Confirm: ${est.n_calls} annotation calls?`);
                 _status(st.setDirty
                     ? "Note: the run uses the last SAVED set — you have unsaved set edits. Click again to start."
                     : "Click again to start the run.", st.setDirty);
@@ -1582,6 +1611,7 @@
         if (!page || bootstrapped || !page.classList.contains("active")) return;
         bootstrapped = true;
         loadCandidates();
+        loadBackends();
         loadEvalSets().then(() => loadEvalSet()).then(refreshEstimate);
         abeRefreshRuns();
         // Resume progress display if a run is already in flight.
