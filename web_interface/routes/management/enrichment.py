@@ -160,7 +160,7 @@ def get_enrichment_stats():
     # No-op when no fan-out is active; Cloud Run only (local mode never forks).
     if is_cloud_run():
         try:
-            from .process_routes import resolve_forked_pipeline
+            from ..process_routes import resolve_forked_pipeline
             resolve_forked_pipeline()
         except Exception as e:
             print(f"[status] resolve_forked_pipeline failed: {e}")
@@ -985,7 +985,7 @@ def api_refresh_downstream():
         mem["last_pipeline_failed_at"] = None
 
     if is_cloud_run():
-        from ..process_manager import _dispatch_cloud_task
+        from ...process_manager import _dispatch_cloud_task
         chain = build_pipeline_chain(pipeline)
         success, msg = _dispatch_cloud_task(chain["next_task"], chain["next_task_args"])
         if not success:
@@ -999,7 +999,7 @@ def api_refresh_downstream():
     else:
         import threading
 
-        from ..process_manager import _run_local_downstream_pipeline
+        from ...process_manager import _run_local_downstream_pipeline
         threading.Thread(
             target=_run_local_downstream_pipeline, args=(impact,), daemon=True
         ).start()
