@@ -130,7 +130,18 @@
 <section class="text-sm" style="margin: 0 0 20px 0; padding: 14px 16px;
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
-    <h3 style="margin: 0 0 8px 0; color: var(--color-text-heading);">Run an evaluation</h3>
+    <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 0 0 8px 0;">
+        <h3 style="margin: 0; color: var(--color-text-heading);">Run an evaluation</h3>
+        <div style="flex: 1;"></div>
+        <input id="abe-run-name" type="text" maxlength="60"
+            placeholder="run name (optional)" class="text-sm"
+            style="padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 4px;
+            background: var(--color-bg-input); color: var(--color-text-primary); min-width: 200px;">
+        <button id="abe-run-btn" onclick="abeStartRun()" class="btn-primary btn-compact"
+            >Run&hellip;</button>
+        <button id="abe-cancel-btn" onclick="abeCancelRun(this)" class="btn-stop btn-compact"
+            style="display: none;">Cancel run</button>
+    </div>
     <div style="display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap;">
         <div>
             <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 4px;">
@@ -142,16 +153,6 @@
                 margin-bottom: 8px;"></div>
             <div id="abe-run-progress" class="text-xs" style="color: var(--color-text-muted);
                 margin-bottom: 8px;"></div>
-            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                <input id="abe-run-name" type="text" maxlength="60"
-                    placeholder="run name (optional)" class="text-sm"
-                    style="padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 4px;
-                    background: var(--color-bg-input); color: var(--color-text-primary); min-width: 200px;">
-                <button id="abe-run-btn" onclick="abeStartRun()" class="btn-primary btn-compact"
-                    >Run&hellip;</button>
-                <button id="abe-cancel-btn" onclick="abeCancelRun(this)" class="btn-stop btn-compact"
-                    style="display: none;">Cancel run</button>
-            </div>
         </div>
     </div>
 </section>

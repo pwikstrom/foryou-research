@@ -194,6 +194,7 @@
             <td style="${cell}; white-space: nowrap;">
                 <button class="btn-discreet btn-compact abe-view" data-n="${_esc(m.name)}">View</button>
                 <button class="btn-discreet btn-compact abe-edit" data-n="${_esc(m.name)}">Edit</button>
+                <button class="btn-discreet btn-compact abe-dup" data-n="${_esc(m.name)}">Duplicate</button>
                 <button class="btn-primary btn-compact abe-activate" data-n="${_esc(m.name)}">Activate</button>
                 <button class="btn-danger btn-compact abe-del" data-n="${_esc(m.name)}">✕</button>
             </td>
@@ -202,6 +203,8 @@
             b.addEventListener("click", () => viewCandidate(b.dataset.n, b)));
         tbody.querySelectorAll(".abe-edit").forEach(b =>
             b.addEventListener("click", () => editCandidate(b.dataset.n)));
+        tbody.querySelectorAll(".abe-dup").forEach(b =>
+            b.addEventListener("click", () => duplicateCandidate(b.dataset.n, b)));
         tbody.querySelectorAll(".abe-activate").forEach(b =>
             b.addEventListener("click", () => activateCandidate(b.dataset.n, b)));
         tbody.querySelectorAll(".abe-del").forEach(b =>
@@ -259,6 +262,19 @@
                 nameFlow.overwrite = false;
                 if (err) err.textContent = e.message;
             }
+        }
+    }
+
+    // Duplicate an existing candidate: fetch its text and stage it in the
+    // shared naming row — same save path as the other create-candidate flows,
+    // including the two-click overwrite handling.
+    async function duplicateCandidate(name, btn) {
+        try {
+            const body = await _busy(btn, "…", () => _getJson(`${CAND}/${encodeURIComponent(name)}`));
+            nameFlow.text = body.text;
+            _showNameRow(`Duplicate '${name}' as:`, `${name}-copy`.slice(0, 40));
+        } catch (e) {
+            _status(`Duplicate failed: ${e.message}`, true);
         }
     }
 
@@ -674,13 +690,14 @@
 
     // ---------- run ----------
 
-    // Per-arm run overrides (backend / model / temperature). Rendered as a
-    // compact inline row that appears when the arm is checked. These are
-    // run-scoped (recorded in the run manifest) — production config untouched.
-    function _armParamRow(armKey) {
-        const inputStyle = 'width: 90px; padding: 2px 6px; border: 1px solid var(--color-border);'
-            + ' border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);';
-        const backendOptions = ['<option value="">gemini (default)</option>'].concat(
+    // Per-arm backend selector (the only per-arm override; run-scoped and
+    // recorded in the run manifest — production config untouched). Always
+    // visible next to the arm name, whether or not the arm is checked.
+    function _armBackendSelect(armKey) {
+        const selectStyle = 'padding: 2px 6px; border: 1px solid var(--color-border);'
+            + ' border-radius: 4px; background: var(--color-bg-input);'
+            + ' color: var(--color-text-primary); width: 150px;';
+        const options = ['<option value="">gemini (default)</option>'].concat(
             st.backends
                 .filter(b => b.name !== "gemini")
                 .map(b => {
@@ -688,48 +705,27 @@
                     return `<option value="${_esc(b.name)}" ${ok ? "" : "disabled"}>`
                         + `${_esc(b.name)}${ok ? "" : " (unavailable)"}</option>`;
                 }));
-        return `<span class="abe-arm-params text-xs" data-arm="${_esc(armKey)}"
-                style="display: none; margin-left: 22px; gap: 6px; align-items: center; color: var(--color-text-muted);">
-            <select class="abe-arm-backend" title="Annotation backend for this arm"
-                style="${inputStyle} width: 140px;" onchange="abeRefreshEstimate()">
-                ${backendOptions.join("")}
-            </select>
-            <input type="text" class="abe-arm-model" placeholder="model (default)" title="Model override for this arm"
-                style="${inputStyle} width: 170px;" onchange="abeRefreshEstimate()">
-            <input type="number" class="abe-arm-temp" placeholder="temp" title="Temperature override for this arm"
-                min="0" max="2" step="0.1" style="${inputStyle}" onchange="abeRefreshEstimate()">
-        </span>`;
+        return `<select class="abe-arm-backend text-xs" data-arm="${_esc(armKey)}"
+            title="Annotation backend for this candidate contract"
+            style="${selectStyle}" onchange="abeRefreshEstimate()">${options.join("")}</select>`;
     }
 
     function renderArmPicker() {
         const el = document.getElementById("abe-arm-picker");
         if (!el) return;
-        const rows = st.candidates.map(m =>
-            `<div>
-                <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-                    <input type="checkbox" class="abe-arm" value="${_esc(m.name)}"
-                        onchange="abeArmToggled(this)">
-                    <span class="font-mono">${_esc(m.name)}</span>
+        const row = (value, labelHtml, checked) =>
+            `<div style="display: flex; align-items: center; gap: 8px;">
+                <label class="text-sm" style="display: flex; align-items: center; gap: 6px; min-width: 180px;">
+                    <input type="checkbox" class="abe-arm" value="${_esc(value)}"
+                        ${checked ? "checked" : ""} onchange="abeRefreshEstimate()">
+                    ${labelHtml}
                 </label>
-                ${_armParamRow(m.name)}
-            </div>`);
-        rows.push(`<div>
-            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-                <input type="checkbox" class="abe-arm" value="__live__" checked onchange="abeArmToggled(this)">
-                <span>active contract</span>
-            </label>
-            ${_armParamRow("__live__")}
-        </div>`);
+                ${_armBackendSelect(value)}
+            </div>`;
+        const rows = st.candidates.map(m =>
+            row(m.name, `<span class="font-mono">${_esc(m.name)}</span>`, false));
+        rows.push(row("__live__", "<span>active contract</span>", true));
         el.innerHTML = rows.join("");
-        // Show param inputs for the pre-checked live arm.
-        document.querySelectorAll(".abe-arm:checked").forEach(b => armToggled(b));
-        refreshEstimate();
-    }
-
-    function armToggled(checkbox) {
-        const key = checkbox.value;
-        const row = document.querySelector(`.abe-arm-params[data-arm="${CSS.escape(key)}"]`);
-        if (row) row.style.display = checkbox.checked ? "inline-flex" : "none";
         refreshEstimate();
     }
 
@@ -742,16 +738,8 @@
             const key = b.value === "__live__" ? "live" : b.value;
             if (b.value === "__live__") live = true;
             else names.push(b.value);
-            const row = document.querySelector(`.abe-arm-params[data-arm="${CSS.escape(b.value)}"]`);
-            if (!row) return;
-            const backend = (row.querySelector(".abe-arm-backend") || {}).value;
-            const model = (row.querySelector(".abe-arm-model") || {}).value?.trim();
-            const tempRaw = (row.querySelector(".abe-arm-temp") || {}).value;
-            const params = {};
-            if (backend) params.backend = backend;
-            if (model) params.model = model;
-            if (tempRaw !== undefined && tempRaw !== "") params.temperature = Number(tempRaw);
-            if (Object.keys(params).length) armParams[key] = params;
+            const select = document.querySelector(`.abe-arm-backend[data-arm="${CSS.escape(b.value)}"]`);
+            if (select && select.value) armParams[key] = { backend: select.value };
         });
         return { names, live, armParams };
     }
@@ -1669,7 +1657,6 @@
     window.abeRenderAdjudication = abeRenderAdjudication;
     window.abeCloseItemModal = abeCloseItemModal;
     window.abeRefreshEstimate = refreshEstimate;
-    window.abeArmToggled = armToggled;
 
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", _watchForActivation);
