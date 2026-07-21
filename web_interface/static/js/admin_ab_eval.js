@@ -33,7 +33,9 @@
         {
             key: "list", label: "List / set",
             blurb: "Jaccard overlap of the two value sets (|A∩B| / |A∪B|). " +
-                "Two empty sets score 1.0 — see the “both empty” column.",
+                "Two empty sets score 1.0 — see the “both empty” column. Lists of " +
+                "free-text phrases (e.g. main_activity) are shown but excluded from the " +
+                "summary means — exact-phrase matching reads wording variation as disagreement.",
         },
         {
             key: "numeric", label: "Numeric",
@@ -56,7 +58,8 @@
             "agreement means they agreed on finding nothing, not on a value.",
         free_text_elements: "The list elements are free-text phrases, so the Jaccard " +
             "overlap is exact-phrase matching. A low score here can still mean the " +
-            "two contracts described the same thing in different words.",
+            "two contracts described the same thing in different words — this field is " +
+            "excluded from the summary means.",
         constant: "Both contracts answered the same constant for every item, so Pearson r " +
             "is undefined (0/0). The mean absolute difference is the metric to read.",
         too_few: "Fewer than 3 items were scored by both contracts — too few for a " +
@@ -89,6 +92,22 @@
         const div = document.createElement("div");
         div.textContent = v == null ? "" : String(v);
         return div.innerHTML;
+    }
+
+    // Display name for an arm key: the "live" arm reads "active contract"
+    // everywhere the user sees it, and the ~N multi-instance suffix becomes
+    // a "(N)" marker. Candidate names pass through unchanged.
+    function _armLabel(arm) {
+        const m = String(arm).match(/^(.*?)(?:~(\d+))?$/);
+        const base = m[1] === "live" ? "active contract" : m[1];
+        return m[2] ? `${base} (${m[2]})` : base;
+    }
+
+    // The arm's backend from the current run's manifest ("gemini" default).
+    function _armBackendOf(arm) {
+        const meta = (((st.currentRun || {}).manifest || {}).arms || [])
+            .find(a => a.name === arm) || {};
+        return meta.backend || "gemini";
     }
 
     function _status(msg, isError) {
@@ -925,7 +944,7 @@
                         const set = r.eval_set ? ` · set ${r.eval_set}` : "";
                         const label = r.name ? `${r.name} · ` : "";
                         return `<option value="${_esc(r.run_id)}">${_esc(label)}${_esc(r.run_id)} · `
-                            + `${_esc((r.arms || []).join(" vs "))}${_esc(set)} · ${_esc(r.status)}</option>`;
+                            + `${_esc((r.arms || []).map(_armLabel).join(" vs "))}${_esc(set)} · ${_esc(r.status)}</option>`;
                     }).join("")
                     : '<option value="">(no runs yet)</option>';
                 // Auto-load a run so results are visible without touching the
@@ -1052,16 +1071,13 @@
             const meta = (manifest.arms || []).find(a => a.name === arm) || {};
             const isCandidate = meta.source === "candidate";
             const ov = meta.gen_overrides || {};
-            const ovParts = [];
-            if (meta.backend && meta.backend !== "gemini") ovParts.push(`backend ${meta.backend}`);
+            const ovParts = [`backend ${meta.backend || "gemini"}`];
             if (ov.model) ovParts.push(`model ${ov.model}`);
             if (ov.temperature !== undefined) ovParts.push(`temp ${ov.temperature}`);
             html += `<div style="border: 1px solid var(--color-border); border-radius: 6px;
                     padding: 10px 14px; min-width: 190px;">
-                <div class="font-semibold font-mono">${_esc(arm)}</div>
-                ${ovParts.length
-                    ? `<div class="text-xxs" style="color: var(--color-text-muted); margin-top: 2px;">${_esc(ovParts.join(" · "))}</div>`
-                    : ""}
+                <div class="font-semibold font-mono">${_esc(_armLabel(arm))}</div>
+                <div class="text-xxs" style="color: var(--color-text-muted); margin-top: 2px;">${_esc(ovParts.join(" · "))}</div>
                 <div class="text-xs" style="color: var(--color-text-muted); margin-top: 4px;">
                     ${_esc(String(c.total_tokens ?? "—"))} tokens ·
                     ${_esc(String(c.n_errors ?? "—"))} errors ·
@@ -1069,7 +1085,7 @@
                 ${isCandidate
                     ? `<button class="btn-primary btn-compact abe-activate-arm" data-n="${_esc(arm)}"
                         style="margin-top: 6px;">Activate</button>`
-                    : `<span class="text-xxs" style="color: var(--color-text-muted);">active contract</span>`}
+                    : ""}
             </div>`;
         }
         html += "</div>";
@@ -1081,7 +1097,24 @@
                 <div id="abe-nway-table" style="overflow-x: auto; margin-bottom: 14px;"></div>`;
         }
 
-        // Adjudication (per-item disagreements).
+        // Every item in the test, whether or not it has disagreements — each
+        // opens the same field-by-field side-by-side modal as the
+        // disagreement table's item links.
+        const itemIds = (manifest.item_ids || []).map(String);
+        if (itemIds.length) {
+            html += `<div class="text-sm" style="margin: 0 0 6px 0;">All items
+                <span class="text-xxs" style="color: var(--color-text-muted);">— click any id for
+                the full field-by-field view across every contract (and human coders)</span></div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px;">
+                ${itemIds.map(i => `<a href="#" class="abe-item-any font-mono text-xs"
+                    data-i="${_esc(i)}" style="color: var(--color-accent); padding: 2px 8px;
+                    border: 1px solid var(--color-border); border-radius: 10px;
+                    text-decoration: none;">${_esc(i)}</a>`).join("")}
+            </div>`;
+        }
+
+        // Adjudication (per-item disagreements; items a contract failed
+        // entirely are excluded server-side).
         const adj = report.adjudication || [];
         const adjCols = [...new Set(adj.map(r => r.column))].sort();
         html += `<div class="text-sm" style="margin-bottom: 6px;">
@@ -1095,24 +1128,8 @@
             <span class="text-xxs" style="color: var(--color-text-muted);">— free-text fields differ on
             almost every item by nature; click an item id for the full field-by-field view</span>
         </div>
-        <div id="abe-adj-table" style="overflow-x: auto; max-height: 50vh; overflow-y: auto;"></div>`;
-
-        // Every item in the test, whether or not it has disagreements — each
-        // opens the same field-by-field side-by-side modal as the
-        // disagreement table's item links.
-        const itemIds = (manifest.item_ids || []).map(String);
-        if (itemIds.length) {
-            html += `<div class="text-sm" style="margin: 14px 0 6px 0;">All items
-                <span class="text-xxs" style="color: var(--color-text-muted);">— click any id for
-                the full field-by-field view across every contract (and human coders)</span></div>
-            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                ${itemIds.map(i => `<a href="#" class="abe-item-any font-mono text-xs"
-                    data-i="${_esc(i)}" style="color: var(--color-accent); padding: 2px 8px;
-                    border: 1px solid var(--color-border); border-radius: 10px;
-                    text-decoration: none;">${_esc(i)}</a>`).join("")}
-            </div>`;
-        }
-        html += '<div id="abe-human-section" style="margin-top: 18px;"></div>';
+        <div id="abe-adj-table" style="overflow-x: auto; max-height: 50vh; overflow-y: auto;"></div>
+        <div id="abe-human-section" style="margin-top: 18px;"></div>`;
 
         container.innerHTML = html;
         container.querySelectorAll(".abe-activate-arm").forEach(b =>
@@ -1433,7 +1450,7 @@
         if (Object.keys(okRates).length) {
             tiles.push(tile("Annotation succeeded",
                 Object.values(okRates).map(_pct).join(" / "),
-                Object.keys(okRates).map(_esc).join(" / "),
+                Object.keys(okRates).map(a => _esc(_armLabel(a))).join(" / "),
                 "Share of test-set videos each contract returned a usable annotation for."));
         }
 
@@ -1457,7 +1474,7 @@
             <div class="text-xxs" style="color: var(--color-text-muted); margin-top: 8px;">
                 ${contracts.length} contracts compared${unified.humanArms.length
                     ? ` (incl. ${unified.humanArms.length} human coder(s))` : ""}:
-                <span class="font-mono">${contracts.map(_esc).join(", ")}</span>.
+                <span class="font-mono">${contracts.map(a => _esc(unified.machineArms.includes(a) ? `${_armLabel(a)} [${_armBackendOf(a)}]` : _armLabel(a))).join(", ")}</span>.
                 Every score is pairwise agreement averaged over all pairs — not a measure of
                 which contract is right. Expand a field for the full pairwise matrix.
             </div>
@@ -1497,14 +1514,14 @@
     function _pairMatrix(colAgg, unified) {
         const arms = _allArms(unified);
         const cell = "padding: 3px 8px; border-bottom: 1px solid var(--color-border);";
-        const header = arms.map(a => `<th style="${cell}" class="font-mono">${_esc(a)}</th>`).join("");
+        const header = arms.map(a => `<th style="${cell}" class="font-mono">${_esc(_armLabel(a))}</th>`).join("");
         const rows = arms.map((rowArm, i) => {
             const cells = arms.map((colArm, j) => {
                 if (i === j) return `<td style="${cell}"></td>`;
                 const m = colAgg.pairMeta[`${rowArm}|${colArm}`] || colAgg.pairMeta[`${colArm}|${rowArm}`];
                 return `<td style="${cell}">${_pairCellText(m)}</td>`;
             }).join("");
-            return `<tr><td style="${cell}" class="font-mono text-xxs">${_esc(rowArm)}</td>${cells}</tr>`;
+            return `<tr><td style="${cell}" class="font-mono text-xxs">${_esc(_armLabel(rowArm))}</td>${cells}</tr>`;
         }).join("");
         return `<table style="border-collapse: collapse;" class="text-xxs">
             <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
@@ -1577,7 +1594,7 @@
                     </details>
                 </td></tr>`;
             }).join("");
-            const metricHeader = kind.key === "numeric" ? "mean Pearson r across pairs (lowest first)"
+            const metricHeader = kind.key === "numeric" ? "mean exact agreement across pairs (lowest first)"
                 : kind.key === "enum" ? "mean agreement across pairs (lowest first)"
                 : kind.key === "list" ? "mean Jaccard across pairs (lowest first)"
                 : "not scored (prose is never string-equal)";
@@ -1612,7 +1629,7 @@
         el.innerHTML = `<table style="border-collapse: collapse; width: 100%;" class="text-xs">
             <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
                 <th style="${cell}">item</th><th style="${cell}">column</th>
-                ${arms.map(a => `<th style="${cell}" class="font-mono">${_esc(a)}</th>`).join("")}
+                ${arms.map(a => `<th style="${cell}" class="font-mono">${_esc(_armLabel(a))}</th>`).join("")}
             </tr></thead>
             <tbody>${rows.slice(0, 500).map(r => `<tr>
                 <td style="${cell}"><a href="#" class="abe-item font-mono" data-i="${_esc(r.item_id)}"
@@ -1649,7 +1666,7 @@
                 ...unified.machineArms,
                 ...unified.humanArms.map(u => `human:${u}`),
             ];
-            const label = (a) => a.startsWith("human:") ? a.slice("human:".length) : a;
+            const label = (a) => a.startsWith("human:") ? a.slice("human:".length) : `${_armLabel(a)} [${_armBackendOf(a)}]`;
             const rowByArm = {};
             for (const arm of arms) {
                 const rows = await _armRows(arm);

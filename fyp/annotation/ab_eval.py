@@ -76,7 +76,7 @@ DEFAULT_EVAL_SET = "default"
 # literal-only match badly overstates a candidate's coverage.
 _NORM_SENTINELS = {
     "unable to detect", "-", "--", "other category", "not coded", "", "<NA>".lower(),
-    "no", "none", "n/a",
+    "no", "none", "n/a", "unknown", "unclear", "other",
 }
 _DASH_FOLD = str.maketrans({"\u2013": "-", "\u2014": "-", "\u2212": "-"})   # en dash, em dash, minus
 
@@ -1303,10 +1303,14 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
                 "coverage_b": float(sets_b.map(bool).mean()) if n_items else 0.0,
                 "caveat": "free_text_elements" if free_text else None,
             }
-            if mean_jac is not None:
-                list_jaccard.append(mean_jac)
-            if mean_jac_filled is not None:
-                list_jaccard_filled.append(mean_jac_filled)
+            # Free-text-element lists are exact-phrase Jaccard — like plain
+            # free text they are shown but kept OUT of the summary means, which
+            # would otherwise read wording variation as disagreement.
+            if not free_text:
+                if mean_jac is not None:
+                    list_jaccard.append(mean_jac)
+                if mean_jac_filled is not None:
+                    list_jaccard_filled.append(mean_jac_filled)
 
         elif kind == "enum":
             ca = sa.map(_normalize_cell).map(_canon)
@@ -1407,6 +1411,11 @@ def build_adjudication(frames: dict[str, pd.DataFrame], columns: list[str]) -> l
     for arm, df in frames.items():
         d = df.drop_duplicates("item_id").copy()
         d["item_id"] = d["item_id"].astype(str)
+        # An item this arm failed outright has no values to adjudicate — every
+        # column would show as a spurious disagreement against the arms that
+        # succeeded. (Human coder frames carry no annotated_ok — kept as-is.)
+        if "annotated_ok" in d.columns:
+            d = d[d["annotated_ok"].fillna(False).astype(bool)]
         indexed[arm] = d.set_index("item_id")
     arms = list(indexed)
     common = sorted(set.intersection(*(set(d.index) for d in indexed.values()))) if indexed else []

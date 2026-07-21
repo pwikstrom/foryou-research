@@ -368,6 +368,39 @@ def test_compare_arms_excludes_failed_items_and_flags_low_variance_r():
            f"col={col} n_items={report['n_items']} excluded={report.get('n_items_excluded')}")
 
 
+def test_extra_na_sentinels_and_freetext_list_summary_exclusion():
+    """'unknown'/'unclear'/'other' count as NA; free-text lists stay out of the
+    summary Jaccard means; adjudication skips items an arm failed outright."""
+    ok = (ab_eval._is_sentinel("Unknown") and ab_eval._is_sentinel("unclear")
+          and ab_eval._is_sentinel("Other") and ab_eval._is_sentinel("other category")
+          and not ab_eval._is_sentinel("dance"))
+
+    prose = "a fairly long free text phrase about the activity shown"
+    a = pd.DataFrame({"item_id": ["1", "2"],
+                      "tags": [["a", "b"], ["c"]],
+                      "main_activity": [[prose], [prose + " too"]]})
+    b = pd.DataFrame({"item_id": ["1", "2"],
+                      "tags": [["a", "b"], ["c"]],
+                      "main_activity": [[prose + " differently"], [prose]]})
+    report = ab_eval.compare_arms(a, b, scales={"tags": "list", "main_activity": "list"})
+    cols = report["columns"]
+    ok = (ok and cols["main_activity"]["caveat"] == "free_text_elements"
+          and cols["main_activity"]["mean_jaccard"] is not None
+          # summary mean covers only the non-free-text list (perfect overlap)
+          and abs(report["summary"]["mean_list_jaccard"] - 1.0) < 1e-9)
+
+    frames = {
+        "x": pd.DataFrame({"item_id": ["1", "2"], "cat": ["dog", "cat"],
+                           "annotated_ok": [True, False]}),
+        "y": pd.DataFrame({"item_id": ["1", "2"], "cat": ["dog", "bird"],
+                           "annotated_ok": [True, True]}),
+    }
+    adj = ab_eval.build_adjudication(frames, ["cat"])
+    ok = ok and all(r["item_id"] != "2" for r in adj)   # failed item excluded
+    _check("test_extra_na_sentinels_and_freetext_list_summary_exclusion", ok,
+           f"adj={adj} summary={report['summary'].get('mean_list_jaccard')}")
+
+
 def test_declared_scale_beats_length_heuristic():
     """A `text` field with short answers must NOT be scored as a categorical.
 
