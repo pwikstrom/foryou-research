@@ -830,6 +830,18 @@ def _task_args_to_cli(name: str, task_args: dict) -> list[str]:
         out += ["--candidates", joined]
     if task_args.get("include_live"):
         out += ["--include-live"]
+    if name == "ab_eval":
+        # ab_eval-only structured args (JSON-encoded for the CLI). Keyed on the
+        # process name because "name"/"eval_set" are too generic to map safely
+        # for every worker.
+        if task_args.get("arms_spec"):
+            out += ["--arms-spec", json.dumps(task_args["arms_spec"])]
+        if task_args.get("eval_set"):
+            out += ["--eval-set", str(task_args["eval_set"])]
+        if task_args.get("name"):
+            out += ["--name", str(task_args["name"])]
+        if task_args.get("started_by"):
+            out += ["--started-by", str(task_args["started_by"])]
     if task_args.get("launched_by"):
         out += ["--launched-by", str(task_args["launched_by"])]
     # study_name is a positional in some scripts (recode/pca) — append last

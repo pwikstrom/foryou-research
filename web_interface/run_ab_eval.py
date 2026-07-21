@@ -138,6 +138,8 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
 
 
 if __name__ == "__main__":
+    import json as _json
+
     from web_interface.worker_runner import run_worker
 
     run_worker(
@@ -150,13 +152,21 @@ if __name__ == "__main__":
             (("--include-live",), {"action": "store_true",
                                    "help": "also run the live effective contract as an arm"}),
             (("--eval-set",), {"default": None,
-                               "help": "named evaluation set (default: the active one)"}),
+                               "help": "named test set (default: the active one)"}),
+            (("--arms-spec",), {"default": None,
+                                "help": "explicit arm list as JSON "
+                                        "([{source, name?, label, backend?}, ...])"}),
+            (("--name",), {"default": None, "help": "run name (shown in run pickers)"}),
+            (("--started-by",), {"default": None, "help": "audit actor for the manifest"}),
         ],
         make_task_args=lambda cli: {
             "run_id": cli.run_id,
             "candidate_names": cli.candidates,
             "include_live": cli.include_live,
             "eval_set": cli.eval_set,
+            "arms_spec": _json.loads(cli.arms_spec) if cli.arms_spec else None,
+            "name": cli.name,
+            "started_by": cli.started_by,
         },
-        description="A/B contract evaluation run",
+        description="A/B contract test run",
     )
