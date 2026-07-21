@@ -1171,7 +1171,10 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
     Per column, keyed on the field's DECLARED scale (never on how long its
     answers happen to be):
 
-    * ``numeric``  → Pearson r over the items both arms scored + mean-abs-diff.
+    * ``numeric``  → exact agreement + mean-abs-diff over the items both arms
+      scored; Pearson r as a secondary metric (suppressed from the summary and
+      flagged when the paired scores barely vary — near-constant scores make r
+      track rounding noise, not disagreement).
     * ``categorical`` → exact agreement after case/sentinel canonicalization.
     * ``list``     → mean Jaccard over the value sets + exact-set agreement.
     * ``text``     → coverage only (two prose answers are never string-equal).
@@ -1204,15 +1207,26 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
     a = a.loc[common]
     b = b.loc[common]
 
+    # Only items BOTH arms successfully annotated are comparable — an item one
+    # arm failed would otherwise drag every metric (its empty cells read as
+    # disagreement). Excluded count is reported so the drop stays visible.
+    n_common_raw = len(common)
+    if "annotated_ok" in a.columns and "annotated_ok" in b.columns:
+        ok = (a["annotated_ok"].fillna(False).astype(bool)
+              & b["annotated_ok"].fillna(False).astype(bool))
+        a = a.loc[ok]
+        b = b.loc[ok]
+
     scales = scales if scales is not None else _scale_map()
     skip = {"annotated_ok", "annotated_fail"}
     cols = sorted((set(a.columns) & set(b.columns)) - skip)
-    n_items = len(common)
-    report: dict = {"n_items": n_items, "columns": {}}
+    n_items = len(a)
+    report: dict = {"n_items": n_items, "columns": {},
+                    "n_items_excluded": n_common_raw - n_items}
 
     enum_agree, enum_agree_filled = [], []
     list_jaccard, list_jaccard_filled = [], []
-    num_corr, ft_cov_delta = [], []
+    num_corr, num_exact, ft_cov_delta = [], [], []
     kind_counts = {"numeric": 0, "enum": 0, "list": 0, "freetext": 0}
 
     for c in cols:
@@ -1225,26 +1239,44 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
             xb = pd.to_numeric(sb, errors="coerce")
             both = xa.notna() & xb.notna()
             n_compared = int(both.sum())
+            diffs = (xa[both] - xb[both]).abs()
+            exact = float(diffs.le(1e-9).mean()) if n_compared else None
+            mad = float(diffs.mean()) if n_compared else None
             constant = n_compared > 0 and (xa[both].std() == 0 or xb[both].std() == 0)
             corr = (
                 float(xa[both].corr(xb[both]))
                 if n_compared >= _MIN_CORR_N and not constant
                 else None
             )
-            mad = float((xa[both] - xb[both]).abs().mean()) if n_compared else None
+            # Pearson r covaries with the residual spread, not with closeness:
+            # near-constant scores (e.g. sensitivity mostly 0.3 with 0.05
+            # wobble) can give a strongly negative r while the arms in fact
+            # agree closely. Flag such columns and keep them out of the
+            # summary's mean r — exact agreement + mean-abs-diff are the
+            # headline metrics there.
+            low_variance = False
+            if corr is not None:
+                level = max(float(pd.concat([xa[both], xb[both]]).abs().mean()), 1e-12)
+                low_variance = (xa[both].std() / level < 0.15
+                                or xb[both].std() / level < 0.15)
             caveat = None
             if corr is None:
                 # Distinguish "both arms answered identically every time" (r is
                 # 0/0, not a disagreement) from "not enough paired answers".
                 caveat = "constant" if constant else "too_few"
+            elif low_variance:
+                caveat = "low_variance"
             report["columns"][c] = {
                 "kind": "numeric", "correlation": corr, "mean_abs_diff": mad,
+                "exact_agreement": exact,
                 "n_compared": n_compared,
                 "coverage_a": float(xa.notna().mean()) if n_items else 0.0,
                 "coverage_b": float(xb.notna().mean()) if n_items else 0.0,
                 "caveat": caveat,
             }
-            if corr is not None:
+            if exact is not None:
+                num_exact.append(exact)
+            if corr is not None and not low_variance:
                 num_corr.append(corr)
 
         elif kind == "list":
@@ -1328,6 +1360,8 @@ def compare_arms(df_a: pd.DataFrame, df_b: pd.DataFrame,
         "n_list_columns_filled": len(list_jaccard_filled),
         "mean_numeric_correlation": float(np.mean(num_corr)) if num_corr else None,
         "n_numeric_columns_correlated": len(num_corr),
+        "mean_numeric_exact_agreement": float(np.mean(num_exact)) if num_exact else None,
+        "n_numeric_columns_exact": len(num_exact),
         "mean_freetext_coverage_delta_b_minus_a": (
             float(np.mean(ft_cov_delta)) if ft_cov_delta else None
         ),

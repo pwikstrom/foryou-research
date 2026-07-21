@@ -37,9 +37,11 @@
         },
         {
             key: "numeric", label: "Numeric",
-            blurb: "Pearson r across the items both contracts scored, plus the mean " +
-                "absolute difference. r is undefined when a contract answered the " +
-                "same number every time (see MAD instead) or when n < 3.",
+            blurb: "Exact agreement (share of items where both contracts gave the same " +
+                "number) plus the mean absolute difference (Δ̄, in the field's own units), " +
+                "over the items both contracts scored. Pearson r is secondary: with " +
+                "near-constant scores it tracks rounding noise, not disagreement, and is " +
+                "flagged/excluded from the summary in that case.",
         },
         {
             key: "freetext", label: "Free text",
@@ -59,6 +61,9 @@
             "is undefined (0/0). The mean absolute difference is the metric to read.",
         too_few: "Fewer than 3 items were scored by both contracts — too few for a " +
             "meaningful correlation.",
+        low_variance: "The paired scores barely vary, so Pearson r reflects rounding " +
+            "noise rather than real disagreement — read exact agreement and Δ̄ instead " +
+            "(this r is excluded from the summary).",
     };
 
     const st = {
@@ -923,6 +928,15 @@
                             + `${_esc((r.arms || []).join(" vs "))}${_esc(set)} · ${_esc(r.status)}</option>`;
                     }).join("")
                     : '<option value="">(no runs yet)</option>';
+                // Auto-load a run so results are visible without touching the
+                // dropdown (a single-run picker fires no change event at all).
+                if (st.runs.length) {
+                    const keep = st.currentRunId
+                        && st.runs.some(r => r.run_id === st.currentRunId);
+                    const target = keep ? st.currentRunId : st.runs[0].run_id;
+                    picker.value = target;
+                    if (!keep || !st.currentRun) abeLoadRun(target);
+                }
             }
         } catch (e) {
             _status(`Failed to list runs: ${e.message}`, true);
@@ -980,7 +994,10 @@
     // common scale, which is exactly why the table is grouped by kind rather
     // than sorted across kinds.
     function _metricOf(colMeta) {
-        if (colMeta.kind === "numeric") return colMeta.correlation;
+        if (colMeta.kind === "numeric") {
+            // Pre-fix reports have no exact_agreement — fall back to r.
+            return colMeta.exact_agreement != null ? colMeta.exact_agreement : colMeta.correlation;
+        }
         if (colMeta.kind === "enum") return colMeta.agreement;
         if (colMeta.kind === "list") return colMeta.mean_jaccard;
         return null;
@@ -1078,12 +1095,30 @@
             <span class="text-xxs" style="color: var(--color-text-muted);">— free-text fields differ on
             almost every item by nature; click an item id for the full field-by-field view</span>
         </div>
-        <div id="abe-adj-table" style="overflow-x: auto; max-height: 50vh; overflow-y: auto;"></div>
-        <div id="abe-human-section" style="margin-top: 18px;"></div>`;
+        <div id="abe-adj-table" style="overflow-x: auto; max-height: 50vh; overflow-y: auto;"></div>`;
+
+        // Every item in the test, whether or not it has disagreements — each
+        // opens the same field-by-field side-by-side modal as the
+        // disagreement table's item links.
+        const itemIds = (manifest.item_ids || []).map(String);
+        if (itemIds.length) {
+            html += `<div class="text-sm" style="margin: 14px 0 6px 0;">All items
+                <span class="text-xxs" style="color: var(--color-text-muted);">— click any id for
+                the full field-by-field view across every contract (and human coders)</span></div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                ${itemIds.map(i => `<a href="#" class="abe-item-any font-mono text-xs"
+                    data-i="${_esc(i)}" style="color: var(--color-accent); padding: 2px 8px;
+                    border: 1px solid var(--color-border); border-radius: 10px;
+                    text-decoration: none;">${_esc(i)}</a>`).join("")}
+            </div>`;
+        }
+        html += '<div id="abe-human-section" style="margin-top: 18px;"></div>';
 
         container.innerHTML = html;
         container.querySelectorAll(".abe-activate-arm").forEach(b =>
             b.addEventListener("click", () => activateCandidate(b.dataset.n, b)));
+        container.querySelectorAll(".abe-item-any").forEach(a =>
+            a.addEventListener("click", (ev) => { ev.preventDefault(); openItemView(a.dataset.i); }));
         // Human value distributions need the coders' rows — render the N-way
         // view immediately, then once more after the prefetch fills them in.
         _renderNwayView();
@@ -1375,8 +1410,17 @@
                 `${countOf("list")} fields, all pairs`, KINDS[1].blurb));
         }
         if (countOf("numeric")) {
-            tiles.push(tile("Numeric correlation (r)", _fmt(meanOf("numeric")),
+            tiles.push(tile("Numeric agreement", _fmt(meanOf("numeric")),
                 `${countOf("numeric")} fields, all pairs`, KINDS[2].blurb));
+        }
+        // Items one arm failed are excluded from all pairwise metrics.
+        const excluded = Math.max(0, ...Object.values(unified.pairs)
+            .map(p => p.n_items_excluded || 0));
+        if (excluded) {
+            tiles.push(tile("Excluded items", String(excluded), "failed in ≥1 contract",
+                "Items without a usable annotation from every contract in a pair are "
+                + "excluded from that pair's metrics — only items both sides "
+                + "annotated successfully are compared."));
         }
         // Annotation success per machine arm (humans have no failure mode here).
         const okRates = {};
@@ -1436,7 +1480,12 @@
     // The metric of one pair for one column, formatted for a matrix cell.
     function _pairCellText(m) {
         if (!m) return `<span style="color: var(--color-text-muted);">—</span>`;
-        if (m.kind === "numeric") return `r ${_fmt(m.correlation)}`;
+        if (m.kind === "numeric") {
+            if (m.exact_agreement == null) return `r ${_fmt(m.correlation)}`;  // pre-fix report
+            const r = (m.correlation != null && m.caveat !== "low_variance")
+                ? ` <span style="color: var(--color-text-muted);">r ${_fmt(m.correlation)}</span>` : "";
+            return `${_fmt(m.exact_agreement)} <span style="color: var(--color-text-muted);">Δ̄ ${_fmt(m.mean_abs_diff)}</span>${r}`;
+        }
         if (m.kind === "enum") {
             const kappa = m.kappa != null ? ` <span style="color: var(--color-text-muted);">κ ${_fmt(m.kappa)}</span>` : "";
             return `${_fmt(m.agreement)}${kappa}`;

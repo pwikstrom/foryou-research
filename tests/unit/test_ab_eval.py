@@ -336,6 +336,38 @@ def test_compare_arms_metrics():
     _check("test_compare_arms_metrics", ok, f"cols={ {k: v['kind'] for k, v in cols.items()} }")
 
 
+def test_compare_arms_excludes_failed_items_and_flags_low_variance_r():
+    """Items one arm failed are excluded; near-constant scores don't feed r.
+
+    Regression (2026-07-21, hazel 5-item run): sensitivity_score pairs
+    (.30/.30, .25/.32, .30/.25, .30/.30) gave Pearson r ≈ −0.61 — the arms
+    agreed closely (Δ̄ 0.03) but r tracked the rounding noise. The failed item
+    (annotated_ok=False in one arm) additionally dragged every metric.
+    """
+    a = pd.DataFrame({
+        "item_id": ["1", "2", "3", "4", "5"],
+        "sensitivity_score": [0.30, 0.25, None, 0.30, 0.30],
+        "annotated_ok": [True, True, False, True, True],
+    })
+    b = pd.DataFrame({
+        "item_id": ["1", "2", "3", "4", "5"],
+        "sensitivity_score": [0.30, 0.32, 0.40, 0.25, 0.30],
+        "annotated_ok": [True, True, True, True, True],
+    })
+    report = ab_eval.compare_arms(a, b, scales={"sensitivity_score": "numeric"})
+    col = report["columns"]["sensitivity_score"]
+    summary = report["summary"]
+    ok = (report["n_items"] == 4 and report["n_items_excluded"] == 1
+          and col["n_compared"] == 4
+          and abs(col["exact_agreement"] - 0.5) < 1e-9
+          and abs(col["mean_abs_diff"] - 0.03) < 1e-9
+          and col["caveat"] == "low_variance"
+          and summary["mean_numeric_correlation"] is None
+          and abs(summary["mean_numeric_exact_agreement"] - 0.5) < 1e-9)
+    _check("test_compare_arms_excludes_failed_items_and_flags_low_variance_r", ok,
+           f"col={col} n_items={report['n_items']} excluded={report.get('n_items_excluded')}")
+
+
 def test_declared_scale_beats_length_heuristic():
     """A `text` field with short answers must NOT be scored as a categorical.
 
