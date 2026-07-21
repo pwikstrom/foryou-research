@@ -440,7 +440,9 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
         if 'annotation_version' in df.columns:
             model_labels = _annotation_model_labels()
             if model_labels:
-                ok_mask = (df['annotated_ok'] == True).to_numpy(dtype=bool)
+                # annotated_ok is bool[pyarrow] and can hold NA — fill before
+                # the numpy coercion (NA cannot cast to a plain bool).
+                ok_mask = df['annotated_ok'].fillna(False).to_numpy(dtype=bool)
                 labels = df.loc[ok_mask, 'annotation_version'].astype(str).map(model_labels)
                 df.loc[ok_mask, 'Machine Annotations'] = labels.fillna('Machine Annotated').to_numpy()
 
