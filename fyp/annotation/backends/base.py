@@ -13,8 +13,7 @@ this one shape right. Subclasses auto-register via ``__init_subclass__``,
 exactly like ``BaseScraper`` in :mod:`fyp.scrape.platform_scraper`.
 
 Backend ids are stable strings persisted in the admin settings store and in
-A/B-eval run manifests. ``"qwen_api"`` (Alibaba DashScope) is a reserved id for
-a possible future hosted-Qwen backend — see docs/installation.md.
+A/B-eval run manifests.
 """
 
 from abc import ABC, abstractmethod
