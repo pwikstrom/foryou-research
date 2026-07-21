@@ -427,23 +427,33 @@ def test_declared_scale_beats_length_heuristic():
 
 
 def test_sentinels_and_vacuous_agreement():
-    """Dash variants count as "no value"; agreeing on nothing is reported as such."""
-    a = pd.DataFrame({"item_id": ["1", "2"], "cta": ["-", "Try now"], "flag": ["no", "no"]})
-    b = pd.DataFrame({"item_id": ["1", "2"], "cta": ["–", "try now"], "flag": ["no", "no"]})
-    scales = {"cta": "text", "flag": "categorical"}
+    """Dash variants count as "no value"; agreeing on nothing is reported as such.
+
+    "no" is a REAL answer (yes/no fields), so it must count toward coverage —
+    the vacuous-agreement flag applies to true no-value sentinels like "none".
+    """
+    a = pd.DataFrame({"item_id": ["1", "2"], "cta": ["-", "Try now"], "flag": ["none", "none"],
+                      "spoken": ["no", "no"]})
+    b = pd.DataFrame({"item_id": ["1", "2"], "cta": ["–", "try now"], "flag": ["none", "none"],
+                      "spoken": ["no", "yes"]})
+    scales = {"cta": "text", "flag": "categorical", "spoken": "categorical"}
     cols = ab_eval.compare_arms(a, b, scales=scales)["columns"]
     # The en dash must not be counted as an answer, so coverage stays 1/2.
     dash_ok = cols["cta"]["coverage_a"] == 0.5 and cols["cta"]["coverage_b"] == 0.5
-    # Both arms said "no" everywhere: agreement is 1.0 but vacuous, and flagged.
+    # Both arms said "none" everywhere: agreement is 1.0 but vacuous, and flagged.
     flag = cols["flag"]
     vacuous_ok = (flag["agreement"] == 1.0 and flag["agreement_filled"] is None
                   and flag["coverage_a"] == 0.0 and flag["n_both_empty"] == 2
                   and flag["caveat"] == "both_arms_empty")
+    # "no" answers are substantive: full coverage, real (dis)agreement.
+    spoken = cols["spoken"]
+    no_ok = (spoken["coverage_a"] == 1.0 and spoken["coverage_b"] == 1.0
+             and abs(spoken["agreement_filled"] - 0.5) < 1e-9)
     # A blank-vs-en-dash cell is not a real disagreement.
     adj = ab_eval.build_adjudication({"a": a, "b": b}, ["cta"])
     adj_ok = [r["item_id"] for r in adj] == []
-    _check("test_sentinels_and_vacuous_agreement", dash_ok and vacuous_ok and adj_ok,
-           f"cta={cols['cta']} flag={flag} adj={adj}")
+    _check("test_sentinels_and_vacuous_agreement", dash_ok and vacuous_ok and no_ok and adj_ok,
+           f"cta={cols['cta']} flag={flag} spoken={spoken} adj={adj}")
 
 
 def test_contract_scale_map_covers_new_fields():

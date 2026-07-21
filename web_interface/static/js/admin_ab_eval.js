@@ -28,7 +28,8 @@
         {
             key: "enum", label: "Categorical",
             blurb: "Exact match after lower-casing. Values meaning “nothing found” " +
-                "(no, none, -, unable to detect, blank) are treated as no value.",
+                "(none, unknown, unclear, other, -, unable to detect, blank) are treated as " +
+                "no value — “no” itself is a real answer.",
         },
         {
             key: "list", label: "List / set",

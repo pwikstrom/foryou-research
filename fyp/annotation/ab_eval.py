@@ -76,7 +76,8 @@ DEFAULT_EVAL_SET = "default"
 # literal-only match badly overstates a candidate's coverage.
 _NORM_SENTINELS = {
     "unable to detect", "-", "--", "other category", "not coded", "", "<NA>".lower(),
-    "no", "none", "n/a", "unknown", "unclear", "other",
+    # "no" is deliberately NOT here: for yes/no fields it is a real answer.
+    "none", "n/a", "unknown", "unclear", "other",
 }
 _DASH_FOLD = str.maketrans({"\u2013": "-", "\u2014": "-", "\u2212": "-"})   # en dash, em dash, minus
 
