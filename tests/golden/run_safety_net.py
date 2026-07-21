@@ -72,6 +72,10 @@ def _run(path: Path) -> int:
 
 
 def main() -> int:
+    sys.path.insert(0, str(PROJECT_ROOT))
+    from tests._storage_guard import assert_local_storage
+
+    assert_local_storage()
     results = {}
     for mod in MODULES:
         if not mod.exists():
