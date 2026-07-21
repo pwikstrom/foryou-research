@@ -128,10 +128,9 @@
         </div>
 
         <p class="text-xs" style="color: var(--color-text-tertiary); margin: 0 0 12px 0;">
-            Annotates the queue above in real time with the active annotation backend (many
-            concurrent workers, ~minutes per batch). This is the urgent / default
-            path{% if media_on_gcs %} &mdash; for large, non-urgent runs on the Gemini backend, the
-            Async Annotator below costs about half as much{% endif %}.
+            Synchronously and immediately annotates videos in the annotation queue using the
+            selected annotation backend.{% if media_on_gcs %} For large, non-urgent runs on the
+            Gemini backend, the Async Annotator below costs about half as much.{% endif %}
         </p>
 
         <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 12px;">

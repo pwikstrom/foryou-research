@@ -240,9 +240,14 @@ def get_enrichment_stats():
         "scraper_alerts": active_alerts,
         # Per-card health chips: combine the last system-health check (test
         # scrape + media) with the fresh cookie status into one green/yellow/red
-        # per platform, plus an annotation chip from the Gemini ping.
+        # per platform, plus an annotation chip. The live availability makes
+        # the annotation chip follow a backend switch immediately instead of
+        # waiting for the next health-check run.
         "card_health": system_health.derive_card_health(
-            live_cookie=cookie_health, alerts=active_alerts),
+            live_cookie=cookie_health, alerts=active_alerts,
+            annotation_live={"backend": annotation_backend,
+                             "ok": annotation_ok,
+                             "reason": annotation_reason}),
         "annotate_queue_len": annotate_queue_len,
         "annotate_claimed_len": annotate_claimed_len,
         # Fresh local-drain leases (laptop draining a queue against the shared

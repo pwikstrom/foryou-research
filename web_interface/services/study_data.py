@@ -428,17 +428,48 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
     # So we have annotations.
     col_types['Has Annotation'] = 'category' # Treat as category to trigger checkbox UI
     
-    # 3. Machine Annotations (New Request)
-    # Check if annotated_ok exists
+    # 3. Machine Annotations — which model annotated each item. Annotated rows
+    # get the annotating model's short name (resolved from the row's
+    # annotation_version via the version registry); rows without per-row
+    # provenance (pre-versioning history) fall back to the generic label.
     if 'annotated_ok' in df.columns:
-        # Map boolean to cleaner labels
         df['Machine Annotations'] = 'Not Attempted'
         df.loc[df['annotated_ok'] == True, 'Machine Annotations'] = 'Machine Annotated'
         df.loc[df['annotated_ok'] == False, 'Machine Annotations'] = 'Cannot Machine Annotate'
-        
+
+        if 'annotation_version' in df.columns:
+            model_labels = _annotation_model_labels()
+            if model_labels:
+                ok_mask = (df['annotated_ok'] == True).to_numpy(dtype=bool)
+                labels = df.loc[ok_mask, 'annotation_version'].astype(str).map(model_labels)
+                df.loc[ok_mask, 'Machine Annotations'] = labels.fillna('Machine Annotated').to_numpy()
+
         col_types['Machine Annotations'] = 'category'
-    
+
     return df, col_types
+
+
+
+
+def _annotation_model_labels() -> dict:
+    """Map each ``annotation_version`` to its model's short display label.
+
+    Reads the annotation version registry; the label is the model id's last
+    path segment (e.g. ``mlx-community/Qwen3-Omni-...`` → ``Qwen3-Omni-...``).
+    Returns an empty dict on any failure so the caller falls back to the
+    generic "Machine Annotated" label. Never raises.
+    """
+    try:
+        from fyp import annotation_versioning
+        versions = annotation_versioning.load_registry().get("versions", {})
+    except Exception:
+        return {}
+    labels = {}
+    for version, info in versions.items():
+        model = str((info or {}).get("model") or "").strip()
+        if model:
+            labels[str(version)] = model.rsplit("/", 1)[-1]
+    return labels
 
 
 def load_shared_tags(allowed_usernames):

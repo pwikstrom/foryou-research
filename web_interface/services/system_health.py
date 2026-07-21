@@ -147,7 +147,8 @@ def _platform_summary(check: dict, cookie: dict) -> str:
 
 
 def derive_card_health(live_cookie: dict | None = None,
-                       alerts: dict | None = None) -> dict:
+                       alerts: dict | None = None,
+                       annotation_live: dict | None = None) -> dict:
     """Collapse the health doc + live cookie health into enrichment-card chips.
 
     Produces one green/yellow/red/grey status per scraper platform (combining
@@ -162,6 +163,12 @@ def derive_card_health(live_cookie: dict | None = None,
         alerts: optional ``{platform: alert_dict}`` from
             ``fyp.scrape.scraper_alerts`` — an active alert forces the
             platform's chip to ``fail`` and leads its summary.
+        annotation_live: optional ``{backend, ok, reason}`` — the active
+            backend and its fresh availability, as already computed per poll by
+            the enrichment-stats endpoint. When the stored annotation check was
+            run against a DIFFERENT backend (the admin just switched), the chip
+            is derived from this live probe instead, so it updates immediately
+            rather than after the next health-check run.
 
     Returns:
         ``{"ran": bool, "platforms": {p: {status, summary, checked_at}},
@@ -198,12 +205,25 @@ def derive_card_health(live_cookie: dict | None = None,
             "checked_at": check.get("checked_at"),
         }
 
-    gemini = checks.get("gemini") or {}
-    annotation = {
-        "status": _chip_from_check_status(gemini.get("status")),
-        "summary": gemini.get("message") or "Gemini not yet checked",
-        "checked_at": gemini.get("checked_at"),
-    }
+    stored = checks.get("gemini") or {}
+    live = annotation_live or {}
+    stored_backend = stored.get("backend")
+    live_backend = live.get("backend")
+    if live_backend and stored_backend and stored_backend != live_backend:
+        # The stored check tested a backend that is no longer active — use the
+        # fresh availability probe until the next health-check run.
+        annotation = {
+            "status": "ok" if live.get("ok") else "fail",
+            "summary": (f"{live_backend} requirements OK (not yet health-checked)"
+                        if live.get("ok") else (live.get("reason") or f"{live_backend} unavailable")),
+            "checked_at": None,
+        }
+    else:
+        annotation = {
+            "status": _chip_from_check_status(stored.get("status")),
+            "summary": stored.get("message") or "Annotation backend not yet checked",
+            "checked_at": stored.get("checked_at"),
+        }
 
     return {"ran": ran, "platforms": platforms, "annotation": annotation}
 
@@ -641,15 +661,17 @@ def _check_annotation_backend() -> dict:
 
     backend_name = active_backend_name()
     if backend_name == "gemini":
-        return _check_gemini()
+        return {**_check_gemini(), "backend": backend_name}
     try:
         result = get_backend(backend_name).availability()
     except ValueError as e:
         return {"status": "fail", "message": f"Backend '{backend_name}' unavailable",
-                "detail": str(e), "duration_s": None, "checked_at": _now_iso()}
+                "detail": str(e), "duration_s": None, "checked_at": _now_iso(),
+                "backend": backend_name}
     return {"status": "ok" if result.ok else "fail",
             "message": f"{backend_name} ready" if result.ok else result.reason,
-            "detail": None, "duration_s": None, "checked_at": _now_iso()}
+            "detail": None, "duration_s": None, "checked_at": _now_iso(),
+            "backend": backend_name}
 
 
 def _check_embedding_backend() -> dict:

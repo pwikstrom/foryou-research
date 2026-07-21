@@ -295,7 +295,7 @@ def _compute_dynamic_overlay(df, col_types):
         schema_map['Machine Annotations'] = {
             "section": "Annotation Status",
             "display_name": "Machine Annotations",
-            "description": "Filter items by their machine annotation status.",
+            "description": "Filter items by the model that machine-annotated them (or their annotation status).",
         }
         filter_priority_prepend.append('Machine Annotations')
         display_priority_prepend.append('Machine Annotations')
@@ -524,7 +524,7 @@ def api_explorer_metadata():
                 potential_metadata['schema_map']['Machine Annotations'] = {
                     "section": "Annotation Status",
                     "display_name": "Machine Annotations",
-                    "description": "Filter items by their machine annotation status."
+                    "description": "Filter items by the model that machine-annotated them (or their annotation status)."
                 }
                 # Priority
                 if 'filter_priority' not in potential_metadata: potential_metadata['filter_priority'] = []
@@ -643,7 +643,7 @@ def api_explorer_metadata():
         metadata['schema_map']['Machine Annotations'] = {
             "section": "Annotation Status",
             "display_name": "Machine Annotations",
-            "description": "Filter items by their machine annotation status."
+            "description": "Filter items by the model that machine-annotated them (or their annotation status)."
         }
         # Priority
         if 'filter_priority' not in metadata: metadata['filter_priority'] = []
