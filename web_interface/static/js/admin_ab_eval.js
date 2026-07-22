@@ -1097,9 +1097,10 @@
         // cost cards so the full test set is the first thing after them.
         const itemIds = (manifest.item_ids || []).map(String);
         if (itemIds.length) {
-            html += `<div class="text-sm" style="margin: 0 0 6px 0;">All items
-                <span class="text-xxs" style="color: var(--color-text-muted);">— click any id for
-                the full field-by-field view across every contract (and human coders)</span></div>
+            html += `<h4 class="text-sm font-semibold" style="margin: 0 0 2px 0;
+                color: var(--color-text-heading);">Check all items field-by-field</h4>
+            <div class="text-xxs" style="color: var(--color-text-muted); margin: 0 0 6px 0;">
+                Click any id for the full field-by-field view across every contract (and human coders)</div>
             <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px;">
                 ${itemIds.map(i => `<a href="#" class="abe-item-any font-mono text-xs"
                     data-i="${_esc(i)}" style="color: var(--color-accent); padding: 2px 8px;
@@ -1621,7 +1622,7 @@
                 : "not scored (prose is never string-equal)";
             return `<details open style="margin: 12px 0 4px 0;">
                 <summary style="cursor: pointer;">
-                    <h5 class="text-sm font-semibold" style="display: inline; margin: 0;
+                    <h5 class="text-xs font-semibold" style="display: inline; margin: 0;
                         color: var(--color-text-heading);">${_esc(kind.label)}</h5>
                     <span class="text-xxs font-normal meta-tooltip" data-tooltip="${_esc(kind.blurb)}"
                         style="color: var(--color-text-muted); cursor: help;">&#9432;</span>
