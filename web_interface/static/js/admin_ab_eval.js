@@ -1091,16 +1091,10 @@
         }
         html += "</div>";
 
-        // N-way agreement view: cross-pair averages per field, expandable to
-        // the full pairwise matrix. Submitted human coders join as contracts.
-        if (Object.keys(report.comparisons || {}).length) {
-            html += `<div id="abe-nway-summary" style="margin-bottom: 12px;"></div>
-                <div id="abe-nway-table" style="overflow-x: auto; margin-bottom: 14px;"></div>`;
-        }
-
         // Every item in the test, whether or not it has disagreements — each
         // opens the same field-by-field side-by-side modal as the
-        // disagreement table's item links.
+        // disagreement table's item links. Sits directly below the contract
+        // cost cards so the full test set is the first thing after them.
         const itemIds = (manifest.item_ids || []).map(String);
         if (itemIds.length) {
             html += `<div class="text-sm" style="margin: 0 0 6px 0;">All items
@@ -1114,22 +1108,48 @@
             </div>`;
         }
 
+        // N-way agreement view: overview metric tiles, then a collapsible
+        // "Detailed metrics" sub-section holding the cross-pair per-field
+        // tables (each field kind is itself collapsible). Submitted human
+        // coders join as contracts.
+        if (Object.keys(report.comparisons || {}).length) {
+            html += `<div id="abe-nway-summary" style="margin-bottom: 12px;"></div>
+                <details open style="margin-bottom: 14px;">
+                    <summary style="cursor: pointer;">
+                        <h4 class="text-sm font-semibold" style="display: inline; margin: 0;
+                            color: var(--color-text-heading);">Detailed metrics</h4>
+                        <span class="text-xxs" style="color: var(--color-text-muted);">— per-field
+                            agreement, expandable to the full pairwise matrix</span>
+                    </summary>
+                    <div id="abe-nway-table" style="overflow-x: auto; margin-top: 8px;"></div>
+                </details>`;
+        }
+
         // Adjudication (per-item disagreements; items a contract failed
-        // entirely are excluded server-side).
+        // entirely are excluded server-side) — a collapsible sub-section whose
+        // rows are grouped into one collapsible sub-sub-section per item.
         const adj = report.adjudication || [];
         const adjCols = [...new Set(adj.map(r => r.column))].sort();
-        html += `<div class="text-sm" style="margin-bottom: 6px;">
-            Disagreements (${adj.length}${adj.length >= 3000 ? "+, capped" : ""}) —
-            <select id="abe-adj-filter" class="text-xs" onchange="abeRenderAdjudication()"
-                style="padding: 3px 6px; border: 1px solid var(--color-border); border-radius: 4px;
-                background: var(--color-bg-input); color: var(--color-text-primary);">
-                <option value="">all fields</option>
-                ${adjCols.map(c => `<option value="${_esc(c)}">${_esc(c)}</option>`).join("")}
-            </select>
-            <span class="text-xxs" style="color: var(--color-text-muted);">— free-text fields differ on
-            almost every item by nature; click an item id for the full field-by-field view</span>
-        </div>
-        <div id="abe-adj-table" style="overflow-x: auto; max-height: 50vh; overflow-y: auto;"></div>
+        html += `<details open style="margin-bottom: 4px;">
+            <summary style="cursor: pointer;">
+                <h4 class="text-sm font-semibold" style="display: inline; margin: 0;
+                    color: var(--color-text-heading);">Disagreements
+                    (${adj.length}${adj.length >= 3000 ? "+, capped" : ""})</h4>
+            </summary>
+            <div class="text-sm" style="margin: 8px 0 6px 0;">
+                Filter
+                <select id="abe-adj-filter" class="text-xs" onchange="abeRenderAdjudication()"
+                    style="padding: 3px 6px; border: 1px solid var(--color-border); border-radius: 4px;
+                    background: var(--color-bg-input); color: var(--color-text-primary);">
+                    <option value="">all fields</option>
+                    ${adjCols.map(c => `<option value="${_esc(c)}">${_esc(c)}</option>`).join("")}
+                </select>
+                <span class="text-xxs" style="color: var(--color-text-muted);">— free-text fields differ
+                on almost every item by nature; expand an item for its differing fields, or open the
+                full field-by-field view</span>
+            </div>
+            <div id="abe-adj-table" style="max-height: 50vh; overflow-y: auto;"></div>
+        </details>
         <div id="abe-human-section" style="margin-top: 18px;"></div>`;
 
         container.innerHTML = html;
@@ -1599,17 +1619,19 @@
                 : kind.key === "enum" ? "mean agreement across pairs (lowest first)"
                 : kind.key === "list" ? "mean Jaccard across pairs (lowest first)"
                 : "not scored (prose is never string-equal)";
-            return `<div class="text-sm font-semibold" style="margin: 12px 0 4px 0;
-                    color: var(--color-text-heading);">
-                    ${_esc(kind.label)}
+            return `<details open style="margin: 12px 0 4px 0;">
+                <summary style="cursor: pointer;">
+                    <h5 class="text-sm font-semibold" style="display: inline; margin: 0;
+                        color: var(--color-text-heading);">${_esc(kind.label)}</h5>
                     <span class="text-xxs font-normal meta-tooltip" data-tooltip="${_esc(kind.blurb)}"
                         style="color: var(--color-text-muted); cursor: help;">&#9432;</span>
-                </div>
-                <table style="border-collapse: collapse; width: 100%;" class="text-xs">
+                </summary>
+                <table style="border-collapse: collapse; width: 100%; margin-top: 4px;" class="text-xs">
                 <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
                     <th style="${cell}">field</th>
                     <th style="${cell}">${_esc(metricHeader)}</th>
-                </tr></thead><tbody>${rows}</tbody></table>`;
+                </tr></thead><tbody>${rows}</tbody></table>
+            </details>`;
         }).join("");
 
         el.innerHTML = blocks || '<span class="text-xs" style="color: var(--color-text-muted);">No comparable columns.</span>';
@@ -1626,21 +1648,44 @@
             el.innerHTML = '<span class="text-xs" style="color: var(--color-text-muted);">No disagreements 🎉</span>';
             return;
         }
+        // Group disagreement rows by item so each item is one collapsible
+        // sub-sub-section listing only the fields where the contracts differ.
+        const byItem = new Map();
+        for (const r of rows) {
+            if (!byItem.has(r.item_id)) byItem.set(r.item_id, []);
+            byItem.get(r.item_id).push(r);
+        }
+        const ITEM_CAP = 500;
+        const items = [...byItem.entries()];
+        const shown = items.slice(0, ITEM_CAP);
         const cell = "padding: 4px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top;";
-        el.innerHTML = `<table style="border-collapse: collapse; width: 100%;" class="text-xs">
-            <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
-                <th style="${cell}">item</th><th style="${cell}">column</th>
-                ${arms.map(a => `<th style="${cell}" class="font-mono">${_esc(_armLabel(a))}</th>`).join("")}
-            </tr></thead>
-            <tbody>${rows.slice(0, 500).map(r => `<tr>
-                <td style="${cell}"><a href="#" class="abe-item font-mono" data-i="${_esc(r.item_id)}"
-                    style="color: var(--color-accent);">${_esc(r.item_id)}</a></td>
-                <td style="${cell}" class="font-mono">${_esc(r.column)}</td>
-                ${arms.map(a => `<td style="${cell}">${_esc((r.values || {})[a] ?? "")}</td>`).join("")}
-            </tr>`).join("")}</tbody></table>`
-            + (rows.length > 500 ? `<div class="text-xxs" style="color: var(--color-text-muted); padding: 6px 0;">Showing 500 of ${rows.length} — filter by column to narrow.</div>` : "");
+        el.innerHTML = shown.map(([itemId, itemRows]) => `
+            <details style="border-bottom: 1px solid var(--color-border);">
+                <summary style="cursor: pointer; padding: 5px 0;">
+                    <h5 class="text-xs font-semibold font-mono" style="display: inline; margin: 0;
+                        color: var(--color-text-heading);">${_esc(itemId)}</h5>
+                    <span class="text-xxs" style="color: var(--color-text-muted);">— ${itemRows.length}
+                        field${itemRows.length === 1 ? "" : "s"} differ</span>
+                    <a href="#" class="abe-item text-xxs" data-i="${_esc(itemId)}"
+                        style="color: var(--color-accent); margin-left: 8px;">full view &rarr;</a>
+                </summary>
+                <div style="overflow-x: auto; padding: 4px 0 8px 0;">
+                    <table style="border-collapse: collapse; width: 100%;" class="text-xs">
+                    <thead><tr class="text-xxs" style="text-align: left; color: var(--color-text-muted);">
+                        <th style="${cell}">field</th>
+                        ${arms.map(a => `<th style="${cell}" class="font-mono">${_esc(_armLabel(a))}</th>`).join("")}
+                    </tr></thead>
+                    <tbody>${itemRows.map(r => `<tr>
+                        <td style="${cell}" class="font-mono">${_esc(r.column)}</td>
+                        ${arms.map(a => `<td style="${cell}">${_esc((r.values || {})[a] ?? "")}</td>`).join("")}
+                    </tr>`).join("")}</tbody></table>
+                </div>
+            </details>`).join("")
+            + (items.length > ITEM_CAP ? `<div class="text-xxs" style="color: var(--color-text-muted); padding: 6px 0;">Showing ${ITEM_CAP} of ${items.length} items — filter by field to narrow.</div>` : "");
         el.querySelectorAll(".abe-item").forEach(a =>
-            a.addEventListener("click", (ev) => { ev.preventDefault(); openItemView(a.dataset.i); }));
+            a.addEventListener("click", (ev) => {
+                ev.preventDefault(); ev.stopPropagation(); openItemView(a.dataset.i);
+            }));
     }
 
     async function _armRows(arm) {
