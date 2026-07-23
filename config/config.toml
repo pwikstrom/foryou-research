@@ -125,6 +125,39 @@ max_video_mb = 90
 # gemini selection, and a local backend can hold only one resident model per
 # worker process.
 #
+# Token prices in USD per 1M tokens, used ONLY to display an approximate cost
+# next to the token counts on Annotation-testing runs. No annotation API
+# exposes prices programmatically, so update these manually now and then
+# (values below: 2026-07, standard tier, international endpoints; thinking
+# tokens are billed as output). Lookup is exact model id first, then longest
+# prefix match — so one entry covers dated snapshot ids. Caveat: the Qwen omni
+# models bill audio/video input above the text rate, so their figure is a
+# lower bound.
+[machine.pricing."gemini-3-flash-preview"]
+input = 0.50
+output = 3.00
+
+[machine.pricing."gemini-3.1-flash-lite"]
+input = 0.25
+output = 1.50
+
+[machine.pricing."gemini-3.5-flash-lite"]
+input = 0.30
+output = 2.50
+
+[machine.pricing."gemini-3.5-flash"]
+input = 1.50
+output = 9.00
+
+[machine.pricing."gemini-3.6-flash"]
+input = 1.50
+output = 7.50
+
+[machine.pricing."qwen3.5-omni-flash"]
+input = 0.10
+output = 0.80
+
+
 [machine.variants.gemini_31]
 backend = "gemini"
 model = "gemini-3.1-flash-lite"
