@@ -135,11 +135,36 @@ max_video_mb = 90
 ##########################################################################################
 # embedding
 ##########################################################################################
-# Local Qwen text-embedding backend for the semantic space pipeline (select it
-# via Admin → General → Embeddings). Runs on MPS / CUDA / CPU via
+# Embedding backends for the semantic space pipeline (select via Admin →
+# General → Embeddings). The embedding store is scoped per model, so changing
+# a backend's model_id (or switching backends) re-embeds under the new model —
+# old vectors are kept and remain valid for the old model id.
+
+# Default Gemini embedding backend (Vertex AI or API-key mode).
+# gemini-embedding-001 supports Matryoshka truncation to 768/1536/3072 dims;
+# 1536 is the quality/size sweet spot. location pins the Vertex embedding
+# endpoint (ignored in API-key mode); task_type tunes vectors for clustering.
+[embedding.gemini]
+model_id = "gemini-embedding-001"
+dim = 1536
+location = "us-central1"
+task_type = "CLUSTERING"
+
+# Hosted Qwen text embeddings (Alibaba Model Studio / DashScope, intl region;
+# requires the DASHSCOPE_API_KEY environment variable — same key as the
+# qwen_api annotation backend). text-embedding-v4 is Qwen3-Embedding-based and
+# supports a dimensions parameter (64–2048); the API caps 10 inputs/request,
+# hence the small batch_size.
+[embedding.qwen_api]
+model_id = "text-embedding-v4"
+dim = 1024
+base_url = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+batch_size = 10
+request_timeout = 60
+
+# Local Qwen text-embedding backend. Runs on MPS / CUDA / CPU via
 # sentence-transformers; the 0.6B model is ~1.2 GB. dim is the Matryoshka
-# truncation (0.6B supports 32–1024). The embedding store is scoped per model,
-# so switching backends re-embeds under the new model (old vectors are kept).
+# truncation (0.6B supports 32–1024).
 # Install: pip install -e ".[local_embeddings]" — see
 # docs/installation.md#enabling-local-embeddings.
 [embedding.qwen_local]

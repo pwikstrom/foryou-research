@@ -1014,6 +1014,17 @@
         return (x == null || Number.isNaN(x)) ? "—" : `${Math.round(Number(x) * 100)}%`;
     }
 
+    // Explicit input/output token breakdown for an arm's cost dict — priced
+    // API calls bill input and output separately, so both matter. Thinking
+    // tokens (billed as output on Gemini) are broken out when present.
+    function _tokensLine(c) {
+        const n = (x) => (typeof x === "number") ? x.toLocaleString("en-US") : "—";
+        const thoughts = (typeof c.thoughts_tokens === "number" && c.thoughts_tokens > 0)
+            ? ` (+${n(c.thoughts_tokens)} thinking)` : "";
+        return `tokens: ${n(c.prompt_tokens)} in · ${n(c.candidates_tokens)} out${thoughts}`
+            + ` · ${n(c.total_tokens)} total`;
+    }
+
     // The headline metric of a column, used ONLY to sort within its own kind.
     // Correlation (−1..1), agreement (0..1) and Jaccard (0..1) are not on a
     // common scale, which is exactly why the table is grouped by kind rather
@@ -1095,7 +1106,8 @@
                 <div class="font-semibold font-mono">${_esc(_armLabel(arm))}</div>
                 <div class="text-xxs" style="color: var(--color-text-muted); margin-top: 2px;">${_esc(ovParts.join(" · "))}</div>
                 <div class="text-xs" style="color: var(--color-text-muted); margin-top: 4px;">
-                    ${_esc(String(c.total_tokens ?? "—"))} tokens ·
+                    ${_tokensLine(c)}</div>
+                <div class="text-xs" style="color: var(--color-text-muted); margin-top: 2px;">
                     ${_esc(String(c.n_errors ?? "—"))} errors ·
                     ${_fmt(c.mean_inference_duration, 1)}s mean</div>
                 ${isCandidate

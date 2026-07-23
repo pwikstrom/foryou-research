@@ -15,11 +15,12 @@ cloud calls at all.
 from fyp.analysis.embedding_backends.base import BackendAvailability, EmbeddingBackend
 
 # Stable, settings-visible backend ids. Order = UI display order.
-BACKEND_IDS = ("gemini", "qwen_local")
+BACKEND_IDS = ("gemini", "qwen_api", "qwen_local")
 
 # Backend id -> implementing module (imported lazily on first get_backend()).
 _BACKEND_MODULES = {
     "gemini": "fyp.analysis.embedding_backends.gemini",
+    "qwen_api": "fyp.analysis.embedding_backends.qwen_api",
     "qwen_local": "fyp.analysis.embedding_backends.qwen_local",
 }
 

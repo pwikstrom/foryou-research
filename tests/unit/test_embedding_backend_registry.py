@@ -33,7 +33,7 @@ def test_unknown_backend_raises():
 
 
 def test_backend_ids_closed_set():
-    assert embedding_backends.BACKEND_IDS == ("gemini", "qwen_local")
+    assert embedding_backends.BACKEND_IDS == ("gemini", "qwen_api", "qwen_local")
     assert set(embedding_backends._BACKEND_MODULES) == set(embedding_backends.BACKEND_IDS)
 
 
@@ -66,7 +66,7 @@ def test_active_backend_name_reads_setting(monkeypatch):
 def test_active_backend_name_rejects_unknown_value(monkeypatch):
     from fyp.analysis.embedding_backends import settings as embed_settings
 
-    monkeypatch.setattr(embed_settings, "get_embedding_backend", lambda: "qwen_api")
+    monkeypatch.setattr(embed_settings, "get_embedding_backend", lambda: "not_a_backend")
     assert embedding_backends.active_backend_name() == "gemini"
 
 
