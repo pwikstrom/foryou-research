@@ -138,3 +138,4 @@ def test_embedding_backends_endpoint_shape(client):
     assert sum(1 for b in backends if b["active"]) == 1
     for b in backends:
         assert {"ok", "reason", "checks"} <= set(b["availability"])
+        assert b["model"], f"{b['name']} entry is missing its model id"

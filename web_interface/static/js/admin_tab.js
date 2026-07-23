@@ -259,6 +259,7 @@
                     const statusLabel = ok ? 'available' : 'unavailable';
                     rows.push(`<div class="font-semibold" style="margin: ${i ? '10px' : '0'} 0 4px 0; color: var(--color-text-primary);">
                         ${b.name}
+                        ${b.model ? `<span class="font-mono font-normal text-xs" style="color: var(--color-text-muted);">${b.model}</span>` : ''}
                         <span style="color: ${statusColor};">● ${statusLabel}</span>
                         ${b.active ? '<span style="color: var(--color-text-muted);">— active</span>' : ''}
                     </div>`);
