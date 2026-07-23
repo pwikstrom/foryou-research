@@ -146,3 +146,44 @@ def test_rope_fix_skips_on_newer_mlx_vlm(monkeypatch):
     monkeypatch.setitem(sys.modules, "mlx_vlm", fake)
     monkeypatch.setattr(fix, "_APPLIED", False)
     assert fix.apply_patches() is False  # assumed fixed upstream — no-op
+
+
+
+
+
+def test_fetch_media_downloads_gcs_blob_directly(monkeypatch, tmp_path):
+    """GCS media has no gcs_paths entry — the blob downloads via the bucket
+    handle (the local_copy('media', ...) path raised KeyError in production)."""
+    import os
+
+    import fyp.media_paths as media_paths
+    from fyp.annotation.backends import qwen_local
+    from fyp.fyp_config import get_config
+
+    class _Blob:
+        def __init__(self, name):
+            self.name = name
+
+        def download_to_filename(self, path):
+            with open(path, "wb") as f:
+                f.write(b"mp4-bytes")
+
+    class _Bucket:
+        def blob(self, name):
+            return _Blob(name)
+
+    monkeypatch.setattr(media_paths, "resolve_media",
+                        lambda item_id, platform=None: {
+                            "kind": "gcs", "bucket_name": "b",
+                            "blob_name": "media/tiktok/123.mp4"})
+    monkeypatch.setitem(get_config()["data_io"], "bucket", _Bucket())
+
+    path, cleanup = qwen_local._fetch_media("123", "tiktok")
+    assert path is not None and os.path.exists(path)
+    assert open(path, "rb").read() == b"mp4-bytes"
+    cleanup()
+    assert not os.path.exists(path)
+
+    # No bucket handle (GCS offline) -> clean miss, not an exception.
+    monkeypatch.setitem(get_config()["data_io"], "bucket", None)
+    assert qwen_local._fetch_media("123", "tiktok") == (None, None)

@@ -280,12 +280,16 @@ def _default_platform() -> str:
 def _fetch_media(item_id: str, platform: str | None):
     """Resolve the item's media to a local file path.
 
+    GCS media lives under ``data_io.gcs_media_prefix`` and has NO
+    ``gcs_paths`` location entry (unlike data/cache locations), so the blob
+    is downloaded directly via the bucket handle — the same access pattern
+    as the viewer's streaming reader.
+
     Returns:
-        ``(path, cleanup)`` — ``cleanup`` releases a temp copy when the object
-        was fetched from GCS (no-op for genuinely local files); ``(None, None)``
-        when the media does not exist anywhere.
+        ``(path, cleanup)`` — ``cleanup`` removes the temp copy when the
+        object was fetched from GCS (``None`` for genuinely local files);
+        ``(None, None)`` when the media does not exist anywhere.
     """
-    import fyp.data_io as data_io
     import fyp.media_paths as media_paths
 
     resolved = media_paths.resolve_media(item_id, platform=platform)
@@ -294,14 +298,24 @@ def _fetch_media(item_id: str, platform: str | None):
     if resolved["kind"] == "local":
         return resolved["path"], None
 
-    prefix = get_config()["data_io"]["gcs_media_prefix"]
-    relpath = resolved["blob_name"]
-    if relpath.startswith(f"{prefix}/"):
-        relpath = relpath[len(prefix) + 1:]
-    local = data_io.local_copy(storage_location="media", filename=relpath)
-    if local is None:
+    bucket = get_config()["data_io"].get("bucket")
+    if bucket is None:
         return None, None
-    return local, lambda: data_io.release_local_copy(local)
+    fd, tmp = tempfile.mkstemp(prefix="fyp_media_", suffix=".mp4")
+    os.close(fd)
+    try:
+        bucket.blob(resolved["blob_name"]).download_to_filename(tmp)
+    except Exception as e:
+        logger.warning(f"media download failed for {resolved['blob_name']}: {e!r}")
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        return None, None
+
+    def _cleanup():
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+    return tmp, _cleanup
 
 
 
