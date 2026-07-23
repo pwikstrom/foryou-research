@@ -29,6 +29,10 @@
         if (clickedItem) {
             clickedItem.classList.add('active');
         }
+
+        if (typeof updateSubPageHash === 'function') {
+            updateSubPageHash('my_stuff', pageId);
+        }
     }
 
     // Called when the My stuff tab is opened or user settings are loaded.

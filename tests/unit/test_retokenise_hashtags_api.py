@@ -58,7 +58,7 @@ def run():
         assert resp.status_code in (302, 401), resp.status_code
         print("PASS: anonymous rejected")
 
-        # Viewer lacking tab.admin.general → 403.
+        # Viewer lacking tab.admin.stoplist → 403.
         fl_utils._get_user = lambda: viewer
         resp = client.post("/api/admin/irrelevant_words/apply")
         assert resp.status_code == 403, resp.status_code

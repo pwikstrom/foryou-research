@@ -2155,7 +2155,7 @@ function renderScraperAlerts(alerts) {
 // disappears by itself once Gemini is configured.
 function renderAnnotationConfigNotice(stats) {
     // Backend badge: which engine the annotator card will run (Gemini vs a
-    // local model, selected in Admin → General).
+    // local model, selected in Admin → Backends).
     const backend = (stats && stats.annotation_backend) || 'gemini';
     window._annotationBackend = backend;
     const badge = document.getElementById('annotation-backend-badge');
@@ -2851,6 +2851,10 @@ function openDataManagementPage(pageId, clickedItem) {
                 renderEditActivityTable(editContainer);
             }
         }
+    }
+
+    if (typeof updateSubPageHash === 'function') {
+        updateSubPageHash('data_management', pageId);
     }
 }
 

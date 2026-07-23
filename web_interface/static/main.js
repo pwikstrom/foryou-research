@@ -1500,6 +1500,84 @@ function openTab(evt, tabName) {
 
     // Close mobile nav drawer (if open) once a tab is selected
     closeNavDrawer();
+
+    // Keep the URL hash in sync (a sub-page opener may refine it to
+    // #tab/sub-page right after).
+    if (!_applyingHashNav) {
+        history.replaceState(null, '', `#${tabName}`);
+    }
+}
+
+// ============================================================
+// Hash deep-linking (#tab or #tab/sub-page, e.g. #admin/backends)
+// ============================================================
+
+// Sidebar page-id prefix per tab with sub-pages; the hash carries the id
+// minus this prefix ("admin-page-backends" → "#admin/backends").
+const _HASH_PAGE_PREFIX = {
+    admin: 'admin-page-',
+    data_management: 'dm-page-',
+    my_stuff: 'my-stuff-page-',
+};
+
+// True while a hash is being applied, so openTab / the sub-page openers
+// don't rewrite the hash mid-navigation.
+let _applyingHashNav = false;
+
+// Called by the sub-page openers (openAdminPage / openDataManagementPage /
+// openMyStuffPage) after they switch pages.
+function updateSubPageHash(tabId, pageId) {
+    if (_applyingHashNav) return;
+    const prefix = _HASH_PAGE_PREFIX[tabId];
+    if (!prefix || !pageId) return;
+    const slug = pageId.startsWith(prefix) ? pageId.slice(prefix.length) : pageId;
+    history.replaceState(null, '', `#${tabId}/${slug}`);
+}
+
+// Switch to a tab (and optionally one of its sidebar sub-pages) the same way
+// a user click would — used by the mobile sub-nav and by hash navigation.
+function _navigateToTabPage(tabId, pageId) {
+    const pane = document.getElementById(tabId);
+    if (!pane) return;
+    const activePane = document.querySelector('.tab-pane.active');
+    if (!activePane || activePane.id !== tabId) {
+        // Call openTab directly (no event) to avoid re-triggering the
+        // capture-phase expand handler on the tab button.
+        openTab(null, tabId);
+        // openTab clears all .tab-button.active and only re-applies from
+        // evt.currentTarget; manually set the active state and label.
+        const tabBtn = document.querySelector(
+            `.tab-button[data-tab="${tabId}"], .tab-button[data-subpages-for="${tabId}"]`);
+        if (tabBtn) {
+            tabBtn.classList.add('active');
+            const label = document.getElementById('current-tab-label');
+            if (label) label.textContent = tabBtn.textContent.trim();
+        }
+        if (tabId === 'admin' && typeof loadUsers === 'function') {
+            loadUsers();
+        }
+    }
+    if (pageId) {
+        const sidebarItem = pane.querySelector(`.dm-sidebar .dm-sidebar-item[data-page="${pageId}"]`);
+        if (sidebarItem) sidebarItem.click();
+    }
+}
+
+function _applyHashNavigation() {
+    const m = (location.hash || '').match(/^#([a-z_]+)(?:\/([a-z0-9-]+))?$/);
+    if (!m) return;
+    const tabId = m[1];
+    const slug = m[2];
+    const pane = document.getElementById(tabId);
+    // Only navigate to real tab panes the current user can see.
+    if (!pane || !pane.classList.contains('tab-pane')) return;
+    const pageId = slug ? (_HASH_PAGE_PREFIX[tabId] || '') + slug : null;
+    _applyingHashNav = true;
+    try {
+        _navigateToTabPage(tabId, pageId);
+    } finally {
+        _applyingHashNav = false;
+    }
 }
 
 const _TAB_TITLE_MAP = {
@@ -1703,6 +1781,10 @@ document.addEventListener('DOMContentLoaded', function () {
     // Build the nested sub-page lists once on load.
     _buildTabSubnavs();
 
+    // Deep links: honour a #tab/sub-page hash on load and on back/forward.
+    _applyHashNavigation();
+    window.addEventListener('hashchange', _applyHashNavigation);
+
     // Intercept clicks on top-level tab buttons that have sub-pages: on mobile
     // they expand the nested list instead of navigating. Capture phase +
     // stopImmediatePropagation blocks the inline onclick on the same element.
@@ -1723,28 +1805,8 @@ document.addEventListener('DOMContentLoaded', function () {
         e.preventDefault();
         const tabId = sub.getAttribute('data-target-tab');
         const pageId = sub.getAttribute('data-target-page');
-        const pane = document.getElementById(tabId);
-        if (!pane) return;
-        const activePane = document.querySelector('.tab-pane.active');
-        const needsTabSwitch = !activePane || activePane.id !== tabId;
-        if (needsTabSwitch && typeof openTab === 'function') {
-            // Call openTab directly (no event) to avoid re-triggering the
-            // capture-phase expand handler on the tab button.
-            openTab(null, tabId);
-            // openTab clears all .tab-button.active and only re-applies from
-            // evt.currentTarget; manually set the active state and label.
-            const tabBtn = document.querySelector(`.tab-button[data-subpages-for="${tabId}"]`);
-            if (tabBtn) {
-                tabBtn.classList.add('active');
-                const label = document.getElementById('current-tab-label');
-                if (label) label.textContent = tabBtn.textContent.trim();
-            }
-            if (tabId === 'admin' && typeof loadUsers === 'function') {
-                loadUsers();
-            }
-        }
-        const sidebarItem = pane.querySelector(`.dm-sidebar .dm-sidebar-item[data-page="${pageId}"]`);
-        if (sidebarItem) sidebarItem.click();
+        if (!document.getElementById(tabId)) return;
+        _navigateToTabPage(tabId, pageId);
         // Mirror active state onto the sub-rows.
         sub.parentElement.querySelectorAll('.tab-subnav-item').forEach(li => li.classList.remove('active'));
         sub.classList.add('active');

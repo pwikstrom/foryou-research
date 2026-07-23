@@ -194,7 +194,7 @@ exactly what to fix (see step 1).
    python scripts/setup.py --check-only     # look for the "local qwen:" rows
    ```
 
-   or, in the running app: **Admin → General → Machine annotation** — the
+   or, in the running app: **Admin → Backends → Machine annotation** — the
    requirements panel under the backend selector.
 
 2. **Install the local runtime** into the app's virtualenv (~a few minutes;
@@ -224,7 +224,7 @@ exactly what to fix (see step 1).
    ```
 
 5. **Switch the backend.** Restart the app if it was running during the
-   installs, then go to **Admin → General → Machine annotation**, confirm the
+   installs, then go to **Admin → Backends → Machine annotation**, confirm the
    requirements panel is all green, and set the backend to `qwen_local`.
    From now on Data Management → Enrichment's annotator runs the local model
    (the card shows a `qwen_local` badge). Switch back to `gemini` at any
@@ -292,7 +292,7 @@ enum agreement vs Gemini above both local backends).
 2. Set the `DASHSCOPE_API_KEY` environment variable where the annotation
    worker runs (locally in your shell; on Cloud Run on the `fyp-task-runner`
    service).
-3. Select **Hosted Qwen (DashScope)** under Admin → General → Annotation.
+3. Select **Hosted Qwen (DashScope)** under Admin → Backends → Annotation.
    The requirements panel runs the key/endpoint checks.
 
 Notes:
@@ -349,7 +349,7 @@ pip install -e ".[local_minicpm]"        # same mlx-vlm runtime as local_qwen
 hf download mlx-community/MiniCPM-o-4_5-4bit   # ~6 GB, one-time
 ```
 
-Then set the backend to `minicpm_local` in **Admin → General → Machine
+Then set the backend to `minicpm_local` in **Admin → Backends → Machine
 annotation** (requirements panel must be green). Everything from the Qwen
 section's tips applies unchanged: MiniCPM rows get their own `av_` annotation
 version, A/B testing supports a `minicpm_local` arm, annotation is
@@ -371,7 +371,7 @@ normally embeds with Gemini. Its API details are explicit in
 edit; the model-scoped store re-embeds under the new model on the next
 refresh while keeping the old vectors.
 
-Two alternatives are available from the same Admin → General → Embeddings
+Two alternatives are available from the same Admin → Backends → Embeddings
 dropdown:
 
 - **`qwen_api` — hosted Qwen embeddings** (Alibaba Model Studio / DashScope,
@@ -398,7 +398,7 @@ pip install -e ".[local_embeddings]"      # sentence-transformers + torch
 hf download Qwen/Qwen3-Embedding-0.6B    # ~1.2 GB, one-time
 ```
 
-Then in **Admin → General → Embeddings**, set the embedding backend to
+Then in **Admin → Backends → Embeddings**, set the embedding backend to
 `qwen_local`. The requirements panel below the dropdown shows what (if
 anything) is still missing, with the exact command to fix it.
 

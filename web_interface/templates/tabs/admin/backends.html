@@ -1,0 +1,68 @@
+<!-- Backends sub-page — annotation + embedding backend selection -->
+<h2 style="margin: 0 0 16px 0;">Backends</h2>
+
+<!-- Machine annotation backend -->
+<section style="margin-bottom: 28px;">
+    <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Machine annotation</h3>
+    <p class="text-xs" style="margin: 0 0 12px 0; color: var(--color-text-muted); max-width: 680px;">
+        The backend that annotates videos. Model and generation parameters (temperature, thinking
+        budget, media resolution, max output tokens) are set in the <span class="font-mono">[machine]</span>
+        section of <span class="font-mono">config/config.toml</span> and require a rebuild/redeploy to change.
+    </p>
+    <p class="text-xs font-semibold" style="margin: 0 0 12px 0; color: var(--color-text-warning, var(--color-text-primary)); max-width: 680px;">
+        Changing the backend (or the configured model/parameters) forks a new annotation version
+        (<span class="font-mono">av_…</span>). Existing annotations stay under their version;
+        see Admin &rarr; Annotation Versions.
+    </p>
+
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+        <label for="setting-annotation-backend" class="text-sm" style="color: var(--color-text-primary);">
+            Annotation backend
+        </label>
+        <select id="setting-annotation-backend" onchange="saveMachineSetting(this, 'annotation_backend')" disabled
+            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary); min-width: 160px;">
+            <!-- Populated dynamically -->
+        </select>
+        <span id="setting-annotation-backend-status" class="text-xs" style="color: var(--color-text-muted);"></span>
+    </div>
+
+    <!-- Per-backend health + requirement checks for every backend (rendered
+         from GET /api/manage/annotation/backends; each failing row carries an
+         actionable fix command). -->
+    <div id="backend-requirements" class="text-xs"
+        style="display: none; margin: 0 0 14px 0; padding: 10px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-elevated); max-width: 680px;">
+    </div>
+</section>
+
+<!-- Embedding backend (semantic space pipeline) -->
+<section style="margin-bottom: 28px;">
+    <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Embeddings</h3>
+    <p class="text-xs" style="margin: 0 0 12px 0; color: var(--color-text-muted); max-width: 680px;">
+        The model that embeds annotated videos for the Semantic Space map. Chosen independently of
+        the annotation backend — with both set to a local backend, embeddings and the semantic map
+        run with no cloud calls (niche names then come from each niche's top terms instead of Gemini).
+    </p>
+    <p class="text-xs font-semibold" style="margin: 0 0 12px 0; color: var(--color-text-warning, var(--color-text-primary)); max-width: 680px;">
+        Changing the backend re-embeds the corpus under the new model on the next embeddings
+        refresh (existing vectors are kept, so switching back costs nothing). Rebuild the video
+        map afterwards.
+    </p>
+
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+        <label for="setting-embedding-backend" class="text-sm" style="color: var(--color-text-primary);">
+            Embedding backend
+        </label>
+        <select id="setting-embedding-backend" onchange="saveMachineSetting(this, 'embedding_backend')" disabled
+            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary); min-width: 160px;">
+            <!-- Populated dynamically -->
+        </select>
+        <span id="setting-embedding-backend-status" class="text-xs" style="color: var(--color-text-muted);"></span>
+    </div>
+
+    <!-- Per-backend requirement checks (rendered from
+         GET /api/manage/embedding/backends; each failing row carries an
+         actionable fix command). -->
+    <div id="embedding-backend-requirements" class="text-xs"
+        style="display: none; margin: 0 0 14px 0; padding: 10px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-elevated); max-width: 680px;">
+    </div>
+</section>

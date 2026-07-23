@@ -25,7 +25,7 @@ from .contracts import _annotation_contract_impact
 
 
 @management_bp.route('/api/manage/ab-candidates', methods=['GET'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def list_ab_candidates():
     """List stored candidate contracts (metadata only, newest first)."""
@@ -40,7 +40,7 @@ def list_ab_candidates():
 
 
 @management_bp.route('/api/manage/ab-candidates', methods=['POST'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def save_ab_candidate():
     """Create/overwrite a named candidate contract.
@@ -90,7 +90,7 @@ def save_ab_candidate():
 
 
 @management_bp.route('/api/manage/ab-candidates/<name>', methods=['GET'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def get_ab_candidate(name):
     """Return one candidate's text + parsed contract + metadata."""
@@ -110,7 +110,7 @@ def get_ab_candidate(name):
 
 
 @management_bp.route('/api/manage/ab-candidates/<name>', methods=['DELETE'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def delete_ab_candidate(name):
     """Delete a candidate contract."""
@@ -129,7 +129,7 @@ def delete_ab_candidate(name):
 
 
 @management_bp.route('/api/manage/ab-candidates/<name>/activate', methods=['POST'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def activate_ab_candidate(name):
     """Dry-run a candidate for activation (the graduation path).
@@ -163,7 +163,7 @@ def activate_ab_candidate(name):
 
 
 @management_bp.route('/api/manage/ab-eval-sets', methods=['GET'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def list_ab_eval_sets():
     """Return every named evaluation set plus the active one."""
@@ -178,7 +178,7 @@ def list_ab_eval_sets():
 
 
 @management_bp.route('/api/manage/ab-eval-sets', methods=['POST'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def create_ab_eval_set():
     """Create a new (optionally cloned) evaluation set. Body: ``{name, copy_from?}``."""
@@ -204,7 +204,7 @@ def create_ab_eval_set():
 
 
 @management_bp.route('/api/manage/ab-eval-sets/<name>/rename', methods=['POST'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def rename_ab_eval_set(name):
     """Rename an evaluation set. Body: ``{new_name}``."""
@@ -231,7 +231,7 @@ def rename_ab_eval_set(name):
 
 
 @management_bp.route('/api/manage/ab-eval-sets/<name>/activate', methods=['POST'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def activate_ab_eval_set(name):
     """Make ``name`` the active evaluation set (the one a run uses)."""
@@ -255,7 +255,7 @@ def activate_ab_eval_set(name):
 
 
 @management_bp.route('/api/manage/ab-eval-sets/<name>', methods=['DELETE'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def delete_ab_eval_set(name):
     """Delete an evaluation set (never the last remaining one)."""
@@ -278,7 +278,7 @@ def delete_ab_eval_set(name):
 
 
 @management_bp.route('/api/manage/ab-eval-set', methods=['GET'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def get_ab_eval_set():
     """Return one eval set (``?name=`` or the active one) with per-item flags."""
@@ -298,7 +298,7 @@ def get_ab_eval_set():
 
 
 @management_bp.route('/api/manage/ab-eval-set', methods=['POST'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def save_ab_eval_set():
     """Persist one eval set's items. Body: ``{item_ids, name?, note?}``. Capped."""
@@ -328,7 +328,7 @@ def save_ab_eval_set():
 
 
 @management_bp.route('/api/manage/ab-eval-set/sample', methods=['POST'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def sample_ab_eval_set():
     """Sample N downloaded item ids (stratified by platform) WITHOUT persisting.
@@ -357,7 +357,7 @@ def sample_ab_eval_set():
 
 
 @management_bp.route('/api/manage/ab-eval/estimate', methods=['POST'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def estimate_ab_eval():
     """Estimate a run's annotation call count for the confirm dialog.
@@ -486,7 +486,7 @@ def _clean_arms_spec(raw) -> tuple[list | None, str | None]:
 
 
 @management_bp.route('/api/manage/ab-eval/run', methods=['POST'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def start_ab_eval_run():
     """Start a test run as the ``ab_eval`` background task.
@@ -567,7 +567,7 @@ def start_ab_eval_run():
 
 
 @management_bp.route('/api/manage/ab-eval/runs', methods=['GET'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def list_ab_eval_runs():
     """Return the runs index (newest first)."""
@@ -582,7 +582,7 @@ def list_ab_eval_runs():
 
 
 @management_bp.route('/api/manage/ab-eval/runs/<run_id>', methods=['GET'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def get_ab_eval_run(run_id):
     """Return one run's manifest + comparison report + human-input block."""
@@ -604,7 +604,7 @@ def get_ab_eval_run(run_id):
 
 
 @management_bp.route('/api/manage/ab-eval/runs/<run_id>/rows', methods=['GET'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def get_ab_eval_run_rows(run_id):
     """Return one arm's refined rows (JSON-safe) for the side-by-side view.
@@ -637,7 +637,7 @@ def get_ab_eval_run_rows(run_id):
 
 
 @management_bp.route('/api/manage/ab-eval/runs/<run_id>', methods=['DELETE'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.ab_eval')
 @login_required
 def delete_ab_eval_run(run_id):
     """Delete a run's artifacts."""

@@ -607,7 +607,7 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             if not get_backend(backend_name).cloud_run_capable:
                 return False, (f"The '{backend_name}' annotation backend runs only on a "
                                f"local machine — switch the backend to Gemini in "
-                               f"Admin → General, or run the annotator locally.")
+                               f"Admin → Backends, or run the annotator locally.")
         except ValueError as exc:
             return False, f"Annotation backend unavailable: {exc}"
 
@@ -621,7 +621,7 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             if not get_backend(backend_name).cloud_run_capable:
                 return False, (f"The '{backend_name}' embedding backend runs only on a "
                                f"local machine — switch the backend to Gemini in "
-                               f"Admin → General, or run the embeddings refresh locally.")
+                               f"Admin → Backends, or run the embeddings refresh locally.")
         except ValueError as exc:
             return False, f"Embedding backend unavailable: {exc}"
 

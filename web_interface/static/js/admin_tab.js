@@ -3,11 +3,14 @@
         'admin-page-active-users': 'tab.admin.active_users',
         'admin-page-roles':        'tab.admin.roles',
         'admin-page-annotations':  'tab.admin.annotations',
-        'admin-page-general':      'tab.admin.general',
-        'admin-page-schema':       'tab.admin.schema',
-        'admin-page-versions':     'tab.admin.schema',
-        'admin-page-abeval':       'tab.admin.schema',
+        'admin-page-backends':     'tab.admin.backends',
+        'admin-page-versions':     'tab.admin.versions',
+        'admin-page-abeval':       'tab.admin.ab_eval',
         'admin-page-humaneval':    'tab.admin.human_eval',
+        'admin-page-schema':       'tab.admin.schema',
+        'admin-page-stoplist':     'tab.admin.stoplist',
+        'admin-page-scrapers':     'tab.admin.scrapers',
+        'admin-page-general':      'tab.admin.general',
         'admin-page-system-info':  'tab.admin.system_info',
     };
 
@@ -40,6 +43,10 @@
         if (clickedItem) {
             clickedItem.classList.add('active');
         }
+
+        if (typeof updateSubPageHash === 'function') {
+            updateSubPageHash('admin', pageId);
+        }
     }
 
     function _hasPerm(key) {
@@ -63,20 +70,22 @@
             }
 
             // Roles list is needed by Active Users, New Users, the Roles
-            // matrix, and the General default-role dropdown. Settings are
-            // needed by General (edit) and New Users (display). loadAdminSettings
-            // reads window.availableRoles to render the default-role dropdown,
+            // matrix, and the Site Settings default-role dropdown. Settings are
+            // needed by Site Settings (edit), New Users (display) and Backends
+            // (active backend selections). loadAdminSettings reads
+            // window.availableRoles to render the default-role dropdown,
             // so we await loadRoles first to avoid a race.
             const needsRoles = _hasPerm('tab.admin.roles')
                 || _hasPerm('tab.admin.active_users')
                 || _hasPerm('tab.admin.new_users')
                 || _hasPerm('tab.admin.general');
             const needsSettings = _hasPerm('tab.admin.general')
-                || _hasPerm('tab.admin.new_users');
+                || _hasPerm('tab.admin.new_users')
+                || _hasPerm('tab.admin.backends');
 
             if (needsRoles) await loadRoles();
             if (needsSettings) loadAdminSettings();
-            if (_hasPerm('tab.admin.general')) loadIrrelevantWords();
+            if (_hasPerm('tab.admin.stoplist')) loadIrrelevantWords();
 
         } catch (error) {
             console.error('Error:', error);
@@ -199,6 +208,8 @@
     function populateMachineSettings(settings) {
         // The backend selectors need per-backend availability, not just
         // "module importable" — fetch the requirement checks and render both.
+        // Backends is its own sub-page; skip when the user can't see it.
+        if (!_hasPerm('tab.admin.backends')) return;
         loadBackendRequirements(settings.annotation_backend || 'gemini');
         loadEmbeddingBackendRequirements(settings.embedding_backend || 'gemini');
     }
