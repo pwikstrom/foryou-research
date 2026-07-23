@@ -743,7 +743,12 @@
                 .filter(b => b.name !== "gemini")
                 .map(b => {
                     const ok = b.availability && b.availability.ok;
-                    return opt(b.name, b.name + (ok ? "" : " (unavailable)"),
+                    // Config-declared variants show their label + implementation.
+                    const isVariant = b.backend && b.backend !== b.name;
+                    const display = (b.label && b.label !== b.name) ? b.label : b.name;
+                    return opt(b.name,
+                        display + (isVariant ? ` [${b.backend}]` : "")
+                            + (ok ? "" : " (unavailable)"),
                         !ok, arm.backend === b.name);
                 }));
         return `<select class="abe-arm-backend text-xs" data-arm="${_esc(arm.label)}"

@@ -58,9 +58,10 @@ def validate_setting_value(key: str, value) -> str | None:
         return None
 
     if key == ANNOTATION_BACKEND_KEY:
-        from fyp.annotation.backends import BACKEND_IDS
-        if value not in BACKEND_IDS:
-            return f"Unknown annotation backend: {value!r} (known: {list(BACKEND_IDS)})"
+        from fyp.annotation.backends import variants
+        known = variants.selection_ids()
+        if value not in known:
+            return f"Unknown annotation backend: {value!r} (known: {list(known)})"
     elif key == EMBEDDING_BACKEND_KEY:
         from fyp.analysis.embedding_backends import BACKEND_IDS
         if value not in BACKEND_IDS:

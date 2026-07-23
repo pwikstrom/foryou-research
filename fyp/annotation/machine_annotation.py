@@ -164,18 +164,24 @@ def annotation_configured() -> tuple[bool, str]:
 
 
 
-def _resolve_media_resolution():
-    """Map the configured ``media_resolution`` to a genai enum, or ``None``.
+def _resolve_media_resolution(value=None):
+    """Map a ``media_resolution`` setting to a genai enum, or ``None``.
 
     Empty / unset returns ``None`` (use the API default — unchanged behaviour).
     For Gemini-3 video, LOW and MEDIUM are equivalent (~70 tokens/frame) and HIGH
     is ~280 tokens/frame, so LOW is the cost lever. Accepts a bare level
     ("LOW") or the full enum name ("MEDIA_RESOLUTION_LOW").
 
+    Args:
+        value: An explicit setting (a variant/arm override); None reads the
+            configured ``[machine].media_resolution``.
+
     Returns:
         A ``google.genai.types.MediaResolution`` value, or ``None``.
     """
-    value = str(_cf()["machine"].get("media_resolution", "") or "").strip().upper()
+    if value is None:
+        value = _cf()["machine"].get("media_resolution", "")
+    value = str(value or "").strip().upper()
     if not value:
         return None
     if not value.startswith("MEDIA_RESOLUTION_"):
@@ -185,8 +191,8 @@ def _resolve_media_resolution():
 
 
 
-def build_structured_generation_config():
-    """Build and cache the structured-output generation config.
+def build_structured_generation_config(gen_overrides: dict | None = None):
+    """Build the structured-output generation config (cached when unmodified).
 
     Reuses the existing prompt as the system instruction and attaches the
     response schema from :mod:`fyp.annotation_schema`, so decoding is constrained
@@ -194,26 +200,38 @@ def build_structured_generation_config():
     constrained decoding plus a thinking model does not loop the way free-text
     generation can (validated by the Phase 2 A/B evaluation).
 
+    Args:
+        gen_overrides: Optional overrides for ``temperature`` /
+            ``max_output_tokens`` / ``thinking_budget`` / ``media_resolution``
+            (a variant's pins or an A/B arm's params). A non-empty dict builds
+            a fresh config and never touches the cache slot, so the default
+            path stays byte-identical.
+
     Returns:
-        The cached ``GenerateContentConfig`` for structured annotation.
+        The ``GenerateContentConfig`` for structured annotation (the cached
+        instance when ``gen_overrides`` is empty).
     """
-    if _cf()["machine"].get("structured_generation_config") is not None:
+    gen_overrides = {k: v for k, v in (gen_overrides or {}).items() if v is not None}
+    if not gen_overrides and _cf()["machine"].get("structured_generation_config") is not None:
         return _cf()["machine"]["structured_generation_config"]
 
     machine_prompt = annotation_versioning.active_prompt_text()
+    machine = {**_cf()["machine"], **gen_overrides}
 
-    _cf()["machine"]["structured_generation_config"] = google.genai.types.GenerateContentConfig(
+    gen_config = google.genai.types.GenerateContentConfig(
         system_instruction=machine_prompt,
-        temperature=_cf()["machine"]["temperature"],
-        max_output_tokens=_cf()["machine"]["max_output_tokens"],
+        temperature=machine["temperature"],
+        max_output_tokens=machine["max_output_tokens"],
         response_mime_type="application/json",
         response_schema=build_response_schema(),
-        media_resolution=_resolve_media_resolution(),
+        media_resolution=_resolve_media_resolution(machine.get("media_resolution")),
         thinking_config=google.genai.types.ThinkingConfig(
-            thinking_budget=_cf()["machine"]["thinking_budget"]
+            thinking_budget=machine["thinking_budget"]
         ),
     )
-    return _cf()["machine"]["structured_generation_config"]
+    if not gen_overrides:
+        _cf()["machine"]["structured_generation_config"] = gen_config
+    return gen_config
 
 
 
@@ -268,7 +286,7 @@ def _is_transient_error(exc: Exception) -> bool:
 
 
 
-def _generate_with_retry(contents, gen_config):
+def _generate_with_retry(contents, gen_config, model: str | None = None):
     """Call the Gemini model with bounded exponential-backoff retries.
 
     Only transient errors (see :func:`_is_transient_error`) are retried; every
@@ -280,6 +298,8 @@ def _generate_with_retry(contents, gen_config):
     Args:
         contents: The request contents (video part + instruction).
         gen_config: The resolved ``GenerateContentConfig``.
+        model: Optional model-id override (a variant's pin); None uses the
+            configured ``[machine].model``.
 
     Returns:
         The model response object from ``generate_content``.
@@ -301,7 +321,7 @@ def _generate_with_retry(contents, gen_config):
     while True:
         try:
             return _cf()["machine"]["client"].models.generate_content(
-                model=_cf()["machine"]["model"],
+                model=model or _cf()["machine"]["model"],
                 config=gen_config,
                 contents=contents,
             )
@@ -323,10 +343,16 @@ def call_machine(
         verbose = False,
         dry_run = False,
         platform: str | None = None,
+        gen_overrides: dict | None = None,
     ) -> dict:
 
 
     initialize_machine()
+
+    # A variant's pins (model / gen params) ride in as overrides; empty means
+    # the exact historical config-driven path.
+    gen_overrides = {k: v for k, v in (gen_overrides or {}).items() if v is not None}
+    effective_model = gen_overrides.get("model") or _cf()["machine"]["model"]
 
 
     if dry_run:
@@ -353,7 +379,7 @@ def call_machine(
         "source_platform" : annotation_platform,
         "inference_ts" : int(times[-1].timestamp()),
         "inference_duration" : -1,
-        "model" : _cf()['machine']['model'],
+        "model" : effective_model,
         "prompt_fn" : annotation_versioning.active_prompt_label(),
         "annotation_version" : annotation_versioning.current_annotation_version(),
         "structured" : True,
@@ -428,7 +454,8 @@ def call_machine(
     # run the model
     try:
         start_ts = _dt.datetime.now()
-        resp = _generate_with_retry(contents, build_structured_generation_config())
+        resp = _generate_with_retry(contents, build_structured_generation_config(gen_overrides),
+                                    model=effective_model)
     except Exception as e:
         times += [_dt.datetime.now()]
 
@@ -527,6 +554,10 @@ def call_machine_threads(
     backend = get_backend(backend_name) if backend_name != "gemini" else None
     if backend is not None:
         max_workers = backend.max_workers
+    # A gemini *variant* rides the generic branch above but still talks to the
+    # Gemini API — stagger and deadlines follow the implementation, not the
+    # dispatch branch.
+    _is_gemini_api = backend is None or backend.name == "gemini"
 
     if backend is None:
         initialize_machine()
@@ -541,7 +572,7 @@ def call_machine_threads(
         # Maybe Gemini doesn't like to get to many request at once.
         # Sleeping for a bit with the first ones solves the problem.
         # (Local backends are sequential — no stagger needed.)
-        if backend is None and idx < max_workers:
+        if _is_gemini_api and idx < max_workers:
             time.sleep(3+random()*max_workers/2)
 
         if backend is not None:
@@ -584,7 +615,7 @@ def call_machine_threads(
     # pool needs to process, with 1.5x safety margin plus startup-jitter buffer.
     # Gemini: matches http_options_timeout (ms→s). Local backend: the first
     # item also loads the model (~1-2 min) on top of ~30-60s inference.
-    _per_call_seconds = 180 if backend is None else 600
+    _per_call_seconds = 180 if _is_gemini_api else 600
     _safety_margin = 1.5
     _startup_sleep = 3 + max_workers / 2  # upper bound of worker() sleep
     _waves = max(1, (len(interesting_videos) + max_workers - 1) // max_workers)

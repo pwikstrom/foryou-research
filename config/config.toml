@@ -111,6 +111,26 @@ request_timeout = 600
 max_video_mb = 90
 
 
+# Backend variants: named selections that pin an existing backend
+# implementation to different config values — typically a newer (or legacy)
+# model version, kept selectable alongside the default. Each declared variant
+# appears in the Admin → General backend dropdown and as an A/B-test arm
+# choice; its effective model/params fork their own annotation version (av_)
+# automatically. The name must be lowercase [a-z0-9_] and must not collide
+# with a backend id (gemini / qwen_api / qwen_local / minicpm_local).
+# Override keys are the implementation's own config keys: for gemini the
+# [machine] keys (model, temperature, thinking_budget, media_resolution,
+# max_output_tokens); for the others the keys of their [machine.<backend>]
+# block (model_id, ...). Note: batch-mode annotation runs only on the plain
+# gemini selection, and a local backend can hold only one resident model per
+# worker process.
+#
+# [machine.variants.gemini_35]
+# backend = "gemini"
+# label = "Gemini 3.5 Flash"
+# model = "gemini-3.5-flash"
+
+
 
 ##########################################################################################
 # embedding

@@ -236,7 +236,12 @@
                 backendSelect.innerHTML = backends.map(b => {
                     const ok = b.availability && b.availability.ok;
                     const selectable = ok || b.name === currentBackend;
-                    const label = b.name + (ok ? '' : ' (requirements not met)');
+                    // Config-declared variants carry a display label and their
+                    // implementing backend id; plain backends show their id.
+                    const isVariant = b.backend && b.backend !== b.name;
+                    const display = (b.label && b.label !== b.name) ? b.label : b.name;
+                    const label = display + (isVariant ? ` [${b.backend}]` : '')
+                        + (ok ? '' : ' (requirements not met)');
                     return `<option value="${b.name}" ${b.name === currentBackend ? 'selected' : ''}
                         ${selectable ? '' : 'disabled'}>${label}</option>`;
                 }).join('');

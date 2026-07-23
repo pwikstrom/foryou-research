@@ -783,7 +783,8 @@ def _validate_arm_backend(arm_name: str | None, backend_name: str) -> None:
 
     Args:
         arm_name: The arm's display name (error messages only).
-        backend_name: The requested backend id.
+        backend_name: The requested backend selection id (an implementation
+            id or a config-declared variant name).
 
     Raises:
         ValueError: For an unknown/unimplemented backend or one whose
@@ -795,7 +796,7 @@ def _validate_arm_backend(arm_name: str | None, backend_name: str) -> None:
         backend = get_backend(backend_name)
     except ValueError as exc:
         raise ValueError(f"arm '{arm_name}': {exc}") from exc
-    if backend_name == "gemini":
+    if backend.name == "gemini":
         return  # gemini readiness is checked once by the worker's config gate
     result = backend.availability(deep=False)
     if not result.ok:
@@ -816,16 +817,21 @@ def _runner_for_arm(arm: dict, cancel_cb=None):
     Returns:
         An object with the ``SyncThreadedRunner.run`` signature.
     """
+    from fyp.annotation.backends import get_backend
+
     backend_name = arm.get("backend") or "gemini"
     gen_overrides = arm.get("gen_overrides") or None
-    if backend_name == "gemini":
-        return SyncThreadedRunner(cancel_cb=cancel_cb, gen_overrides=gen_overrides)
-    from fyp.annotation.backends import get_backend
+    backend = get_backend(backend_name)
+    if backend.name == "gemini":
+        # A gemini variant's config overrides apply beneath the arm's own
+        # overrides (arm wins) via the threaded per-call override path.
+        merged = {**backend.overrides, **(gen_overrides or {})}
+        return SyncThreadedRunner(cancel_cb=cancel_cb, gen_overrides=merged or None)
 
     # Non-Gemini backends constrain decoding with the PORTABLE JSON schema
     # (run_arm passes the google-genai form, which only Gemini understands).
     schema_json = sch.get_annotation_json_schema(arm.get("contract")) if arm.get("contract") else None
-    return BackendSequentialRunner(get_backend(backend_name), cancel_cb=cancel_cb,
+    return BackendSequentialRunner(backend, cancel_cb=cancel_cb,
                                    gen_overrides=gen_overrides, schema_json=schema_json)
 
 

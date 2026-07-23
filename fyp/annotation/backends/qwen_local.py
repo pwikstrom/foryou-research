@@ -81,7 +81,13 @@ class QwenLocalBackend(AnnotationBackend):
 
     _model = None
     _processor = None
+    _loaded_model_id = None
     _load_lock = threading.Lock()
+
+
+    def _effective_cf(self) -> dict:
+        """The ``[machine.qwen_local]`` config with variant overrides applied."""
+        return {**_qwen_cf(), **self.overrides}
 
 
     def availability(self, deep: bool = False) -> BackendAvailability:
@@ -97,7 +103,7 @@ class QwenLocalBackend(AnnotationBackend):
         """
         from fyp.annotation.backends import qwen_support
 
-        return qwen_support.availability(_qwen_cf()["model_id"])
+        return qwen_support.availability(self._effective_cf()["model_id"])
 
 
     def prompt_suffix(self) -> str:
@@ -107,12 +113,12 @@ class QwenLocalBackend(AnnotationBackend):
 
     def effective_model_id(self) -> str:
         """The configured local model id."""
-        return _qwen_cf()["model_id"]
+        return self._effective_cf()["model_id"]
 
 
     def version_gen_params(self) -> dict:
         """The standard generation params as this backend runs them."""
-        qwen_cf = _qwen_cf()
+        qwen_cf = self._effective_cf()
         return {
             "use_structured_output": True,
             "temperature": 0.0,
@@ -124,7 +130,7 @@ class QwenLocalBackend(AnnotationBackend):
 
     def version_extra_params(self) -> dict:
         """Frame/audio sampling parameters (output-affecting → identity)."""
-        qwen_cf = _qwen_cf()
+        qwen_cf = self._effective_cf()
         return {
             "n_frames": qwen_cf["max_frames"],
             "frame_scale": qwen_cf["frame_scale"],
@@ -139,14 +145,22 @@ class QwenLocalBackend(AnnotationBackend):
         if mlx_vlm is None:
             raise RuntimeError('mlx-vlm is not installed — pip install -e ".[local_qwen]"')
         cls = QwenLocalBackend
+        model_id = self._effective_cf()["model_id"]
         with cls._load_lock:
+            if cls._model is not None and cls._loaded_model_id != model_id:
+                # One resident model per process: a second variant of this
+                # backend cannot hot-swap it (no reliable MLX unload).
+                raise RuntimeError(
+                    f"local model {cls._loaded_model_id!r} is already resident; "
+                    f"cannot load {model_id!r} in the same process — restart the "
+                    f"worker to switch local-model variants")
             if cls._model is None:
                 from fyp.annotation.backends.qwen_rope_fix import apply_patches
 
                 apply_patches()
-                model_id = _qwen_cf()["model_id"]
                 logger.info(f"Loading local Qwen model {model_id} (one-time per process) ...")
                 cls._model, cls._processor = mlx_vlm.load(model_id)
+                cls._loaded_model_id = model_id
                 logger.info("Local Qwen model loaded")
         return cls._model, cls._processor
 
@@ -174,7 +188,8 @@ class QwenLocalBackend(AnnotationBackend):
         import fyp.annotation_versioning as annotation_versioning
         from fyp.annotation_schema import get_annotation_json_schema
 
-        qwen_cf = {**_qwen_cf(), **{k: v for k, v in (gen_overrides or {}).items() if v is not None}}
+        qwen_cf = {**self._effective_cf(),
+                   **{k: v for k, v in (gen_overrides or {}).items() if v is not None}}
         now = _dt.datetime.now()
         row: dict = {
             "item_id": item_id,
