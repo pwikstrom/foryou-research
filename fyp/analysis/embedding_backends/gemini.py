@@ -16,12 +16,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
+from google import genai
+from google.genai.types import EmbedContentConfig
 
 import fyp.core.gemini_client as gemini_client
 from fyp.analysis.embedding_backends.base import BackendAvailability, EmbeddingBackend
 from fyp.fyp_config import get_config
-from google import genai
-from google.genai.types import EmbedContentConfig
 
 # Concurrency / batching for the Vertex embedding calls.
 _EMBED_BATCH = 20
@@ -84,7 +84,10 @@ def _get_client() -> genai.Client:
 def _embed_batch(client: genai.Client, chunk: list[str]) -> list[list[float]] | None:
     """Embed one batch of texts with retry, returning vectors or None on failure."""
     cf = _gemini_cf()
-    config = EmbedContentConfig(task_type=cf["task_type"],
+    # gemini-embedding-2 rejects task_type (task instructions ride in the
+    # prompt instead) — an empty task_type omits it, so switching models
+    # stays a pure config edit.
+    config = EmbedContentConfig(task_type=cf["task_type"] or None,
                                 output_dimensionality=int(cf["dim"]))
     for attempt in range(_EMBED_RETRIES):
         try:
