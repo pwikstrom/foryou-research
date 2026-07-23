@@ -44,7 +44,7 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.admin.annotations",                "label": "Admin — User Annotations"},
     {"key": "tab.admin.human_eval",                 "label": "Admin — Human Testing"},
     {"key": "tab.admin.general",                    "label": "Admin — General"},
-    {"key": "tab.admin.schema",                     "label": "Admin — Variable Schema"},
+    {"key": "tab.admin.schema",                     "label": "Admin — Variable Visibility"},
     {"key": "tab.admin.system_info",                "label": "Admin — System Information"},
 ]
 
