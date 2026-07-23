@@ -10,7 +10,8 @@ Researchers upload participants' data-donation exports (zips) or feed
 captures. The **ingestion layer** parses them into a platform-agnostic
 *activity* table (one row per play/like/comment/...). The **scraper** then
 fetches metadata + media for each watched item, and the **annotator** sends
-downloaded media to Google Gemini for structured content annotation. A
+downloaded media to a pluggable LLM backend (Google Gemini by default;
+hosted Qwen or fully-local models) for structured content annotation. A
 **consolidation + recode** step merges activity, scrape, and annotation data
 into per-study datasets, which the **analysis layer** (PCA, ANOVA,
 PERMANOVA, timelines, sequence analysis, semantic embeddings) and the
@@ -20,7 +21,7 @@ PERMANOVA, timelines, sequence analysis, semantic embeddings) and the
 donation zips ─► ingest ─► activity parquet ─┐
                                              ├─► consolidate ─► recode ─► studies ─► analysis / dashboard
 item ids ─► scrape queue ─► scraper ─► scrape parquet ──┤
-downloaded media ─► annotation queue ─► Gemini ─────────┘
+downloaded media ─► annotation queue ─► LLM backend ────┘
 ```
 
 ## Execution environments

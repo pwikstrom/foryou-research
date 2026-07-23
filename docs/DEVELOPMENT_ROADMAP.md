@@ -46,6 +46,10 @@ ANOVA/PERMANOVA, timelines). Two things are missing to reach the vision:
 
 These are blocking/hygiene items, not new features. Most come straight from `POST_HOLIDAY_NOTES.md`.
 
+> **✅ Update (2026-07):** done — the test harness grew into the full `scripts/verify.sh` gate,
+> the model switch was resolved (and later superseded by config-declared backend variants), and
+> the remaining operational checks are tracked in `POST_HOLIDAY_NOTES.md`.
+
 - [ ] **Production verification sweep** — work through the unchecked boxes in
   `POST_HOLIDAY_NOTES.md` ("Things to verify end-to-end after deploy" + "Things to scan quickly on
   return"). The Cloud Tasks pipeline (`consolidate → recode → meta → pca → timelines`) is
@@ -65,6 +69,14 @@ These are blocking/hygiene items, not new features. Most come straight from `POS
 ---
 
 ## Thrust 1 (Months 1–2) — Linger → Feed Sequence Analysis
+
+> **✅ Update (2026-07):** all three increments are shipped (`fyp/analysis/sequence_analysis.py`,
+> `sequence_model.py`, `run_sequence_refresh.py`, the sequence tab). **The headline research
+> question came back null:** dwell in window _k_ does **not** predict next-window content
+> (ΔR²≈0, robust across specifications) — recorded so it isn't re-chased. Two adjacent findings
+> did land: within-session engagement satiation (robust) and windowed embedding entropy /
+> binge-hour profiling. The sequence infrastructure remains in place for other window-level
+> questions.
 
 **Research question.** For windows of a participant's feed, does dwell behaviour
 (`play_duration`) in window _k_ predict the *kind* of content (content category / political /
@@ -285,6 +297,17 @@ mix collections across platforms.
 ---
 
 ## Thrust 3 (Months 4–6) — Reliability & self-serve foundations
+
+> **✅ Update (2026-07-23):** much of this thrust has been paid down ahead of schedule.
+> Stream A: the professionalization plan (complete 2026-07-12) delivered the pytest suite +
+> golden annotation safety net, the `scripts/verify.sh` gate, CI, packaging, lazy config, and
+> the `fyp/` subpackage split. Stream B (self-serve): the public-install UX shipped 2026-07-15
+> (setup wizard, local-first defaults, LICENSE/CITATION, public mini-site), and annotation +
+> embedding are now **pluggable backends** (hosted `qwen_api` passed production acceptance
+> 2026-07-23 at ~3× lower cost than Gemini; local `qwen_local`/`minicpm_local` for fully
+> offline installs; config-declared backend *variants* pin model versions). A JOSS paper is
+> drafted (branch `claude/scientific-publication-guide-af72d4`, not yet merged). Remaining:
+> Cloud Tasks retry/dead-letter, study export + methods/provenance note.
 
 This is where "self-serve for other HASS researchers later" gets paid down without committing to a
 full multi-tenant rebuild now. Two streams:

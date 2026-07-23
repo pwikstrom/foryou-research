@@ -59,8 +59,12 @@ when fetchable) so everything downstream is uniformly video.
 
 ## 3. Annotation (`machine_annotation.py`, `annotation_*.py`)
 
-Downloaded media is queued (`to_annotate.json`) and sent to Google Gemini
-with a prompt + structured response schema generated from
+Downloaded media is queued (`to_annotate.json`) and sent to the active
+annotation backend (`fyp/annotation/backends/` — Google Gemini by default,
+with hosted-Qwen `qwen_api` and local `qwen_local`/`minicpm_local`
+alternatives, plus config-declared variants for model-version pinning; see
+`docs/configuration.md` and `docs/installation.md`), driven by a prompt +
+structured response schema generated from
 `config/annotation_contract.toml` (`annotation_schema.py`). Eligibility:
 scraped OK, media downloaded, under the duration cap. Output rows are keyed
 `(source_platform, item_id)` and stamped with the annotation version
@@ -89,7 +93,8 @@ On top of them: PCA + distance metrics (`pca.py`), ANOVA/PERMANOVA
 profiling (`session_profile.py`), sequence windowing/modelling
 (`sequence_analysis.py`, `sequence_model.py`), dense semantic embeddings +
 niche detection + 2D map (`embeddings.py`, `niche_detection.py`,
-`video_map.py`).
+`video_map.py`; embeddings are backend-dispatched too — Gemini default,
+hosted or local Qwen alternatives, model-scoped shard store).
 
 Refresh dependencies (each a background job, chained from the UI):
 

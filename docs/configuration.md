@@ -13,6 +13,8 @@ import-cycle rule in `CONTRIBUTING.md`.
 | Section | Purpose | Keys you'll actually touch |
 |---|---|---|
 | `[machine]` | Annotation backends | One `[machine.<backend>]` block per backend (Gemini's is `[machine.gemini]`: `vertexai` — **Vertex AI (default) or the plain Gemini API**; `project`; model, params, `pricing`), variants at `[machine.<backend>.variants.<name>]`. Legacy flat `[machine]` keys are hoisted at load. Turning Gemini on after a no-Gemini install: [Enabling Gemini later](installation.md#enabling-gemini-later) |
+| `[embedding]` | Embedding backends (semantic space) | One `[embedding.<backend>]` block per backend: `[embedding.gemini]` (default; `model_id`/`dim`/`location`/`task_type` — the model is upgradeable by config edit, no variant system), `[embedding.qwen_api]` (hosted DashScope text embeddings), `[embedding.qwen_local]` (sentence-transformers, `local_embeddings` extra). The active backend is chosen in Admin → General, not here |
+| `[site]` | instance branding | contact email, mail sender, app URL — overridable via `FYP_CONTACT_EMAIL`/`FYP_MAIL_SENDER`/`FYP_APP_URL` env vars (committed defaults are empty) |
 | `[paths]` | local storage roots | `local_data` — **set this to a writable directory on your machine**; everything (cache, recoded, users, media) lives under it locally |
 | `[misc]` | runtime behavior | timezone, `local_mode`, media duration caps (`max_duration_for_download[_<platform>]`, `max_duration_for_annotation`) |
 | `[features]` | feature toggles | rarely changed |
