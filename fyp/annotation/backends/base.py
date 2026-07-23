@@ -70,6 +70,20 @@ class AnnotationBackend(ABC):
             AnnotationBackend._registry[cls.name] = cls
 
 
+    def __init__(self, overrides: dict | None = None, selection: str | None = None):
+        """Bind the instance to a selection (a config-declared variant).
+
+        Args:
+            overrides: Config overrides layered over the implementation's own
+                config block (a variant's model/param pins); empty for the
+                default variant.
+            selection: The settings-visible selection id; defaults to the
+                implementation id (``name``).
+        """
+        self.overrides = dict(overrides or {})
+        self.selection = selection or self.name
+
+
     @abstractmethod
     def availability(self, deep: bool = False) -> BackendAvailability:
         """Whether the backend can run, with actionable detail.
@@ -112,19 +126,21 @@ class AnnotationBackend(ABC):
         """The model id this backend annotates with (version identity).
 
         Returns:
-            The model id string (Gemini reads it from ``[machine].model``, so
-            the default suits it; local backends override).
+            The model id string (Gemini reads it from ``[machine].model``
+            behind any variant override, so the default suits it; local
+            backends override).
         """
         from fyp.fyp_config import get_config
 
-        return get_config()["machine"]["model"]
+        return self.overrides.get("model", get_config()["machine"]["model"])
 
 
     def version_gen_params(self) -> dict:
         """The standard five generation params as this backend runs them.
 
         Keys mirror ``annotation_versioning._VERSION_GEN_PARAM_KEYS``; a
-        backend without a concept for a key reports ``None``.
+        backend without a concept for a key reports ``None``. Variant
+        overrides win over the ``[machine]`` values.
 
         Returns:
             ``{use_structured_output, temperature, thinking_budget,
@@ -132,7 +148,7 @@ class AnnotationBackend(ABC):
         """
         from fyp.fyp_config import get_config
 
-        machine = get_config()["machine"]
+        machine = {**get_config()["machine"], **self.overrides}
         return {key: machine.get(key) for key in
                 ("use_structured_output", "temperature", "thinking_budget",
                  "media_resolution", "max_output_tokens")}

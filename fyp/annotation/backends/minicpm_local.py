@@ -76,7 +76,13 @@ class MiniCPMLocalBackend(AnnotationBackend):
 
     _model = None
     _processor = None
+    _loaded_model_id = None
     _load_lock = threading.Lock()
+
+
+    def _effective_cf(self) -> dict:
+        """The ``[machine.minicpm_local]`` config with variant overrides applied."""
+        return {**_minicpm_cf(), **self.overrides}
 
 
     def availability(self, deep: bool = False) -> BackendAvailability:
@@ -91,7 +97,7 @@ class MiniCPMLocalBackend(AnnotationBackend):
         """
         from fyp.annotation.backends import minicpm_support
 
-        return minicpm_support.availability(_minicpm_cf()["model_id"])
+        return minicpm_support.availability(self._effective_cf()["model_id"])
 
 
     def prompt_suffix(self) -> str:
@@ -101,12 +107,12 @@ class MiniCPMLocalBackend(AnnotationBackend):
 
     def effective_model_id(self) -> str:
         """The configured local model id."""
-        return _minicpm_cf()["model_id"]
+        return self._effective_cf()["model_id"]
 
 
     def version_gen_params(self) -> dict:
         """The standard generation params as this backend runs them."""
-        minicpm_cf = _minicpm_cf()
+        minicpm_cf = self._effective_cf()
         return {
             "use_structured_output": True,
             "temperature": 0.0,
@@ -118,7 +124,7 @@ class MiniCPMLocalBackend(AnnotationBackend):
 
     def version_extra_params(self) -> dict:
         """Frame/audio sampling parameters (output-affecting → identity)."""
-        minicpm_cf = _minicpm_cf()
+        minicpm_cf = self._effective_cf()
         return {
             "n_frames": minicpm_cf["max_frames"],
             "frame_scale": minicpm_cf["frame_scale"],
@@ -133,14 +139,22 @@ class MiniCPMLocalBackend(AnnotationBackend):
         if mlx_vlm is None:
             raise RuntimeError('mlx-vlm is not installed — pip install -e ".[local_minicpm]"')
         cls = MiniCPMLocalBackend
+        model_id = self._effective_cf()["model_id"]
         with cls._load_lock:
+            if cls._model is not None and cls._loaded_model_id != model_id:
+                # One resident model per process: a second variant of this
+                # backend cannot hot-swap it (no reliable MLX unload).
+                raise RuntimeError(
+                    f"local model {cls._loaded_model_id!r} is already resident; "
+                    f"cannot load {model_id!r} in the same process — restart the "
+                    f"worker to switch local-model variants")
             if cls._model is None:
                 from fyp.annotation.backends.minicpm_sanitize_fix import apply_patches
 
                 apply_patches()
-                model_id = _minicpm_cf()["model_id"]
                 logger.info(f"Loading local MiniCPM model {model_id} (one-time per process) ...")
                 cls._model, cls._processor = mlx_vlm.load(model_id)
+                cls._loaded_model_id = model_id
                 logger.info("Local MiniCPM model loaded")
         return cls._model, cls._processor
 
@@ -168,7 +182,8 @@ class MiniCPMLocalBackend(AnnotationBackend):
         import fyp.annotation_versioning as annotation_versioning
         from fyp.annotation_schema import get_annotation_json_schema
 
-        minicpm_cf = {**_minicpm_cf(), **{k: v for k, v in (gen_overrides or {}).items() if v is not None}}
+        minicpm_cf = {**self._effective_cf(),
+                      **{k: v for k, v in (gen_overrides or {}).items() if v is not None}}
         now = _dt.datetime.now()
         row: dict = {
             "item_id": item_id,

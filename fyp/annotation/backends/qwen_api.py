@@ -103,8 +103,14 @@ class QwenApiBackend(AnnotationBackend):
     cloud_run_capable = True
 
 
-    def __init__(self):
-        self.max_workers = int(_api_cf()["max_workers"])
+    def __init__(self, overrides: dict | None = None, selection: str | None = None):
+        super().__init__(overrides=overrides, selection=selection)
+        self.max_workers = int(self._effective_cf()["max_workers"])
+
+
+    def _effective_cf(self) -> dict:
+        """The ``[machine.qwen_api]`` config with variant overrides applied."""
+        return {**_api_cf(), **self.overrides}
 
 
     def availability(self, deep: bool = False) -> BackendAvailability:
@@ -146,7 +152,7 @@ class QwenApiBackend(AnnotationBackend):
 
     def _ping(self, key: str) -> dict:
         """List models on the configured endpoint; return a check row."""
-        api_cf = _api_cf()
+        api_cf = self._effective_cf()
         model_id = api_cf["model_id"]
         try:
             r = requests.get(f"{api_cf['base_url']}/models",
@@ -181,12 +187,12 @@ class QwenApiBackend(AnnotationBackend):
 
     def effective_model_id(self) -> str:
         """The configured hosted model id."""
-        return _api_cf()["model_id"]
+        return self._effective_cf()["model_id"]
 
 
     def version_gen_params(self) -> dict:
         """The standard generation params as this backend runs them."""
-        api_cf = _api_cf()
+        api_cf = self._effective_cf()
         return {
             "use_structured_output": True,
             "temperature": api_cf["temperature"],
@@ -227,7 +233,7 @@ class QwenApiBackend(AnnotationBackend):
         import fyp.annotation_versioning as annotation_versioning
         from fyp.annotation_schema import get_annotation_json_schema
 
-        api_cf = {**_api_cf(),
+        api_cf = {**self._effective_cf(),
                   **{k: v for k, v in (gen_overrides or {}).items() if v is not None}}
         now = _dt.datetime.now()
         row: dict = {

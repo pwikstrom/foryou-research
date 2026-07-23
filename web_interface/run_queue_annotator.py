@@ -32,9 +32,15 @@ _LOCAL_MODEL_LOAD_SECONDS = 120
 
 
 def _estimate_seconds(batch_size: int) -> float:
-    from fyp.annotation.backends import active_backend_name
+    from fyp.annotation.backends import active_backend_name, variants
 
-    if active_backend_name() != "gemini":
+    # A variant selection classifies by its implementation (a gemini variant
+    # is gemini-speed, not local-sequential).
+    try:
+        backend_id = variants.resolve(active_backend_name()).backend_id
+    except ValueError:
+        backend_id = "gemini"
+    if backend_id != "gemini":
         return (batch_size * _LOCAL_SECONDS_PER_VIDEO * _SAFETY_MARGIN
                 + _LOCAL_MODEL_LOAD_SECONDS)
     return batch_size * _SECONDS_PER_VIDEO / _WORKERS * _SAFETY_MARGIN

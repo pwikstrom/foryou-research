@@ -110,6 +110,7 @@ def build_version_descriptor(
     label: str | None = None,
     extra_params: dict | None = None,
     backend: str | None = None,
+    variant: str | None = None,
 ) -> dict:
     """Build a self-describing version descriptor and its deterministic id.
 
@@ -126,6 +127,8 @@ def build_version_descriptor(
         backend: Backend id recorded on the descriptor as non-identity
             metadata (display/provenance only; the model id + params already
             uniquely determine the identity).
+        variant: Config-declared variant name recorded the same way — pure
+            provenance, never part of the identity hash.
 
     Returns:
         A descriptor dict including the computed ``annotation_version``.
@@ -158,6 +161,8 @@ def build_version_descriptor(
     }
     if backend and backend != "gemini":
         descriptor["backend"] = backend
+    if variant:
+        descriptor["variant"] = variant
     return descriptor
 
 
@@ -253,6 +258,9 @@ def current_version_descriptor(fresh: bool = False) -> dict:
         contract_etag,
         backend_name,
         tuple(sorted(backend.version_extra_params().items())) if backend else None,
+        # A variant's config overrides change the effective model/params even
+        # when every [machine] key above is unchanged — they must bust the cache.
+        tuple(sorted(getattr(backend, "overrides", {}).items())) if backend else None,
     )
     if not fresh and _DESCRIPTOR_CACHE.get("signature") == signature:
         return _DESCRIPTOR_CACHE["descriptor"]
@@ -272,13 +280,15 @@ def current_version_descriptor(fresh: bool = False) -> dict:
         )
     else:
         prompt_text = prompt_text + backend.prompt_suffix()
+        selection = getattr(backend, "selection", backend.name)
         descriptor = build_version_descriptor(
             model=backend.effective_model_id(),
             prompt_text=prompt_text,
             schema_json=schema_json,
             gen_params=backend.version_gen_params(),
             extra_params=backend.version_extra_params(),
-            backend=backend_name,
+            backend=backend.name,
+            variant=selection if selection != backend.name else None,
         )
     descriptor["prompt_fn"] = active_prompt_label()
 

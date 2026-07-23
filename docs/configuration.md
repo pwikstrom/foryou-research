@@ -97,3 +97,27 @@ self-register their raw-upload directories.
   backend choice. The `[machine]` model/generation parameters are deliberately
   NOT here: they are config-file-only and need a restart/redeploy to change
 - user accounts and per-user settings (JSON files)
+
+## Pinning or A/B-ing annotation model versions (backend variants)
+
+To upgrade a backend's model while keeping the old one selectable — or to A/B
+two model generations — declare a **variant** in `config/config.toml` (or the
+`config.local.toml` overlay):
+
+```toml
+[machine.variants.gemini_35]
+backend = "gemini"           # implementation: gemini | qwen_api | qwen_local | minicpm_local
+label = "Gemini 3.5 Flash"   # optional display name
+model = "gemini-3.5-flash"   # override keys = the implementation's config keys
+```
+
+After a restart/redeploy the variant appears in Admin → General → Machine
+annotation and in the Annotation-testing per-arm backend picker. Selecting it
+annotates with the overridden model/params and stamps a distinct annotation
+version (`av_`) — rows produced under the old model keep their version.
+Variant names are lowercase `[a-z0-9_]` and must not reuse a backend id; for
+gemini the override keys are the `[machine]` keys (`model`, `temperature`,
+`thinking_budget`, `media_resolution`, `max_output_tokens`), for the other
+backends the keys of their `[machine.<backend>]` block (`model_id`, ...).
+Batch-mode annotation runs only on the plain `gemini` selection, and local
+backends hold one resident model per worker process.

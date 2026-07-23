@@ -113,9 +113,9 @@ class GeminiBackend(AnnotationBackend):
         Args:
             item_id: The item to annotate.
             platform: The item's source platform.
-            gen_overrides: Ignored here — the production path reads effective
-                values from ``_cf()["machine"]``; per-call overrides for
-                Gemini arms go through ``ab_eval.SyncThreadedRunner`` instead.
+            gen_overrides: Optional per-call generation overrides (A/B arms);
+                merged over the instance's variant overrides (arm wins). Empty
+                on the default variant means the exact historical path.
             prompt_text: Ignored (production always uses the active prompt).
             response_schema: Ignored (production schema).
 
@@ -124,4 +124,6 @@ class GeminiBackend(AnnotationBackend):
         """
         import fyp.machine_annotation as machine_annotation
 
-        return machine_annotation.call_machine(item_id, platform=platform)
+        merged = {**self.overrides, **(gen_overrides or {})}
+        return machine_annotation.call_machine(item_id, platform=platform,
+                                               gen_overrides=merged or None)

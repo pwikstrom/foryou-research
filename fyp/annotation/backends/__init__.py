@@ -5,7 +5,10 @@ class definition. ``get_backend`` imports backend modules lazily so importing
 this package never pulls optional dependencies (the local Qwen backend needs
 ``mlx_vlm``, which only exists on Apple Silicon dev machines).
 
-``BACKEND_IDS`` is the closed set of ids the settings layer accepts.
+``BACKEND_IDS`` is the closed set of implementation ids; the settings layer
+additionally accepts config-declared variant names (see ``variants.py``) —
+named selections that bind an implementation to config overrides such as a
+pinned model version.
 """
 
 from fyp.annotation.backends.base import AnnotationBackend, BackendAvailability
@@ -41,27 +44,29 @@ def get_backend(name: str) -> AnnotationBackend:
     """Return the (cached) backend instance for ``name``.
 
     Args:
-        name: A backend id from :data:`BACKEND_IDS`.
+        name: A backend id from :data:`BACKEND_IDS`, or a config-declared
+            variant name (an implementation bound to config overrides).
 
     Returns:
-        The backend instance.
+        The backend instance (cached per selection).
 
     Raises:
-        ValueError: For an unknown or not-yet-implemented backend id.
+        ValueError: For an unknown selection or a not-importable backend.
     """
-    if name not in _BACKEND_MODULES:
-        raise ValueError(f"Unknown annotation backend: {name!r} (known: {BACKEND_IDS})")
+    from fyp.annotation.backends import variants
+
+    spec = variants.resolve(name)
     if name not in _instances:
         import importlib
 
         try:
-            importlib.import_module(_BACKEND_MODULES[name])
+            importlib.import_module(_BACKEND_MODULES[spec.backend_id])
         except ImportError as exc:
             raise ValueError(f"Annotation backend {name!r} is not available: {exc}") from exc
-        cls = AnnotationBackend._registry.get(name)
+        cls = AnnotationBackend._registry.get(spec.backend_id)
         if cls is None:
-            raise ValueError(f"Annotation backend {name!r} did not register")
-        _instances[name] = cls()
+            raise ValueError(f"Annotation backend {spec.backend_id!r} did not register")
+        _instances[name] = cls(overrides=spec.overrides, selection=name)
     return _instances[name]
 
 
@@ -90,16 +95,30 @@ def implemented_backend_ids() -> tuple:
 
 
 def active_backend_name() -> str:
-    """The admin-selected backend id (default ``"gemini"``).
+    """The admin-selected backend selection id (default ``"gemini"``).
 
     Reads the admin settings store lazily; any error (missing file, fresh
     install) falls back to Gemini so annotation never breaks on settings
-    plumbing.
+    plumbing. A stored selection that no longer resolves (e.g. a variant
+    removed from config) also falls back, with a logged warning.
 
     Returns:
-        A backend id from :data:`BACKEND_IDS`.
+        A backend id from :data:`BACKEND_IDS` or a declared variant name.
     """
+    from fyp.annotation.backends import variants
     from fyp.annotation.backends.settings import get_annotation_backend
+    from fyp.logging_setup import get_logger
 
     name = get_annotation_backend()
-    return name if name in BACKEND_IDS else "gemini"
+    if name in BACKEND_IDS:
+        return name
+    try:
+        if name in variants.declared_variants():
+            return name
+    except Exception:
+        pass
+    if name != "gemini":
+        get_logger(__name__).warning(
+            f"Selected annotation backend {name!r} is not a known backend or "
+            f"declared variant — falling back to gemini")
+    return "gemini"

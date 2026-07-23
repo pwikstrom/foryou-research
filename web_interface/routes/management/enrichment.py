@@ -300,16 +300,20 @@ def get_annotation_backends():
     """Availability of every annotation backend, for the requirements panel.
 
     Returns:
-        ``{backends: [{name, active, implemented, availability:
-        {ok, reason, checks}}]}`` — ``checks`` rows carry actionable ``fix``
-        strings for anything missing on this host.
+        ``{backends: [{name, backend, label, active, implemented,
+        availability: {ok, reason, checks}}]}`` — ``checks`` rows carry
+        actionable ``fix`` strings for anything missing on this host.
+        Config-declared variants appear after the implementation ids;
+        ``backend`` is the implementing backend id.
     """
-    from fyp.annotation.backends import BACKEND_IDS, active_backend_name, get_backend
+    from fyp.annotation.backends import active_backend_name, get_backend, variants
 
     active = active_backend_name()
     out = []
-    for name in BACKEND_IDS:
-        entry = {"name": name, "active": name == active}
+    for name in variants.selection_ids():
+        spec = variants.resolve(name)
+        entry = {"name": name, "backend": spec.backend_id,
+                 "label": spec.label or name, "active": name == active}
         try:
             backend = get_backend(name)
             result = backend.availability()
@@ -320,12 +324,12 @@ def get_annotation_backends():
             # Module import failed (e.g. mlx-vlm absent) — fall back to the
             # dependency checks so the panel still shows actionable fixes.
             entry["implemented"] = False
-            if name == "qwen_local":
+            if spec.backend_id == "qwen_local":
                 from fyp.annotation.backends import qwen_support
                 result = qwen_support.availability()
                 entry["availability"] = {"ok": False, "reason": result.reason,
                                          "checks": result.checks}
-            elif name == "minicpm_local":
+            elif spec.backend_id == "minicpm_local":
                 from fyp.annotation.backends import minicpm_support
                 result = minicpm_support.availability()
                 entry["availability"] = {"ok": False, "reason": result.reason,

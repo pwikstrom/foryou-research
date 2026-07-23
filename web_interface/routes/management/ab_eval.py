@@ -403,8 +403,9 @@ def _clean_arm_params(raw) -> tuple[dict, str | None]:
         return {}, None
     if not isinstance(raw, dict):
         return {}, "arm_params must be an object"
-    from fyp.annotation.backends import BACKEND_IDS
+    from fyp.annotation.backends import variants
 
+    known_backends = variants.selection_ids()
     cleaned: dict = {}
     for arm_name, params in raw.items():
         if not isinstance(params, dict):
@@ -412,7 +413,7 @@ def _clean_arm_params(raw) -> tuple[dict, str | None]:
         entry: dict = {}
         backend = params.get("backend")
         if backend not in (None, ""):
-            if backend not in BACKEND_IDS:
+            if backend not in known_backends:
                 return {}, f"arm '{arm_name}': unknown backend '{backend}'"
             entry["backend"] = backend
         model = params.get("model")
@@ -446,8 +447,9 @@ def _clean_arms_spec(raw) -> tuple[list | None, str | None]:
         ``(cleaned, error)`` — the cleaned list or a user-facing error string.
     """
     from fyp import ab_eval
-    from fyp.annotation.backends import BACKEND_IDS
+    from fyp.annotation.backends import variants
 
+    known_backends = variants.selection_ids()
     if not isinstance(raw, list) or not raw:
         return None, "add at least one contract to the test"
     if len(raw) > 12:
@@ -474,7 +476,7 @@ def _clean_arms_spec(raw) -> tuple[list | None, str | None]:
             arm["name"] = name
         backend = entry.get("backend")
         if backend not in (None, ""):
-            if backend not in BACKEND_IDS:
+            if backend not in known_backends:
                 return None, f"arm '{label}': unknown backend '{backend}'"
             arm["backend"] = backend
         cleaned.append(arm)
