@@ -546,17 +546,21 @@ a:hover {
 
 /* Non-clickable section header between sidebar item groups */
 .dm-sidebar-group {
-    padding: 14px 16px 4px 16px;
-    font-size: var(--text-xxs);
-    font-weight: var(--weight-semibold);
-    letter-spacing: 0.06em;
+    padding: 18px 16px 6px 16px;
+    margin-top: 6px;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-bold);
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--color-text-muted);
+    color: var(--color-text-secondary);
+    border-top: 1px solid var(--color-border-subtle);
     user-select: none;
 }
 
 .dm-sidebar-group:first-child {
-    padding-top: 8px;
+    padding-top: 10px;
+    margin-top: 0;
+    border-top: none;
 }
 
 .dm-content {
@@ -2999,6 +3003,25 @@ button.meta-tooltip:disabled {
         color: var(--tab-active-text);
         border-left-color: var(--tab-active-border);
         font-weight: var(--weight-bold);
+    }
+
+    /* Non-clickable section header inside the two-level drawer (mirrors
+       the desktop .dm-sidebar-group). */
+    .tab-subnav-group {
+        padding: 14px 18px 4px 28px;
+        font-size: var(--text-xs);
+        font-weight: var(--weight-bold);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--color-text-secondary);
+        border-top: 1px solid var(--color-border-subtle);
+        user-select: none;
+        pointer-events: none;
+    }
+
+    .tab-subnav-group:first-child {
+        border-top: none;
+        padding-top: 8px;
     }
 
     /* ----- Modals: shrink to fit viewport ----- */

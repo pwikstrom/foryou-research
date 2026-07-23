@@ -1658,9 +1658,17 @@ function _buildTabSubnavs() {
         const tabId = ul.getAttribute('data-subpages-of');
         const pane = document.getElementById(tabId);
         if (!pane) return;
-        // Fresh build — clear any prior content (idempotent).
+        // Fresh build — clear any prior content (idempotent). Walk items and
+        // section headers in document order so groups carry over.
         ul.innerHTML = '';
-        pane.querySelectorAll('.dm-sidebar .dm-sidebar-item').forEach(src => {
+        pane.querySelectorAll('.dm-sidebar .dm-sidebar-item, .dm-sidebar .dm-sidebar-group').forEach(src => {
+            if (src.classList.contains('dm-sidebar-group')) {
+                const li = document.createElement('li');
+                li.className = 'tab-subnav-group';
+                li.textContent = src.textContent.trim();
+                ul.appendChild(li);
+                return;
+            }
             const pageId = src.getAttribute('data-page');
             if (!pageId) return;
             // Skip items hidden by feature logic (e.g. "My Tasks" until the
