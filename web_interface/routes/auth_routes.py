@@ -427,9 +427,10 @@ def api_admin_role_permissions(role_name):
 
 @auth_bp.route('/api/admin/settings', methods=['GET', 'PUT'])
 # GET is also useful to the New Users sub-page (it needs to display the
-# configured default role for new signups). PUT stays restricted to General
-# via the method-specific check below.
-@permission_required('tab.admin.general', 'tab.admin.new_users')
+# configured default role for new signups) and the Backends sub-page (the
+# active backend selections live in the settings store). PUT is restricted
+# per key via the method-specific check below.
+@permission_required('tab.admin.general', 'tab.admin.new_users', 'tab.admin.backends')
 def api_admin_settings():
     if request.method == 'GET':
         merged = {**ADMIN_SETTINGS_DEFAULTS, **load_admin_settings()}
@@ -438,10 +439,9 @@ def api_admin_settings():
                         "backend_ids": list(BACKEND_IDS),
                         "implemented_backends": list(implemented_backend_ids())})
 
-    # PUT — only the General sub-page can write settings.
+    # PUT — the backend selections belong to the Backends sub-page, every
+    # other setting to Site Settings (tab.admin.general).
     from ..permissions import user_has_permission
-    if not user_has_permission(current_user, 'tab.admin.general'):
-        return jsonify({"error": "Forbidden"}), 403
 
     data = request.json or {}
     if not isinstance(data, dict):
@@ -451,6 +451,12 @@ def api_admin_settings():
     unknown = [k for k in data if k not in allowed_keys]
     if unknown:
         return jsonify({"error": f"Unknown settings: {unknown}"}), 400
+
+    _BACKEND_SETTING_KEYS = {"annotation_backend", "embedding_backend"}
+    for k in data:
+        required = 'tab.admin.backends' if k in _BACKEND_SETTING_KEYS else 'tab.admin.general'
+        if not user_has_permission(current_user, required):
+            return jsonify({"error": "Forbidden"}), 403
 
     # Per-key type validation. Unknown-type keys default to bool to preserve
     # the historical contract for any legacy boolean flag.
@@ -475,7 +481,7 @@ def api_admin_settings():
 
 
 @auth_bp.route('/api/admin/irrelevant_words', methods=['GET', 'PUT'])
-@permission_required('tab.admin.general')
+@permission_required('tab.admin.stoplist')
 def api_irrelevant_words():
     """The admin-editable hashtag stoplist (see ``fyp.irrelevant_words``).
 
@@ -533,7 +539,7 @@ def api_irrelevant_words():
 
 
 @auth_bp.route('/api/admin/irrelevant_words/apply', methods=['POST'])
-@permission_required('tab.admin.general')
+@permission_required('tab.admin.stoplist')
 def api_irrelevant_words_apply():
     """Start the background job that re-applies the stoplist to existing data.
 

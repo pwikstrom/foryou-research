@@ -391,7 +391,7 @@ def run_queue_annotator_batch(reporter: TaskStatusReporter, task_args: dict | No
     if backend != "gemini":
         reporter.log(f"Batch annotation only supports the Gemini backend "
                      f"(active backend: {backend}). Switch the backend in "
-                     f"Admin → General or use the live annotator.")
+                     f"Admin → Backends or use the live annotator.")
         return None
 
     phase = task_args.get("phase", "submit")

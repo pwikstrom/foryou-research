@@ -294,7 +294,7 @@ def get_enrichment_stats():
 
 
 @management_bp.route('/api/manage/annotation/backends', methods=['GET'])
-@permission_required('tab.admin.general')
+@permission_required('tab.admin.backends')
 @login_required
 def get_annotation_backends():
     """Availability of every annotation backend, for the requirements panel.
@@ -352,7 +352,7 @@ def get_annotation_backends():
 
 
 @management_bp.route('/api/manage/embedding/backends', methods=['GET'])
-@permission_required('tab.admin.general')
+@permission_required('tab.admin.backends')
 @login_required
 def get_embedding_backends():
     """Availability of every embedding backend, for the requirements panel.

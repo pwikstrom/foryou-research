@@ -1,7 +1,12 @@
 <div id="admin" class="tab-pane">
 
-    <!-- Sidebar Navigation -->
+    <!-- Sidebar Navigation — grouped into labeled sections; a group header
+         renders only when the user can see at least one page in the group. -->
     <nav class="dm-sidebar">
+        {% if user.can_access('tab.admin.new_users') or user.can_access('tab.admin.active_users')
+              or user.can_access('tab.admin.roles') or user.can_access('tab.admin.annotations') %}
+        <div class="dm-sidebar-group">Users</div>
+        {% endif %}
         {% if user.can_access('tab.admin.new_users') %}
         <div class="dm-sidebar-item active" data-page="admin-page-new-users" onclick="openAdminPage('admin-page-new-users', this)">
             New Users
@@ -22,29 +27,58 @@
             User Annotations
         </div>
         {% endif %}
-        {% if user.can_access('tab.admin.general') %}
-        <div class="dm-sidebar-item" data-page="admin-page-general" onclick="openAdminPage('admin-page-general', this)">
-            General
+
+        {% if user.can_access('tab.admin.backends') or user.can_access('tab.admin.versions')
+              or user.can_access('tab.admin.ab_eval') or user.can_access('tab.admin.human_eval') %}
+        <div class="dm-sidebar-group">Annotation Pipeline</div>
+        {% endif %}
+        {% if user.can_access('tab.admin.backends') %}
+        <div class="dm-sidebar-item" data-page="admin-page-backends" onclick="openAdminPage('admin-page-backends', this)">
+            Backends
         </div>
+        {% endif %}
+        {% if user.can_access('tab.admin.versions') %}
+        <div class="dm-sidebar-item" data-page="admin-page-versions" onclick="openAdminPage('admin-page-versions', this)">
+            Annotation Versions
+        </div>
+        {% endif %}
+        {% if user.can_access('tab.admin.ab_eval') %}
+        <div class="dm-sidebar-item" data-page="admin-page-abeval" onclick="openAdminPage('admin-page-abeval', this)">
+            Annotation Testing
+        </div>
+        {% endif %}
+        {% if user.can_access('tab.admin.human_eval') %}
+        <div class="dm-sidebar-item" data-page="admin-page-humaneval" onclick="openAdminPage('admin-page-humaneval', this)">
+            Human Testing
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.admin.schema') or user.can_access('tab.admin.stoplist')
+              or user.can_access('tab.admin.scrapers') %}
+        <div class="dm-sidebar-group">Data &amp; Variables</div>
         {% endif %}
         {% if user.can_access('tab.admin.schema') %}
         <div class="dm-sidebar-item" data-page="admin-page-schema" onclick="openAdminPage('admin-page-schema', this)">
             Variable Visibility
         </div>
         {% endif %}
-        {% if user.can_access('tab.admin.schema') %}
-        <div class="dm-sidebar-item" data-page="admin-page-versions" onclick="openAdminPage('admin-page-versions', this)">
-            Annotation Versions
+        {% if user.can_access('tab.admin.stoplist') %}
+        <div class="dm-sidebar-item" data-page="admin-page-stoplist" onclick="openAdminPage('admin-page-stoplist', this)">
+            Hashtag Stoplist
         </div>
         {% endif %}
-        {% if user.can_access('tab.admin.schema') %}
-        <div class="dm-sidebar-item" data-page="admin-page-abeval" onclick="openAdminPage('admin-page-abeval', this)">
-            Annotation testing
+        {% if user.can_access('tab.admin.scrapers') %}
+        <div class="dm-sidebar-item" data-page="admin-page-scrapers" onclick="openAdminPage('admin-page-scrapers', this)">
+            Scrapers
         </div>
         {% endif %}
-        {% if user.can_access('tab.admin.human_eval') %}
-        <div class="dm-sidebar-item" data-page="admin-page-humaneval" onclick="openAdminPage('admin-page-humaneval', this)">
-            Human testing
+
+        {% if user.can_access('tab.admin.general') or user.can_access('tab.admin.system_info') %}
+        <div class="dm-sidebar-group">System</div>
+        {% endif %}
+        {% if user.can_access('tab.admin.general') %}
+        <div class="dm-sidebar-item" data-page="admin-page-general" onclick="openAdminPage('admin-page-general', this)">
+            Site Settings
         </div>
         {% endif %}
         {% if user.can_access('tab.admin.system_info') %}
@@ -81,9 +115,21 @@
         </div>
         {% endif %}
 
-        {% if user.can_access('tab.admin.general') %}
-        <div id="admin-page-general" class="dm-page">
-            {% include 'tabs/admin/general.html' %}
+        {% if user.can_access('tab.admin.backends') %}
+        <div id="admin-page-backends" class="dm-page">
+            {% include 'tabs/admin/backends.html' %}
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.admin.versions') %}
+        <div id="admin-page-versions" class="dm-page">
+            {% include 'tabs/admin/annotation_versions.html' %}
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.admin.ab_eval') %}
+        <div id="admin-page-abeval" class="dm-page">
+            {% include 'tabs/admin/ab_eval.html' %}
         </div>
         {% endif %}
 
@@ -93,15 +139,21 @@
         </div>
         {% endif %}
 
-        {% if user.can_access('tab.admin.schema') %}
-        <div id="admin-page-versions" class="dm-page">
-            {% include 'tabs/admin/annotation_versions.html' %}
+        {% if user.can_access('tab.admin.stoplist') %}
+        <div id="admin-page-stoplist" class="dm-page">
+            {% include 'tabs/admin/stoplist.html' %}
         </div>
         {% endif %}
 
-        {% if user.can_access('tab.admin.schema') %}
-        <div id="admin-page-abeval" class="dm-page">
-            {% include 'tabs/admin/ab_eval.html' %}
+        {% if user.can_access('tab.admin.scrapers') %}
+        <div id="admin-page-scrapers" class="dm-page">
+            {% include 'tabs/admin/scrapers.html' %}
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.admin.general') %}
+        <div id="admin-page-general" class="dm-page">
+            {% include 'tabs/admin/general.html' %}
         </div>
         {% endif %}
 
@@ -120,10 +172,10 @@
     </div>
 </div>
 
-{% if user.can_access('tab.admin.schema') %}
+{% if user.can_access('tab.admin.versions') or user.can_access('tab.admin.ab_eval') %}
 <!-- Contract form editor (full-screen overlay) — at this level, not inside a
      .dm-page, so it can be opened from both the Annotation Versions and the
-     Annotation testing sub-pages. -->
+     Annotation Testing sub-pages. -->
 {% include 'tabs/admin/annotation_contract_editor.html' %}
 <script src="{{ url_for('static', filename='js/admin_contract_editor.js') }}" defer></script>
 {% endif %}

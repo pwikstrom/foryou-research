@@ -42,9 +42,14 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.admin.active_users",               "label": "Admin — Active Users"},
     {"key": "tab.admin.roles",                      "label": "Admin — User Roles"},
     {"key": "tab.admin.annotations",                "label": "Admin — User Annotations"},
+    {"key": "tab.admin.backends",                   "label": "Admin — Backends"},
+    {"key": "tab.admin.versions",                   "label": "Admin — Annotation Versions"},
+    {"key": "tab.admin.ab_eval",                    "label": "Admin — Annotation Testing"},
     {"key": "tab.admin.human_eval",                 "label": "Admin — Human Testing"},
-    {"key": "tab.admin.general",                    "label": "Admin — General"},
     {"key": "tab.admin.schema",                     "label": "Admin — Variable Visibility"},
+    {"key": "tab.admin.stoplist",                   "label": "Admin — Hashtag Stoplist"},
+    {"key": "tab.admin.scrapers",                   "label": "Admin — Scrapers"},
+    {"key": "tab.admin.general",                    "label": "Admin — Site Settings"},
     {"key": "tab.admin.system_info",                "label": "Admin — System Information"},
 ]
 
@@ -88,6 +93,17 @@ PERMISSION_KEYS_GRANT_ALL: list[str] = [
     "tab.my_stuff.video_tags",
     "tab.my_stuff.profile",
 ]
+
+# Implied grants for the 2026-07 Admin-tab restructure: pages that used to live
+# inside a broader sub-page (General, Variable Visibility) became their own
+# sidebar entries with their own keys. Any role that held the old umbrella key
+# gets the split-out keys, so existing roles keep seeing exactly what they saw.
+# (The new "tab.admin.scrapers" page is deliberately NOT implied — it is new
+# functionality, granted explicitly or via the admin role.)
+PERMISSION_KEY_IMPLIED_GRANTS: dict[str, list[str]] = {
+    "tab.admin.general": ["tab.admin.backends", "tab.admin.stoplist"],
+    "tab.admin.schema": ["tab.admin.versions", "tab.admin.ab_eval"],
+}
 
 
 

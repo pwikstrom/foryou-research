@@ -104,11 +104,18 @@ class RoleManager:
 
         The "My stuff" restructure renamed ``tab.my_studies`` and put the
         previously ungated Settings/Coding pages behind ``tab.my_stuff.*``
-        keys. roles.json stores explicit permission lists, so without this
-        boot-time migration existing roles would silently lose access.
+        keys. The Admin-tab restructure split pages out of General and
+        Variable Visibility into their own keys; ``PERMISSION_KEY_IMPLIED_GRANTS``
+        adds the split-out keys to any role holding the old umbrella key.
+        roles.json stores explicit permission lists, so without this boot-time
+        migration existing roles would silently lose access.
         Idempotent — saves only when something actually changed.
         """
-        from web_interface.permissions import PERMISSION_KEY_RENAMES, PERMISSION_KEYS_GRANT_ALL
+        from web_interface.permissions import (
+            PERMISSION_KEY_IMPLIED_GRANTS,
+            PERMISSION_KEY_RENAMES,
+            PERMISSION_KEYS_GRANT_ALL,
+        )
         changed = False
         for name, entry in self.roles.items():
             perms = entry.get("permissions", [])
@@ -122,11 +129,16 @@ class RoleManager:
             for key in PERMISSION_KEYS_GRANT_ALL:
                 if key not in new_perms:
                     new_perms.append(key)
+            for umbrella, implied in PERMISSION_KEY_IMPLIED_GRANTS.items():
+                if umbrella in new_perms:
+                    for key in implied:
+                        if key not in new_perms:
+                            new_perms.append(key)
             if new_perms != perms:
                 entry["permissions"] = new_perms
                 changed = True
         if changed:
-            logger.info("Migrated role permission keys to the 'My stuff' layout.")
+            logger.info("Migrated role permission keys to the current tab layout.")
             self.save_roles()
 
     def _migrate_legacy(self, legacy_list: list) -> dict[str, dict]:

@@ -519,7 +519,7 @@ def delete_study():
 
 
 @management_bp.route('/api/manage/studies/<study>/annotation-version', methods=['POST'])
-@permission_required('tab.admin.schema')
+@permission_required('tab.admin.versions')
 @login_required
 def set_study_annotation_version(study):
     """Pin (or clear) a study's annotation_version for reproducibility.
