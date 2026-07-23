@@ -82,22 +82,19 @@ def schema_variable_names() -> set[str]:
 
 
 def schema_gemini_sourced() -> set[str]:
-    """Schema variables whose ``source`` mentions Gemini (the model-facing rows).
+    """Schema variables the current annotation contract owns (model-facing rows).
 
-    Restricted to columns the *current* contract owns
-    (``contract_column_metadata``): the var_schema also carries legacy rows
-    injected from the on-disk annotation version registry, which is live data
-    state — absent on a fresh checkout / CI — not prompt↔schema coupling.
+    Membership in ``contract_column_metadata`` is the ownership truth (the
+    retired ``source`` column used to encode this as a "Gemini" label).
+    Restricted to rows actually present in var_schema, and deliberately NOT the
+    legacy rows injected from the on-disk annotation version registry — that is
+    live data state, absent on a fresh checkout / CI, not prompt↔schema
+    coupling.
     """
     import fyp.annotation_contract as ac
 
-    vs = fyp_cf["var_schema"]
-    if "source" not in vs.columns:
-        return set()
-    mask = vs["source"].astype(str).str.contains("Gemini", case=False, na=False)
-    gemini_vars = {str(v) for v in vs.loc[mask, "variable_name"].dropna().tolist()}
     current_columns = set(ac.contract_column_metadata(ac.load_contract()).keys())
-    return gemini_vars & current_columns
+    return current_columns & schema_variable_names()
 
 
 def build_coupling_report() -> dict:
@@ -119,7 +116,7 @@ def build_coupling_report() -> dict:
 
 def test_recode_funcs_are_registered() -> None:
     # recode_func is no longer a column — the op is derived per field by
-    # build_recode_plan (scale + source). Assert every live variable resolves to
+    # build_recode_plan (scale + skip_recode). Assert every live variable resolves to
     # a registered callable or None (no dangling/unknown function).
     vs = fyp_cf["var_schema"]
     registry = set(rv.get_recode_func_registry().values())

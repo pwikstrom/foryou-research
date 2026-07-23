@@ -1,9 +1,9 @@
-/* Admin → Variable Schema editor.
+/* Admin → Variable Schema viewer.
  *
- * Loads /api/manage/schema, renders an inline-edit table, and POSTs back
- * to the same endpoint.  Optimistic concurrency via the etag returned on
- * GET.  Validation is performed server-side; the UI surfaces returned
- * errors row-by-row.
+ * Loads /api/manage/schema and renders a read-only metadata table. The only
+ * editable cells are the four presentation-surface checkboxes; toggling one
+ * saves immediately (debounced) to /api/manage/presentation with optimistic
+ * concurrency via the etag returned on GET.
  *
  * No build step; this file is served as-is.  Styling uses CSS custom
  * properties from style.css (see CLAUDE.md "Frontend Styling Rules").
@@ -15,7 +15,7 @@
     const SCHEMA_ENDPOINT = '/api/manage/schema';
     const PRESENTATION_ENDPOINT = '/api/manage/presentation';
 
-    // The four web-surface membership columns — the only editable payload left
+    // The four web-surface membership columns — the only editable payload
     // (metadata is contract-owned). Rendered as checkboxes; saved as
     // per-surface variable lists to the presentation store.
     const PRIO_COLUMNS = {
@@ -28,20 +28,14 @@
     // Module state — bound once when the schema tab is first opened.
     const state = {
         rows: [],            // server rows
-        edits: {},           // {rowIndex: {column: newValue}}
         columns: [],         // ordered list from server
-        semanticColumns: new Set(),
-        enums: {},
-        recodeFuncs: [],
         etag: null,
-        currentHash: null,
-        filters: { group: 'all', origin: 'all', role: 'all', search: '' },
         hiddenColumns: new Set(),   // user-hidden via the Columns dropdown
         sort: { col: null, dir: 1 },  // dir: 1 = asc, -1 = desc
         loaded: false,
-        filtersBound: false,  // filter listeners attach once, even on reloads
-        // {variable_name: {metadata: bool, section: bool}} — which cells the
-        // annotation contract owns (so the editor renders them read-only).
+        wired: false,        // document-level listeners attach once
+        // {variable_name: {metadata: bool, section: bool, legacy?: bool}} —
+        // which cells the contracts own (rendered read-only).
         contractLocked: {},
         contractPath: 'config/annotation_contract.toml',
     };
@@ -49,72 +43,35 @@
     // localStorage key for the user's hidden-column choices.
     const HIDDEN_COLS_KEY = 'vsHiddenColumns';
 
-    // Columns whose role is more bookkeeping than user-facing.  Hidden by
-    // default to keep the table readable; toggled via the "All columns"
-    // filter group setting.
-    const ALWAYS_VISIBLE = new Set([
-        'variable_name', 'display_name', 'section', 'origin', 'role', 'scale',
-    ]);
+    // Bookkeeping columns hidden by default to keep the table readable;
+    // individually toggleable via the Columns dropdown (choice persists).
+    const DEFAULT_HIDDEN = [
+        'role', 'scale', 'description', 'skip_recode', 'accepted_labels',
+    ];
 
-    // Columns that are derived/overlaid in memory rather than stored in the CSV:
-    // the annotation contract (config/annotation_contract.toml) is the source of
-    // truth, the column is rebuilt at load, and any edit is stripped before save.
-    // Shown read-only here for context — editing happens in the contract, not here.
-    const READONLY_COLUMNS = new Set(['accepted_labels', 'skip_recode']);
-
-    const READONLY_TOOLTIP = 'Derived from the declarative contracts '
+    const READONLY_TOOLTIP = 'Owned by the declarative contracts '
         + '(config/*_contract.toml) — read-only here. Edit the owning contract '
         + 'to change it.';
 
-    // Metadata columns the annotation contract owns for its Gemini output
-    // variables. Locked per-row (not per-column) via state.contractLocked.
-    const META_LOCK_COLS = new Set(['role', 'scale', 'display_name', 'description']);
-
     // ---------- helpers ----------
 
-    function _columnGroup(col) {
-        if (state.semanticColumns.has(col)) return 'semantic';
-        if (col === 'variable_name' || col === 'origin' || col === 'section') return 'identity';
-        return 'presentation';
-    }
-
-    function _rowMatchesFilters(row) {
-        const f = state.filters;
-        if (f.origin !== 'all' && String(row.origin || '') !== f.origin) return false;
-        if (f.role !== 'all' && String(row.role || '') !== f.role) return false;
-        if (f.search) {
-            const needle = f.search.toLowerCase();
-            const name = String(row.variable_name || '').toLowerCase();
-            if (!name.includes(needle)) return false;
-        }
-        return true;
-    }
-
     function _visibleColumns() {
-        const f = state.filters;
-        let cols = state.columns;
-        if (f.group === 'semantic') {
-            cols = cols.filter(c =>
-                ALWAYS_VISIBLE.has(c) || state.semanticColumns.has(c));
-        } else if (f.group === 'presentation') {
-            cols = cols.filter(c =>
-                ALWAYS_VISIBLE.has(c) || _columnGroup(c) === 'presentation');
-        }
         // variable_name is the row key and can never be hidden.
-        return cols.filter(c => c === 'variable_name' || !state.hiddenColumns.has(c));
+        return state.columns.filter(
+            c => c === 'variable_name' || !state.hiddenColumns.has(c));
     }
 
 
 
 
     function _loadHiddenColumns() {
+        let stored = null;
         try {
-            const stored = JSON.parse(localStorage.getItem(HIDDEN_COLS_KEY) || '[]');
-            state.hiddenColumns = new Set(
-                stored.filter(c => state.columns.includes(c) && c !== 'variable_name'));
-        } catch (e) {
-            state.hiddenColumns = new Set();
-        }
+            stored = JSON.parse(localStorage.getItem(HIDDEN_COLS_KEY) || 'null');
+        } catch (e) { /* fall through to the default */ }
+        const chosen = Array.isArray(stored) ? stored : DEFAULT_HIDDEN;
+        state.hiddenColumns = new Set(
+            chosen.filter(c => state.columns.includes(c) && c !== 'variable_name'));
     }
 
 
@@ -131,16 +88,13 @@
 
 
     function _sortedRowIndices() {
-        const indices = [];
-        state.rows.forEach((row, i) => {
-            if (_rowMatchesFilters(row)) indices.push(i);
-        });
+        const indices = state.rows.map((_, i) => i);
         const col = state.sort.col;
         if (!col) return indices;
         const dir = state.sort.dir;
         indices.sort((a, b) => {
-            const va = String(_effectiveValue(a, col) ?? '').trim();
-            const vb = String(_effectiveValue(b, col) ?? '').trim();
+            const va = String(state.rows[a][col] ?? '').trim();
+            const vb = String(state.rows[b][col] ?? '').trim();
             // Empty values always sort last, regardless of direction.
             if (va === '' && vb === '') return 0;
             if (va === '') return 1;
@@ -155,73 +109,7 @@
         return indices;
     }
 
-    function _isSemanticDirty() {
-        for (const [rowIdx, cols] of Object.entries(state.edits)) {
-            for (const col of Object.keys(cols)) {
-                if (state.semanticColumns.has(col)) return true;
-            }
-        }
-        return false;
-    }
-
-    function _dirtyCount() {
-        let n = 0;
-        for (const cols of Object.values(state.edits)) {
-            n += Object.keys(cols).length;
-        }
-        return n;
-    }
-
-    function _effectiveValue(rowIdx, col) {
-        if (state.edits[rowIdx] && col in state.edits[rowIdx]) {
-            return state.edits[rowIdx][col];
-        }
-        const row = state.rows[rowIdx];
-        return row && col in row ? row[col] : '';
-    }
-
-    function _setEdit(rowIdx, col, value) {
-        const original = state.rows[rowIdx][col] || '';
-        if (String(value) === String(original)) {
-            if (state.edits[rowIdx]) {
-                delete state.edits[rowIdx][col];
-                if (Object.keys(state.edits[rowIdx]).length === 0) {
-                    delete state.edits[rowIdx];
-                }
-            }
-        } else {
-            if (!state.edits[rowIdx]) state.edits[rowIdx] = {};
-            state.edits[rowIdx][col] = value;
-        }
-        _renderSaveBar();
-    }
-
-    function _payloadRows() {
-        return state.rows.map((row, i) => {
-            const out = {};
-            for (const col of state.columns) {
-                out[col] = _effectiveValue(i, col);
-            }
-            return out;
-        });
-    }
-
     // ---------- rendering ----------
-
-    function _renderFilters() {
-        const origins = Array.from(new Set(state.rows.map(r => r.origin).filter(Boolean))).sort();
-        const roles = Array.from(new Set(state.rows.map(r => r.role).filter(Boolean))).sort();
-        const originSel = document.getElementById('vs-filter-origin');
-        const roleSel = document.getElementById('vs-filter-role');
-        if (originSel) {
-            originSel.innerHTML = '<option value="all">All origins</option>'
-                + origins.map(s => `<option value="${_esc(s)}">${_esc(s)}</option>`).join('');
-        }
-        if (roleSel) {
-            roleSel.innerHTML = '<option value="all">All roles</option>'
-                + roles.map(r => `<option value="${_esc(r)}">${_esc(r)}</option>`).join('');
-        }
-    }
 
     function _renderTable() {
         const thead = document.getElementById('vs-thead');
@@ -231,13 +119,6 @@
         const cols = _visibleColumns();
 
         thead.innerHTML = '<tr>' + cols.map(col => {
-            const group = _columnGroup(col);
-            let marker = '';
-            if (READONLY_COLUMNS.has(col)) {
-                marker = `<span class="meta-tooltip" data-tooltip="${_esc(READONLY_TOOLTIP)}" style="color: var(--color-text-muted); margin-left: 4px;">🔒</span>`;
-            } else if (group === 'semantic') {
-                marker = '<span class="meta-tooltip" data-tooltip="Semantic column — editing this rebuilds study caches." style="color: var(--color-warning); margin-left: 4px;">⚠</span>';
-            }
             const isSorted = state.sort.col === col;
             const arrow = isSorted
                 ? `<span style="margin-left: 4px;">${state.sort.dir === 1 ? '▲' : '▼'}</span>`
@@ -245,7 +126,7 @@
             const sortColor = isSorted ? 'var(--color-text-primary)' : 'var(--color-text-muted)';
             return `<th onclick="vsSort('${_esc(col)}')"
                 class="meta-tooltip" data-tooltip="Click to sort"
-                style="text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--color-border); white-space: nowrap; color: ${sortColor}; font-weight: var(--weight-semibold); cursor: pointer; user-select: none;">${_esc(col)}${marker}${arrow}</th>`;
+                style="text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--color-border); white-space: nowrap; color: ${sortColor}; font-weight: var(--weight-semibold); cursor: pointer; user-select: none;">${_esc(col)}${arrow}</th>`;
         }).join('') + '</tr>';
 
         const fragments = [];
@@ -255,95 +136,40 @@
         });
         tbody.innerHTML = fragments.join('');
 
-        const visible = tbody.querySelectorAll('tr').length;
-        const status = document.getElementById('vs-status');
-        if (status) {
-            status.textContent = `${visible} of ${state.rows.length} rows visible.`;
-        }
-    }
-
-    // Return the tooltip for a contract-owned (read-only) cell, or null when the
-    // cell is editable. accepted_labels is always derived; for a Gemini variable
-    // the contract owns role/scale/display_name/description and the AI Annotations section.
-    function _cellReadonlyTooltip(rowIdx, col) {
-        if (READONLY_COLUMNS.has(col)) return READONLY_TOOLTIP;
-        const row = state.rows[rowIdx];
-        const lock = row && state.contractLocked[row.variable_name];
-        if (!lock) return null;
-        if (col === 'section' && lock.section) {
-            return 'Gemini variables are grouped under "AI Annotations" automatically — '
-                + 'this section is set by the app, not editable here.';
-        }
-        if (lock.metadata && META_LOCK_COLS.has(col)) {
-            return `Owned by the annotation contract (${state.contractPath}) — `
-                + `edit ${col.replace(/_/g, ' ')} there, not here.`;
-        }
-        return null;
+        _setStatus(`${state.rows.length} variables.`);
     }
 
     function _renderCell(rowIdx, col) {
-        const current = _effectiveValue(rowIdx, col);
-        const isEdited = state.edits[rowIdx] && col in state.edits[rowIdx];
-        const baseStyle = `padding: 4px 8px; vertical-align: top; ${isEdited ? 'background: var(--color-bg-input);' : ''}`;
-
-        if (col === 'variable_name' || col === 'origin') {
-            let badge = '';
-            if (col === 'variable_name') {
-                const lock = state.contractLocked[String(current)];
-                if (lock && lock.legacy) {
-                    badge = ` <span class="meta-tooltip" data-tooltip="Legacy annotation field — owned by a past contract version and kept for older annotated rows; not editable here."`
-                        + ` style="color: var(--color-text-muted); font-size: var(--text-xxs); border: 1px solid var(--color-border); border-radius: 3px; padding: 0 3px; white-space: nowrap;">legacy</span>`;
-                }
-            }
-            return `<td class="font-mono text-xs" style="${baseStyle} color: var(--color-text-primary); white-space: nowrap;">${_esc(current)}${badge}</td>`;
-        }
-
-        // Contract-owned cells: display-only, greyed, with a tooltip that points
-        // at the real source of truth instead of an editable input. Covers the
-        // always-derived accepted_labels plus the per-row contract metadata /
-        // forced AI Annotations section for Gemini variables.
-        const lockTip = _cellReadonlyTooltip(rowIdx, col);
-        if (lockTip !== null) {
-            const shown = String(current).trim()
-                ? _esc(current)
-                : '<span style="opacity: 0.5;">—</span>';
-            return `<td class="meta-tooltip font-mono text-xs" data-tooltip="${_esc(lockTip)}"
-                style="${baseStyle} color: var(--color-text-muted);">${shown}</td>`;
-        }
+        const row = state.rows[rowIdx];
+        const current = row && col in row ? row[col] : '';
+        const baseStyle = 'padding: 4px 8px; vertical-align: top;';
 
         // Presentation membership flags: ON/OFF checkboxes (the numeric value
-        // is historical — any non-blank means ON).
+        // is historical — any non-blank means ON). Toggling saves immediately.
         if (col in PRIO_COLUMNS) {
             const checked = String(current).trim() !== '' && String(current) !== '<NA>';
             return `<td style="${baseStyle} text-align: center;">
                 <input type="checkbox" ${checked ? 'checked' : ''}
-                    onchange="vsOnEdit(${rowIdx}, '${_esc(col)}', this.checked ? '1' : '')">
+                    onchange="vsTogglePrio(${rowIdx}, '${_esc(col)}', this.checked)">
             </td>`;
         }
 
-        // Enums via <select>
-        const enumChoices = _enumForColumn(col);
-        if (enumChoices) {
-            const opts = ['<option value=""></option>']
-                .concat(enumChoices.map(v =>
-                    `<option value="${_esc(v)}" ${String(current) === v ? 'selected' : ''}>${_esc(v)}</option>`));
-            return `<td style="${baseStyle}">
-                <select onchange="vsOnEdit(${rowIdx}, '${_esc(col)}', this.value)"
-                    style="padding: 2px 4px; border: 1px solid var(--color-border); border-radius: 3px; background: var(--color-bg-input); color: var(--color-text-primary); font-size: inherit;">
-                    ${opts.join('')}
-                </select>
-            </td>`;
+        if (col === 'variable_name') {
+            const lock = state.contractLocked[String(current)];
+            const badge = (lock && lock.legacy)
+                ? ` <span class="meta-tooltip" data-tooltip="Legacy field — owned by a past contract version and kept for older rows."`
+                    + ` style="color: var(--color-text-muted); font-size: var(--text-xxs); border: 1px solid var(--color-border); border-radius: 3px; padding: 0 3px; white-space: nowrap;">legacy</span>`
+                : '';
+            return `<td class="font-mono text-xs" style="${baseStyle} color: var(--color-text-primary); white-space: nowrap;">${_esc(current)}${badge}</td>`;
         }
 
-        // Free-text fallback
-        const isLong = String(current).length > 30 || col === 'description';
-        const widthStyle = isLong ? 'min-width: 240px;' : 'min-width: 80px;';
-        return `<td style="${baseStyle}">
-            <input type="text" value="${_esc(current)}"
-                oninput="vsOnEditDebounced(${rowIdx}, '${_esc(col)}', this.value)"
-                onchange="vsOnEdit(${rowIdx}, '${_esc(col)}', this.value)"
-                style="padding: 2px 6px; border: 1px solid var(--color-border); border-radius: 3px; background: var(--color-bg-input); color: var(--color-text-primary); width: 100%; ${widthStyle} font-family: inherit; font-size: inherit;">
-        </td>`;
+        // Everything else is contract-owned metadata: display-only, greyed,
+        // with a tooltip pointing at the real source of truth.
+        const shown = String(current).trim()
+            ? _esc(current)
+            : '<span style="opacity: 0.5;">—</span>';
+        return `<td class="meta-tooltip font-mono text-xs" data-tooltip="${_esc(READONLY_TOOLTIP)}"
+            style="${baseStyle} color: var(--color-text-muted);">${shown}</td>`;
     }
 
     function _renderColumnsMenu() {
@@ -364,6 +190,8 @@
                 margin-bottom: 4px; border-bottom: 1px solid var(--color-border);">
             <button onclick="vsShowAllColumns()" class="btn-discreet text-xs"
                 style="padding: 2px 8px;">Show all</button>
+            <button onclick="vsResetColumns()" class="btn-discreet text-xs"
+                style="padding: 2px 8px;">Reset</button>
         </div>`;
         menu.innerHTML = actions + items.join('');
         const btn = document.getElementById('vs-columns-btn');
@@ -411,6 +239,16 @@
 
 
 
+    function _resetColumns() {
+        try { localStorage.removeItem(HIDDEN_COLS_KEY); } catch (e) { /* noop */ }
+        _loadHiddenColumns();
+        _renderColumnsMenu();
+        _renderTable();
+    }
+
+
+
+
     function _onSort(col) {
         if (state.sort.col === col) {
             // Cycle asc → desc → off.
@@ -430,31 +268,19 @@
 
 
 
-    function _renderSaveBar() {
-        const bar = document.getElementById('vs-save-bar');
-        const count = _dirtyCount();
-        const dirtyEl = document.getElementById('vs-dirty-count');
-        const hashWarn = document.getElementById('vs-hash-warning');
-        if (dirtyEl) dirtyEl.textContent = String(count);
-        if (hashWarn) hashWarn.style.display = _isSemanticDirty() ? 'inline' : 'none';
-        if (bar) bar.style.display = count > 0 ? 'block' : 'none';
-    }
-
-    function _enumForColumn(col) {
-        if (col === 'role' || col === 'scale' || col === 'unable_to_detect_policy') {
-            return state.enums[col] || [];
-        }
-        if (col === 'recode_func') {
-            return state.recodeFuncs;
-        }
-        return null;
+    function _setStatus(text, tone) {
+        const status = document.getElementById('vs-status');
+        if (!status) return;
+        status.textContent = text;
+        status.style.color = tone === 'error' ? 'var(--color-danger)'
+            : tone === 'ok' ? 'var(--color-success)'
+            : 'var(--color-text-muted)';
     }
 
     // ---------- network ----------
 
     async function _load(forceDiskReload) {
-        const status = document.getElementById('vs-status');
-        if (status) status.textContent = forceDiskReload ? 'Re-reading from disk…' : 'Loading…';
+        _setStatus(forceDiskReload ? 'Re-reading from disk…' : 'Loading…');
         try {
             const url = forceDiskReload ? `${SCHEMA_ENDPOINT}?force_reload=1` : SCHEMA_ENDPOINT;
             const res = await fetch(url);
@@ -464,93 +290,49 @@
             const body = await res.json();
             state.rows = body.rows || [];
             state.columns = body.columns || [];
-            state.semanticColumns = new Set(body.semantic_columns || []);
-            state.enums = body.enums || {};
-            state.recodeFuncs = body.recode_funcs || [];
             state.contractLocked = body.contract_locked || {};
             state.contractPath = body.contract_path || state.contractPath;
             state.etag = body.etag;
-            state.currentHash = body.current_hash;
-            state.edits = {};
             _loadHiddenColumns();
-            _renderFilters();
             _renderColumnsMenu();
             _renderTable();
-            _renderSaveBar();
             state.loaded = true;
-            if (status) status.textContent = `${state.rows.length} variables loaded. Etag ${state.etag.slice(0, 8)}.`;
         } catch (e) {
-            if (status) status.textContent = `Error: ${e.message}`;
+            _setStatus(`Error: ${e.message}`, 'error');
         }
     }
 
-    async function _validate() {
-        // Metadata is contract-owned and presentation flags are excluded from
-        // the study hash, so there is no semantic impact to preview anymore.
-        const out = document.getElementById('vs-validation-output');
-        if (out) {
-            out.innerHTML = '<div style="color: var(--color-text-muted);">'
-                + 'Metadata is owned by the contract TOMLs (read-only here); the '
-                + 'on/off surface flags never affect cached study data — nothing to preview.</div>';
-        }
-    }
+    // A checkbox toggle updates the row in place and schedules a debounced
+    // save, so a burst of clicks lands as one POST. The presentation store is
+    // the only editable payload; the payload is simply the per-surface
+    // membership lists rebuilt from the current checkbox states.
+    let _saveTimer = null;
+    let _saving = false;
 
-    function _renderValidation(body) {
-        const out = document.getElementById('vs-validation-output');
-        if (!out) return;
-        const errors = body.errors || [];
-        let html = '';
-        if (errors.length) {
-            html += `<div style="color: var(--color-danger);">${errors.length} validation error(s):</div>`;
-            html += '<ul style="margin: 4px 0 0 18px; padding: 0;">'
-                + errors.slice(0, 20).map(e =>
-                    `<li><span class="font-mono">${_esc(e.variable_name || '?')}</span> · <span style="color: var(--color-text-muted);">${_esc(e.column)}</span>: ${_esc(e.message)}</li>`)
-                  .join('')
-                + (errors.length > 20 ? `<li>… and ${errors.length - 20} more</li>` : '')
-                + '</ul>';
-        } else {
-            html += '<div style="color: var(--color-success);">Validation passed.</div>';
-        }
-        if (body.hash_changed) {
-            const affected = body.affected_studies || [];
-            html += `<div style="margin-top: 6px;">⚠ Semantic change detected. New hash ${_esc(body.new_hash || '').slice(0, 16)}…<br>`
-                + `Studies that would be marked for rebuild: ${affected.length === 0 ? '<em>(none currently — first build will use new hash)</em>' : affected.map(_esc).join(', ')}.</div>`;
-        }
-        out.innerHTML = html;
-    }
-
-    let _editDebounceTimer = null;
-
-    function _setEditDebounced(rowIdx, col, value) {
-        if (_editDebounceTimer) clearTimeout(_editDebounceTimer);
-        _editDebounceTimer = setTimeout(() => {
-            _editDebounceTimer = null;
-            _setEdit(rowIdx, col, value);
-        }, 150);
+    function _togglePrio(rowIdx, col, checked) {
+        const row = state.rows[rowIdx];
+        if (!row || !(col in PRIO_COLUMNS)) return;
+        row[col] = checked ? '1' : '';
+        _setStatus('Saving…');
+        if (_saveTimer) clearTimeout(_saveTimer);
+        _saveTimer = setTimeout(_save, 400);
     }
 
     async function _save() {
-        // Flush a focused-but-uncommitted cell: text inputs only commit on
-        // change (blur), so a click straight onto Save would otherwise see
-        // zero dirty edits and silently no-op.
-        const active = document.activeElement;
-        if (active && typeof active.blur === 'function') active.blur();
-        if (_editDebounceTimer) {
-            clearTimeout(_editDebounceTimer);
-            _editDebounceTimer = null;
+        _saveTimer = null;
+        if (_saving) {
+            // A save is in flight — run again once it finishes so the latest
+            // checkbox states always land.
+            _saveTimer = setTimeout(_save, 400);
+            return;
         }
-        if (_dirtyCount() === 0) return;
-        const out = document.getElementById('vs-validation-output');
-        if (out) out.textContent = 'Saving…';
+        _saving = true;
         try {
-            // Only the presentation flags are editable — build the per-surface
-            // membership lists from the effective (edited) checkbox values.
             const surfaces = {};
             for (const [col, surface] of Object.entries(PRIO_COLUMNS)) {
                 surfaces[surface] = state.rows
-                    .map((row, i) => ({ name: row.variable_name, v: _effectiveValue(i, col) }))
-                    .filter(x => String(x.v).trim() !== '' && String(x.v) !== '<NA>')
-                    .map(x => x.name);
+                    .filter(r => String(r[col] ?? '').trim() !== '' && String(r[col]) !== '<NA>')
+                    .map(r => r.variable_name);
             }
             const res = await fetch(PRESENTATION_ENDPOINT, {
                 method: 'POST',
@@ -559,30 +341,21 @@
             });
             const body = await res.json();
             if (res.status === 409) {
-                if (out) out.innerHTML = `<div style="color: var(--color-danger);">Save rejected: ${_esc(body.message || 'etag mismatch')}. Reloading.</div>`;
+                _setStatus('Save rejected (someone else saved first) — reloading.', 'error');
                 await _load();
                 return;
             }
             if (!res.ok) {
-                throw new Error(body.error || `HTTP ${res.status}`);
+                throw new Error(body.error || body.message || `HTTP ${res.status}`);
             }
-            // Re-fetch from the server so state.rows reflects what was
-            // actually persisted — without this, the table re-renders from
-            // pre-save in-memory data and the edit appears to revert until
-            // the page is reloaded.
-            await _load();
-            if (out) out.innerHTML = `<div style="color: var(--color-success);">Saved.</div>`;
+            state.etag = body.etag || state.etag;
+            _setStatus('Saved.', 'ok');
         } catch (e) {
-            if (out) out.textContent = `Error: ${e.message}`;
+            _setStatus(`Save failed: ${e.message} — reloading.`, 'error');
+            await _load();
+        } finally {
+            _saving = false;
         }
-    }
-
-    function _cancel() {
-        state.edits = {};
-        _renderTable();
-        _renderSaveBar();
-        const out = document.getElementById('vs-validation-output');
-        if (out) out.textContent = '';
     }
 
     function _esc(s) {
@@ -596,26 +369,9 @@
 
     // ---------- wiring ----------
 
-    function _bindFilters() {
-        if (state.filtersBound) return;
-        state.filtersBound = true;
-        const g = document.getElementById('vs-filter-group');
-        const s = document.getElementById('vs-filter-origin');
-        const r = document.getElementById('vs-filter-role');
-        const q = document.getElementById('vs-filter-search');
-        if (g) g.addEventListener('change', () => { state.filters.group = g.value; _renderTable(); });
-        if (s) s.addEventListener('change', () => { state.filters.origin = s.value; _renderTable(); });
-        if (r) r.addEventListener('change', () => { state.filters.role = r.value; _renderTable(); });
-        if (q) {
-            let timer = null;
-            q.addEventListener('input', () => {
-                clearTimeout(timer);
-                timer = setTimeout(() => {
-                    state.filters.search = q.value.trim();
-                    _renderTable();
-                }, 150);
-            });
-        }
+    function _wireOnce() {
+        if (state.wired) return;
+        state.wired = true;
         // Close the columns dropdown when clicking anywhere outside it.
         document.addEventListener('click', (ev) => {
             const wrap = document.getElementById('vs-columns-wrap');
@@ -632,7 +388,7 @@
         if (!page) return;
         if (state.loaded) return;
         if (!page.classList.contains('active')) return;
-        _bindFilters();
+        _wireOnce();
         _load();
     }
 
@@ -650,16 +406,13 @@
     }
 
     // Public globals used by inline handlers in the template.
-    window.vsOnEdit = _setEdit;
-    window.vsOnEditDebounced = _setEditDebounced;
+    window.vsTogglePrio = _togglePrio;
     window.vsSort = _onSort;
     window.vsToggleColumn = _toggleColumn;
     window.vsToggleColumnsMenu = () => _toggleColumnsMenu(false);
     window.vsShowAllColumns = _showAllColumns;
+    window.vsResetColumns = _resetColumns;
     window.vsReload = () => _load(true);
-    window.vsValidate = _validate;
-    window.vsSave = _save;
-    window.vsCancel = _cancel;
 
     // The annotation-contract card (now on the versions page) announces
     // activations/reverts; the contract drives var_schema metadata, so drop
