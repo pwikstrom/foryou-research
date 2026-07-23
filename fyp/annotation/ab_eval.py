@@ -652,7 +652,7 @@ def annotate_one(item_id: str, platform: str | None, prompt_text: str, response_
     from fyp.machine_annotation import initialize_machine
 
     initialize_machine()
-    machine = _cf()["machine"]
+    machine = _cf()["machine"]["gemini"]
     effective = {key: machine[key] for key in
                  ("model", "temperature", "thinking_budget", "max_output_tokens")}
     effective.update({k: v for k, v in (gen_overrides or {}).items() if v is not None})
@@ -764,7 +764,7 @@ class SyncThreadedRunner:
                         "item_id": item_id, "parsed": None, "response": "",
                         "finish_reason": "DNF - runner error", "usage": {},
                         "inference_duration": -1.0, "error": str(exc),
-                        "model": _cf()["machine"].get("model"),
+                        "model": _cf()["machine"]["gemini"].get("model"),
                     }
                 done += 1
                 if progress_cb:
@@ -1541,41 +1541,44 @@ def delete_run(run_id: str) -> bool:
 
 
 
-def _model_price(model: str | None) -> dict | None:
-    """Look up a model's token prices from ``[machine.pricing]``.
+def _arm_price(arm: dict) -> dict | None:
+    """The token prices applying to one arm's calls, or ``None`` if unknown.
 
-    No annotation API exposes prices programmatically, so the table is
-    config-maintained (USD per 1M tokens, ``input`` / ``output`` keys).
-    Lookup is exact model id first, then the longest key the model id starts
-    with — so one ``gemini-3.5-flash`` entry covers dated snapshot ids.
+    No annotation API exposes prices programmatically, so prices are
+    config-maintained ``pricing = {input, output}`` (USD per 1M tokens)
+    entries on backend blocks and variants; the arm's backend selection
+    resolves through :func:`variants.selection_pricing`. An arm whose
+    ``gen_overrides`` swap the model away from the selection's effective
+    model is unpriced — the declared price no longer describes what ran.
 
     Args:
-        model: The model id stamped on a raw row.
+        arm: A parsed arm dict (``backend`` + ``gen_overrides`` keys).
 
     Returns:
-        The price entry, or ``None`` when the model is not in the table.
+        The ``{input, output}`` price entry, or ``None``.
     """
-    pricing = _cf()["machine"].get("pricing", {}) or {}
-    if not model:
+    from fyp.annotation.backends import get_backend, variants
+
+    selection = arm.get("backend") or "gemini"
+    overrides = arm.get("gen_overrides") or {}
+    try:
+        spec = variants.resolve(selection)
+        model_key = "model" if spec.backend_id == "gemini" else "model_id"
+        if overrides.get(model_key):
+            if overrides[model_key] != get_backend(selection).effective_model_id():
+                return None
+        return variants.selection_pricing(selection)
+    except Exception:
         return None
-    if model in pricing:
-        return pricing[model]
-    best_key = ""
-    for key in pricing:
-        if model.startswith(key) and len(key) > len(best_key):
-            best_key = key
-    return pricing.get(best_key) if best_key else None
 
 
 
 
-def _arm_cost(raw_rows: list[dict]) -> dict:
+def _arm_cost(raw_rows: list[dict], price: dict | None = None) -> dict:
     """Aggregate token/error/latency/cost stats for one arm's raw rows."""
     totals = {"prompt_tokens": 0, "candidates_tokens": 0, "thoughts_tokens": 0, "total_tokens": 0}
     errors = 0
     durations = []
-    cost_usd = 0.0
-    priced_rows = 0
     for row in raw_rows:
         if row.get("error"):
             errors += 1
@@ -1587,21 +1590,19 @@ def _arm_cost(raw_rows: list[dict]) -> dict:
         dur = row.get("inference_duration")
         if isinstance(dur, (int, float)) and dur >= 0:
             durations.append(float(dur))
-        # Approximate spend: thinking tokens are billed as output on every
-        # priced backend, so they fold into the output side.
-        price = _model_price(row.get("model"))
-        if price is not None:
-            prompt = usage.get("prompt_tokens") or 0
-            out = (usage.get("candidates_tokens") or 0) + (usage.get("thoughts_tokens") or 0)
-            cost_usd += (prompt * float(price.get("input", 0))
-                         + out * float(price.get("output", 0))) / 1e6
-            priced_rows += 1
+    # Approximate spend: thinking tokens are billed as output on every priced
+    # backend, so they fold into the output side.
+    cost_usd = None
+    if price is not None:
+        out_tokens = totals["candidates_tokens"] + totals["thoughts_tokens"]
+        cost_usd = (totals["prompt_tokens"] * float(price.get("input", 0))
+                    + out_tokens * float(price.get("output", 0))) / 1e6
     return {
         **totals,
         "n_errors": errors,
         "mean_inference_duration": float(np.mean(durations)) if durations else None,
-        "cost_usd": cost_usd if priced_rows else None,
-        "unpriced_rows": len(raw_rows) - priced_rows,
+        "cost_usd": cost_usd,
+        "unpriced_rows": 0 if price is not None else len(raw_rows),
     }
 
 
@@ -1716,7 +1717,7 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
             data_io.save_parquet(df=refined, storage_location=LOCATION,
                                  filename=_run_file(run_id, f"arm_{arm['name']}.parquet"))
             frames[arm["name"]] = refined
-            costs[arm["name"]] = _arm_cost(raw_rows)
+            costs[arm["name"]] = _arm_cost(raw_rows, _arm_price(arm))
 
         # Pairwise comparisons + N-arm distributions/adjudication. The live
         # var_schema knows nothing about an arm's brand-new fields, so union in

@@ -28,7 +28,7 @@ _MR = google.genai.types.MediaResolution
 
 @contextlib.contextmanager
 def _set(value):
-    machine = fyp_cf["machine"]
+    machine = fyp_cf["machine"]["gemini"]
     saved = machine.get("media_resolution", _MISSING)
     if value is _MISSING:
         machine.pop("media_resolution", None)

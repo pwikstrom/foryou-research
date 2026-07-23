@@ -49,6 +49,11 @@ def _cf():
     return fyp_cf
 
 
+def _gcf():
+    """The ``[machine.gemini]`` config block (canonical Gemini home)."""
+    return _cf()["machine"]["gemini"]
+
+
 
 def _check_graceful_stop(process_name: str) -> bool:
     """Check if a graceful stop has been requested via sentinel file."""
@@ -96,8 +101,8 @@ def invalidate_caches():
     the client bakes in the credential mode). The version descriptor cache in
     :mod:`fyp.annotation_versioning` self-invalidates via its config signature.
     """
-    _cf()["machine"]["structured_generation_config"] = None
-    _cf()["machine"]["client"] = None
+    _gcf()["structured_generation_config"] = None
+    _gcf()["client"] = None
 
 
 
@@ -106,10 +111,10 @@ def invalidate_caches():
 
 def initialize_machine():
 
-    if _cf()["machine"].get("client", None) is not None:
+    if _gcf().get("client", None) is not None:
         return _cf()
 
-    _cf()["machine"]["client"] = None
+    _gcf()["client"] = None
 
     mode, reason = gemini_client.gemini_mode()
     if mode is None:
@@ -119,10 +124,10 @@ def initialize_machine():
     if fyp_utils.online_ok():
         try:
             http_options = google.genai.types.HttpOptions(
-                api_version=_cf()["machine"]["http_options_api_version"],
-                timeout=_cf()["machine"]["http_options_timeout"]
+                api_version=_gcf()["http_options_api_version"],
+                timeout=_gcf()["http_options_timeout"]
             )
-            _cf()["machine"]["client"] = gemini_client.make_client(
+            _gcf()["client"] = gemini_client.make_client(
                 http_options=http_options
             )
 
@@ -180,7 +185,7 @@ def _resolve_media_resolution(value=None):
         A ``google.genai.types.MediaResolution`` value, or ``None``.
     """
     if value is None:
-        value = _cf()["machine"].get("media_resolution", "")
+        value = _gcf().get("media_resolution", "")
     value = str(value or "").strip().upper()
     if not value:
         return None
@@ -212,11 +217,11 @@ def build_structured_generation_config(gen_overrides: dict | None = None):
         instance when ``gen_overrides`` is empty).
     """
     gen_overrides = {k: v for k, v in (gen_overrides or {}).items() if v is not None}
-    if not gen_overrides and _cf()["machine"].get("structured_generation_config") is not None:
-        return _cf()["machine"]["structured_generation_config"]
+    if not gen_overrides and _gcf().get("structured_generation_config") is not None:
+        return _gcf()["structured_generation_config"]
 
     machine_prompt = annotation_versioning.active_prompt_text()
-    machine = {**_cf()["machine"], **gen_overrides}
+    machine = {**_gcf(), **gen_overrides}
 
     gen_config = google.genai.types.GenerateContentConfig(
         system_instruction=machine_prompt,
@@ -230,7 +235,7 @@ def build_structured_generation_config(gen_overrides: dict | None = None):
         ),
     )
     if not gen_overrides:
-        _cf()["machine"]["structured_generation_config"] = gen_config
+        _gcf()["structured_generation_config"] = gen_config
     return gen_config
 
 
@@ -308,20 +313,20 @@ def _generate_with_retry(contents, gen_config, model: str | None = None):
         Exception: The last exception if every attempt fails, or any
             non-transient error on its first occurrence.
     """
-    if _cf()["machine"].get("client") is None:
+    if _gcf().get("client") is None:
         raise RuntimeError(
             "Gemini client not configured - see [machine] in config "
             "(set a Vertex project, or vertexai = false with GEMINI_API_KEY)."
         )
 
-    max_retries = int(_cf()["machine"].get("max_retries", 2))
-    base_delay = float(_cf()["machine"].get("retry_base_delay", 2.0))
+    max_retries = int(_gcf().get("max_retries", 2))
+    base_delay = float(_gcf().get("retry_base_delay", 2.0))
 
     attempt = 0
     while True:
         try:
-            return _cf()["machine"]["client"].models.generate_content(
-                model=model or _cf()["machine"]["model"],
+            return _gcf()["client"].models.generate_content(
+                model=model or _gcf()["model"],
                 config=gen_config,
                 contents=contents,
             )
@@ -352,7 +357,7 @@ def call_machine(
     # A variant's pins (model / gen params) ride in as overrides; empty means
     # the exact historical config-driven path.
     gen_overrides = {k: v for k, v in (gen_overrides or {}).items() if v is not None}
-    effective_model = gen_overrides.get("model") or _cf()["machine"]["model"]
+    effective_model = gen_overrides.get("model") or _gcf()["model"]
 
 
     if dry_run:
@@ -596,7 +601,7 @@ def call_machine_threads(
 
 
     _effective_model = (backend.effective_model_id() if backend is not None
-                        else _cf()['machine']['model'])
+                        else _gcf()["model"])
     if verbose:
         if dry_run:
             print("  [dry run] - ", end="", flush=True)
@@ -621,8 +626,8 @@ def call_machine_threads(
     _waves = max(1, (len(interesting_videos) + max_workers - 1) // max_workers)
     # Extra headroom for retry backoff sleeps a worker may incur on transient
     # failures (sum of base*2^k for k < max_retries).
-    _max_retries = int(_cf()["machine"].get("max_retries", 2))
-    _retry_base_delay = float(_cf()["machine"].get("retry_base_delay", 2.0))
+    _max_retries = int(_gcf().get("max_retries", 2))
+    _retry_base_delay = float(_gcf().get("retry_base_delay", 2.0))
     _retry_backoff = _retry_base_delay * (2 ** _max_retries - 1)
     batch_deadline = int(
         _waves * _per_call_seconds * _safety_margin + _startup_sleep + 60 + _retry_backoff

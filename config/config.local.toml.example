@@ -30,7 +30,7 @@ local_media = "~CHANGE-ME~/fyp_local/media"
 # mail_sender = "you@gmail.com"       # outbound mail sender (with MAIL_PASSWORD)
 # app_url = "https://your-hub.example.org"  # "log in at ..." links in emails
 
-# [machine]
+# [machine.gemini]
 # Gemini annotation — either your own Vertex AI project (ADC auth):
 # project = "your-gcp-project"
 # ...or the plain Gemini API (key in the GEMINI_API_KEY environment
@@ -40,6 +40,7 @@ local_media = "~CHANGE-ME~/fyp_local/media"
 # vertexai = false
 # Enabling Gemini after installing without it, both routes in full:
 # docs/installation.md#enabling-gemini-later
+# (Overlays written before 2026-07 used flat [machine] keys — still accepted.)
 
 # [data_io]
 # GCS-backed storage (local disk is the committed default):

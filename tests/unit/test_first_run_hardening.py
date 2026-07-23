@@ -43,7 +43,7 @@ def test_debug_enabled_parsing(value, expected):
 
 def test_initialize_machine_unconfigured_project_stays_none(monkeypatch, caplog):
     """vertexai=true with an empty project: no client, no network, a warning."""
-    machine = machine_annotation._cf()["machine"]
+    machine = machine_annotation._cf()["machine"]["gemini"]
     monkeypatch.setitem(machine, "client", None)
     monkeypatch.setitem(machine, "vertexai", True)
     monkeypatch.setitem(machine, "project", "")
@@ -65,7 +65,7 @@ def test_initialize_machine_unconfigured_project_stays_none(monkeypatch, caplog)
 
 def test_generate_with_retry_raises_clearly_without_client(monkeypatch):
     """The retry wrapper fails with a configuration message, not AttributeError."""
-    machine = machine_annotation._cf()["machine"]
+    machine = machine_annotation._cf()["machine"]["gemini"]
     monkeypatch.setitem(machine, "client", None)
 
     with pytest.raises(RuntimeError, match="not configured"):

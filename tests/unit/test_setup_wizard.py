@@ -40,10 +40,10 @@ def test_build_config_toml_minimal_local():
 
 
 def test_build_config_toml_vertex():
-    """Vertex mode emits [machine] project and nothing else machine-related."""
+    """Vertex mode emits [machine.gemini] project and nothing else machine-related."""
     answers = setup.Answers(data_dir="/tmp/d", gemini_mode="vertex", vertex_project="my-proj")
     parsed = tomllib.loads(setup.build_config_toml(answers))
-    assert parsed["machine"] == {"project": "my-proj"}
+    assert parsed["machine"] == {"gemini": {"project": "my-proj"}}
 
 
 
@@ -54,7 +54,7 @@ def test_build_config_toml_api_key_mode():
     """API-key mode emits vertexai = false (the key itself stays in the env)."""
     answers = setup.Answers(data_dir="/tmp/d", gemini_mode="api_key")
     parsed = tomllib.loads(setup.build_config_toml(answers))
-    assert parsed["machine"] == {"vertexai": False}
+    assert parsed["machine"] == {"gemini": {"vertexai": False}}
     assert "GEMINI" not in setup.build_config_toml(answers)
 
 

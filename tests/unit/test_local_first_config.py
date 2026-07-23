@@ -48,7 +48,7 @@ def test_committed_defaults_are_local_first():
     assert cf["data_io"]["use_gcs_for_data"] is False
     assert cf["data_io"]["use_gcs_for_media"] is False
     assert cf["data_io"]["use_gcs_for_cache"] is False
-    assert cf["machine"]["project"] == ""
+    assert cf["machine"]["gemini"]["project"] == ""
 
 
 

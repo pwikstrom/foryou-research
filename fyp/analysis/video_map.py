@@ -123,7 +123,7 @@ def _get_naming_client() -> genai.Client:
     global _naming_client
     if _naming_client is None:
         _naming_client = gemini_client.make_client(
-            location=_cf()["machine"]["location"]
+            location=_cf()["machine"]["gemini"]["location"]
         )
     return _naming_client
 
@@ -361,7 +361,7 @@ def _name_niches(
         return meta
 
     client = _get_naming_client()
-    naming_model = _cf()["machine"]["model"]
+    naming_model = _cf()["machine"]["gemini"]["model"]
     naming_errors: list[str] = []
 
     def _ask(prompt: str) -> str | None:

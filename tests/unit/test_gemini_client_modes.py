@@ -40,7 +40,7 @@ from fyp.fyp_config import fyp_cf
 @contextmanager
 def _machine(vertexai: bool, project: str, key: str, use_gcs_for_media: bool = False):
     """Temporarily install a [machine]/[data_io] config combination."""
-    machine = fyp_cf["machine"]
+    machine = fyp_cf["machine"]["gemini"]
     data_io_cf = fyp_cf["data_io"]
     saved = (
         machine.get("vertexai"),

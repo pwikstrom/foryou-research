@@ -82,7 +82,7 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=12)
     args = ap.parse_args()
 
-    with open(fyp_cf["machine"]["prompt"]) as f:
+    with open(fyp_cf["machine"]["gemini"]["prompt"]) as f:
         file_prompt = f.read()
     gen_prompt = build_prompt()
     print(f"[prompt A/B] file prompt {len(file_prompt)} chars | generated {len(gen_prompt)} chars "

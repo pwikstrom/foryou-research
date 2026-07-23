@@ -55,8 +55,8 @@ def main() -> int:
     media_prefix = dio.get("gcs_media_prefix", "media")
     initialize_machine()
 
-    print(f"[spike] bucket={args.bucket} model={fyp_cf['machine']['model']} "
-          f"temp={fyp_cf['machine']['temperature']} version={av.current_annotation_version()}")
+    print(f"[spike] bucket={args.bucket} model={fyp_cf['machine']["gemini"]['model']} "
+          f"temp={fyp_cf['machine']["gemini"]['temperature']} version={av.current_annotation_version()}")
 
     # 1. Pick N real video ids from gs://bucket/media/
     blobs = dio["bucket"].list_blobs(prefix=f"{media_prefix}/", max_results=args.n * 4)
@@ -122,8 +122,8 @@ def main() -> int:
     # 5. Run the production ingest mapper + validate structured parsing.
     raw = batch.ingest_records_to_raw(
         records, submitted_ids,
-        model=fyp_cf["machine"]["model"],
-        prompt_fn=os.path.basename(fyp_cf["machine"]["prompt"]),
+        model=fyp_cf["machine"]["gemini"]["model"],
+        prompt_fn=os.path.basename(fyp_cf["machine"]["gemini"]["prompt"]),
         annotation_version=av.current_annotation_version(),
     )
     ok, empty, bad_json = 0, 0, 0

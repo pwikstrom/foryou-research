@@ -44,7 +44,7 @@ def main() -> int:
     ap.add_argument("--n", type=int, default=3)
     args = ap.parse_args()
 
-    flag = fyp_cf["machine"].get("use_structured_output", False)
+    flag = fyp_cf["machine"]["gemini"].get("use_structured_output", False)
     print(f"config.toml use_structured_output = {flag}")
     if not flag:
         print("ERROR: set `use_structured_output = true` in config/config.toml first "

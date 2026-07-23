@@ -125,8 +125,8 @@ def run_live(n: int, seed: int, workers: int, thinking_budget: int | None) -> tu
     global _NEW_PROMPT
     _NEW_PROMPT = build_prompt()  # NEW arm: generated prompt from the contract.
     # OLD arm (ma.call_machine) = free-text generation with the FILE prompt.
-    fyp_cf["machine"]["use_structured_output"] = False
-    fyp_cf["machine"]["use_generated_prompt"] = False
+    fyp_cf["machine"]["gemini"]["use_structured_output"] = False
+    fyp_cf["machine"]["gemini"]["use_generated_prompt"] = False
 
     ma.initialize_machine()
     from structured_annotator import build_structured_config

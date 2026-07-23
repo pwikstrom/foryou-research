@@ -44,8 +44,8 @@ def main() -> int:
         print("No local mp4s found.")
         return 1
 
-    original_flag = fyp_cf["machine"].get("use_structured_output", False)
-    fyp_cf["machine"]["use_structured_output"] = True
+    original_flag = fyp_cf["machine"]["gemini"].get("use_structured_output", False)
+    fyp_cf["machine"]["gemini"]["use_structured_output"] = True
     print(f"Production path with use_structured_output=True on {video_ids}\n")
     try:
         with isolated_storage():
@@ -56,7 +56,7 @@ def main() -> int:
                 verbose=True,
             )
     finally:
-        fyp_cf["machine"]["use_structured_output"] = original_flag
+        fyp_cf["machine"]["gemini"]["use_structured_output"] = original_flag
 
     print(f"\n=== ok={len(ok_ids)} fail={len(fail_ids)} ===")
     print(f"  ok_ids:   {ok_ids}")

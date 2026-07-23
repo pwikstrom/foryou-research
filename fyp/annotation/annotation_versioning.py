@@ -229,7 +229,7 @@ def current_version_descriptor(fresh: bool = False) -> dict:
     Returns:
         The version descriptor for the active configuration.
     """
-    machine = _cf()["machine"]
+    machine = _cf()["machine"]["gemini"]
     # The contract etag is part of the signature so a runtime contract edit (which
     # leaves every [machine] config key unchanged) still busts the descriptor
     # cache — otherwise a long-lived process would keep stamping the old av_.

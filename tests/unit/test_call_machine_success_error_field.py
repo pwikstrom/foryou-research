@@ -51,8 +51,8 @@ def test_successful_call_reports_no_error(tmp_path) -> None:
     video_id = "err_field_test_item"
     (tmp_path / f"{video_id}.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42")
 
-    saved_client = fyp_cf["machine"].get("client")
-    fyp_cf["machine"]["client"] = _FakeClient()
+    saved_client = fyp_cf["machine"]["gemini"].get("client")
+    fyp_cf["machine"]["gemini"]["client"] = _FakeClient()
     try:
         out = ma.call_machine(
             video_id=video_id,
@@ -60,7 +60,7 @@ def test_successful_call_reports_no_error(tmp_path) -> None:
             local_path=str(tmp_path),
         )
     finally:
-        fyp_cf["machine"]["client"] = saved_client
+        fyp_cf["machine"]["gemini"]["client"] = saved_client
 
     assert out["finish_reason"] == "FinishReason.STOP"
     assert out["response"] == _FakeResponse.text

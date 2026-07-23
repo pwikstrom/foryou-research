@@ -1,73 +1,104 @@
 ##########################################################################################
-# Machine annotations
-#########################################################################################
+# Machine annotation
+##########################################################################################
+# One [machine.<backend>] block per annotation backend, each with the same
+# anatomy: its own connection/generation keys, an optional
+# `pricing = {input = ..., output = ...}` inline table (USD per 1M tokens,
+# used only to display approximate cost on Annotation-testing runs — no API
+# exposes prices, so update manually; thinking tokens bill as output), and an
+# optional [machine.<backend>.variants.<name>] subtable per pinned model
+# version. The active backend/variant is selected at runtime in Admin →
+# General; the values here are config-only (edit + restart/redeploy).
+#
+# Variants: a variant's override keys are its parent block's keys; `label`
+# and `pricing` are metadata. Variant names are lowercase [a-z0-9_], globally
+# unique, and must not reuse a backend id. Each variant forks its own av_
+# annotation version automatically. Batch-mode annotation runs only on the
+# plain gemini selection; a local backend holds one resident model per worker
+# process (restart to switch local variants).
+
 [machine]
+# Backend-agnostic annotation settings.
+# Items longer than this (seconds) are never queued for annotation.
+max_duration_for_annotation = 300
 
-# Your Gemini API Key (set via environment variable GEMINI_API_KEY; leave blank here)
-key = "" 
 
-# The model
+# ── Gemini (default backend; Vertex AI or API-key mode) ─────────────────────
+# Credentials: either set vertexai = true with a GCP project (Application
+# Default Credentials), or vertexai = false with a GEMINI_API_KEY environment
+# variable (loaded into `key` at config init; leave the committed value
+# blank). Deployed services fall back to FYP_VERTEX_PROJECT / GCP_PROJECT_ID
+# env vars when `project` is empty. Machine-local values belong in
+# config/config.local.toml, not here.
+[machine.gemini]
+key = ""
 model = "gemini-3-flash-preview"
-
-# The annotation prompt (system instruction) is generated from the declarative
-# annotation contract (config/annotation_contract.toml) via
-# annotation_schema.build_prompt(), and annotation always uses Gemini structured
-# output (response_schema from fyp/annotation_schema.py). The generated prompt +
-# response_schema + flattener all derive from that one contract, so they cannot
-# drift. The pre-versioning "v0_legacy" prompt file is kept at
-# config/legacy_annotation_prompt.txt purely for the admin Annotation Versions viewer.
-
-# Vertex AI settings. Annotation is disabled until configured: either set your
-# own GCP project here or in config.local.toml (Vertex AI, authenticated via
-# Application Default Credentials), or set vertexai = false and provide a
-# GEMINI_API_KEY environment variable to use the plain Gemini API instead.
 vertexai = true
 project = ""
 location = "global"
 http_options_api_version = "v1"
 http_options_timeout = 180000
-# Temperature 0.0 for reproducibility. Google's general guidance recommends 1.0
-# for Gemini 3 thinking models (sub-1.0 risks looping on UNCONSTRAINED free-text),
-# but an n=80 A/B (tests/ab_eval/temperature_ab.py; see tests/ab_eval/FINDINGS.md)
-# showed that with schema-constrained structured output there is NO looping at
-# temp=0 (0 MAX_TOKENS; free-text repeat-ratio identical to temp=1.0), the content
-# is unchanged (temp0-vs-temp1 agreement == the temp1 run-to-run floor, ~0.89),
-# and temp=0 is markedly more reproducible (enum 0.887->0.928, list Jaccard
-# 0.52->0.74, numeric corr 0.77->0.87). Reproducibility matters for this research
-# instrument, so 0.0 is pinned. NOTE: still not perfectly deterministic (~0.93,
-# not 1.0) — distributed inference adds irreducible non-determinism.
+
+# Generation parameters (output-affecting → part of the av_ version identity).
+# Temperature 0.0 for reproducibility: an n=80 A/B (tests/ab_eval/FINDINGS.md)
+# showed schema-constrained structured output does NOT loop at temp=0, content
+# is unchanged, and reproducibility improves markedly (enum 0.887→0.928).
 temperature = 0.0
 max_output_tokens = 65536
 thinking_budget = -1
 
-# Transient-failure retry policy for the Gemini call (see machine_annotation.
-# _generate_with_retry). Retries only transient errors (429 / 5xx / deadline /
-# timeout / dropped connection); fails fast on everything else. max_retries is
-# the number of retries AFTER the first attempt; base delay grows exponentially.
+# Video frame resolution sent to Gemini. Empty = API default = HIGH for video.
+# An n=80 HIGH-vs-LOW A/B (tests/ab_eval/FINDINGS.md) found LOW saves ~41%
+# input tokens but degrades symbols_and_brands + sensitivity_score, so HIGH
+# is kept. LOW==MEDIUM for Gemini-3 video (~70 vs ~280 tokens/frame).
+media_resolution = ""
+
+# Transient-failure retry policy (429/5xx/deadline/timeout only; fails fast
+# on everything else). max_retries counts retries AFTER the first attempt.
 max_retries = 2
 retry_base_delay = 2.0
 
-# Video frame resolution sent to Gemini. Empty = API default = HIGH for video.
-# For Gemini-3 VIDEO, LOW and MEDIUM are equivalent (~70 tok/frame; verified by
-# token count) and HIGH is ~280, so for video this is effectively binary
-# (LOW==MEDIUM vs HIGH). An n=80 HIGH-vs-LOW content A/B with a HIGH-vs-HIGH
-# noise-floor control (tests/ab_eval/FINDINGS.md) found LOW saves ~41% input
-# tokens but genuinely degrades symbols_and_brands (brand/logo) + sensitivity_
-# score; most other fields (text_overlays, faces, ethnicity, categories, story
-# type) were within the temp=1.0 noise floor. Decision: KEEP HIGH (empty default).
-# Set "LOW" only if those two fields are not research-critical. Changing this
-# creates a new annotation_version automatically.
-media_resolution = ""
+pricing = {input = 0.50, output = 3.00}
 
-max_duration_for_annotation = 300
+[machine.gemini.variants.gemini_31]
+model = "gemini-3.1-flash-lite"
+pricing = {input = 0.25, output = 1.50}
+
+[machine.gemini.variants.gemini_35]
+model = "gemini-3.5-flash-lite"
+pricing = {input = 0.30, output = 2.50}
+
+[machine.gemini.variants.gemini_36]
+model = "gemini-3.6-flash"
+pricing = {input = 1.50, output = 7.50}
 
 
-# Local Qwen annotation backend (Apple Silicon + MLX only; select it via
-# Admin → General → Machine annotation). Values are pilot-tuned (2026-07):
-# 8 frames @448px + the audio track matched 16 frames @560px in quality at
-# half the cost (~30 s/video, 23 GB peak on an M2 Max). Frame/audio sampling
-# parameters are output-affecting and therefore part of the annotation
-# version identity. Install: pip install -e ".[local_qwen]" — see
+# ── Hosted Qwen (Alibaba Model Studio / DashScope, intl region) ─────────────
+# Requires the DASHSCOPE_API_KEY environment variable. Sends the whole video
+# (base64) to the omni model — audio track included. Throughput is bound by
+# account-level rate limits (2026-07: 60 RPM / 100k tokens per minute ≈ 5
+# short videos/minute), not by max_workers, so keep the pool small; 429s are
+# retried with backoff. Pricing caveat: the omni models bill audio/video
+# input above the text rate, so the figure is a lower bound.
+# See docs/installation.md#enabling-hosted-qwen-annotation.
+[machine.qwen_api]
+model_id = "qwen3.5-omni-flash"
+base_url = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+temperature = 0.0
+max_tokens = 8000
+max_workers = 4
+max_attempts = 5
+request_timeout = 600
+max_video_mb = 90
+pricing = {input = 0.10, output = 0.80}
+
+
+# ── Local Qwen3-Omni 30B (Apple Silicon + MLX only) ─────────────────────────
+# Values are pilot-tuned (2026-07): 8 frames @448px + the audio track matched
+# 16 frames @560px in quality at half the cost (~30 s/video, 23 GB peak on an
+# M2 Max). Frame/audio sampling parameters are output-affecting and therefore
+# part of the annotation version identity. No pricing — runs locally for free.
+# Install: pip install -e ".[local_qwen]" — see
 # docs/installation.md#enabling-local-qwen-annotation.
 [machine.qwen_local]
 model_id = "mlx-community/Qwen3-Omni-30B-A3B-Instruct-4bit"
@@ -78,12 +109,14 @@ max_tokens = 4096
 repetition_penalty = 1.08
 with_audio = true
 
-# Local MiniCPM-o annotation backend (Apple Silicon + MLX only) — the lighter
-# alternative to the Qwen backend for 16–32 GB Macs: 9B model, ~24 s/video and
-# 8 GB peak in the 2026-07 pilot, agreement vs Gemini slightly below the 30B
-# Qwen model. Same frames+audio recipe; sampling parameters are part of the
-# annotation version identity. Install: pip install -e ".[local_minicpm]" —
-# see docs/installation.md#enabling-local-minicpm-annotation.
+
+# ── Local MiniCPM-o 9B (Apple Silicon + MLX only) ───────────────────────────
+# The lighter local alternative for 16–32 GB Macs: ~24 s/video and 8 GB peak
+# in the 2026-07 pilot, agreement vs Gemini slightly below the 30B Qwen
+# model. Same frames+audio recipe; sampling parameters are part of the
+# annotation version identity. No pricing — runs locally for free.
+# Install: pip install -e ".[local_minicpm]" — see
+# docs/installation.md#enabling-local-minicpm-annotation.
 [machine.minicpm_local]
 model_id = "mlx-community/MiniCPM-o-4_5-4bit"
 max_frames = 8
@@ -92,85 +125,6 @@ fps = 1.0
 max_tokens = 4096
 repetition_penalty = 1.08
 with_audio = true
-
-# Hosted Qwen annotation backend (Alibaba Model Studio / DashScope, intl
-# region; select it via Admin → General → Machine annotation; requires the
-# DASHSCOPE_API_KEY environment variable). Sends the whole video (base64) to
-# the omni model — audio track included. Throughput is bound by the
-# account-level rate limits (2026-07: 60 RPM / 100k tokens per minute ≈ 5
-# short videos/minute), not by max_workers, so keep the pool small; 429s are
-# retried with backoff. See docs/installation.md#enabling-hosted-qwen-annotation.
-[machine.qwen_api]
-model_id = "qwen3.5-omni-flash"
-base_url = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-temperature = 0.0
-max_tokens = 8000
-max_workers = 4
-max_attempts = 5
-request_timeout = 600
-max_video_mb = 90
-
-
-# Backend variants: named selections that pin an existing backend
-# implementation to different config values — typically a newer (or legacy)
-# model version, kept selectable alongside the default. Each declared variant
-# appears in the Admin → General backend dropdown and as an A/B-test arm
-# choice; its effective model/params fork their own annotation version (av_)
-# automatically. The name must be lowercase [a-z0-9_] and must not collide
-# with a backend id (gemini / qwen_api / qwen_local / minicpm_local).
-# Override keys are the implementation's own config keys: for gemini the
-# [machine] keys (model, temperature, thinking_budget, media_resolution,
-# max_output_tokens); for the others the keys of their [machine.<backend>]
-# block (model_id, ...). Note: batch-mode annotation runs only on the plain
-# gemini selection, and a local backend can hold only one resident model per
-# worker process.
-#
-# Token prices in USD per 1M tokens, used ONLY to display an approximate cost
-# next to the token counts on Annotation-testing runs. No annotation API
-# exposes prices programmatically, so update these manually now and then
-# (values below: 2026-07, standard tier, international endpoints; thinking
-# tokens are billed as output). Lookup is exact model id first, then longest
-# prefix match — so one entry covers dated snapshot ids. Caveat: the Qwen omni
-# models bill audio/video input above the text rate, so their figure is a
-# lower bound.
-[machine.pricing."gemini-3-flash-preview"]
-input = 0.50
-output = 3.00
-
-[machine.pricing."gemini-3.1-flash-lite"]
-input = 0.25
-output = 1.50
-
-[machine.pricing."gemini-3.5-flash-lite"]
-input = 0.30
-output = 2.50
-
-[machine.pricing."gemini-3.5-flash"]
-input = 1.50
-output = 9.00
-
-[machine.pricing."gemini-3.6-flash"]
-input = 1.50
-output = 7.50
-
-[machine.pricing."qwen3.5-omni-flash"]
-input = 0.10
-output = 0.80
-
-
-[machine.variants.gemini_31]
-backend = "gemini"
-model = "gemini-3.1-flash-lite"
-
-[machine.variants.gemini_35]
-backend = "gemini"
-model = "gemini-3.5-flash-lite"
-
-[machine.variants.gemini_36]
-backend = "gemini"
-model = "gemini-3.6-flash"
-
-
 
 
 

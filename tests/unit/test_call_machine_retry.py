@@ -64,7 +64,7 @@ class _Harness:
         self.sleeps: list[float] = []
 
     def __enter__(self) -> "_Harness":
-        machine = fyp_cf["machine"]
+        machine = fyp_cf["machine"]["gemini"]
         self._saved = {k: machine.get(k, _MISSING) for k in self._KEYS}
         self._saved_sleep = ma.time.sleep
         self.client = _ScriptedClient(self.outcomes)
@@ -76,7 +76,7 @@ class _Harness:
         return self
 
     def __exit__(self, *exc_info) -> bool:
-        machine = fyp_cf["machine"]
+        machine = fyp_cf["machine"]["gemini"]
         for key, value in self._saved.items():
             if value is _MISSING:
                 machine.pop(key, None)

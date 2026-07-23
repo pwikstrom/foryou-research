@@ -12,7 +12,7 @@ import-cycle rule in `CONTRIBUTING.md`.
 
 | Section | Purpose | Keys you'll actually touch |
 |---|---|---|
-| `[machine]` | Gemini annotation | `vertexai` — **which service to use: Vertex AI (default) or the plain Gemini API**; `project` (the GCP project, required by Vertex); model name, temperature. Turning Gemini on after a no-Gemini install: [Enabling Gemini later](installation.md#enabling-gemini-later) |
+| `[machine]` | Annotation backends | One `[machine.<backend>]` block per backend (Gemini's is `[machine.gemini]`: `vertexai` — **Vertex AI (default) or the plain Gemini API**; `project`; model, params, `pricing`), variants at `[machine.<backend>.variants.<name>]`. Legacy flat `[machine]` keys are hoisted at load. Turning Gemini on after a no-Gemini install: [Enabling Gemini later](installation.md#enabling-gemini-later) |
 | `[paths]` | local storage roots | `local_data` — **set this to a writable directory on your machine**; everything (cache, recoded, users, media) lives under it locally |
 | `[misc]` | runtime behavior | timezone, `local_mode`, media duration caps (`max_duration_for_download[_<platform>]`, `max_duration_for_annotation`) |
 | `[features]` | feature toggles | rarely changed |
@@ -24,7 +24,7 @@ import-cycle rule in `CONTRIBUTING.md`.
 `config/config.local.toml.example` to `config/config.local.toml` (gitignored)
 — it is deep-merged over `config.toml` at load time, so you list only the
 keys you override. For a new collaborator that's `[paths] local_data` (and
-possibly `[machine] project` if you have your own Vertex project). CI uses
+possibly `[machine.gemini] project` if you have your own Vertex project). CI uses
 the same mechanism to redirect storage to a scratch directory.
 
 **Windows paths.** The committed `local_data`/`local_media` defaults are
@@ -66,7 +66,7 @@ tests and the golden safety net use this.
 
 | Variable | Effect |
 |---|---|
-| `GEMINI_API_KEY` | Gemini API access for annotation/embeddings. Used only when `[machine].vertexai = false`: with the default `vertexai = true` the app talks to Vertex AI and this key plays no part (the one exception is when no `project` is set, where the app falls back to the key and warns). Not auto-loaded from `.env` — see [Enabling Gemini later](installation.md#enabling-gemini-later) |
+| `GEMINI_API_KEY` | Gemini API access for annotation/embeddings. Used only when `[machine.gemini].vertexai = false`: with the default `vertexai = true` the app talks to Vertex AI and this key plays no part (the one exception is when no `project` is set, where the app falls back to the key and warns). Not auto-loaded from `.env` — see [Enabling Gemini later](installation.md#enabling-gemini-later) |
 | `FLASK_SECRET_KEY` | Flask session secret (falls back to a dev key locally) |
 | `FYP_GCS_BUCKET_NAME` | GCS bucket (production) |
 | `K_SERVICE` | Set automatically by Cloud Run — switches storage to GCS and job dispatch to Cloud Tasks |
@@ -94,21 +94,21 @@ self-register their raw-upload directories.
 - `irrelevant_words.json` — hashtag stoplist (seeded from `[labels]`)
 - `annotation_contract.toml` — runtime-uploaded annotation contract, if any
 - `admin_settings.json` — site settings incl. the annotation/embedding
-  backend choice. The `[machine]` model/generation parameters are deliberately
+  backend choice. The `[machine.gemini]` model/generation parameters are deliberately
   NOT here: they are config-file-only and need a restart/redeploy to change
 - user accounts and per-user settings (JSON files)
 
 ## Pinning or A/B-ing annotation model versions (backend variants)
 
 To upgrade a backend's model while keeping the old one selectable — or to A/B
-two model generations — declare a **variant** in `config/config.toml` (or the
-`config.local.toml` overlay):
+two model generations — declare a **variant** under the backend's block in
+`config/config.toml` (or the `config.local.toml` overlay):
 
 ```toml
-[machine.variants.gemini_35]
-backend = "gemini"           # implementation: gemini | qwen_api | qwen_local | minicpm_local
-label = "Gemini 3.5 Flash"   # optional display name
-model = "gemini-3.5-flash"   # override keys = the implementation's config keys
+[machine.gemini.variants.gemini_35]
+label = "Gemini 3.5 Flash"               # optional display name
+model = "gemini-3.5-flash"               # override keys = the parent block's keys
+pricing = {input = 0.30, output = 2.50}  # optional, USD per 1M tokens (cost display)
 ```
 
 After a restart/redeploy the variant appears in Admin → General → Machine
@@ -116,8 +116,9 @@ annotation and in the Annotation-testing per-arm backend picker. Selecting it
 annotates with the overridden model/params and stamps a distinct annotation
 version (`av_`) — rows produced under the old model keep their version.
 Variant names are lowercase `[a-z0-9_]` and must not reuse a backend id; for
-gemini the override keys are the `[machine]` keys (`model`, `temperature`,
-`thinking_budget`, `media_resolution`, `max_output_tokens`), for the other
-backends the keys of their `[machine.<backend>]` block (`model_id`, ...).
+gemini the override keys are the `[machine.gemini]` generation keys (`model`,
+`temperature`, `thinking_budget`, `media_resolution`, `max_output_tokens`),
+for the other backends the keys of their `[machine.<backend>]` block
+(`model_id`, ...). `label` and `pricing` are metadata, never overrides.
 Batch-mode annotation runs only on the plain `gemini` selection, and local
 backends hold one resident model per worker process.

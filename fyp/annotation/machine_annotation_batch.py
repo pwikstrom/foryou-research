@@ -70,7 +70,7 @@ _TERMINAL_FAIL = {"JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED"
 
 def current_batch_gen_params() -> dict:
     """Return the output-affecting generation params from config for batch."""
-    machine = _cf()["machine"]
+    machine = _cf()["machine"]["gemini"]
     return {
         "temperature": machine.get("temperature"),
         "max_output_tokens": machine.get("max_output_tokens"),
@@ -410,7 +410,7 @@ def _require_client():
             project / missing API key) — see ``[machine]`` in config.
     """
     initialize_machine()
-    client = _cf()["machine"].get("client")
+    client = _cf()["machine"]["gemini"].get("client")
     if client is None:
         raise RuntimeError(
             "Gemini client not configured - see [machine] in config "
@@ -430,7 +430,7 @@ def submit_batch_job(jsonl_uri: str, ts_label: str) -> tuple[str, str]:
     data_prefix = _cf()["data_io"].get("gcs_data_prefix", "data")
     output_uri = f"gs://{bucket_name}/{data_prefix}/{BATCH_OUTPUT_PREFIX}/{ts_label}/"
     job = client.batches.create(
-        model=_cf()["machine"]["model"],
+        model=_cf()["machine"]["gemini"]["model"],
         src=jsonl_uri,
         config=google.genai.types.CreateBatchJobConfig(dest=output_uri),
     )
@@ -466,7 +466,7 @@ def download_and_ingest(output_uri: str, submitted_ids: list) -> str:
 
     raw = ingest_records_to_raw(
         records, submitted_ids,
-        model=_cf()["machine"]["model"],
+        model=_cf()["machine"]["gemini"]["model"],
         prompt_fn=annotation_versioning.active_prompt_label(),
         annotation_version=annotation_versioning.current_annotation_version(),
         platform_by_id=platform_map_for([str(v) for v in submitted_ids]),

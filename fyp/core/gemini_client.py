@@ -3,11 +3,11 @@
 
 Gemini is reachable two ways, chosen by config:
 
-* **Vertex AI** — ``[machine].vertexai = true`` plus a ``[machine].project``,
+* **Vertex AI** — ``[machine.gemini].vertexai = true`` plus a ``[machine.gemini].project``,
   authenticated by Application Default Credentials (``gcloud auth
   application-default login``).
-* **The plain Gemini API** — ``[machine].vertexai = false`` plus a
-  ``GEMINI_API_KEY`` (loaded into ``[machine].key`` at config init).
+* **The plain Gemini API** — ``[machine.gemini].vertexai = false`` plus a
+  ``GEMINI_API_KEY`` (loaded into ``[machine.gemini].key`` at config init).
 
 Annotation, embeddings, and niche naming must resolve that choice identically.
 When they disagree, a config that passes the pre-flight gate still fails at
@@ -61,7 +61,7 @@ def gemini_mode() -> tuple[str | None, str]:
     """
     global _FALLBACK_WARNED
 
-    machine = _cf()["machine"]
+    machine = _cf()["machine"]["gemini"]
     project = str(machine.get("project") or "").strip()
     key = str(machine.get("key") or "").strip()
 
@@ -71,7 +71,7 @@ def gemini_mode() -> tuple[str | None, str]:
         if key:
             if not _FALLBACK_WARNED:
                 logger.warning(
-                    "Vertex AI is enabled ([machine].vertexai = true) but no "
+                    "Vertex AI is enabled ([machine.gemini].vertexai = true) but no "
                     "[machine].project is set, so Vertex cannot be used. "
                     "Falling back to the plain Gemini API with GEMINI_API_KEY. "
                     "Set vertexai = false in config/config.local.toml to make "
@@ -81,8 +81,8 @@ def gemini_mode() -> tuple[str | None, str]:
             return MODE_API_KEY, ""
         return None, (
             "Gemini is not configured: Vertex AI is enabled "
-            "([machine].vertexai = true) but no GCP project is set, and no "
-            "GEMINI_API_KEY is available. Either set [machine].project in "
+            "([machine.gemini].vertexai = true) but no GCP project is set, and no "
+            "GEMINI_API_KEY is available. Either set [machine.gemini].project in "
             "config/config.local.toml, or set vertexai = false and provide a "
             "GEMINI_API_KEY. See docs/installation.md#enabling-gemini-later."
         )
@@ -91,7 +91,7 @@ def gemini_mode() -> tuple[str | None, str]:
         return MODE_API_KEY, ""
     return None, (
         "Gemini is not configured: the plain Gemini API is selected "
-        "([machine].vertexai = false) but GEMINI_API_KEY is not set. Note "
+        "([machine.gemini].vertexai = false) but GEMINI_API_KEY is not set. Note "
         "that .env is not auto-loaded — export the key or run "
         "'set -a; source .env; set +a'. Alternatively enable Vertex AI "
         "(vertexai = true with a GCP project). "
@@ -102,7 +102,7 @@ def gemini_mode() -> tuple[str | None, str]:
 def _strip_api_version(http_options):
     """Return ``http_options`` with any ``api_version`` cleared.
 
-    ``[machine].http_options_api_version`` (``v1``) is a *Vertex* API version.
+    ``[machine.gemini].http_options_api_version`` (``v1``) is a *Vertex* API version.
     The plain Gemini API versions its surface separately and serves system
     instructions, structured output, and thinking config on ``v1beta`` — asking
     it for ``v1`` fails the request with "Unknown name systemInstruction".
@@ -124,7 +124,7 @@ def make_client(location: str | None = None, http_options=None) -> google.genai.
     """Build a GenAI client for whichever mode is configured.
 
     Args:
-        location: Vertex region for this client, overriding ``[machine]
+        location: Vertex region for this client, overriding ``[machine.gemini]
             .location``. Ignored in API-key mode, where the region is not a
             concept the endpoint accepts.
         http_options: Optional ``google.genai.types.HttpOptions`` to apply. Its
@@ -142,7 +142,7 @@ def make_client(location: str | None = None, http_options=None) -> google.genai.
     if mode is None:
         raise GeminiNotConfiguredError(reason)
 
-    machine = _cf()["machine"]
+    machine = _cf()["machine"]["gemini"]
 
     if mode == MODE_VERTEX:
         kwargs = {}
@@ -156,7 +156,7 @@ def make_client(location: str | None = None, http_options=None) -> google.genai.
         )
 
     # API-key mode: project/location must not accompany api_key. A stale
-    # [machine].project left over from a Vertex setup is deliberately dropped.
+    # [machine.gemini].project left over from a Vertex setup is deliberately dropped.
     kwargs = {}
     stripped = _strip_api_version(http_options)
     if stripped is not None:
