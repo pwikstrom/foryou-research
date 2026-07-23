@@ -1025,6 +1025,17 @@
             + ` · ${n(c.total_tokens)} total`;
     }
 
+    // Approximate dollar spend from the config-maintained [machine.pricing]
+    // table (computed server-side per run). Empty when no price is configured
+    // for the arm's model; a "+" marks partially-priced runs (some rows'
+    // models missing from the table).
+    function _costLine(c) {
+        if (typeof c.cost_usd !== "number") return "";
+        const digits = c.cost_usd >= 1 ? 2 : 4;
+        const plus = (c.unpriced_rows > 0) ? "+" : "";
+        return `cost ≈ $${c.cost_usd.toFixed(digits)}${plus} · `;
+    }
+
     // The headline metric of a column, used ONLY to sort within its own kind.
     // Correlation (−1..1), agreement (0..1) and Jaccard (0..1) are not on a
     // common scale, which is exactly why the table is grouped by kind rather
@@ -1108,7 +1119,7 @@
                 <div class="text-xs" style="color: var(--color-text-muted); margin-top: 4px;">
                     ${_tokensLine(c)}</div>
                 <div class="text-xs" style="color: var(--color-text-muted); margin-top: 2px;">
-                    ${_esc(String(c.n_errors ?? "—"))} errors ·
+                    ${_costLine(c)}${_esc(String(c.n_errors ?? "—"))} errors ·
                     ${_fmt(c.mean_inference_duration, 1)}s mean</div>
                 ${isCandidate
                     ? `<button class="btn-primary btn-compact abe-activate-arm" data-n="${_esc(arm)}"

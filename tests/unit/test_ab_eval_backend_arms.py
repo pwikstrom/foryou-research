@@ -243,3 +243,54 @@ def test_annotate_one_defaults_unchanged_without_overrides(monkeypatch):
     assert row["model"] == machine["model"]
     assert scripted.calls[0]["model"] == machine["model"]
     assert scripted.calls[0]["config"].temperature == machine["temperature"]
+
+
+
+
+
+def test_model_price_exact_and_prefix_lookup(monkeypatch):
+    monkeypatch.setitem(get_config()["machine"], "pricing", {
+        "gemini-3.5-flash": {"input": 1.5, "output": 9.0},
+        "gemini-3.5-flash-lite": {"input": 0.3, "output": 2.5},
+    })
+    assert ab_eval._model_price("gemini-3.5-flash-lite")["output"] == 2.5
+    assert ab_eval._model_price("gemini-3.5-flash")["output"] == 9.0
+    # Dated snapshot ids resolve via the longest prefix.
+    assert ab_eval._model_price("gemini-3.5-flash-lite-0611")["output"] == 2.5
+    assert ab_eval._model_price("gemini-3.5-flash-0611")["output"] == 9.0
+    assert ab_eval._model_price("unknown-model") is None
+    assert ab_eval._model_price(None) is None
+    assert ab_eval._model_price("") is None
+
+
+
+
+
+
+def test_arm_cost_computes_dollars_and_flags_unpriced(monkeypatch):
+    monkeypatch.setitem(get_config()["machine"], "pricing", {
+        "modelA": {"input": 1.0, "output": 10.0},
+    })
+    rows = [
+        # 1M in + (0.1M out + 0.1M thinking) -> $1 + $2 = $3
+        {"model": "modelA", "usage": {"prompt_tokens": 1_000_000,
+                                      "candidates_tokens": 100_000,
+                                      "thoughts_tokens": 100_000,
+                                      "total_tokens": 1_200_000},
+         "inference_duration": 1.0, "error": ""},
+        {"model": "unpriced", "usage": {"prompt_tokens": 500,
+                                        "candidates_tokens": 100,
+                                        "thoughts_tokens": 0,
+                                        "total_tokens": 600},
+         "inference_duration": 2.0, "error": ""},
+    ]
+    cost = ab_eval._arm_cost(rows)
+    assert cost["cost_usd"] == 3.0
+    assert cost["unpriced_rows"] == 1
+    assert cost["prompt_tokens"] == 1_000_500  # token totals unchanged
+
+
+    # No priced rows at all -> cost is None, not 0 (distinguish "free" from
+    # "no price configured").
+    monkeypatch.setitem(get_config()["machine"], "pricing", {})
+    assert ab_eval._arm_cost(rows)["cost_usd"] is None

@@ -1541,11 +1541,41 @@ def delete_run(run_id: str) -> bool:
 
 
 
+def _model_price(model: str | None) -> dict | None:
+    """Look up a model's token prices from ``[machine.pricing]``.
+
+    No annotation API exposes prices programmatically, so the table is
+    config-maintained (USD per 1M tokens, ``input`` / ``output`` keys).
+    Lookup is exact model id first, then the longest key the model id starts
+    with — so one ``gemini-3.5-flash`` entry covers dated snapshot ids.
+
+    Args:
+        model: The model id stamped on a raw row.
+
+    Returns:
+        The price entry, or ``None`` when the model is not in the table.
+    """
+    pricing = _cf()["machine"].get("pricing", {}) or {}
+    if not model:
+        return None
+    if model in pricing:
+        return pricing[model]
+    best_key = ""
+    for key in pricing:
+        if model.startswith(key) and len(key) > len(best_key):
+            best_key = key
+    return pricing.get(best_key) if best_key else None
+
+
+
+
 def _arm_cost(raw_rows: list[dict]) -> dict:
-    """Aggregate token/error/latency stats for one arm's raw rows."""
+    """Aggregate token/error/latency/cost stats for one arm's raw rows."""
     totals = {"prompt_tokens": 0, "candidates_tokens": 0, "thoughts_tokens": 0, "total_tokens": 0}
     errors = 0
     durations = []
+    cost_usd = 0.0
+    priced_rows = 0
     for row in raw_rows:
         if row.get("error"):
             errors += 1
@@ -1557,10 +1587,21 @@ def _arm_cost(raw_rows: list[dict]) -> dict:
         dur = row.get("inference_duration")
         if isinstance(dur, (int, float)) and dur >= 0:
             durations.append(float(dur))
+        # Approximate spend: thinking tokens are billed as output on every
+        # priced backend, so they fold into the output side.
+        price = _model_price(row.get("model"))
+        if price is not None:
+            prompt = usage.get("prompt_tokens") or 0
+            out = (usage.get("candidates_tokens") or 0) + (usage.get("thoughts_tokens") or 0)
+            cost_usd += (prompt * float(price.get("input", 0))
+                         + out * float(price.get("output", 0))) / 1e6
+            priced_rows += 1
     return {
         **totals,
         "n_errors": errors,
         "mean_inference_duration": float(np.mean(durations)) if durations else None,
+        "cost_usd": cost_usd if priced_rows else None,
+        "unpriced_rows": len(raw_rows) - priced_rows,
     }
 
 
