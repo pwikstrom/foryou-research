@@ -125,10 +125,19 @@ max_video_mb = 90
 # gemini selection, and a local backend can hold only one resident model per
 # worker process.
 #
-# [machine.variants.gemini_35]
-# backend = "gemini"
-# label = "Gemini 3.5 Flash"
-# model = "gemini-3.5-flash"
+[machine.variants.gemini_31]
+backend = "gemini"
+model = "gemini-3.1-flash-lite"
+
+[machine.variants.gemini_35]
+backend = "gemini"
+model = "gemini-3.5-flash-lite"
+
+[machine.variants.gemini_36]
+backend = "gemini"
+model = "gemini-3.6-flash"
+
+
 
 
 
