@@ -153,6 +153,10 @@ model = "gemini-3.6-flash"
 # gemini-embedding-001 supports Matryoshka truncation to 768/1536/3072 dims;
 # 1536 is the quality/size sweet spot. location pins the Vertex embedding
 # endpoint (ignored in API-key mode); task_type tunes vectors for clustering.
+# Switching to gemini-embedding-2 (multimodal, no task_type parameter) is a
+# config edit: set model_id = "gemini-embedding-2" and task_type = "" (empty
+# omits the parameter). The model-scoped store re-embeds the corpus under the
+# new model on the next refresh; old vectors are kept.
 [embedding.gemini]
 model_id = "gemini-embedding-001"
 dim = 1536

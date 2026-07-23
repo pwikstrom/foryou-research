@@ -8,10 +8,6 @@ from fyp.analysis.embedding_backends.gemini import _gemini_cf
 from fyp.fyp_config import get_config
 
 
-
-
-
-
 def test_qwen_api_backend_registers():
     b = embedding_backends.get_backend("qwen_api")
     assert b.name == "qwen_api"
@@ -91,6 +87,39 @@ def test_gemini_embedding_config_defaults_and_overrides(monkeypatch):
     b = embedding_backends.get_backend("gemini")
     assert b.model_id() == "gemini-embedding-002"
     assert b.dim() == 3072
+
+
+
+
+
+
+def test_gemini_empty_task_type_is_omitted(monkeypatch):
+    """task_type = "" must reach the API as None (gemini-embedding-2 rejects it)."""
+    from fyp.analysis.embedding_backends import gemini as eg
+
+    captured: dict = {}
+
+    class _FakeModels:
+        def embed_content(self, model=None, contents=None, config=None):
+            captured.update({"model": model, "config": config})
+            class _E:
+                values = [0.0] * int(config.output_dimensionality)
+            class _R:
+                embeddings = [_E()] * len(contents)
+            return _R()
+
+    class _FakeClient:
+        models = _FakeModels()
+
+    monkeypatch.setitem(get_config().setdefault("embedding", {}), "gemini",
+                        {"model_id": "gemini-embedding-2", "task_type": "", "dim": 8})
+    assert eg._embed_batch(_FakeClient(), ["a", "b"]) is not None
+    assert captured["model"] == "gemini-embedding-2"
+    assert captured["config"].task_type is None
+
+    monkeypatch.setitem(get_config()["embedding"], "gemini", {})
+    eg._embed_batch(_FakeClient(), ["a"])
+    assert captured["config"].task_type == "CLUSTERING"  # default unchanged
 
 
 
