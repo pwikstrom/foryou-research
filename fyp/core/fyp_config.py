@@ -627,12 +627,9 @@ def _apply_contract_variable_metadata(cf) -> None:
     ``scale`` / ``display_name`` / ``description`` are NOT stored in
     ``var_schema.csv`` — the annotation contract (``config/annotation_contract.toml``)
     is the single source, and the columns are overlaid here at load. Separately,
-    EVERY Gemini-origin row (``source == "Gemini"`` or a ``"derived: Gemini ..."``
-    source) is grouped under a single ``"AI Annotations"`` UI section, replacing
-    whatever ``section`` the CSV carried — so the three computed Gemini columns the
-    contract does not own (``trend`` / ``australian_relevance`` /
-    ``call_to_action_words``) keep their CSV role/scale/display_name but still land
-    under AI Annotations.
+    EVERY annotation-owned row (current contract or a past version's registry
+    snapshot) is grouped under a single ``"AI Annotations"`` UI section, replacing
+    whatever ``section`` the CSV carried.
 
     The overlay is PER-ROW: non-Gemini rows keep their CSV values untouched. It
     runs after :func:`_apply_contract_accepted_labels` and before any consumer
@@ -671,7 +668,6 @@ def _apply_contract_variable_metadata(cf) -> None:
         # lost all legacy metadata and the schema hash drifted per-instance.
         print(f"WARNING: legacy annotation metadata union unavailable ({e}); overlay incomplete.")
         legacy_meta = {}
-    has_source = "source" in vs.columns
     for idx in vs.index:
         name = vs.at[idx, "variable_name"]
         owned = meta.get(name) or legacy_meta.get(name)
@@ -679,13 +675,12 @@ def _apply_contract_variable_metadata(cf) -> None:
             for col in ("role", "scale", "display_name", "description"):
                 if owned.get(col) is not None:
                     vs.at[idx, col] = owned[col]
-        source = str(vs.at[idx, "source"]).strip() if has_source else ""
-        if source == "Gemini" or source.startswith("derived: Gemini"):
+            # Every annotation-owned row lands under one UI section.
             vs.at[idx, "section"] = "AI Annotations"
     # Inject contract/legacy fields absent from the frame so they surface as owned
-    # rows (source "Gemini" → grouped under "AI Annotations" by the pass above's
-    # rule). With the synthesized (CSV-free) schema every annotation row enters
-    # here; on a legacy CSV load only genuinely missing rows are added.
+    # rows, grouped under "AI Annotations". With the synthesized (CSV-free) schema
+    # every annotation row enters here; on a legacy CSV load only genuinely
+    # missing rows are added.
     all_owned = {**legacy_meta, **meta}
     if all_owned:
         present = set(vs["variable_name"].astype("string"))
@@ -696,12 +691,12 @@ def _apply_contract_variable_metadata(cf) -> None:
                 owned = all_owned[name]
                 rows.append({
                     "variable_name": name,
-                    "source": owned.get("source") or "Gemini",
                     "role": owned.get("role"),
                     "scale": owned.get("scale"),
                     "display_name": owned.get("display_name"),
                     "description": owned.get("description"),
                     "section": "AI Annotations",
+                    "skip_recode": False,
                 })
             cf["var_schema"] = pd.concat([vs, pd.DataFrame(rows)], ignore_index=True)
 
@@ -729,7 +724,7 @@ def _apply_contract_scrape_metadata(cf) -> None:
         # An EMPTY frame with the right columns is the synthesis skeleton —
         # the overlay proceeds and injects every contract-owned row.
         return
-    for col in ("role", "scale", "display_name", "description", "section"):
+    for col in ("role", "scale", "display_name", "description", "section", "skip_recode"):
         if col not in vs.columns:
             vs[col] = pd.NA
     try:
@@ -737,7 +732,6 @@ def _apply_contract_scrape_metadata(cf) -> None:
 
         contract = sc.load_contract()
         meta = sc.contract_column_metadata(contract)
-        derived = sc.derived_fields(contract)
     except Exception:
         return
     # Union in fields owned by PAST scrape-contract versions (the registry's
@@ -760,6 +754,7 @@ def _apply_contract_scrape_metadata(cf) -> None:
             for col in ("role", "scale", "display_name", "description", "section"):
                 if owned.get(col) is not None:
                     vs.at[idx, col] = owned[col]
+            vs.at[idx, "skip_recode"] = _owned_skip_recode(owned)
     present = set(vs["variable_name"].astype("string"))
     missing = [name for name in meta if name not in present]
     if missing:
@@ -768,44 +763,51 @@ def _apply_contract_scrape_metadata(cf) -> None:
             owned = meta[name]
             rows.append({
                 "variable_name": name,
-                "source": owned.get("source")
-                or ("derived: scrape" if name in derived else "scrape"),
                 "role": owned.get("role"),
                 "scale": owned.get("scale"),
                 "display_name": owned.get("display_name"),
                 "description": owned.get("description"),
                 "section": owned.get("section"),
+                "skip_recode": _owned_skip_recode(owned),
             })
         cf["var_schema"] = pd.concat([vs, pd.DataFrame(rows)], ignore_index=True)
 
 
 
 
-def _overlay_contract_metadata(
-    cf, meta: dict, derived_names: set, base_source: str, derived_source: str
-) -> None:
+def _owned_skip_recode(owned: dict) -> bool:
+    """Resolve a contract/legacy metadata dict's recode-skip flag.
+
+    Current contracts emit an explicit ``skip_recode`` boolean. Legacy registry
+    snapshots (persisted before the flag existed) instead carry the retired
+    ``source`` string, whose ``"derived:"`` prefix meant the same thing — kept
+    as a read-only fallback so retired derived fields stay skipped.
+    """
+    if "skip_recode" in owned:
+        return bool(owned["skip_recode"])
+    return str(owned.get("source") or "").startswith("derived:")
+
+
+
+
+def _overlay_contract_metadata(cf, meta: dict) -> None:
     """Overlay a contract's column metadata onto var_schema and inject missing rows.
 
     Shared by the activity and derived contract overlays (the scrape overlay is
     separate — it also self-heals legacy column names). Per-row and additive: rows
     the contract does not own are untouched. ``meta`` maps column name →
-    ``{role, scale, display_name, description, section}``; an injected row is
-    labelled ``derived_source`` when its name is in ``derived_names``, else
-    ``base_source``.
+    ``{role, scale, display_name, description, section, skip_recode}``.
 
     Args:
         cf: the config dict whose ``var_schema`` DataFrame is overlaid in place.
         meta: the contract's ``contract_column_metadata`` payload.
-        derived_names: names to label with ``derived_source`` when injected.
-        base_source: ``source`` label for injected non-derived rows.
-        derived_source: ``source`` label for injected derived rows.
     """
     vs = cf.get("var_schema")
     if vs is None or "variable_name" not in getattr(vs, "columns", []):
         # An EMPTY frame with the right columns is the synthesis skeleton —
         # the overlay proceeds and injects every contract-owned row.
         return
-    for col in ("role", "scale", "display_name", "description", "section"):
+    for col in ("role", "scale", "display_name", "description", "section", "skip_recode"):
         if col not in vs.columns:
             vs[col] = pd.NA
     if not meta:
@@ -816,6 +818,7 @@ def _overlay_contract_metadata(
             for col in ("role", "scale", "display_name", "description", "section"):
                 if owned.get(col) is not None:
                     vs.at[idx, col] = owned[col]
+            vs.at[idx, "skip_recode"] = _owned_skip_recode(owned)
     present = set(vs["variable_name"].astype("string"))
     missing = [name for name in meta if name not in present]
     if missing:
@@ -824,13 +827,12 @@ def _overlay_contract_metadata(
             owned = meta[name]
             rows.append({
                 "variable_name": name,
-                "source": owned.get("source")
-                or (derived_source if name in derived_names else base_source),
                 "role": owned.get("role"),
                 "scale": owned.get("scale"),
                 "display_name": owned.get("display_name"),
                 "description": owned.get("description"),
                 "section": owned.get("section"),
+                "skip_recode": _owned_skip_recode(owned),
             })
         cf["var_schema"] = pd.concat([vs, pd.DataFrame(rows)], ignore_index=True)
 
@@ -853,7 +855,6 @@ def _apply_contract_activity_metadata(cf) -> None:
 
         contract = acy.load_contract()
         meta = acy.contract_column_metadata(contract)
-        derived = acy.derived_fields(contract)
     except Exception:
         return
     # Union in fields owned by PAST activity-contract versions (registry
@@ -864,9 +865,7 @@ def _apply_contract_activity_metadata(cf) -> None:
         meta = {**{k: v for k, v in av_act.union_field_metadata().items() if k not in meta}, **meta}
     except Exception as e:
         print(f"WARNING: legacy activity metadata union unavailable ({e}); overlay incomplete.")
-    _overlay_contract_metadata(
-        cf, meta, derived, base_source="activity", derived_source="derived: activity"
-    )
+    _overlay_contract_metadata(cf, meta)
 
 
 
@@ -883,12 +882,9 @@ def _apply_contract_derived_metadata(cf) -> None:
 
         contract = dc.load_contract()
         meta = dc.contract_column_metadata(contract)
-        derived = dc.derived_fields(contract)
     except Exception:
         return
-    _overlay_contract_metadata(
-        cf, meta, derived, base_source="derived: enrichment", derived_source="derived: enrichment"
-    )
+    _overlay_contract_metadata(cf, meta)
 
 
 
@@ -964,9 +960,11 @@ RETIRED_VAR_SCHEMA_ROWS = frozenset({
 
 
 
-# The synthesized schema's column set (accepted_labels is added by its overlay).
+# The synthesized schema's column set (accepted_labels is added by its overlay;
+# the internal boolean ``skip_recode`` — contract-owned, drives the recode plan —
+# is added typed by the skeleton in :func:`load_var_schema`).
 VAR_SCHEMA_COLUMNS = [
-    "source", "section", "variable_name", "display_name", "role", "scale",
+    "section", "variable_name", "display_name", "role", "scale",
     "web_filter_prio", "web_timeline_prio", "web_viz_prio", "web_display_prio",
     "description",
 ]
@@ -984,9 +982,9 @@ def load_var_schema(cf, verbose=False):
          columns;
       3. ``accepted_labels`` is rebuilt from the annotation contract's enums.
 
-    The result is identical (rows / role / scale / accepted_labels / source) to
-    what the legacy CSV path produced after its overlays, so the study hash is
-    unchanged by the retirement.
+    The result is identical (rows / role / scale / accepted_labels) to what the
+    legacy CSV path produced after its overlays, so the study hash is unchanged
+    by the retirement.
     """
     from fyp import var_presentation as vp
     from fyp import annotation_contract as ac
@@ -1008,6 +1006,7 @@ def load_var_schema(cf, verbose=False):
     cf["var_schema"] = pd.DataFrame(
         {c: pd.Series(dtype="string[pyarrow]") for c in VAR_SCHEMA_COLUMNS}
     )
+    cf["var_schema"]["skip_recode"] = pd.Series(dtype="bool[pyarrow]")
     # 3. Contract overlays — on the empty skeleton these inject every owned row
     #    (annotation incl. registry legacy fields, scrape, activity, derived) and
     #    the accepted_labels overlay fills the enum vocabularies.
@@ -1019,12 +1018,19 @@ def load_var_schema(cf, verbose=False):
 
     # Injection concatenates plain-dict rows, which can degrade column dtypes —
     # re-coerce the metadata columns to pyarrow strings for downstream consumers.
-    for _meta_col in ("role", "scale", "display_name", "description", "section", "source", "variable_name"):
+    for _meta_col in ("role", "scale", "display_name", "description", "section", "variable_name"):
         if _meta_col in cf["var_schema"].columns:
             try:
                 cf["var_schema"][_meta_col] = cf["var_schema"][_meta_col].astype("string[pyarrow]")
             except Exception:
                 pass
+    if "skip_recode" in cf["var_schema"].columns:
+        try:
+            cf["var_schema"]["skip_recode"] = (
+                cf["var_schema"]["skip_recode"].fillna(False).astype("bool[pyarrow]")
+            )
+        except Exception:
+            pass
 
     # 4. Fill the four prio membership columns from the presentation store
     #    ("1" = ON — any non-blank numeric counts as membership downstream).
@@ -1130,10 +1136,12 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
     # ``accepted_labels`` is contract-owned (rebuilt in memory at load from
     # annotation_contract.toml), so it is never persisted to the CSV. ``mapper`` /
     # ``ignore_strings`` / ``recode_func`` / ``unable_to_detect_policy`` are retired
-    # columns whose behavior is derived (contract + scale/source) — never persist.
+    # columns whose behavior is derived (contract + scale/skip_recode) — never
+    # persist; ``skip_recode`` itself (and the retired ``source``) are likewise
+    # contract-owned, rebuilt at load.
     df = df.drop(
         columns=["accepted_labels", "mapper", "ignore_strings", "recode_func",
-                 "unable_to_detect_policy"],
+                 "unable_to_detect_policy", "skip_recode", "source"],
         errors="ignore",
     )
 
@@ -1200,11 +1208,13 @@ def save_var_schema(df: pd.DataFrame, expected_etag: str | None = None,
                 if col in df.columns:
                     df.loc[owned, col] = pd.NA
         if "section" in df.columns:
-            if "source" in df.columns:
-                src = df["source"].astype("string").fillna("")
-                gemini = src.eq("Gemini") | src.str.startswith("derived: Gemini")
-            else:
-                gemini = pd.Series(False, index=df.index)
+            # Annotation-owned rows (current contract + registry legacy) have
+            # their section forced to "AI Annotations" at load — blank on save.
+            annotation_all = contract_cols | legacy_ann_cols
+            gemini = (
+                df["variable_name"].isin(annotation_all)
+                if annotation_all else pd.Series(False, index=df.index)
+            )
             section_cols = scrape_cols | activity_cols | derived_cols
             section_owned = (
                 df["variable_name"].isin(section_cols)

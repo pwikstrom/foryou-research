@@ -349,11 +349,11 @@ def default_uncertain_policy(scale: str) -> str:
 
 
 def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
-    """Resolve each variable's recode callable from its ``scale`` + ``source``.
+    """Resolve each variable's recode callable from its ``scale`` + ``skip_recode``.
 
     Replaces the retired ``recode_func`` column. The op is chosen generically:
 
-      * ``source`` starting with ``derived:`` -> no recode (already processed);
+      * ``skip_recode`` set (contract-owned) -> no recode (already processed);
       * a numeric array (``int`` sub-key of an ``array`` object, e.g. per-face
         ages) -> the generic ``recode_numeric_mean``;
       * a numeric field the contract bounds (``int`` with ``min``/``max``, e.g. a
@@ -364,14 +364,14 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
 
     Args:
         var_schema_indexed: var_schema indexed by ``variable_name`` (reads
-            ``scale`` and ``source``).
+            ``scale`` and ``skip_recode``).
 
     Returns:
         ``{variable_name: callable | None}``.
     """
     registry = get_recode_func_registry()
     has_scale = "scale" in var_schema_indexed.columns
-    has_source = "source" in var_schema_indexed.columns
+    has_skip = "skip_recode" in var_schema_indexed.columns
     try:
         from fyp import annotation_contract as ac
 
@@ -387,10 +387,11 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
 
     plan: dict = {}
     for name in var_schema_indexed.index:
-        source = str(var_schema_indexed.at[name, "source"]).strip() if has_source else ""
-        if source.startswith("derived:"):
-            plan[name] = None
-            continue
+        if has_skip:
+            skip = var_schema_indexed.at[name, "skip_recode"]
+            if skip is not None and not pd.isna(skip) and bool(skip):
+                plan[name] = None
+                continue
         if name in array_numeric:
             plan[name] = registry.get("recode_numeric_mean")
             continue
@@ -627,8 +628,8 @@ def compute_var_schema_hash() -> str:
                 "fold": bool(v["mapper"]),
                 "drop": sorted(v["ignore_strings"]),
                 # The retired recode_func / unable_to_detect_policy columns are now
-                # derived (scale + source); fold the resolved op name and policy in
-                # so a source/scale change that alters recoding invalidates caches.
+                # derived (scale + skip_recode); fold the resolved op name and policy
+                # in so a skip/scale change that alters recoding invalidates caches.
                 "op": getattr(recode_plan.get(n), "__name__", "none"),
                 "policy": default_uncertain_policy(
                     str(indexed.at[n, "scale"]) if has_scale else ""
@@ -1281,7 +1282,7 @@ def recode_events_df(
     # Per-field mapper + ignore_strings, and the per-field recode callable, are
     # both derived (the retired var_schema columns) and injected into each
     # field's recoding policy below — mapper/ignore_strings from the annotation
-    # contract, the recode op from the field's scale + source.
+    # contract, the recode op from the field's scale + skip_recode.
     field_normalization = build_field_normalization(var_schema)
     recode_plan = build_recode_plan(var_schema)
     # Contract-declared 0-N ranges for bounded numeric fields, so recode_numeric

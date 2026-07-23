@@ -190,9 +190,14 @@ def test_synthesized_schema_carries_owned_rows() -> None:
         "non-Gemini row must keep its contract section"
     )
     # load_var_schema re-coerces the injected metadata columns to pyarrow strings.
-    for col in ("variable_name", "source", "role", "scale", "display_name",
+    for col in ("variable_name", "role", "scale", "display_name",
                 "description", "section"):
         assert str(vs[col].dtype) == "string", f"{col} dtype degraded to {vs[col].dtype}"
+    # The retired ``source`` column must be gone; its replacement is a typed bool.
+    assert "source" not in vs.columns, "retired source column resurfaced"
+    assert str(vs["skip_recode"].dtype) == "bool[pyarrow]", (
+        f"skip_recode dtype degraded to {vs['skip_recode'].dtype}"
+    )
 
 
 def test_prio_columns_mirror_presentation_store() -> None:

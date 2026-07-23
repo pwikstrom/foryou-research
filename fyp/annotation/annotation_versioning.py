@@ -661,40 +661,28 @@ def ensure_current_version_registered() -> str:
 
 
 def _harvest_orphan_metadata() -> dict:
-    """Return metadata of Gemini-source var_schema rows the current contract lacks.
+    """Return metadata of annotation fields the current contract no longer owns.
 
     These are the legacy annotation fields (e.g. ``trend`` / ``australian_relevance``)
-    whose metadata still lives in ``var_schema.csv`` because the current contract no
-    longer owns them. Harvested so the version registry can take ownership. Never
-    raises.
+    whose metadata lives only in the registry's per-version snapshots. Harvested
+    (union minus current-contract fields, shaped like a fresh snapshot) so the
+    ``v0_legacy`` backfill can take ownership. Never raises.
     """
     try:
         from fyp import annotation_contract as ac
-        from fyp.fyp_config import fyp_cf
 
         owned = set(ac.contract_column_metadata(ac.load_contract()))
-        vs = fyp_cf.get("var_schema")
-        if vs is None or "variable_name" not in getattr(vs, "columns", []):
-            return {}
-
-        def _cell(row, col):
-            val = row.get(col)
-            return None if val is None or (isinstance(val, float) and pd.isna(val)) or pd.isna(val) else str(val)
-
         out: dict = {}
-        for _, row in vs.iterrows():
-            name = str(row.get("variable_name"))
-            source = str(row.get("source") or "")
-            if name in owned:
+        for name, meta in union_field_metadata().items():
+            if name in owned or not isinstance(meta, dict):
                 continue
-            if source == "Gemini" or source.startswith("derived: Gemini"):
-                out[name] = {
-                    "role": _cell(row, "role"),
-                    "scale": _cell(row, "scale"),
-                    "display_name": _cell(row, "display_name"),
-                    "description": _cell(row, "description"),
-                    "section": _cell(row, "section"),
-                }
+            out[name] = {
+                "role": meta.get("role"),
+                "scale": meta.get("scale"),
+                "display_name": meta.get("display_name"),
+                "description": meta.get("description"),
+                "section": meta.get("section"),
+            }
         return out
     except Exception:
         return {}
