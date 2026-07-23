@@ -15,50 +15,9 @@
     study rebuild.
 </p>
 
-<!-- Filter / toolbar -->
+<!-- Toolbar -->
 <section class="vs-toolbar" style="display: flex; flex-wrap: wrap; gap: 12px;
-        align-items: center; margin-bottom: 12px;">
-
-    <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-        <span style="color: var(--color-text-muted);">Group:</span>
-        <select id="vs-filter-group" class="text-sm"
-            style="padding: 4px 8px; border: 1px solid var(--color-border);
-                   border-radius: 4px; background: var(--color-bg-input);
-                   color: var(--color-text-primary);">
-            <option value="all">All columns</option>
-            <option value="semantic">Semantics (affect rebuilds)</option>
-            <option value="presentation">Presentation (UI only)</option>
-        </select>
-    </label>
-
-    <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-        <span style="color: var(--color-text-muted);">Origin:</span>
-        <select id="vs-filter-origin" class="text-sm"
-            style="padding: 4px 8px; border: 1px solid var(--color-border);
-                   border-radius: 4px; background: var(--color-bg-input);
-                   color: var(--color-text-primary);">
-            <option value="all">All origins</option>
-        </select>
-    </label>
-
-    <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-        <span style="color: var(--color-text-muted);">Role:</span>
-        <select id="vs-filter-role" class="text-sm"
-            style="padding: 4px 8px; border: 1px solid var(--color-border);
-                   border-radius: 4px; background: var(--color-bg-input);
-                   color: var(--color-text-primary);">
-            <option value="all">All roles</option>
-        </select>
-    </label>
-
-    <label class="text-sm" style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 200px;">
-        <span style="color: var(--color-text-muted);">Search:</span>
-        <input id="vs-filter-search" type="text" placeholder="variable name…"
-            class="text-sm"
-            style="padding: 4px 8px; border: 1px solid var(--color-border);
-                   border-radius: 4px; background: var(--color-bg-input);
-                   color: var(--color-text-primary); flex: 1;">
-    </label>
+        align-items: center; justify-content: flex-end; margin-bottom: 12px;">
 
     <div id="vs-columns-wrap" style="position: relative;">
         <button id="vs-columns-btn" onclick="vsToggleColumnsMenu()"
@@ -74,31 +33,6 @@
 
     <button onclick="vsReload()" class="btn-discreet text-sm"
         style="padding: 6px 12px;">Reload</button>
-</section>
-
-<!-- Save bar -->
-<section id="vs-save-bar" style="display: none; margin-bottom: 12px;
-        padding: 12px; border: 1px solid var(--color-border-strong);
-        border-radius: 6px; background: var(--color-bg-elevated);">
-    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-        <div class="text-sm" style="color: var(--color-text-primary);">
-            <span id="vs-dirty-count" class="font-semibold">0</span> unsaved edits.
-            <span id="vs-hash-warning" style="display: none; color: var(--color-warning);
-                margin-left: 8px;">
-                ⚠ Includes semantic changes — will trigger study rebuilds.
-            </span>
-        </div>
-        <div style="display: flex; gap: 8px;">
-            <button onclick="vsCancel()" class="btn-discreet text-sm"
-                style="padding: 6px 12px;">Discard</button>
-            <button onclick="vsValidate()" class="btn-discreet text-sm"
-                style="padding: 6px 12px;">Preview impact</button>
-            <button onclick="vsSave()" class="btn-save text-sm"
-                style="padding: 6px 14px;">Save</button>
-        </div>
-    </div>
-    <div id="vs-validation-output" class="text-xs"
-        style="margin-top: 8px; color: var(--color-text-muted);"></div>
 </section>
 
 <!-- Schema table -->
