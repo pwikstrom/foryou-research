@@ -300,22 +300,31 @@ def get_annotation_backends():
     """Availability of every annotation backend, for the requirements panel.
 
     Returns:
-        ``{backends: [{name, backend, label, active, implemented,
+        ``{backends: [{name, backend, label, model, active, implemented,
         availability: {ok, reason, checks}}]}`` — ``checks`` rows carry
         actionable ``fix`` strings for anything missing on this host.
         Config-declared variants appear after the implementation ids;
-        ``backend`` is the implementing backend id.
+        ``backend`` is the implementing backend id, ``model`` the effective
+        model the selection would annotate with.
     """
     from fyp.annotation.backends import active_backend_name, get_backend, variants
+    from fyp.fyp_config import get_config
 
     active = active_backend_name()
     out = []
     for name in variants.selection_ids():
         spec = variants.resolve(name)
+        # Effective model even for unimplemented backends: the variant's
+        # override, else the backend block's configured model.
+        block = get_config()["machine"].get(spec.backend_id, {}) or {}
+        model = (spec.overrides.get("model") or spec.overrides.get("model_id")
+                 or block.get("model") or block.get("model_id") or "")
         entry = {"name": name, "backend": spec.backend_id,
-                 "label": spec.label or name, "active": name == active}
+                 "label": spec.label or name, "model": model,
+                 "active": name == active}
         try:
             backend = get_backend(name)
+            entry["model"] = backend.effective_model_id()
             result = backend.availability()
             entry["implemented"] = True
             entry["availability"] = {"ok": result.ok, "reason": result.reason,
@@ -349,17 +358,22 @@ def get_embedding_backends():
     """Availability of every embedding backend, for the requirements panel.
 
     Same shape as ``/api/manage/annotation/backends``:
-    ``{backends: [{name, active, implemented, availability:
+    ``{backends: [{name, model, active, implemented, availability:
     {ok, reason, checks}}]}``.
     """
     from fyp.analysis.embedding_backends import BACKEND_IDS, active_backend_name, get_backend
+    from fyp.fyp_config import get_config
 
     active = active_backend_name()
     out = []
     for name in BACKEND_IDS:
-        entry = {"name": name, "active": name == active}
+        # Config-derived fallback so the model shows even on import failure.
+        block = get_config().get("embedding", {}).get(name, {}) or {}
+        entry = {"name": name, "model": block.get("model_id", ""),
+                 "active": name == active}
         try:
             backend = get_backend(name)
+            entry["model"] = backend.model_id()
             result = backend.availability()
             entry["implemented"] = True
             entry["availability"] = {"ok": result.ok, "reason": result.reason,
