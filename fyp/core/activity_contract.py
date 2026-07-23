@@ -156,11 +156,10 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
             "display_name": field.get("display_name"),
             "description": field.get("description"),
             "section": field.get("section"),
-            # source is semantic (a "derived:" prefix short-circuits the recode
-            # plan), so the contract owns it: explicit per-field override, else
-            # the derived-membership default.
-            "source": field.get("source")
-            or ("derived: activity" if field.get("derived") else "activity"),
+            # skip_recode short-circuits the recode plan (the column is produced
+            # elsewhere), so the contract owns it: explicit per-field override,
+            # else the derived-membership default.
+            "skip_recode": bool(field.get("skip_recode", field.get("derived", False))),
         }
     return out
 

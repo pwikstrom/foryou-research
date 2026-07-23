@@ -63,88 +63,133 @@ def _var_schema_admin_enabled() -> bool:
 
 
 
-def _contract_locked_map(df) -> dict:
-    """Return ``{variable_name: {metadata, section}}`` for contract-owned cells.
+def _ownership_sets() -> dict:
+    """Return the contract / registry-legacy membership sets, never raising.
 
-    ``metadata`` is True when a contract owns the row's role/scale/display_name/
-    description — the annotation contract's flattened Gemini columns, or the
-    scrape / activity / derived contracts' canonical columns. ``section`` is True
-    for every Gemini-origin row (all forced under "AI Annotations") and for every
-    scrape / activity / derived contract column (whose section those contracts
-    own). The admin editor renders these cells read-only. Degrades to ``{}`` if no
-    contract can be loaded, so the editor never breaks on a contract error.
+    ``{"annotation": .., "scrape": .., "activity": .., "derived": ..,
+    "annotation_legacy": .., "scrape_legacy": .., "activity_legacy": ..}`` —
+    a legacy set holds fields owned only by past-version registry snapshots
+    (a field a CURRENT contract still owns is NOT legacy). Any set an
+    unloadable contract would feed stays empty.
     """
-    annotation_cols: set = set()
-    scrape_cols: set = set()
-    activity_cols: set = set()
-    derived_cols: set = set()
+    sets: dict = {k: set() for k in (
+        "annotation", "scrape", "activity", "derived",
+        "annotation_legacy", "scrape_legacy", "activity_legacy",
+    )}
     try:
         from fyp import annotation_contract as ac
 
-        annotation_cols = set(ac.contract_column_metadata(ac.load_contract()).keys())
+        sets["annotation"] = set(ac.contract_column_metadata(ac.load_contract()).keys())
     except Exception:
         pass
     try:
         from fyp import scrape_contract as sc
 
-        scrape_cols = set(sc.contract_column_metadata(sc.load_contract()).keys())
+        sets["scrape"] = set(sc.contract_column_metadata(sc.load_contract()).keys())
     except Exception:
         pass
     try:
         from fyp import activity_contract as acy
 
-        activity_cols = set(acy.contract_column_metadata(acy.load_contract()).keys())
+        sets["activity"] = set(acy.contract_column_metadata(acy.load_contract()).keys())
     except Exception:
         pass
     try:
         from fyp import derived_contract as dc
 
-        derived_cols = set(dc.contract_column_metadata(dc.load_contract()).keys())
+        sets["derived"] = set(dc.contract_column_metadata(dc.load_contract()).keys())
     except Exception:
         pass
-    # Legacy fields owned by past-version registry snapshots (e.g. trend /
-    # australian_relevance for annotation; any future retired scrape/activity
-    # field) — contract-owned/read-only, and badged "legacy" in the editor. A
-    # field a CURRENT contract still owns is NOT legacy.
-    legacy_cols: set = set()
     try:
         from fyp import annotation_versioning as av
 
-        legacy_cols |= set(av.union_field_metadata().keys()) - annotation_cols
+        sets["annotation_legacy"] = (
+            set(av.union_field_metadata().keys()) - sets["annotation"]
+        )
     except Exception:
         pass
     try:
         from fyp import scrape_versioning as sv
 
-        legacy_scrape = set(sv.union_field_metadata().keys()) - scrape_cols
-        legacy_cols |= legacy_scrape
-        scrape_cols |= legacy_scrape
+        sets["scrape_legacy"] = set(sv.union_field_metadata().keys()) - sets["scrape"]
     except Exception:
         pass
     try:
         from fyp import activity_versioning as av_act
 
-        legacy_activity = set(av_act.union_field_metadata().keys()) - activity_cols
-        legacy_cols |= legacy_activity
-        activity_cols |= legacy_activity
+        sets["activity_legacy"] = (
+            set(av_act.union_field_metadata().keys()) - sets["activity"]
+        )
     except Exception:
         pass
+    return sets
+
+
+
+
+_ORIGIN_ORDER = (
+    ("annotation", "annotation"),
+    ("annotation_legacy", "annotation (legacy)"),
+    ("scrape", "scrape"),
+    ("scrape_legacy", "scrape (legacy)"),
+    ("activity", "activity"),
+    ("activity_legacy", "activity (legacy)"),
+    ("derived", "derived"),
+)
+
+
+
+
+def _row_origin(variable_name: str, sets: dict) -> str:
+    """Provenance label for a row, computed from contract membership.
+
+    Replaces the retired stored ``source`` column: which contract (or past-version
+    registry) owns the field is the truth, so the label is derived — nothing is
+    stored, and it can never go stale.
+    """
+    for key, label in _ORIGIN_ORDER:
+        if variable_name in sets.get(key, set()):
+            return label
+    return ""
+
+
+
+
+def _contract_locked_map(df, sets: dict | None = None) -> dict:
+    """Return ``{variable_name: {metadata, section}}`` for contract-owned cells.
+
+    ``metadata`` is True when a contract owns the row's role/scale/display_name/
+    description — the annotation contract's flattened output columns, or the
+    scrape / activity / derived contracts' canonical columns. ``section`` is True
+    for every annotation-owned row (all forced under "AI Annotations") and for
+    every scrape / activity / derived contract column (whose section those
+    contracts own). The admin editor renders these cells read-only. Degrades to
+    ``{}`` if no contract can be loaded, so the editor never breaks on a
+    contract error.
+    """
+    if sets is None:
+        sets = _ownership_sets()
+    annotation_cols = sets["annotation"]
+    derived_cols = sets["derived"]
+    legacy_cols = sets["annotation_legacy"] | sets["scrape_legacy"] | sets["activity_legacy"]
+    scrape_cols = sets["scrape"] | sets["scrape_legacy"]
+    activity_cols = sets["activity"] | sets["activity_legacy"]
     if not (annotation_cols or scrape_cols or activity_cols or derived_cols or legacy_cols):
         return {}
+    annotation_all = annotation_cols | sets["annotation_legacy"]
     section_owned_cols = scrape_cols | activity_cols | derived_cols
     locked: dict = {}
     for _, row in df.iterrows():
         vn = str(row.get("variable_name", ""))
-        src = str(row.get("source", "")).strip()
-        is_gemini = src == "Gemini" or src.startswith("derived: Gemini")
+        is_annotation = vn in annotation_all
         section_owned = vn in section_owned_cols
         is_legacy = vn in legacy_cols
         meta_owned = (
             vn in annotation_cols or vn in scrape_cols
             or vn in activity_cols or vn in derived_cols or is_legacy
         )
-        if meta_owned or is_gemini:
-            entry = {"metadata": meta_owned, "section": is_gemini or section_owned}
+        if meta_owned or is_annotation:
+            entry = {"metadata": meta_owned, "section": is_annotation or section_owned}
             if is_legacy:
                 entry["legacy"] = True
             locked[vn] = entry
@@ -182,15 +227,21 @@ def get_schema():
             f"{ac.RUNTIME_FILENAME} (runtime)" if ac_source == "runtime"
             else "config/annotation_contract.toml (baked)"
         )
+        sets = _ownership_sets()
+        rows = _df_to_records(df)
+        # ``origin`` is computed provenance (which contract / registry owns the
+        # field), replacing the retired stored ``source`` column.
+        for rec in rows:
+            rec["origin"] = _row_origin(rec.get("variable_name", ""), sets)
         return jsonify({
-            "rows": _df_to_records(df),
-            "columns": list(df.columns),
+            "rows": rows,
+            "columns": ["origin"] + [c for c in df.columns if c != "origin"],
             "semantic_columns": list(SEMANTIC_COLUMNS),
             "enums": {
                 "role": sorted(VAR_SCHEMA_ROLES),
                 "scale": sorted(VAR_SCHEMA_SCALES),
             },
-            "contract_locked": _contract_locked_map(df),
+            "contract_locked": _contract_locked_map(df, sets),
             "contract_path": contract_path,
             "scrape_contract_path": "config/scrape_contract.toml",
             # The presentation store is the only admin-editable payload left

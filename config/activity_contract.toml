@@ -96,7 +96,7 @@ description = "Engagement activities (fave/comment/share/follow/save) folded int
 [[fields]]
 name = "tz_offset"
 scope = "base"
-source = "derived: scrape"
+skip_recode = true
 dtype = "int64[pyarrow]"
 section = "Activity"
 scale = "numeric"
@@ -127,7 +127,6 @@ description = "The platform this activity was donated from (tiktok, instagram, y
 [[fields]]
 name = "ts_added_to_dataset"
 scope = "base"
-source = "backstage"
 dtype = "timestamp[ns][pyarrow]"
 section = "backstage"
 scale = "datetime"
@@ -141,7 +140,9 @@ description = "When the source raw file was added to the dataset (file mtime)."
 [[fields]]
 name = "session_id"
 scope = "base"
-source = "backstage"
+# Derived at ingest, but its recode op (recode_long_strings, from scale=text)
+# is kept — the historical behavior for this column.
+skip_recode = false
 dtype = "string[pyarrow]"
 section = "backstage"
 scale = "text"

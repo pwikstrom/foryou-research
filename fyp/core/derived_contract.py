@@ -88,9 +88,10 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
             "display_name": field.get("display_name"),
             "description": field.get("description"),
             "section": field.get("section"),
-            # source is semantic (a "derived:" prefix short-circuits the recode
-            # plan); explicit per-field override, else the enrichment default.
-            "source": field.get("source") or "derived: enrichment",
+            # skip_recode short-circuits the recode plan (the column is produced
+            # elsewhere); derived-contract fields default to skipped, with an
+            # explicit per-field override for the recode-processed status flags.
+            "skip_recode": bool(field.get("skip_recode", True)),
         }
     return out
 

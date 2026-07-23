@@ -673,7 +673,6 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
                 meta = _subkey_metadata(spec)
                 if not meta or not (meta.get("role") or meta.get("scale") or meta.get("display_name")):
                     continue
-                meta.setdefault("source", "Gemini")
                 out[contract_output_column(name, key)] = meta
         else:
             if not (field.get("role") or field.get("scale") or field.get("display_name")):
@@ -683,8 +682,6 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
                 "scale": field.get("scale"),
                 "display_name": field.get("display_name"),
                 "description": field.get("description", field.get("desc")),
-                # Every flattened annotation output column is Gemini-produced.
-                "source": field.get("source") or "Gemini",
             }
     return out
 

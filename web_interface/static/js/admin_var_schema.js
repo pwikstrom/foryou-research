@@ -35,7 +35,7 @@
         recodeFuncs: [],
         etag: null,
         currentHash: null,
-        filters: { group: 'all', source: 'all', role: 'all', search: '' },
+        filters: { group: 'all', origin: 'all', role: 'all', search: '' },
         hiddenColumns: new Set(),   // user-hidden via the Columns dropdown
         sort: { col: null, dir: 1 },  // dir: 1 = asc, -1 = desc
         loaded: false,
@@ -53,18 +53,18 @@
     // default to keep the table readable; toggled via the "All columns"
     // filter group setting.
     const ALWAYS_VISIBLE = new Set([
-        'variable_name', 'display_name', 'section', 'source', 'role', 'scale',
+        'variable_name', 'display_name', 'section', 'origin', 'role', 'scale',
     ]);
 
     // Columns that are derived/overlaid in memory rather than stored in the CSV:
     // the annotation contract (config/annotation_contract.toml) is the source of
     // truth, the column is rebuilt at load, and any edit is stripped before save.
     // Shown read-only here for context — editing happens in the contract, not here.
-    const READONLY_COLUMNS = new Set(['accepted_labels']);
+    const READONLY_COLUMNS = new Set(['accepted_labels', 'skip_recode']);
 
-    const READONLY_TOOLTIP = 'Derived from the annotation contract '
-        + '(config/annotation_contract.toml) — read-only here. Edit the contract '
-        + 'to change the accepted labels.';
+    const READONLY_TOOLTIP = 'Derived from the declarative contracts '
+        + '(config/*_contract.toml) — read-only here. Edit the owning contract '
+        + 'to change it.';
 
     // Metadata columns the annotation contract owns for its Gemini output
     // variables. Locked per-row (not per-column) via state.contractLocked.
@@ -74,13 +74,13 @@
 
     function _columnGroup(col) {
         if (state.semanticColumns.has(col)) return 'semantic';
-        if (col === 'variable_name' || col === 'source' || col === 'section') return 'identity';
+        if (col === 'variable_name' || col === 'origin' || col === 'section') return 'identity';
         return 'presentation';
     }
 
     function _rowMatchesFilters(row) {
         const f = state.filters;
-        if (f.source !== 'all' && String(row.source || '') !== f.source) return false;
+        if (f.origin !== 'all' && String(row.origin || '') !== f.origin) return false;
         if (f.role !== 'all' && String(row.role || '') !== f.role) return false;
         if (f.search) {
             const needle = f.search.toLowerCase();
@@ -209,13 +209,13 @@
     // ---------- rendering ----------
 
     function _renderFilters() {
-        const sources = Array.from(new Set(state.rows.map(r => r.source).filter(Boolean))).sort();
+        const origins = Array.from(new Set(state.rows.map(r => r.origin).filter(Boolean))).sort();
         const roles = Array.from(new Set(state.rows.map(r => r.role).filter(Boolean))).sort();
-        const sourceSel = document.getElementById('vs-filter-source');
+        const originSel = document.getElementById('vs-filter-origin');
         const roleSel = document.getElementById('vs-filter-role');
-        if (sourceSel) {
-            sourceSel.innerHTML = '<option value="all">All sources</option>'
-                + sources.map(s => `<option value="${_esc(s)}">${_esc(s)}</option>`).join('');
+        if (originSel) {
+            originSel.innerHTML = '<option value="all">All origins</option>'
+                + origins.map(s => `<option value="${_esc(s)}">${_esc(s)}</option>`).join('');
         }
         if (roleSel) {
             roleSel.innerHTML = '<option value="all">All roles</option>'
@@ -286,7 +286,7 @@
         const isEdited = state.edits[rowIdx] && col in state.edits[rowIdx];
         const baseStyle = `padding: 4px 8px; vertical-align: top; ${isEdited ? 'background: var(--color-bg-input);' : ''}`;
 
-        if (col === 'variable_name' || col === 'source') {
+        if (col === 'variable_name' || col === 'origin') {
             let badge = '';
             if (col === 'variable_name') {
                 const lock = state.contractLocked[String(current)];
@@ -600,11 +600,11 @@
         if (state.filtersBound) return;
         state.filtersBound = true;
         const g = document.getElementById('vs-filter-group');
-        const s = document.getElementById('vs-filter-source');
+        const s = document.getElementById('vs-filter-origin');
         const r = document.getElementById('vs-filter-role');
         const q = document.getElementById('vs-filter-search');
         if (g) g.addEventListener('change', () => { state.filters.group = g.value; _renderTable(); });
-        if (s) s.addEventListener('change', () => { state.filters.source = s.value; _renderTable(); });
+        if (s) s.addEventListener('change', () => { state.filters.origin = s.value; _renderTable(); });
         if (r) r.addEventListener('change', () => { state.filters.role = r.value; _renderTable(); });
         if (q) {
             let timer = null;
