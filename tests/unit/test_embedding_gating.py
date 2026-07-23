@@ -134,7 +134,7 @@ def test_embedding_backends_endpoint_shape(client):
     assert resp.status_code == 200
     backends = resp.get_json()["backends"]
     names = [b["name"] for b in backends]
-    assert names == ["gemini", "qwen_local"]
+    assert names == ["gemini", "qwen_api", "qwen_local"]
     assert sum(1 for b in backends if b["active"]) == 1
     for b in backends:
         assert {"ok", "reason", "checks"} <= set(b["availability"])

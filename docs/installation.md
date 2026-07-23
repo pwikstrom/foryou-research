@@ -362,10 +362,28 @@ at model load (`minicpm_sanitize_fix`); on newer mlx-vlm releases the patch
 steps aside. If you see that error anyway, you are likely running the model
 outside the app.
 
-## Enabling local embeddings
+## Embedding backends
 
 The Semantic Space pipeline (video embeddings → niche clustering → 2D map)
-normally embeds with Gemini (`gemini-embedding-001`). A local embedding
+normally embeds with Gemini. Its API details are explicit in
+`config/config.toml` under `[embedding.gemini]` (`model_id`, `dim`,
+`location`, `task_type`) — upgrading the Gemini embedding model is a config
+edit; the model-scoped store re-embeds under the new model on the next
+refresh while keeping the old vectors.
+
+Two alternatives are available from the same Admin → General → Embeddings
+dropdown:
+
+- **`qwen_api` — hosted Qwen embeddings** (Alibaba Model Studio / DashScope,
+  `[embedding.qwen_api]`, default `text-embedding-v4` at 1024 dims). Needs the
+  same `DASHSCOPE_API_KEY` environment variable as hosted Qwen annotation
+  (see above) and runs fine on Cloud Run. Note the text of each annotated
+  video is sent to Alibaba's Singapore region.
+- **`qwen_local` — local Qwen embeddings** (below).
+
+## Enabling local embeddings
+
+A local embedding
 backend runs a small Qwen3-Embedding model instead, so combined with local
 Qwen annotation the whole embeddings + semantic map path makes **no cloud
 calls**. Unlike the 30B annotation model this is lightweight: the default

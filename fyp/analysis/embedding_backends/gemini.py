@@ -1,9 +1,15 @@
 """Gemini embedding backend (Vertex AI or API-key mode).
 
-Holds the ``gemini-embedding-001`` call path that historically lived in
+Holds the Gemini embedding call path that historically lived in
 :mod:`fyp.analysis.embeddings`: a process-wide client pinned to the embedding
 endpoint location, concurrent batched ``embed_content`` calls with retry, and
 the zero-vector convention for batches that fail all retries.
+
+The API details live in the ``[embedding.gemini]`` config block (model_id /
+dim / location / task_type, with the historical values as defaults) so the
+model can be upgraded by config edit. The shard store is model-scoped, so a
+model change simply re-embeds into new shards — old shards stay valid for the
+old model id.
 """
 
 import time
@@ -13,15 +19,9 @@ import numpy as np
 
 import fyp.core.gemini_client as gemini_client
 from fyp.analysis.embedding_backends.base import BackendAvailability, EmbeddingBackend
+from fyp.fyp_config import get_config
 from google import genai
 from google.genai.types import EmbedContentConfig
-
-# Embedding model configuration. gemini-embedding-001 supports Matryoshka
-# truncation to 768 / 1536 / 3072 dims; 1536 is the quality/size sweet spot.
-EMBED_MODEL = "gemini-embedding-001"
-EMBED_DIM = 1536
-EMBED_LOCATION = "us-central1"
-EMBED_TASK_TYPE = "CLUSTERING"
 
 # Concurrency / batching for the Vertex embedding calls.
 _EMBED_BATCH = 20
@@ -35,14 +35,35 @@ _client: genai.Client | None = None
 
 
 
+def _gemini_cf() -> dict:
+    """The ``[embedding.gemini]`` config block with the historical defaults.
+
+    gemini-embedding-001 supports Matryoshka truncation to 768 / 1536 / 3072
+    dims; 1536 is the quality/size sweet spot. The location pins the Vertex
+    embedding endpoint (the annotation client's ``global`` endpoint serves
+    generation, not embeddings); API-key mode ignores it.
+    """
+    stored = get_config().get("embedding", {}).get("gemini", {}) or {}
+    defaults = {
+        "model_id": "gemini-embedding-001",
+        "dim": 1536,
+        "location": "us-central1",
+        "task_type": "CLUSTERING",
+    }
+    return {**defaults, **stored}
+
+
+
+
+
+
 def _get_client() -> genai.Client:
     """Return a process-wide GenAI client for embedding calls.
 
     Honours whichever Gemini mode is configured — Vertex AI or the plain Gemini
     API — via :func:`fyp.core.gemini_client.make_client`. In Vertex mode the
-    location is pinned to :data:`EMBED_LOCATION`, because the annotation
-    client's ``global`` endpoint serves generation, not embeddings; in API-key
-    mode the endpoint takes no region and the argument is ignored.
+    location is pinned to ``[embedding.gemini].location``; in API-key mode the
+    endpoint takes no region and the argument is ignored.
 
     Returns:
         A cached :class:`google.genai.Client`.
@@ -52,7 +73,7 @@ def _get_client() -> genai.Client:
     """
     global _client
     if _client is None:
-        _client = gemini_client.make_client(location=EMBED_LOCATION)
+        _client = gemini_client.make_client(location=_gemini_cf()["location"])
     return _client
 
 
@@ -62,10 +83,13 @@ def _get_client() -> genai.Client:
 
 def _embed_batch(client: genai.Client, chunk: list[str]) -> list[list[float]] | None:
     """Embed one batch of texts with retry, returning vectors or None on failure."""
-    config = EmbedContentConfig(task_type=EMBED_TASK_TYPE, output_dimensionality=EMBED_DIM)
+    cf = _gemini_cf()
+    config = EmbedContentConfig(task_type=cf["task_type"],
+                                output_dimensionality=int(cf["dim"]))
     for attempt in range(_EMBED_RETRIES):
         try:
-            resp = client.models.embed_content(model=EMBED_MODEL, contents=chunk, config=config)
+            resp = client.models.embed_content(model=cf["model_id"], contents=chunk,
+                                               config=config)
             return [e.values for e in resp.embeddings]
         except Exception:
             if attempt == _EMBED_RETRIES - 1:
@@ -86,13 +110,13 @@ class GeminiEmbeddingBackend(EmbeddingBackend):
 
 
     def model_id(self) -> str:
-        """The Gemini embedding model id."""
-        return EMBED_MODEL
+        """The configured Gemini embedding model id."""
+        return _gemini_cf()["model_id"]
 
 
     def dim(self) -> int:
-        """The Matryoshka-truncated output dimensionality."""
-        return EMBED_DIM
+        """The configured (Matryoshka-truncated) output dimensionality."""
+        return int(_gemini_cf()["dim"])
 
 
     def availability(self, deep: bool = False) -> BackendAvailability:
@@ -119,7 +143,7 @@ class GeminiEmbeddingBackend(EmbeddingBackend):
 
 
     def embed_texts(self, texts: list[str], reporter=None) -> np.ndarray:
-        """Embed a list of texts into an ``(n, EMBED_DIM)`` float32 matrix.
+        """Embed a list of texts into an ``(n, dim)`` float32 matrix.
 
         Calls the Vertex embedding endpoint in concurrent batches. A batch that
         fails after all retries yields zero-vectors for its rows; the caller is
@@ -130,9 +154,10 @@ class GeminiEmbeddingBackend(EmbeddingBackend):
             reporter: Optional status reporter for progress logging.
 
         Returns:
-            A float32 array of shape ``(len(texts), EMBED_DIM)``.
+            A float32 array of shape ``(len(texts), dim())``.
         """
         client = _get_client()
+        dim = self.dim()
         safe = [t if t else " " for t in texts]
         batches = [(i, safe[i:i + _EMBED_BATCH]) for i in range(0, len(safe), _EMBED_BATCH)]
         out: dict[int, list[list[float]]] = {}
@@ -144,7 +169,7 @@ class GeminiEmbeddingBackend(EmbeddingBackend):
                 i = futures[fut]
                 vecs = fut.result()
                 if vecs is None:
-                    vecs = [[0.0] * EMBED_DIM] * len(safe[i:i + _EMBED_BATCH])
+                    vecs = [[0.0] * dim] * len(safe[i:i + _EMBED_BATCH])
                 out[i] = vecs
                 done += 1
                 if reporter is not None and done % 50 == 0:
