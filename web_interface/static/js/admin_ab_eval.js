@@ -1037,27 +1037,37 @@
         const arms = (manifest.arms || []).map(a => a.name);
 
         const human = st.currentRun.human || {};
-        const humanBits = [];
-        for (const [type, label] of [["coding", "coding"], ["vote", "votes"]]) {
-            const entries = Object.values((human[type] || {}).coder_status || {});
-            if (!entries.length) continue;
-            const done = entries.filter(s => s.status === "submitted").length;
-            humanBits.push(`${label}: ${done}/${entries.length} coder(s) submitted`);
-        }
-        const humanLine = humanBits.length
-            ? ` · ${humanBits.join(" · ")}`
-            : " · no human input yet";
 
-        let html = `<div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 10px;">
-            ${manifest.name ? `<strong style="color: var(--color-text-primary);">${_esc(manifest.name)}</strong> · ` : ""}
-            ${_esc(manifest.run_id)} · started ${_esc((manifest.started_at || "").replace("T", " "))}
-            by ${_esc(manifest.started_by || "?")}
-            · set <span class="font-mono">${_esc(manifest.eval_set || "—")}</span>
-            · ${_esc(String(manifest.n_items ?? "?"))} videos · status
-            <strong style="color: ${manifest.status === "complete" ? "var(--color-success)"
-                : manifest.status === "failed" ? "var(--color-danger)" : "var(--color-warning)"};">
-            ${_esc(manifest.status)}</strong>${humanLine}
-            ${manifest.error ? ` · ${_esc(manifest.error)}` : ""}</div>`;
+        // Consolidated "About this run" panel — run identity plus the one
+        // how-to-read note, gathered from what used to be scattered across the
+        // top line, the metrics summary, and the human-input section.
+        const statusColor = manifest.status === "complete" ? "var(--color-success)"
+            : manifest.status === "failed" ? "var(--color-danger)" : "var(--color-warning)";
+        let html = `<div style="border: 1px solid var(--color-border-strong); border-radius: 8px;
+                padding: 12px 16px; margin-bottom: 14px;">
+            <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;">
+                <h4 class="text-h3 font-semibold" style="margin: 0; color: var(--color-text-heading);">
+                    ${manifest.name ? _esc(manifest.name) : "Test run"}</h4>
+                <span class="text-xxs font-semibold" style="padding: 2px 8px; border-radius: 10px;
+                    color: ${statusColor}; border: 1px solid ${statusColor};">${_esc(manifest.status || "—")}</span>
+                <span style="flex: 1;"></span>
+                <span class="text-xxs font-mono" style="color: var(--color-text-muted);">${_esc(manifest.run_id || "")}</span>
+            </div>
+            <div class="text-xs" style="color: var(--color-text-muted); margin-top: 6px;
+                    display: flex; gap: 18px; flex-wrap: wrap;">
+                <span>Started ${_esc((manifest.started_at || "—").replace("T", " "))}
+                    by ${_esc(manifest.started_by || "?")}</span>
+                <span>Test set <span class="font-mono" style="color: var(--color-text-primary);">${_esc(manifest.eval_set || "—")}</span></span>
+                <span>${_esc(String(manifest.n_items ?? "?"))} videos</span>
+            </div>
+            ${manifest.error ? `<div class="text-xs" style="color: var(--color-danger); margin-top: 6px;">${_esc(manifest.error)}</div>` : ""}
+            <div class="text-xxs" style="color: var(--color-text-muted); margin-top: 8px;
+                    line-height: var(--leading-relaxed);">
+                Test runs make real annotation calls but are stored in isolation — they never enter the
+                machine-annotation archive or studies. Every score below is pairwise agreement across the
+                contracts, not a verdict on which contract is correct.
+            </div>
+        </div>`;
 
         if (!report) {
             container.innerHTML = html +
@@ -1089,6 +1099,7 @@
                     : ""}
             </div>`;
         }
+        html += _humanInputCard(human);
         html += "</div>";
 
         // Every item in the test, whether or not it has disagreements — each
@@ -1115,7 +1126,7 @@
         // coders join as contracts.
         if (Object.keys(report.comparisons || {}).length) {
             html += `<div id="abe-nway-summary" style="margin-bottom: 12px;"></div>
-                <details open style="margin-bottom: 14px;">
+                <details style="margin-bottom: 14px;">
                     <summary style="cursor: pointer;">
                         <h4 class="text-sm font-semibold" style="display: inline; margin: 0;
                             color: var(--color-text-heading);">Detailed metrics</h4>
@@ -1130,24 +1141,15 @@
         // entirely are excluded server-side) — a collapsible sub-section whose
         // rows are grouped into one collapsible sub-sub-section per item.
         const adj = report.adjudication || [];
-        const adjCols = [...new Set(adj.map(r => r.column))].sort();
-        html += `<details open style="margin-bottom: 4px;">
+        html += `<details style="margin-bottom: 4px;">
             <summary style="cursor: pointer;">
                 <h4 class="text-sm font-semibold" style="display: inline; margin: 0;
                     color: var(--color-text-heading);">Disagreements
                     (${adj.length}${adj.length >= 3000 ? "+, capped" : ""})</h4>
             </summary>
-            <div class="text-sm" style="margin: 8px 0 6px 0;">
-                Filter
-                <select id="abe-adj-filter" class="text-xs" onchange="abeRenderAdjudication()"
-                    style="padding: 3px 6px; border: 1px solid var(--color-border); border-radius: 4px;
-                    background: var(--color-bg-input); color: var(--color-text-primary);">
-                    <option value="">all fields</option>
-                    ${adjCols.map(c => `<option value="${_esc(c)}">${_esc(c)}</option>`).join("")}
-                </select>
-                <span class="text-xxs" style="color: var(--color-text-muted);">— free-text fields differ
-                on almost every item by nature; expand an item for its differing fields, or open the
-                full field-by-field view</span>
+            <div class="text-xxs" style="color: var(--color-text-muted); margin: 8px 0 6px 0;">
+                Free-text fields differ on almost every item by nature; expand an item for its
+                differing fields, or open the full field-by-field view.
             </div>
             <div id="abe-adj-table" style="max-height: 50vh; overflow-y: auto;"></div>
         </details>
@@ -1164,6 +1166,32 @@
         _prefetchHumanRows().then(_renderNwayView);
         abeRenderAdjudication();
         abeRenderHuman();
+    }
+
+    // A card summarizing the run's human input, shown alongside the per-
+    // contract cost cards. Counts each task's variables and submitted coders;
+    // reads "no human input" when the run has no Human testing task.
+    function _humanInputCard(human) {
+        const line = (task, unit) => {
+            const t = (human || {})[task];
+            if (!t) return null;
+            const entries = Object.values(t.coder_status || {});
+            const done = entries.filter(s => s.status === "submitted").length;
+            const n = (t.variables || []).length;
+            const label = task === "coding" ? "coding" : "votes";
+            return `${label} · ${n} ${unit}${n === 1 ? "" : "s"} · ${done}/${entries.length} submitted`;
+        };
+        const lines = [line("coding", "variable"), line("vote", "field")].filter(Boolean);
+        const body = lines.length
+            ? lines.map(l => `<div class="text-xs" style="color: var(--color-text-muted);
+                    margin-top: 4px;">${_esc(l)}</div>`).join("")
+                + `<div class="text-xxs" style="color: var(--color-text-muted); margin-top: 6px;">
+                    managed under <em>Admin &rarr; Human testing</em></div>`
+            : `<div class="text-xs" style="color: var(--color-text-muted); margin-top: 4px;">
+                No human input for this run.</div>`;
+        return `<div style="border: 1px solid var(--color-border); border-radius: 6px;
+                padding: 10px 14px; min-width: 190px;">
+            <div class="font-semibold">Human input</div>${body}</div>`;
     }
 
     function _renderNwayView() {
@@ -1215,7 +1243,7 @@
         </tr>`).join("")).join("");
         return `<h3 class="text-sm font-semibold" style="margin: 18px 0 6px 0;
                 color: var(--color-text-heading);">Coder notes (${notes.length})</h3>
-            <details open>
+            <details>
                 <summary class="text-xxs" style="cursor: pointer; color: var(--color-text-muted);">
                     free-text notes coders attached to individual videos — click an item id for the
                     full side-by-side view</summary>
@@ -1231,21 +1259,8 @@
     function _renderCodingSection(coding) {
         if (!coding) return "";
 
-        const statusEntries = Object.entries(coding.coder_status || {});
-        const nSubmitted = statusEntries.filter(([, s]) => s.status === "submitted").length;
-        const coderLine = statusEntries.map(([user, s]) =>
-            `${_esc(user)} (${_esc(s.status === "in_progress"
-                ? `${s.n_answered} coded` : s.status)})`).join(", ");
-
         let html = `<h3 class="text-sm font-semibold" style="margin: 0 0 6px 0;
-                color: var(--color-text-heading);">Human input (ICR)</h3>
-            <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 8px;">
-                Blind coding task on ${_esc(String((coding.variables || []).length))} variable(s)
-                (${(coding.variables || []).map(_esc).join(", ")}) ·
-                ${nSubmitted} of ${statusEntries.length} coder(s) submitted
-                ${coderLine ? ` — ${coderLine}` : ""} ·
-                managed under <em>Admin → Human testing</em>.
-            </div>`;
+                color: var(--color-text-heading);">Human input (ICR)</h3>`;
 
         const results = coding.results;
         if (!results || (!Object.keys(results.human_vs_machine || {}).length
@@ -1265,20 +1280,8 @@
     function _renderVoteSection(vote) {
         if (!vote) return "";
 
-        const statusEntries = Object.entries(vote.coder_status || {});
-        const nSubmitted = statusEntries.filter(([, s]) => s.status === "submitted").length;
-        const coderLine = statusEntries.map(([user, s]) =>
-            `${_esc(user)} (${_esc(s.status === "in_progress"
-                ? `${s.n_answered} voted` : s.status)})`).join(", ");
-
         let html = `<h3 class="text-sm font-semibold" style="margin: 18px 0 6px 0;
-                color: var(--color-text-heading);">Preference votes</h3>
-            <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 8px;">
-                Blind per-video votes over ${_esc(String((vote.variables || []).length))}
-                displayed field(s) · ${nSubmitted} of ${statusEntries.length} coder(s) submitted
-                ${coderLine ? ` — ${coderLine}` : ""} ·
-                managed under <em>Admin → Human testing</em>.
-            </div>`;
+                color: var(--color-text-heading);">Preference votes</h3>`;
 
         const results = vote.results;
         if (!results || !Object.keys(results.per_coder || {}).length) {
@@ -1497,8 +1500,7 @@
                 ${contracts.length} contracts compared${unified.humanArms.length
                     ? ` (incl. ${unified.humanArms.length} human coder(s))` : ""}:
                 <span class="font-mono">${contracts.map(a => _esc(unified.machineArms.includes(a) ? `${_armLabel(a)} [${_armBackendOf(a)}]` : _armLabel(a))).join(", ")}</span>.
-                Every score is pairwise agreement averaged over all pairs — not a measure of
-                which contract is right. Expand a field for the full pairwise matrix.
+                Expand a field for the full pairwise matrix.
             </div>
             <details style="margin-top: 6px;">
                 <summary class="text-xxs" style="cursor: pointer; color: var(--color-text-muted);">
@@ -1620,11 +1622,11 @@
                 : kind.key === "enum" ? "mean agreement across pairs (lowest first)"
                 : kind.key === "list" ? "mean Jaccard across pairs (lowest first)"
                 : "not scored (prose is never string-equal)";
-            return `<details open style="margin: 12px 0 4px 0;">
+            return `<details style="margin: 12px 0 4px 0;">
                 <summary style="cursor: pointer;">
                     <h5 class="text-xs font-semibold" style="display: inline; margin: 0;
                         color: var(--color-text-heading);">${_esc(kind.label)}</h5>
-                    <span class="text-xxs font-normal meta-tooltip" data-tooltip="${_esc(kind.blurb)}"
+                    <span class="text-xxs font-normal meta-tooltip tooltip-below" data-tooltip="${_esc(kind.blurb)}"
                         style="color: var(--color-text-muted); cursor: help;">&#9432;</span>
                 </summary>
                 <table style="border-collapse: collapse; width: 100%; margin-top: 4px;" class="text-xs">
@@ -1642,9 +1644,8 @@
         const el = document.getElementById("abe-adj-table");
         const report = st.currentRun && st.currentRun.report;
         if (!el || !report) return;
-        const filter = (document.getElementById("abe-adj-filter") || {}).value || "";
         const arms = report.arms || [];
-        const rows = (report.adjudication || []).filter(r => !filter || r.column === filter);
+        const rows = report.adjudication || [];
         if (!rows.length) {
             el.innerHTML = '<span class="text-xs" style="color: var(--color-text-muted);">No disagreements 🎉</span>';
             return;
@@ -1682,7 +1683,7 @@
                     </tr>`).join("")}</tbody></table>
                 </div>
             </details>`).join("")
-            + (items.length > ITEM_CAP ? `<div class="text-xxs" style="color: var(--color-text-muted); padding: 6px 0;">Showing ${ITEM_CAP} of ${items.length} items — filter by field to narrow.</div>` : "");
+            + (items.length > ITEM_CAP ? `<div class="text-xxs" style="color: var(--color-text-muted); padding: 6px 0;">Showing ${ITEM_CAP} of ${items.length} items.</div>` : "");
         el.querySelectorAll(".abe-item").forEach(a =>
             a.addEventListener("click", (ev) => {
                 ev.preventDefault(); ev.stopPropagation(); openItemView(a.dataset.i);
@@ -1857,7 +1858,6 @@
     window.abeRefreshRuns = abeRefreshRuns;
     window.abeLoadRun = abeLoadRun;
     window.abeDeleteRun = abeDeleteRun;
-    window.abeRenderAdjudication = abeRenderAdjudication;
     window.abeCloseItemModal = abeCloseItemModal;
     window.abeItemNav = abeItemNav;
     window.abeToggleItemVideo = abeToggleItemVideo;
