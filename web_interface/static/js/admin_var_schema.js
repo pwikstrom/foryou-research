@@ -1,4 +1,4 @@
-/* Admin → Variable Schema viewer.
+/* Admin → Variable Visibility viewer.
  *
  * Loads /api/manage/schema and renders a read-only metadata table. The only
  * editable cells are the four presentation-surface checkboxes; toggling one
@@ -25,6 +25,29 @@
         web_display_prio: 'display',
     };
 
+    // Display-only header labels + hover help for the surface columns (the
+    // underlying column names are unchanged in the data model).
+    const SURFACE_HEADERS = {
+        web_filter_prio: {
+            label: 'Filters',
+            tip: 'Offered as a filter (Explore and Video Analysis) by default.',
+        },
+        web_timeline_prio: {
+            label: 'Timelines',
+            tip: 'Aggregated and offered on the Timelines tab by default.',
+        },
+        web_viz_prio: {
+            label: 'Explore',
+            tip: 'Offered in Explore visualizations by default.',
+        },
+        web_display_prio: {
+            label: 'Video Analysis',
+            tip: 'Shown in the Video Analysis detail panel by default.',
+        },
+    };
+
+    const SURFACE_GROUP_HEADING = 'Default show/hide of variables in the UI';
+
     // Module state — bound once when the schema tab is first opened.
     const state = {
         rows: [],            // server rows
@@ -48,10 +71,6 @@
     const DEFAULT_HIDDEN = [
         'role', 'scale', 'description', 'skip_recode', 'accepted_labels',
     ];
-
-    const READONLY_TOOLTIP = 'Owned by the declarative contracts '
-        + '(config/*_contract.toml) — read-only here. Edit the owning contract '
-        + 'to change it.';
 
     // ---------- helpers ----------
 
@@ -118,15 +137,35 @@
 
         const cols = _visibleColumns();
 
-        thead.innerHTML = '<tr>' + cols.map(col => {
+        // Group header row: one heading spanning the (always contiguous)
+        // surface-checkbox columns; blank cells elsewhere.
+        const prioCount = cols.filter(c => c in PRIO_COLUMNS).length;
+        let groupRow = '';
+        if (prioCount > 0) {
+            const firstPrio = cols.findIndex(c => c in PRIO_COLUMNS);
+            const after = cols.length - firstPrio - prioCount;
+            groupRow = '<tr>'
+                + (firstPrio > 0 ? `<th colspan="${firstPrio}"></th>` : '')
+                + `<th colspan="${prioCount}" class="text-xs" style="text-align: center; padding: 6px 10px;
+                       border-bottom: 1px solid var(--color-border); color: var(--color-text-muted);
+                       font-weight: var(--weight-medium); white-space: nowrap;">${_esc(SURFACE_GROUP_HEADING)}</th>`
+                + (after > 0 ? `<th colspan="${after}"></th>` : '')
+                + '</tr>';
+        }
+
+        thead.innerHTML = groupRow + '<tr>' + cols.map(col => {
+            const surface = SURFACE_HEADERS[col];
+            const label = surface ? surface.label : col;
+            const tipAttrs = surface
+                ? ` class="meta-tooltip tooltip-below" data-tooltip="${_esc(surface.tip)}"`
+                : '';
             const isSorted = state.sort.col === col;
             const arrow = isSorted
                 ? `<span style="margin-left: 4px;">${state.sort.dir === 1 ? '▲' : '▼'}</span>`
                 : '';
             const sortColor = isSorted ? 'var(--color-text-primary)' : 'var(--color-text-muted)';
-            return `<th onclick="vsSort('${_esc(col)}')"
-                class="meta-tooltip" data-tooltip="Click to sort"
-                style="text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--color-border); white-space: nowrap; color: ${sortColor}; font-weight: var(--weight-semibold); cursor: pointer; user-select: none;">${_esc(col)}${arrow}</th>`;
+            return `<th onclick="vsSort('${_esc(col)}')"${tipAttrs}
+                style="text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--color-border); white-space: nowrap; color: ${sortColor}; font-weight: var(--weight-semibold); cursor: pointer; user-select: none;">${_esc(label)}${arrow}</th>`;
         }).join('') + '</tr>';
 
         const fragments = [];
@@ -157,18 +196,19 @@
         if (col === 'variable_name') {
             const lock = state.contractLocked[String(current)];
             const badge = (lock && lock.legacy)
-                ? ` <span class="meta-tooltip" data-tooltip="Legacy field — owned by a past contract version and kept for older rows."`
+                ? ` <span class="meta-tooltip tooltip-below" data-tooltip="Legacy field — owned by a past contract version and kept for older rows."`
                     + ` style="color: var(--color-text-muted); font-size: var(--text-xxs); border: 1px solid var(--color-border); border-radius: 3px; padding: 0 3px; white-space: nowrap;">legacy</span>`
                 : '';
             return `<td class="font-mono text-xs" style="${baseStyle} color: var(--color-text-primary); white-space: nowrap;">${_esc(current)}${badge}</td>`;
         }
 
-        // Everything else is contract-owned metadata: display-only, greyed,
-        // with a tooltip pointing at the real source of truth.
+        // Everything else is contract-owned metadata: display-only, greyed.
+        // (Read-only-ness is explained once in the page intro — no per-cell
+        // tooltips.)
         const shown = String(current).trim()
             ? _esc(current)
             : '<span style="opacity: 0.5;">—</span>';
-        return `<td class="meta-tooltip font-mono text-xs" data-tooltip="${_esc(READONLY_TOOLTIP)}"
+        return `<td class="font-mono text-xs"
             style="${baseStyle} color: var(--color-text-muted);">${shown}</td>`;
     }
 
@@ -178,12 +218,14 @@
         const items = state.columns.map(col => {
             const locked = col === 'variable_name';
             const checked = !state.hiddenColumns.has(col);
+            const surface = SURFACE_HEADERS[col];
+            const label = surface ? surface.label : col;
             return `<label class="text-xs" style="display: flex; align-items: center; gap: 6px;
                     padding: 3px 4px; cursor: ${locked ? 'default' : 'pointer'};
                     color: ${locked ? 'var(--color-text-muted)' : 'var(--color-text-primary)'};">
                 <input type="checkbox" ${checked ? 'checked' : ''} ${locked ? 'disabled' : ''}
                     onchange="vsToggleColumn('${_esc(col)}', this.checked)">
-                <span class="font-mono">${_esc(col)}</span>
+                <span class="${surface ? '' : 'font-mono'}">${_esc(label)}</span>
             </label>`;
         });
         const actions = `<div style="display: flex; gap: 8px; padding: 4px 4px 6px 4px;

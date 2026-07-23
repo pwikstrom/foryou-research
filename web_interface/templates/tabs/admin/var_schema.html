@@ -1,18 +1,17 @@
-<!-- Variable Schema sub-page -->
+<!-- Variable Visibility sub-page -->
 
-<h2 style="margin: 0 0 8px 0;">Variable Schema</h2>
+<h2 style="margin: 0 0 8px 0;">Variable Visibility</h2>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
-    This table is a <strong>read-only</strong> view of the variable schema. Each
-    variable's recoding, name, role and scale is owned by the declarative
-    contracts (<code>config/*_contract.toml</code>) and the version registries
-    (the <em>origin</em> column shows which one), so those cells can't be edited
-    here. The only editable cells are the four
-    surface checkboxes &mdash; <strong>Filter</strong>, <strong>Display</strong>,
-    <strong>Timeline</strong> and <strong>Viz</strong>: they set the
-    <em>global default</em> set of variables shown on each surface, which every
-    user can then tailor for themselves via the &ldquo;Customize variables&rdquo;
-    gear on that tab. Toggling a checkbox saves immediately and never triggers a
-    study rebuild.
+    This page sets which variables are shown or hidden <em>by default</em>
+    across the app. Tick a checkbox to include a variable on that surface
+    &mdash; <strong>Filters</strong>, <strong>Timelines</strong>,
+    <strong>Explore</strong> or <strong>Video Analysis</strong>; changes save
+    immediately and never trigger a study rebuild. These are only the global
+    defaults: every user can tailor their own set via the &ldquo;Customize
+    variables&rdquo; gear on each tab. The remaining columns describe each
+    variable for reference &mdash; they are owned by the declarative contracts
+    (<code>config/*_contract.toml</code>) and the version registries, and can
+    only be changed there.
 </p>
 
 <!-- Toolbar -->
