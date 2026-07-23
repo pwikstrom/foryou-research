@@ -702,13 +702,13 @@ def _check_embedding_backend() -> dict:
 def _check_gemini() -> dict:
     """Ping Gemini with a ~1-token generation call to prove auth/quota/model."""
     machine_annotation.initialize_machine()
-    client = get_config()["machine"].get("client")
+    client = get_config()["machine"]["gemini"].get("client")
     if client is None:
         return {"status": "fail",
                 "message": "Gemini client failed to initialize (offline or bad credentials)",
                 "detail": None, "duration_s": None, "checked_at": _now_iso()}
 
-    model = get_config()["machine"]["model"]
+    model = get_config()["machine"]["gemini"]["model"]
     t0 = time.monotonic()
     try:
         client.models.generate_content(

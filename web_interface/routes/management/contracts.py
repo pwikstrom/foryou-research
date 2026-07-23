@@ -129,7 +129,7 @@ def _annotation_contract_impact(cand_contract: dict) -> dict:
     from fyp import annotation_contract as ac
     from fyp import annotation_schema as sch
 
-    machine = fyp_cf["machine"]
+    machine = fyp_cf["machine"]["gemini"]
     model = machine.get("model")
     gen_params = {k: machine.get(k) for k in annotation_versioning._VERSION_GEN_PARAM_KEYS}
 

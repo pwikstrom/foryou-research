@@ -93,7 +93,7 @@ needs no Google Cloud account at all.
    `config/config.local.toml` (create the file if it doesn't exist):
 
    ```toml
-   [machine]
+   [machine.gemini]
    vertexai = false
    ```
 
@@ -135,7 +135,7 @@ quota handled through GCP.
 3. Point the app at the project in `config/config.local.toml`:
 
    ```toml
-   [machine]
+   [machine.gemini]
    vertexai = true
    project = "your-gcp-project-id"
    ```
@@ -484,9 +484,9 @@ to pass on a fresh checkout with no data and no credentials.
 ## Optional services
 
 **Gemini (annotation, embeddings, semantic map).** Two auth modes:
-- *Plain API key*: set `vertexai = false` under `[machine]` in
+- *Plain API key*: set `vertexai = false` under `[machine.gemini]` in
   `config.local.toml` (the wizard does this) and export `GEMINI_API_KEY`.
-- *Vertex AI*: set `project = "your-gcp-project"` under `[machine]` and run
+- *Vertex AI*: set `project = "your-gcp-project"` under `[machine.gemini]` and run
   `gcloud auth application-default login`. Annotation stays cleanly disabled
   (with a log message) until one of these is configured.
 

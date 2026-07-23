@@ -123,16 +123,16 @@ def build_config_toml(answers: Answers, generated_on: str = "") -> str:
         lines.append(f'GCS_bucket_name = "{answers.gcs_bucket}"')
 
     if answers.gemini_mode == "vertex":
-        lines += ["", "[machine]", f'project = "{answers.vertex_project}"']
+        lines += ["", "[machine.gemini]", f'project = "{answers.vertex_project}"']
     elif answers.gemini_mode == "api_key":
-        lines += ["", "[machine]", "vertexai = false"]
+        lines += ["", "[machine.gemini]", "vertexai = false"]
     else:
         # Gemini off: leave the committed defaults alone, but say so here —
         # this file is where someone looks when they change their mind, and
-        # "no [machine] section" is otherwise a silent, unexplained state.
+        # "no [machine.gemini] section" is otherwise a silent, unexplained state.
         lines += [
             "",
-            "# Gemini annotation is off (no [machine] overrides).",
+            "# Gemini annotation is off (no [machine.gemini] overrides).",
             "# To turn it on later, uncomment ONE of the two blocks below and",
             "# restart the app - or just re-run: python scripts/setup.py",
             "#",
@@ -140,12 +140,12 @@ def build_config_toml(answers: Answers, generated_on: str = "") -> str:
             "# Both the line below AND the GEMINI_API_KEY environment variable",
             "# are required - the key alone is not enough, because vertexai",
             "# defaults to true and decides which service is used.",
-            "# [machine]",
+            "# [machine.gemini]",
             "# vertexai = false",
             "#",
             "# Vertex AI (needs a GCP project with billing + the Vertex AI API,",
             "# authenticated via: gcloud auth application-default login).",
-            "# [machine]",
+            "# [machine.gemini]",
             "# vertexai = true",
             '# project = "your-gcp-project-id"',
             "#",
@@ -413,11 +413,14 @@ def load_existing_defaults() -> Answers:
     data_io_cfg = existing.get("data_io", {})
     answers.gcs = bool(data_io_cfg.get("use_gcs_for_data", False))
     answers.gcs_bucket = data_io_cfg.get("GCS_bucket_name", "")
+    # Gemini settings live in [machine.gemini]; a pre-restructure overlay may
+    # still carry them flat in [machine] — read nested-first, then flat.
     machine = existing.get("machine", {})
-    if machine.get("project"):
+    gemini = {**machine, **(machine.get("gemini", {}) or {})}
+    if gemini.get("project"):
         answers.gemini_mode = "vertex"
-        answers.vertex_project = machine["project"]
-    elif machine.get("vertexai") is False:
+        answers.vertex_project = gemini["project"]
+    elif gemini.get("vertexai") is False:
         answers.gemini_mode = "api_key"
     answers.contact_email = existing.get("site", {}).get("contact_email", "")
     return answers

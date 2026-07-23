@@ -89,16 +89,16 @@ def build_structured_config(
         else annotation_versioning.active_prompt_text()
     )
 
-    budget = thinking_budget if thinking_budget is not None else fyp_cf["machine"]["thinking_budget"]
-    temp = temperature if temperature is not None else fyp_cf["machine"]["temperature"]
+    budget = thinking_budget if thinking_budget is not None else fyp_cf["machine"]["gemini"]["thinking_budget"]
+    temp = temperature if temperature is not None else fyp_cf["machine"]["gemini"]["temperature"]
     config = gt.GenerateContentConfig(
         system_instruction=machine_prompt,
         temperature=temp,
-        max_output_tokens=fyp_cf["machine"]["max_output_tokens"],
+        max_output_tokens=fyp_cf["machine"]["gemini"]["max_output_tokens"],
         response_mime_type="application/json",
         response_schema=build_response_schema(),
-        presence_penalty=fyp_cf["machine"]["presence_penalty"] if use_penalties else None,
-        frequency_penalty=fyp_cf["machine"]["frequency_penalty"] if use_penalties else None,
+        presence_penalty=fyp_cf["machine"]["gemini"]["presence_penalty"] if use_penalties else None,
+        frequency_penalty=fyp_cf["machine"]["gemini"]["frequency_penalty"] if use_penalties else None,
         media_resolution=_resolve_media_resolution(media_resolution),
         thinking_config=gt.ThinkingConfig(thinking_budget=budget),
     )
@@ -166,7 +166,7 @@ def annotate_structured(
 
     out: dict = {
         "item_id": video_id,
-        "model": fyp_cf["machine"]["model"],
+        "model": fyp_cf["machine"]["gemini"]["model"],
         "parsed": None,
         "response": "",
         "finish_reason": "did not start",
@@ -184,8 +184,8 @@ def annotate_structured(
 
     start = _dt.datetime.now()
     try:
-        resp = fyp_cf["machine"]["client"].models.generate_content(
-            model=fyp_cf["machine"]["model"],
+        resp = fyp_cf["machine"]["gemini"]["client"].models.generate_content(
+            model=fyp_cf["machine"]["gemini"]["model"],
             config=config,
             contents=contents,
         )

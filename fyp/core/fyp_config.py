@@ -93,6 +93,63 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 
+# Former flat [machine] keys that belong to the Gemini backend — the canonical
+# home is now [machine.gemini] (config schema 2026-07). Includes retired knobs
+# (use_structured_output, prompt, ...) so any old config hoists completely.
+_LEGACY_GEMINI_KEYS = (
+    "key", "model", "vertexai", "project", "location",
+    "http_options_api_version", "http_options_timeout",
+    "temperature", "max_output_tokens", "thinking_budget",
+    "max_retries", "retry_base_delay", "media_resolution", "version_label",
+    "use_structured_output", "use_generated_prompt", "prompt",
+    "presence_penalty", "frequency_penalty",
+)
+
+
+
+
+def _normalize_machine_config(cf: dict) -> None:
+    """Hoist the legacy flat ``[machine]`` layout into the per-backend schema.
+
+    The canonical schema nests every annotation backend under its own block
+    (``[machine.gemini]``, ``[machine.qwen_api]``, ...), with variants at
+    ``[machine.<backend>.variants.<name>]``. Old configs and overlays
+    (``config.local.toml`` written before the restructure, or by an old
+    ``scripts/setup.py``) still use flat ``[machine]`` Gemini keys and the
+    flat ``[machine.variants]`` table — this hoists them in place so every
+    reader sees exactly one location. A flat key wins over the nested one:
+    flat keys can only come from an explicit old overlay/config, which is
+    deliberate user intent overriding the committed nested default.
+
+    Args:
+        cf: The loaded (and overlay-merged) config dict, mutated in place.
+    """
+    machine = cf.get("machine")
+    if not isinstance(machine, dict):
+        return
+    gemini = machine.setdefault("gemini", {})
+    for key in _LEGACY_GEMINI_KEYS:
+        if key in machine:
+            gemini[key] = machine.pop(key)
+
+    legacy_variants = machine.pop("variants", None)
+    if isinstance(legacy_variants, dict):
+        for name, block in legacy_variants.items():
+            if not isinstance(block, dict):
+                continue
+            backend_id = block.pop("backend", None) or "gemini"
+            nested = machine.setdefault(backend_id, {}).setdefault("variants", {})
+            nested.setdefault(name, block)
+
+    # The short-lived model-keyed [machine.pricing] table (2026-07) moved to a
+    # per-block `pricing` inline table; a leftover copy is dropped, not read.
+    if machine.pop("pricing", None) is not None:
+        print("[CONFIG] Ignoring legacy [machine.pricing] - prices now live as "
+              "`pricing = {input=..., output=...}` on each backend/variant block.")
+
+
+
+
 def _localize_default_path(configured: str, home_subdir: str) -> str:
     """Make a committed POSIX default data path usable on the current OS.
 
@@ -181,6 +238,10 @@ def initialize(
 
     cf["paths"]["project_root"] = abs_project_root_path
 
+    # Hoist any legacy flat [machine] layout (old configs/overlays) into the
+    # per-backend schema BEFORE the env-secret writes below target it.
+    _normalize_machine_config(cf)
+
 
     # ------------------------------------------------------------------
     # Use env var for secrets; fall back to config if present (avoid committing real keys)
@@ -191,13 +252,13 @@ def initialize(
 
     gemini_env_key = os.environ.get("GEMINI_API_KEY")
     if gemini_env_key:
-        cf["machine"]["key"] = gemini_env_key
+        cf["machine"]["gemini"]["key"] = gemini_env_key
 
     # Vertex project: the committed default is empty (no third party should
     # bill the author's project). Deployed services fall back to the
     # GCP_PROJECT_ID env var they already carry; FYP_VERTEX_PROJECT overrides.
-    if not cf["machine"].get("project"):
-        cf["machine"]["project"] = (
+    if not cf["machine"]["gemini"].get("project"):
+        cf["machine"]["gemini"]["project"] = (
             os.environ.get("FYP_VERTEX_PROJECT")
             or os.environ.get("GCP_PROJECT_ID")
             or ""
@@ -294,7 +355,7 @@ def initialize(
     # ------------------------------------------------------------------
     # prepare gen ai parameters for initialisation
     # ------------------------------------------------------------------
-    cf["machine"]["client"] = None
+    cf["machine"]["gemini"]["client"] = None
 
 
     # ------------------------------------------------------------------

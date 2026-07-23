@@ -55,7 +55,7 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.use_generated_prompt:
-        fyp_cf["machine"]["use_generated_prompt"] = True
+        fyp_cf["machine"]["gemini"]["use_generated_prompt"] = True
 
     video_ids = _pick_local_videos(args.n)
     if not video_ids:

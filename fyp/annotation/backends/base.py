@@ -126,13 +126,13 @@ class AnnotationBackend(ABC):
         """The model id this backend annotates with (version identity).
 
         Returns:
-            The model id string (Gemini reads it from ``[machine].model``
-            behind any variant override, so the default suits it; local
-            backends override).
+            The model id string (Gemini reads it from ``[machine.gemini]
+            .model`` behind any variant override, so the default suits it;
+            local backends override).
         """
         from fyp.fyp_config import get_config
 
-        return self.overrides.get("model", get_config()["machine"]["model"])
+        return self.overrides.get("model", get_config()["machine"]["gemini"]["model"])
 
 
     def version_gen_params(self) -> dict:
@@ -140,7 +140,7 @@ class AnnotationBackend(ABC):
 
         Keys mirror ``annotation_versioning._VERSION_GEN_PARAM_KEYS``; a
         backend without a concept for a key reports ``None``. Variant
-        overrides win over the ``[machine]`` values.
+        overrides win over the ``[machine.gemini]`` values.
 
         Returns:
             ``{use_structured_output, temperature, thinking_budget,
@@ -148,7 +148,7 @@ class AnnotationBackend(ABC):
         """
         from fyp.fyp_config import get_config
 
-        machine = {**get_config()["machine"], **self.overrides}
+        machine = {**get_config()["machine"]["gemini"], **self.overrides}
         return {key: machine.get(key) for key in
                 ("use_structured_output", "temperature", "thinking_budget",
                  "media_resolution", "max_output_tokens")}

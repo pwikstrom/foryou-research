@@ -18,7 +18,7 @@ import web_interface.run_queue_annotator_batch as worker
 def test_download_and_ingest_does_not_need_machine_prompt_key(monkeypatch):
     # Config deliberately WITHOUT [machine].prompt — the removed key whose stale
     # reference raised KeyError: 'prompt' and stranded a billed batch in prod.
-    cfg = {"machine": {"model": "gemini-x"}, "data_io": {"GCS_bucket_name": "b"}}
+    cfg = {"machine": {"gemini": {"model": "gemini-x"}}, "data_io": {"GCS_bucket_name": "b"}}
     monkeypatch.setattr(batch, "_cf", lambda: cfg)
 
     class _Bucket:

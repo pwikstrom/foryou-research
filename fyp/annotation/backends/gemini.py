@@ -85,12 +85,12 @@ class GeminiBackend(AnnotationBackend):
         import fyp.machine_annotation as machine_annotation
 
         machine_annotation.initialize_machine()
-        client = get_config()["machine"].get("client")
+        client = get_config()["machine"]["gemini"].get("client")
         if client is None:
             return {"name": "api ping", "ok": False,
                     "detail": "Gemini client failed to initialize (offline or bad credentials)",
                     "fix": "Check credentials / network."}
-        model = get_config()["machine"]["model"]
+        model = get_config()["machine"]["gemini"]["model"]
         try:
             client.models.generate_content(
                 model=model, contents="ping",
