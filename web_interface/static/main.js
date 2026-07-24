@@ -1563,11 +1563,17 @@ function _navigateToTabPage(tabId, pageId) {
     }
 }
 
+// Sub-page slugs that were renamed; old deep links keep working.
+const _HASH_SLUG_ALIASES = {
+    'data_management/enrichment': 'scrape',
+};
+
 function _applyHashNavigation() {
     const m = (location.hash || '').match(/^#([a-z_]+)(?:\/([a-z0-9-]+))?$/);
     if (!m) return;
     const tabId = m[1];
-    const slug = m[2];
+    let slug = m[2];
+    if (slug) slug = _HASH_SLUG_ALIASES[`${tabId}/${slug}`] || slug;
     const pane = document.getElementById(tabId);
     // Only navigate to real tab panes the current user can see.
     if (!pane || !pane.classList.contains('tab-pane')) return;

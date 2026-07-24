@@ -1,7 +1,7 @@
 {
   "n_raw_responses": 150,
   "n_refined_rows": 150,
-  "n_refined_columns": 27,
+  "n_refined_columns": 28,
   "refined_columns": [
     "advertising",
     "aigc",
@@ -13,6 +13,7 @@
     "call_to_action",
     "content_category",
     "faces_age_estimate",
+    "inference_ts",
     "item_id",
     "main_activity",
     "main_ethnicity",
@@ -31,9 +32,9 @@
     "type_of_story",
     "video_story"
   ],
-  "var_schema_hash": "v2:385edf268e86059def43976cdca3dce2a494fb62b67b1300cea8e67b016c4997",
+  "var_schema_hash": "v2:6db544b2cb18cfe76e1058d7be81119e73cdf8b8066415574f70b3a4487a6436",
   "var_schema_shape": [
-    100,
+    105,
     12
   ],
   "models": [

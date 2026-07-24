@@ -1129,24 +1129,28 @@ async function deleteStudy(btn, event) {
 }
 
 function populateEnrichmentStudySelect(studies) {
-    const select = document.getElementById('enrichment-study-select');
-    if (!select) return;
+    // Both the Scrape page's and the Annotation page's study selects (either
+    // may be absent depending on the user's permissions).
+    for (const selectId of ['enrichment-study-select', 'annotation-study-select']) {
+        const select = document.getElementById(selectId);
+        if (!select) continue;
 
-    // Preserve current selection so a refresh from another action doesn't wipe it
-    const currentValue = select.value;
+        // Preserve current selection so a refresh from another action doesn't wipe it
+        const currentValue = select.value;
 
-    // Keep the first default option
-    select.innerHTML = '<option value="">-- Select Study --</option>';
+        // Keep the first default option
+        select.innerHTML = '<option value="">-- Select Study --</option>';
 
-    studies.forEach(study => {
-        const opt = document.createElement('option');
-        opt.value = study.STUDY_NAME;
-        opt.textContent = study.STUDY_NAME;
-        select.appendChild(opt);
-    });
+        studies.forEach(study => {
+            const opt = document.createElement('option');
+            opt.value = study.STUDY_NAME;
+            opt.textContent = study.STUDY_NAME;
+            select.appendChild(opt);
+        });
 
-    if (currentValue && studies.some(s => s.STUDY_NAME === currentValue)) {
-        select.value = currentValue;
+        if (currentValue && studies.some(s => s.STUDY_NAME === currentValue)) {
+            select.value = currentValue;
+        }
     }
 }
 
@@ -2194,17 +2198,28 @@ function dismissScraperAlert(platform) {
 }
 
 function fetchEnrichmentStats() {
-    // The enrichment sub-page only renders for users with
-    // 'tab.data_management.enrichment'. Without it the endpoint aborts 403
-    // (an HTML page that breaks res.json()), so skip the call entirely.
-    if (!document.getElementById('dm-page-enrichment')) return;
+    // The Scrape / Annotation / Refresh sub-pages only render for users with
+    // the matching 'tab.data_management.*' permission. Without any of them the
+    // endpoint aborts 403 (an HTML page that breaks res.json()), so skip the
+    // call entirely. Every DOM write below is null-guarded because the target
+    // elements are spread across those three pages and any of them may be
+    // absent for the current role.
+    if (!document.getElementById('dm-page-scrape')
+        && !document.getElementById('dm-page-annotation')
+        && !document.getElementById('dm-page-refresh')) return;
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
     fetch('/api/manage/enrichment/stats')
         .then(res => res.json())
         .then(data => {
-            // Stats
-            document.getElementById('enrich_total_videos').textContent = (data.total_videos !== undefined) ? data.total_videos.toLocaleString() : '-';
-            document.getElementById('enrich_scraped').textContent = (data.scraped_videos !== undefined) ? data.scraped_videos.toLocaleString() : '-';
-            document.getElementById('enrich_annotated').textContent = (data.annotated_videos !== undefined) ? data.annotated_videos.toLocaleString() : '-';
+            // Stats (scrape-page header + annotation-page header)
+            setText('enrich_total_videos', (data.total_videos !== undefined) ? data.total_videos.toLocaleString() : '-');
+            setText('enrich_scraped', (data.scraped_videos !== undefined) ? data.scraped_videos.toLocaleString() : '-');
+            setText('enrich_annotated', (data.annotated_videos !== undefined) ? data.annotated_videos.toLocaleString() : '-');
+            setText('annot_scraped', (data.scraped_videos !== undefined) ? data.scraped_videos.toLocaleString() : '-');
+            setText('annot_annotated', (data.annotated_videos !== undefined) ? data.annotated_videos.toLocaleString() : '-');
 
             // Queues (per-platform scrape counters)
             if (data.scrape_queues) {
@@ -2227,9 +2242,10 @@ function fetchEnrichmentStats() {
             }
             renderScraperAlerts(data.scraper_alerts);
             renderAnnotationConfigNotice(data);
-            if (data.annotate_queue_len !== undefined) {
-                document.getElementById('enrich_annotate_targets').textContent = data.annotate_queue_len.toLocaleString();
-                document.getElementById('enrich_annotate_targets').style.color = 'var(--color-success-light)';
+            const annotateTargets = document.getElementById('enrich_annotate_targets');
+            if (annotateTargets && data.annotate_queue_len !== undefined) {
+                annotateTargets.textContent = data.annotate_queue_len.toLocaleString();
+                annotateTargets.style.color = 'var(--color-success-light)';
             }
             if (typeof updateAnnotateInflight === 'function') updateAnnotateInflight(data.annotate_claimed_len);
 
@@ -2290,10 +2306,9 @@ function scrapeTargetEls() {
     return Array.from(document.querySelectorAll('[id^="enrich_scrape_targets_"]'));
 }
 
-function queueVideosFromTargetStudy(btnElement) {
+function queueVideosForScraping(btnElement) {
     const studyName = document.getElementById('enrichment-study-select').value;
     const scrapeTargets = scrapeTargetEls();
-    const annotateTargetsDisplay = document.getElementById('enrich_annotate_targets');
 
     if (!studyName) {
         showAppAlert("Please select a target study from the dropdown first.");
@@ -2314,24 +2329,14 @@ function queueVideosFromTargetStudy(btnElement) {
         el.textContent = "Calc...";
         el.style.color = 'var(--color-text-tertiary)';
     });
-    annotateTargetsDisplay.textContent = "Calc...";
-    annotateTargetsDisplay.style.color = 'var(--color-text-tertiary)';
 
-    const fetchScrape = fetch('/api/manage/enrichment/calculate_to_scrape', {
+    fetch('/api/manage/enrichment/calculate_to_scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         body: JSON.stringify({ study_name: studyName, retry_failed: retryFailed, retry_missing_media: retryMissingMedia })
-    }).then(res => res.json());
-
-    const fetchAnnotate = fetch('/api/manage/enrichment/calculate_to_annotate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify({ study_name: studyName, retry_failed: retryFailed })
-    }).then(res => res.json());
-
-    Promise.all([fetchScrape, fetchAnnotate])
-        .then(([scrapeData, annotateData]) => {
-            // Restore button
+    })
+        .then(res => res.json())
+        .then(scrapeData => {
             btnElement.textContent = originalText;
             btnElement.disabled = false;
 
@@ -2352,16 +2357,6 @@ function queueVideosFromTargetStudy(btnElement) {
                 console.error("Scrape Error:", scrapeData.error);
             }
 
-            // Update annotate display
-            if (annotateData.status === 'success') {
-                annotateTargetsDisplay.textContent = annotateData.videos_to_annotate.toLocaleString();
-                annotateTargetsDisplay.style.color = 'var(--color-success-light)';
-            } else {
-                annotateTargetsDisplay.textContent = "Error";
-                annotateTargetsDisplay.style.color = 'var(--color-danger)';
-                console.error("Annotate Error:", annotateData.error);
-            }
-
             // Refresh total stats
             fetchEnrichmentStats();
         })
@@ -2372,10 +2367,152 @@ function queueVideosFromTargetStudy(btnElement) {
                 el.textContent = "Failed";
                 el.style.color = 'var(--color-danger)';
             });
-            annotateTargetsDisplay.textContent = "Failed";
-            annotateTargetsDisplay.style.color = 'var(--color-danger)';
-            console.error("Error queueing from target study:", err);
-            showAppAlert("Error queueing videos from target study.");
+            console.error("Error queueing videos for scraping:", err);
+            showAppAlert("Error queueing videos for scraping.");
+        });
+}
+
+// Selected annotation-queue selection mode on the Annotation page.
+function _annotationSelectionMode() {
+    const checked = document.querySelector('input[name="annot-selection-mode"]:checked');
+    return checked ? checked.value : 'study';
+}
+
+// Enable/disable the per-mode controls when the selection-mode radio changes.
+function updateAnnotationModeControls() {
+    const mode = _annotationSelectionMode();
+    const versionSelect = document.getElementById('annot-version-select');
+    const fromDate = document.getElementById('annot-from-date');
+    const toDate = document.getElementById('annot-to-date');
+    const retryLabel = document.getElementById('annot-retry-failed-label');
+    const studyLabel = document.getElementById('annot-study-label');
+    if (versionSelect) versionSelect.disabled = mode !== 'version';
+    if (fromDate) fromDate.disabled = mode !== 'timeframe';
+    if (toDate) toDate.disabled = mode !== 'timeframe';
+    // "Include previously failed attempts" only applies to the study mode —
+    // the other modes select successfully-annotated videos by definition.
+    if (retryLabel) retryLabel.style.display = (mode === 'study') ? 'flex' : 'none';
+    // The study is required in study mode, an optional intersection otherwise.
+    if (studyLabel) studyLabel.textContent = (mode === 'study') ? 'Target Study:' : 'Limit to study (optional):';
+}
+
+// Populate the annotation-version dropdown from the enrichment-scoped version
+// list (versions that actually occur in the annotation archive).
+let _annotVersionsLoaded = false;
+function loadAnnotationVersionOptions(force = false) {
+    const select = document.getElementById('annot-version-select');
+    if (!select || (_annotVersionsLoaded && !force)) return;
+    fetch('/api/manage/enrichment/annotation_versions')
+        .then(res => res.json())
+        .then(data => {
+            const versions = data.versions || [];
+            const current = select.value;
+            select.innerHTML = '<option value="">-- Select annotation version --</option>';
+            versions.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v.annotation_version;
+                const label = v.label || v.model || v.annotation_version;
+                const shortHash = String(v.annotation_version).slice(0, 11);
+                opt.textContent = `${label} (${shortHash}…)${v.active ? ' — active' : ''}`;
+                select.appendChild(opt);
+            });
+            if (current && versions.some(v => v.annotation_version === current)) {
+                select.value = current;
+            }
+            _annotVersionsLoaded = true;
+        })
+        .catch(err => console.error("Error loading annotation versions:", err));
+}
+
+function queueVideosForAnnotation(btnElement) {
+    const mode = _annotationSelectionMode();
+    const studySelect = document.getElementById('annotation-study-select');
+    const studyName = studySelect ? studySelect.value : '';
+    const annotateTargetsDisplay = document.getElementById('enrich_annotate_targets');
+    const resultEl = document.getElementById('annot-queue-result');
+
+    const payload = { selection_mode: mode, study_name: studyName || null };
+
+    if (mode === 'study') {
+        if (!studyName) {
+            showAppAlert("Please select a target study from the dropdown first.");
+            return;
+        }
+        const retryEl = document.getElementById('annot-retry-failed');
+        payload.retry_failed = !!(retryEl && retryEl.checked);
+    } else if (mode === 'version') {
+        const versionSelect = document.getElementById('annot-version-select');
+        payload.annotation_version = versionSelect ? versionSelect.value : '';
+        if (!payload.annotation_version) {
+            showAppAlert("Please select an annotation version first.");
+            return;
+        }
+    } else if (mode === 'timeframe') {
+        const fromEl = document.getElementById('annot-from-date');
+        const toEl = document.getElementById('annot-to-date');
+        payload.annotated_from = fromEl ? fromEl.value : '';
+        payload.annotated_to = toEl ? toEl.value : '';
+        if (!payload.annotated_from && !payload.annotated_to) {
+            showAppAlert("Please set at least one of the timeframe dates.");
+            return;
+        }
+    }
+
+    // UI Loading state
+    const originalText = btnElement.textContent;
+    btnElement.textContent = "Queueing...";
+    btnElement.disabled = true;
+    if (resultEl) resultEl.style.display = 'none';
+
+    if (annotateTargetsDisplay) {
+        annotateTargetsDisplay.textContent = "Calc...";
+        annotateTargetsDisplay.style.color = 'var(--color-text-tertiary)';
+    }
+
+    fetch('/api/manage/enrichment/calculate_to_annotate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify(payload)
+    })
+        .then(res => res.json())
+        .then(annotateData => {
+            btnElement.textContent = originalText;
+            btnElement.disabled = false;
+
+            if (annotateData.status === 'success') {
+                if (annotateTargetsDisplay) {
+                    annotateTargetsDisplay.textContent = annotateData.videos_to_annotate.toLocaleString();
+                    annotateTargetsDisplay.style.color = 'var(--color-success-light)';
+                }
+                if (resultEl) {
+                    const parts = [`Queued ${(annotateData.newly_queued ?? annotateData.videos_to_annotate).toLocaleString()} video(s)`];
+                    if (annotateData.selected !== undefined) parts.push(`${annotateData.selected.toLocaleString()} matched the selection`);
+                    if (annotateData.skipped_no_media) parts.push(`${annotateData.skipped_no_media.toLocaleString()} skipped (media not downloaded)`);
+                    if (annotateData.skipped_no_inference_ts) parts.push(`${annotateData.skipped_no_inference_ts.toLocaleString()} skipped (no stored annotation timestamp — run the inference_ts backfill to include them)`);
+                    resultEl.textContent = parts.join(' · ');
+                    resultEl.style.display = '';
+                }
+            } else {
+                if (annotateTargetsDisplay) {
+                    annotateTargetsDisplay.textContent = "Error";
+                    annotateTargetsDisplay.style.color = 'var(--color-danger)';
+                }
+                console.error("Annotate Error:", annotateData.error);
+                showAppAlert("Error queueing videos for annotation: " + (annotateData.error || 'unknown error'));
+            }
+
+            // Refresh total stats
+            fetchEnrichmentStats();
+        })
+        .catch(err => {
+            btnElement.textContent = originalText;
+            btnElement.disabled = false;
+            if (annotateTargetsDisplay) {
+                annotateTargetsDisplay.textContent = "Failed";
+                annotateTargetsDisplay.style.color = 'var(--color-danger)';
+            }
+            console.error("Error queueing videos for annotation:", err);
+            showAppAlert("Error queueing videos for annotation.");
         });
 }
 
@@ -2796,7 +2933,8 @@ const DM_PAGE_PERM_MAP = {
     'dm-page-ingestion':      'tab.data_management.ingestion',
     'dm-page-edit-activity':  'tab.data_management.edit_collections',
     'dm-page-studies':        'tab.data_management.studies',
-    'dm-page-enrichment':     'tab.data_management.enrichment',
+    'dm-page-scrape':         'tab.data_management.scrape',
+    'dm-page-annotation':     'tab.data_management.annotation',
     'dm-page-refresh':        'tab.data_management.refresh',
 };
 
@@ -2827,11 +2965,12 @@ function openDataManagementPage(pageId, clickedItem) {
         clickedItem.classList.add('active');
     }
 
-    // Refresh enrichment stats when entering the Scrape & Annotate page so the
-    // consolidation-impact panel + pipeline step list reflect current server
-    // state on navigation (the panel is otherwise only re-rendered by event
-    // handlers, so it can show a stale snapshot after navigating away and back).
-    if (pageId === 'dm-page-enrichment') {
+    // Refresh enrichment stats when entering the Scrape, Annotation or Refresh
+    // pages so queue counters and the consolidation-impact panel + pipeline
+    // step list reflect current server state on navigation (they are otherwise
+    // only re-rendered by event handlers, so they can show a stale snapshot
+    // after navigating away and back).
+    if (pageId === 'dm-page-scrape' || pageId === 'dm-page-annotation' || pageId === 'dm-page-refresh') {
         fetchEnrichmentStats();
     }
 
@@ -2841,6 +2980,12 @@ function openDataManagementPage(pageId, clickedItem) {
         if (_cascadeRefresh) {
             updateCascadeRefreshPageLock(true);
         }
+    }
+
+    // Populate the annotation-version dropdown on first visit to the
+    // Annotation page.
+    if (pageId === 'dm-page-annotation') {
+        loadAnnotationVersionOptions();
     }
 
     // Lazy-load edit activity table on first visit

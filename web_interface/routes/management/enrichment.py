@@ -90,7 +90,7 @@ def _consolidate_blockers() -> list[str]:
 
 
 @management_bp.route('/api/manage/enrichment/stats', methods=['GET'])
-@permission_required('tab.data_management.enrichment')
+@permission_required('tab.data_management.scrape', 'tab.data_management.annotation', 'tab.data_management.refresh')
 @login_required
 def get_enrichment_stats():
     # Only admins can see enrichment stats
@@ -396,7 +396,7 @@ def get_embedding_backends():
 
 
 @management_bp.route('/api/manage/enrichment/empty_queue/<queue_type>', methods=['POST'])
-@permission_required('tab.data_management.enrichment')
+@permission_required('tab.data_management.scrape', 'tab.data_management.annotation')
 @login_required
 def empty_enrichment_queue(queue_type):
     try:
@@ -436,7 +436,7 @@ def empty_enrichment_queue(queue_type):
         return jsonify({"error": str(e)}), 500
 
 @management_bp.route('/api/manage/enrichment/scraper_alert/dismiss', methods=['POST'])
-@permission_required('tab.data_management.enrichment')
+@permission_required('tab.data_management.scrape')
 @login_required
 def dismiss_scraper_alert():
     """Dismiss a platform's scraper alert ({"platform": ...} in the body).
@@ -454,7 +454,7 @@ def dismiss_scraper_alert():
 
 
 @management_bp.route('/api/manage/enrichment/queue_voted', methods=['POST'])
-@permission_required('tab.data_management.enrichment')
+@permission_required('tab.data_management.scrape', 'tab.data_management.annotation')
 @login_required
 def queue_voted_videos():
     try:
@@ -603,7 +603,7 @@ def queue_voted_videos():
 
 
 @management_bp.route('/api/manage/enrichment/calculate_to_scrape', methods=['POST'])
-@permission_required('tab.data_management.enrichment')
+@permission_required('tab.data_management.scrape')
 @login_required
 def calculate_to_scrape():
     data = request.json or {}
@@ -746,36 +746,142 @@ def calculate_to_scrape():
         print(f"Error calculating scrape targets: {e}")
         return jsonify({"error": str(e)}), 500
 
+def _select_annotated_item_ids(
+    archive_df: pd.DataFrame,
+    version: str | None = None,
+    ts_from: int | None = None,
+    ts_to: int | None = None,
+    study_item_ids: set[str] | None = None,
+) -> tuple[list[str], int]:
+    """Select successfully-annotated item ids from the all-versions archive.
+
+    Args:
+        archive_df: The ``{label}_all_versions.parquet`` frame (one row per
+            (source_platform, item_id, annotation_version)).
+        version: Keep only rows annotated with this ``av_`` version.
+        ts_from: Keep only rows with ``inference_ts`` >= this epoch second
+            (inclusive).
+        ts_to: Keep only rows with ``inference_ts`` < this epoch second
+            (exclusive).
+        study_item_ids: When given, intersect with this item-id set first.
+
+    Returns:
+        A tuple ``(item_ids, skipped_no_inference_ts)`` where the second
+        element counts rows that matched the selection scope but were excluded
+        from a timeframe filter because they carry no stored ``inference_ts``
+        (legacy rows predating the timestamp column, before the backfill).
+    """
+    if archive_df is None or archive_df.empty:
+        return [], 0
+
+    if 'annotated_ok' in archive_df.columns:
+        mask = archive_df['annotated_ok'].fillna(False) == True
+    else:
+        mask = pd.Series(True, index=archive_df.index)
+
+    item_ids_str = archive_df['item_id'].astype(str)
+    if study_item_ids is not None:
+        mask = mask & item_ids_str.isin(study_item_ids)
+
+    if version:
+        mask = mask & (archive_df['annotation_version'] == version)
+
+    skipped_no_ts = 0
+    if ts_from is not None or ts_to is not None:
+        if 'inference_ts' in archive_df.columns:
+            ts = pd.to_numeric(archive_df['inference_ts'], errors='coerce')
+            has_ts = ts.notna()
+            skipped_no_ts = int((mask & ~has_ts).sum())
+            mask = mask & has_ts
+            if ts_from is not None:
+                mask = mask & (ts >= ts_from)
+            if ts_to is not None:
+                mask = mask & (ts < ts_to)
+        else:
+            # Archive predates the inference_ts column entirely.
+            skipped_no_ts = int(mask.sum())
+            mask = pd.Series(False, index=archive_df.index)
+
+    return sorted(set(item_ids_str[mask].dropna().tolist())), skipped_no_ts
+
+
+def _parse_selection_date(value: str) -> int:
+    """Parse an ISO date/datetime string into epoch seconds (UTC midnight for bare dates)."""
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return int(dt.timestamp())
+
+
+@management_bp.route('/api/manage/enrichment/annotation_versions', methods=['GET'])
+@permission_required('tab.data_management.annotation')
+@login_required
+def enrichment_annotation_versions():
+    """List annotation versions for the Annotation page's selection dropdown.
+
+    Enrichment-scoped alternative to the admin-gated
+    ``/api/manage/annotation-versions``: returns only lightweight summaries
+    (no prompt/schema payloads), restricted to versions that actually occur in
+    the annotation archive when that snapshot is available.
+    """
+    try:
+        from fyp.annotation import annotation_versioning
+
+        summaries = annotation_versioning.list_versions()
+        in_data = annotation_versioning.versions_in_data() or set()
+        if in_data:
+            known = {s.get("annotation_version") for s in summaries}
+            summaries = [s for s in summaries if s.get("annotation_version") in in_data]
+            # Archive versions with no registry record (e.g. the legacy
+            # pre-versioning id) still need to be selectable.
+            for version in sorted(in_data - known):
+                summaries.append({"annotation_version": version, "label": version})
+        active = annotation_versioning.get_active_version()
+        return jsonify({"status": "success", "versions": summaries, "active": active})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @management_bp.route('/api/manage/enrichment/calculate_to_annotate', methods=['POST'])
-@permission_required('tab.data_management.enrichment')
+@permission_required('tab.data_management.annotation')
 @login_required
 def calculate_to_annotate():
     data = request.json or {}
     study_name = data.get("study_name")
     retry_failed = bool(data.get("retry_failed", False))
-    if not study_name:
+    selection_mode = data.get("selection_mode") or "study"
+    if selection_mode not in ("study", "version", "timeframe"):
+        return jsonify({"error": f"Unknown selection_mode '{selection_mode}'"}), 400
+    if selection_mode == "study" and not study_name:
         return jsonify({"error": "No study name provided"}), 400
 
     try:
         from fyp.fyp_config import fyp_cf
 
-        # Check for cached recoded dataset first
-        recoded_fn = f"{study_name}_recoded.parquet"
+        # Check for cached recoded dataset first. The study is required in
+        # "study" mode and an optional intersection filter in the re-annotation
+        # modes (version/timeframe), which default to the whole archive.
         df_study = None
-        
-        if data_io.exists(storage_location="cache", filename=recoded_fn):
-            df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)
-            
-        if df_study is None or df_study.empty:
-            df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=True, verbose=False)
-            
-        if df_study is None or df_study.empty:
-            return jsonify({"error": f"Dataset for study '{study_name}' could not be generated."}), 400
+        if study_name:
+            recoded_fn = f"{study_name}_recoded.parquet"
+            if data_io.exists(storage_location="cache", filename=recoded_fn):
+                df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)
+
+            if df_study is None or df_study.empty:
+                df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=True, verbose=False)
+
+            if df_study is None or df_study.empty:
+                return jsonify({"error": f"Dataset for study '{study_name}' could not be generated."}), 400
 
         # Load global enrichment status
         df_status = None
         if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
             df_status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet")
+
+        if selection_mode in ("version", "timeframe"):
+            return _calculate_to_annotate_reannotation(
+                data, selection_mode, df_study, df_status
+            )
 
         unannotated_videos = []
         if df_status is not None and not df_status.empty:
@@ -841,14 +947,117 @@ def calculate_to_annotate():
         return jsonify({
             "status": "success",
             "videos_to_annotate": len(current_queue),
+            "newly_queued": len(unannotated_videos),
         })
 
     except Exception as e:
         print(f"Error calculating annotate targets: {e}")
         return jsonify({"error": str(e)}), 500
 
+
+def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_status):
+    """Queue already-annotated videos for re-annotation with the active version.
+
+    Selects from the ``{label}_all_versions.parquet`` archive by annotation
+    version or by annotation timeframe (optionally intersected with a study),
+    then keeps only items whose media is still downloaded. The
+    ``annotated_ok``/``annotated_fail`` masks of the study path are
+    deliberately bypassed — these selections re-annotate on purpose. The
+    duration cap is only enforceable when a study frame with ``duration`` is
+    available (the archive/status carry none); archive-wide selections skip it,
+    which is safe because these items passed the cap when first queued.
+    """
+    from fyp.fyp_config import fyp_cf
+
+    version = None
+    ts_from = None
+    ts_to = None
+    if selection_mode == "version":
+        version = data.get("annotation_version")
+        if not version:
+            return jsonify({"error": "No annotation_version provided"}), 400
+    else:
+        try:
+            if data.get("annotated_from"):
+                ts_from = _parse_selection_date(data["annotated_from"])
+            if data.get("annotated_to"):
+                ts_to = _parse_selection_date(data["annotated_to"])
+        except ValueError as e:
+            return jsonify({"error": f"Invalid timeframe date: {e}"}), 400
+        if ts_from is None and ts_to is None:
+            return jsonify({"error": "No timeframe provided (annotated_from / annotated_to)"}), 400
+
+    label = fyp_cf["labels"]["MACHINE_ANNOTATIONS_LABEL"]
+    archive_fn = f"{label}_all_versions.parquet"
+    if not data_io.exists(storage_location="recoded", filename=archive_fn):
+        return jsonify({"error": "No annotation archive found — nothing has been annotated yet."}), 400
+    df_archive = data_io.load_parquet(storage_location="recoded", filename=archive_fn)
+
+    study_item_ids = None
+    if df_study is not None and not df_study.empty:
+        study_item_ids = {str(v) for v in df_study['item_id'].dropna().tolist()}
+
+    selected_ids, skipped_no_ts = _select_annotated_item_ids(
+        df_archive,
+        version=version,
+        ts_from=ts_from,
+        ts_to=ts_to,
+        study_item_ids=study_item_ids,
+    )
+
+    # Annotation needs an mp4: drop items whose media is not downloaded
+    # (e.g. later purged). Without a status parquet the check is skipped.
+    skipped_no_media = 0
+    if selected_ids and df_status is not None and not df_status.empty \
+            and 'video_downloaded' in df_status.columns:
+        status = df_status
+        if 'item_id' not in status.columns:
+            status = status.reset_index()
+            if 'index' in status.columns and 'item_id' not in status.columns:
+                status = status.rename(columns={'index': 'item_id'})
+        downloaded = status.loc[
+            status['video_downloaded'].fillna(False) == True, 'item_id'
+        ].astype(str)
+        downloaded_set = set(downloaded.tolist())
+        before = len(selected_ids)
+        selected_ids = [v for v in selected_ids if v in downloaded_set]
+        skipped_no_media = before - len(selected_ids)
+
+    # Duration cap — only when a study frame carries duration.
+    if selected_ids and df_study is not None and 'duration' in getattr(df_study, 'columns', []):
+        max_dur = fyp_cf.get("machine", {}).get("max_duration_for_annotation", 600)
+        durations = df_study[['item_id', 'duration']].copy()
+        durations['item_id'] = durations['item_id'].astype(str)
+        too_long = durations.loc[
+            durations['duration'].notna() & (durations['duration'] >= max_dur), 'item_id'
+        ]
+        too_long_set = set(too_long.tolist())
+        selected_ids = [v for v in selected_ids if v not in too_long_set]
+
+    # Append to the global annotate queue (atomic — never clobbers ids
+    # claimed/pruned meanwhile by an annotation worker).
+    current_queue = data_io.update_json(
+        storage_location="cache",
+        filename="to_annotate.json",
+        mutate=lambda current: list(
+            {str(v) for v in (current if isinstance(current, list) else [])}
+            | set(selected_ids)
+        ),
+        default=[],
+    )
+
+    return jsonify({
+        "status": "success",
+        "videos_to_annotate": len(current_queue),
+        "selected": len(selected_ids) + skipped_no_media,
+        "newly_queued": len(selected_ids),
+        "skipped_no_media": skipped_no_media,
+        "skipped_no_inference_ts": skipped_no_ts,
+    })
+
+
 @management_bp.route('/api/manage/enrichment/consolidate', methods=['POST'])
-@permission_required('tab.data_management.enrichment')
+@permission_required('tab.data_management.refresh')
 @login_required
 def api_consolidate_enrichment():
     from fyp.fyp_config import CONSOLIDATE_ENRICHMENT_SCRIPT
@@ -934,7 +1143,7 @@ def api_consolidate_enrichment():
 
 
 @management_bp.route('/api/manage/enrichment/consolidate/disarm', methods=['POST'])
-@permission_required('tab.data_management.enrichment')
+@permission_required('tab.data_management.refresh')
 @login_required
 def api_consolidate_disarm():
     load_process_stats()
@@ -949,7 +1158,7 @@ def api_consolidate_disarm():
 
 
 @management_bp.route('/api/manage/enrichment/refresh-downstream', methods=['POST'])
-@permission_required('tab.data_management.enrichment')
+@permission_required('tab.data_management.refresh')
 @login_required
 def api_refresh_downstream():
     """Re-run the downstream refresh pipeline for the stored consolidation impact.

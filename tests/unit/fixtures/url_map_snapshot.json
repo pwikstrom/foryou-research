@@ -420,6 +420,13 @@
   ]
  ],
  [
+  "/api/manage/enrichment/annotation_versions",
+  "management_bp.enrichment_annotation_versions",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/manage/enrichment/calculate_to_annotate",
   "management_bp.calculate_to_annotate",
   [

@@ -1748,6 +1748,7 @@ def refine_one_raw_annotation_batch(
     # ---------------------------------------------------------------
     version_by_item = {}
     platform_by_item = {}
+    ts_by_item = {}
     for entry in raw_outputs_from_machine.values():
         if isinstance(entry, dict) and entry.get("item_id") is not None:
             version_by_item[str(entry["item_id"])] = entry.get(
@@ -1755,6 +1756,8 @@ def refine_one_raw_annotation_batch(
             )
             if entry.get("source_platform"):
                 platform_by_item[str(entry["item_id"])] = str(entry["source_platform"])
+            if entry.get("inference_ts") is not None:
+                ts_by_item[str(entry["item_id"])] = entry["inference_ts"]
     outputs_from_machine_df["annotation_version"] = (
         outputs_from_machine_df["item_id"].astype(str).map(version_by_item)
         .fillna(annotation_versioning.LEGACY_VERSION)
@@ -1766,6 +1769,13 @@ def refine_one_raw_annotation_batch(
         outputs_from_machine_df["item_id"].astype(str).map(platform_by_item)
         .fillna(scrape_queues.default_platform())
     )
+
+    # Stamp inference_ts (epoch seconds) the same way; rows from raw entries
+    # lacking the key stay NA. Drives timeframe-based re-annotation selection.
+    outputs_from_machine_df["inference_ts"] = pd.to_numeric(
+        outputs_from_machine_df["item_id"].astype(str).map(ts_by_item),
+        errors="coerce",
+    ).astype("int64[pyarrow]")
 
 
     # ---------------------------------------------------------------
