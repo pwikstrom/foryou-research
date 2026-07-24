@@ -2385,15 +2385,12 @@ function updateAnnotationModeControls() {
     const fromDate = document.getElementById('annot-from-date');
     const toDate = document.getElementById('annot-to-date');
     const retryLabel = document.getElementById('annot-retry-failed-label');
-    const studyLabel = document.getElementById('annot-study-label');
     if (versionSelect) versionSelect.disabled = mode !== 'version';
     if (fromDate) fromDate.disabled = mode !== 'timeframe';
     if (toDate) toDate.disabled = mode !== 'timeframe';
     // "Include previously failed attempts" only applies to the study mode —
     // the other modes select successfully-annotated videos by definition.
     if (retryLabel) retryLabel.style.display = (mode === 'study') ? 'flex' : 'none';
-    // The study is required in study mode, an optional intersection otherwise.
-    if (studyLabel) studyLabel.textContent = (mode === 'study') ? 'Target Study:' : 'Limit to study (optional):';
 }
 
 // Populate the annotation-version dropdown from the enrichment-scoped version
@@ -2431,13 +2428,15 @@ function queueVideosForAnnotation(btnElement) {
     const annotateTargetsDisplay = document.getElementById('enrich_annotate_targets');
     const resultEl = document.getElementById('annot-queue-result');
 
-    const payload = { selection_mode: mode, study_name: studyName || null };
+    // Every selection mode operates within a target study.
+    if (!studyName) {
+        showAppAlert("Please select a target study from the dropdown first.");
+        return;
+    }
+
+    const payload = { selection_mode: mode, study_name: studyName };
 
     if (mode === 'study') {
-        if (!studyName) {
-            showAppAlert("Please select a target study from the dropdown first.");
-            return;
-        }
         const retryEl = document.getElementById('annot-retry-failed');
         payload.retry_failed = !!(retryEl && retryEl.checked);
     } else if (mode === 'version') {

@@ -852,26 +852,25 @@ def calculate_to_annotate():
     selection_mode = data.get("selection_mode") or "study"
     if selection_mode not in ("study", "version", "timeframe"):
         return jsonify({"error": f"Unknown selection_mode '{selection_mode}'"}), 400
-    if selection_mode == "study" and not study_name:
+    if not study_name:
         return jsonify({"error": "No study name provided"}), 400
 
     try:
         from fyp.fyp_config import fyp_cf
 
-        # Check for cached recoded dataset first. The study is required in
-        # "study" mode and an optional intersection filter in the re-annotation
-        # modes (version/timeframe), which default to the whole archive.
+        # Check for cached recoded dataset first. Every selection mode operates
+        # within the target study; the re-annotation modes (version/timeframe)
+        # intersect their archive selection with it.
+        recoded_fn = f"{study_name}_recoded.parquet"
         df_study = None
-        if study_name:
-            recoded_fn = f"{study_name}_recoded.parquet"
-            if data_io.exists(storage_location="cache", filename=recoded_fn):
-                df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)
+        if data_io.exists(storage_location="cache", filename=recoded_fn):
+            df_study = data_io.load_parquet(storage_location="cache", filename=recoded_fn)
 
-            if df_study is None or df_study.empty:
-                df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=True, verbose=False)
+        if df_study is None or df_study.empty:
+            df_study = create_study_recoded_dataset(study_name=study_name, save_to_cache=True, verbose=False)
 
-            if df_study is None or df_study.empty:
-                return jsonify({"error": f"Dataset for study '{study_name}' could not be generated."}), 400
+        if df_study is None or df_study.empty:
+            return jsonify({"error": f"Dataset for study '{study_name}' could not be generated."}), 400
 
         # Load global enrichment status
         df_status = None
@@ -959,13 +958,13 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
     """Queue already-annotated videos for re-annotation with the active version.
 
     Selects from the ``{label}_all_versions.parquet`` archive by annotation
-    version or by annotation timeframe (optionally intersected with a study),
-    then keeps only items whose media is still downloaded. The
+    version or by annotation timeframe, always intersected with the target
+    study, then keeps only items whose media is still downloaded. The
     ``annotated_ok``/``annotated_fail`` masks of the study path are
     deliberately bypassed — these selections re-annotate on purpose. The
-    duration cap is only enforceable when a study frame with ``duration`` is
-    available (the archive/status carry none); archive-wide selections skip it,
-    which is safe because these items passed the cap when first queued.
+    duration cap is only enforceable when the study frame carries ``duration``
+    (the archive/status carry none), which is safe because these items passed
+    the cap when first queued.
     """
     from fyp.fyp_config import fyp_cf
 
