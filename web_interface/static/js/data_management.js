@@ -2414,7 +2414,7 @@ function loadAnnotationVersionOptions(force = false) {
                 opt.value = v.annotation_version;
                 const label = v.label || v.model || v.annotation_version;
                 const shortHash = String(v.annotation_version).slice(0, 11);
-                opt.textContent = `${label} (${shortHash}…)${v.active ? ' — active' : ''}`;
+                opt.textContent = `${label} (${shortHash}…)${v.active ? ' — preferred' : ''}`;
                 select.appendChild(opt);
             });
             if (current && versions.some(v => v.annotation_version === current)) {

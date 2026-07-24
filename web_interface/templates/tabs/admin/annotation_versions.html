@@ -1,23 +1,40 @@
-<!-- Annotation Versions sub-page -->
+<!-- Annotation Contract and Version Control sub-page -->
+
+<h2 style="margin: 0 0 8px 0;">Versions</h2>
+<p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 10px 0;">
+    The <strong>annotation contract</strong> is a file that is used to generate both the
+    annotation prompt and the response schema used for the annotations. Upload an edited
+    <code>annotation_contract.toml</code> to change the contract or edit the contract as
+    a form in the app. Every time you change the contract, you generate a new
+    <strong>annotation version</strong>. The <strong>annotation version</strong> controls
+    exactly how an annotation is produced: which AI model, prompt, response format and
+    settings are used. Annotations using a certain version are stamped with the version
+    id, to record how the annotation was made. Note that even if a video is re-annotated,
+    past annotations are never deleted. Results from past annotations remain in the
+    dataset and can be used if a study so requires.
+</p>
+<p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 4px 0;">
+    We refer to two different version types:
+</p>
+<ul class="text-sm" style="color: var(--color-text-muted); margin: 0 0 20px 0; padding-left: 22px;">
+    <li><strong>Current</strong>: The version holding the instructions for the next annotation</li>
+    <li><strong>Preferred</strong>: The version used to build annotation datasets for analysis.
+        If a video has annotations made with multiple versions, the annotation made with the
+        preferred version is selected (if available). If the video has not been annotated with
+        the preferred version, the most recent annotation will be used. Changing preferred
+        version requires a refresh of relevant study datasets to be applied.</li>
+</ul>
 
 <!-- Annotation contract card -->
+<h3 style="margin: 0 0 8px 0; color: var(--color-text-heading);">Annotation contract</h3>
 <section id="ac-card" class="text-sm" style="margin: 0 0 24px 0; padding: 14px 16px;
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
     <div style="display: flex; align-items: flex-start; justify-content: space-between;
             gap: 12px; flex-wrap: wrap;">
-        <div style="flex: 1; min-width: 240px;">
-            <h3 style="margin: 0 0 4px 0; color: var(--color-text-heading);">Annotation contract</h3>
-            <div class="text-xs" style="color: var(--color-text-muted);">
-                The Gemini prompt &amp; response schema are generated from this contract.
-                Upload an edited <code>annotation_contract.toml</code> to change them
-                without redeploying. Metadata-only edits (display names, roles, recode
-                drop-words) don&rsquo;t mint a new annotation version.
-            </div>
-        </div>
         <span id="ac-source-badge" class="text-xxs uppercase font-semibold"
             style="padding: 3px 10px; border-radius: 10px; border: 1px solid var(--color-border);
-                   color: var(--color-text-muted); white-space: nowrap;">…</span>
+                   color: var(--color-text-muted); white-space: nowrap; margin-left: auto;">…</span>
     </div>
 
     <div id="ac-meta" class="text-xs" style="margin-top: 10px; color: var(--color-text-muted);
@@ -37,7 +54,7 @@
         <button onclick="aceOpen()" class="btn-primary text-sm"
             style="padding: 6px 12px;">Edit as form&hellip;</button>
         <button id="ac-revert-btn" onclick="acRevert()" class="btn-discreet text-sm"
-            style="padding: 6px 12px; display: none;">Revert to baked</button>
+            style="padding: 6px 12px; display: none;">Revert to default contract</button>
         <span id="ac-card-status" class="text-xs" style="color: var(--color-text-muted);"></span>
     </div>
 </section>
@@ -62,19 +79,10 @@
     </div>
 </div>
 
-<h2 style="margin: 0 0 8px 0;">Annotation Versions</h2>
-<p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
-    Every annotation is stamped with a content-derived version (model + prompt +
-    response schema + generation parameters). Old versions are never overwritten —
-    the full history is archived and queryable. The <strong>active</strong>
-    version is what studies read by default; it stays pinned until you activate
-    a new one. Activating rebuilds the global active dataset; refresh studies
-    afterwards to apply it to per-study datasets.
-</p>
+<h3 style="margin: 0 0 8px 0; color: var(--color-text-heading);">Annotation versions</h3>
 
-<section style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px;">
+<section style="display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px;">
     <button id="avRefreshBtn" class="btn-primary">Refresh</button>
-    <span id="avActiveLabel" class="text-sm" style="color: var(--color-text-muted);"></span>
 </section>
 
 <div id="avStatus" class="text-sm" style="min-height: 18px; margin-bottom: 8px; color: var(--color-text-muted);"></div>
@@ -82,12 +90,24 @@
 <table style="width: 100%; border-collapse: collapse;">
     <thead>
         <tr class="text-sm" style="text-align: left; color: var(--color-text-muted);">
-            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Active</th>
-            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Version</th>
-            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Label</th>
-            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Model</th>
-            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Schema</th>
-            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Created</th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
+                <span class="meta-tooltip" data-tooltip="✓ marks the preferred version — the one used to build annotation datasets for analysis.">Preferred</span>
+            </th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
+                <span class="meta-tooltip" data-tooltip="Automatically generated ID identifying exactly how annotations under this version were produced.">Version</span>
+            </th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
+                <span class="meta-tooltip" data-tooltip="Short human-readable name for the version.">Label</span>
+            </th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
+                <span class="meta-tooltip" data-tooltip="The AI model that produced the annotations under this version.">Model</span>
+            </th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
+                <span class="meta-tooltip" data-tooltip="Fingerprint of the response format the model was asked to follow — two versions with the same value collected the same fields.">Response format</span>
+            </th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
+                <span class="meta-tooltip" data-tooltip="When this version was first recorded.">Created</span>
+            </th>
             <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Actions</th>
         </tr>
     </thead>

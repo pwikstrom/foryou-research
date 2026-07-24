@@ -37,19 +37,19 @@
             Backends
         </div>
         {% endif %}
-        {% if user.can_access('tab.admin.versions') %}
-        <div class="dm-sidebar-item" data-page="admin-page-versions" onclick="openAdminPage('admin-page-versions', this)">
-            Annotation Versions
-        </div>
-        {% endif %}
         {% if user.can_access('tab.admin.ab_eval') %}
         <div class="dm-sidebar-item" data-page="admin-page-abeval" onclick="openAdminPage('admin-page-abeval', this)">
-            Annotation Testing
+            Contracts
+        </div>
+        {% endif %}
+        {% if user.can_access('tab.admin.versions') %}
+        <div class="dm-sidebar-item" data-page="admin-page-versions" onclick="openAdminPage('admin-page-versions', this)">
+            Versions
         </div>
         {% endif %}
         {% if user.can_access('tab.admin.human_eval') %}
         <div class="dm-sidebar-item" data-page="admin-page-humaneval" onclick="openAdminPage('admin-page-humaneval', this)">
-            Human Testing
+            Reliability Control
         </div>
         {% endif %}
 
