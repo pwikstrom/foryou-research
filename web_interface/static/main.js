@@ -902,6 +902,22 @@ async function updateStatus() {
         setStatus('embeddings_refresh', data.embeddings_refresh);
         setStatus('video_map_refresh', data.video_map_refresh);
 
+        // Spinner on the "Refresh Caches" sidebar item (same style as the
+        // global badge spinner) while any of that page's processes runs.
+        const refreshSpinner = document.getElementById('refresh-caches-running-spinner');
+        if (refreshSpinner) {
+            const refreshProcs = [
+                'consolidate_enrichment', 'embeddings_refresh', 'video_map_refresh',
+                'recode_refresh_studies', 'meta_refresh_groups', 'pca_refresh',
+                'timelines_refresh',
+            ];
+            const anyRefreshRunning = refreshProcs.some(n => {
+                const p = data[n];
+                return p && (p.state === 'running' || p.state === 'stopping');
+            });
+            refreshSpinner.style.display = anyRefreshRunning ? 'inline-block' : 'none';
+        }
+
         // Update global running-tasks badge
         const runningNames = Object.entries(data)
             .filter(([, v]) => v && (v.state === 'running' || v.state === 'stopping'))
@@ -1594,7 +1610,7 @@ const _TAB_TITLE_MAP = {
     correlations: 'Correlations',
     semantic_space: 'Semantic Space',
     my_stuff: 'My stuff',
-    data_management: 'Data Management',
+    data_management: 'Data Pipeline',
     admin: 'Admin'
 };
 

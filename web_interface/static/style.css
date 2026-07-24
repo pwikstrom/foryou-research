@@ -880,9 +880,34 @@ button {
     background: var(--color-bg-hover);
 }
 
+/* Action is needed (e.g. new enrichment data awaiting Consolidate & Refresh):
+   a strong amber pulse so the state is unmissable at a glance. */
+@keyframes stale-pulse-glow {
+    0%, 100% { box-shadow: 0 0 4px var(--color-warning); }
+    50% { box-shadow: 0 0 14px var(--color-warning); }
+}
+
 .btn-has-pending {
-    box-shadow: 0 0 6px var(--color-warning);
-    border: 1px solid var(--color-warning);
+    border: 2px solid var(--color-warning) !important;
+    animation: stale-pulse-glow 1.6s ease-in-out infinite;
+}
+
+/* Amber pulsing dot on a sidebar item that needs attention (e.g. Refresh
+   Caches when new enrichment data awaits consolidation). */
+@keyframes stale-dot-pulse {
+    0%, 100% { opacity: 0.45; }
+    50% { opacity: 1; }
+}
+
+.sidebar-stale-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--color-warning);
+    margin-left: 6px;
+    vertical-align: middle;
+    animation: stale-dot-pulse 1.6s ease-in-out infinite;
 }
 
 /* Armed state for the Consolidate & Refresh button — gentle blue pulse

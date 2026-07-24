@@ -24,12 +24,16 @@
         {% endif %}
         {% if user.can_access('tab.data_management.annotation') %}
         <div class="dm-sidebar-item" data-page="dm-page-annotation" onclick="openDataManagementPage('dm-page-annotation', this)">
-            Annotation
+            Annotate short videos
         </div>
         {% endif %}
         {% if user.can_access('tab.data_management.refresh') %}
         <div class="dm-sidebar-item" data-page="dm-page-refresh" onclick="openDataManagementPage('dm-page-refresh', this)">
             Refresh Caches
+            <span id="refresh-caches-stale-dot" class="sidebar-stale-dot meta-tooltip" style="display: none;"
+                data-tooltip="New enrichment data has not been consolidated yet — run Consolidate &amp; Refresh"></span>
+            <span id="refresh-caches-running-spinner" class="global-tasks-spinner"
+                style="display: none; margin-left: 6px; vertical-align: middle;"></span>
         </div>
         {% endif %}
     </nav>
