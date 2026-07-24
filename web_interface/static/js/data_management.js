@@ -1836,6 +1836,10 @@ function checkConsolidationNeeded(data) {
 
     const consolidateBtn = document.getElementById('btn-consolidate');
     const setNeedsAction = (needs) => {
+        // Mirror the state on the "Refresh Caches" sidebar item, so the
+        // stale signal is visible without opening the page.
+        const staleDot = document.getElementById('refresh-caches-stale-dot');
+        if (staleDot) staleDot.style.display = needs ? 'inline-block' : 'none';
         if (!consolidateBtn) return;
         if (needs) {
             consolidateBtn.classList.add('btn-has-pending');
