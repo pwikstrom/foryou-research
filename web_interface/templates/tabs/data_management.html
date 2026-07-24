@@ -17,9 +17,14 @@
             Define Studies
         </div>
         {% endif %}
-        {% if user.can_access('tab.data_management.enrichment') %}
-        <div class="dm-sidebar-item" data-page="dm-page-enrichment" onclick="openDataManagementPage('dm-page-enrichment', this)">
-            Scrape & Annotate
+        {% if user.can_access('tab.data_management.scrape') %}
+        <div class="dm-sidebar-item" data-page="dm-page-scrape" onclick="openDataManagementPage('dm-page-scrape', this)">
+            Scrape
+        </div>
+        {% endif %}
+        {% if user.can_access('tab.data_management.annotation') %}
+        <div class="dm-sidebar-item" data-page="dm-page-annotation" onclick="openDataManagementPage('dm-page-annotation', this)">
+            Annotation
         </div>
         {% endif %}
         {% if user.can_access('tab.data_management.refresh') %}
@@ -50,9 +55,15 @@
         </div>
         {% endif %}
 
-        {% if user.can_access('tab.data_management.enrichment') %}
-        <div id="dm-page-enrichment" class="dm-page">
-            {% include 'tabs/dm/enrichment.html' %}
+        {% if user.can_access('tab.data_management.scrape') %}
+        <div id="dm-page-scrape" class="dm-page">
+            {% include 'tabs/dm/scrape.html' %}
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.data_management.annotation') %}
+        <div id="dm-page-annotation" class="dm-page">
+            {% include 'tabs/dm/annotation.html' %}
         </div>
         {% endif %}
 

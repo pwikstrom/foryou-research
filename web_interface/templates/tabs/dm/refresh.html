@@ -1,6 +1,37 @@
 <!-- Refresh Caches sub-page -->
 <h2 style="margin: 0 0 16px 0;">Refresh Cached Data</h2>
 
+<!-- Consolidate & Refresh: folds new scrape/annotation output into the
+     consolidated datasets and (optionally) refreshes all affected caches. -->
+<div style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); margin-bottom: 20px;">
+    <div class="font-bold" style="margin-bottom: 10px;">Consolidate Enrichment Data</div>
+    <div style="display: flex; gap: 12px; align-items: center;">
+        <button type="button" class="action-btn" id="btn-consolidate"
+            onclick="consolidateEnrichmentData(this)"
+            style="padding: 6px 12px;">Consolidate &amp; Refresh</button>
+        <button type="button" class="action-btn btn-discreet meta-tooltip" id="btn-consolidate-incremental"
+            onclick="consolidateEnrichmentData(this, false, true)"
+            data-tooltip="Consolidate new enrichment files only — does not refresh studies, correlations, timelines or the semantic map."
+            style="padding: 6px 12px;">Consolidate Only</button>
+        <button type="button" class="action-btn btn-discreet" id="btn-consolidate-force"
+            onclick="consolidateEnrichmentData(this, true)"
+            style="padding: 6px 12px;">Force Reconsolidate</button>
+    </div>
+    <div id="consolidate-status" class="text-xs" style="margin-top: 6px; color: var(--color-success-light);"></div>
+    <div id="consolidate-warning" class="text-xs" style="margin-top: 4px; color: var(--color-warning); display: none;"></div>
+    <div id="consolidate-impact" style="display: none; margin-top: 10px; padding: 10px;
+         background: var(--section-bg); border: 1px solid var(--color-border); border-radius: 4px;">
+        <div class="text-sm font-bold" style="margin-bottom: 6px;">Consolidation Impact</div>
+        <div id="impact-partial-note" class="text-xs" style="display: none; margin-bottom: 6px; color: var(--color-warning);"></div>
+        <div id="impact-details" class="text-xs" style="color: var(--color-text-secondary);"></div>
+        <div id="impact-actions" style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;"></div>
+    </div>
+    <div id="consolidate-pipeline-steps" class="pipeline-steps" style="display: none; margin-top: 10px;">
+        <div class="text-sm font-bold" style="margin-bottom: 6px;">Refresh pipeline</div>
+        <div id="pipeline-steps-list"></div>
+    </div>
+</div>
+
 <div style="display: flex; gap: 20px; flex-wrap: wrap;">
 
     <!-- 1. Group Comparisons Metadata -->

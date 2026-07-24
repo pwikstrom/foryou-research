@@ -36,7 +36,8 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.data_management.ingestion",        "label": "Data Management — Ingest Collections"},
     {"key": "tab.data_management.edit_collections", "label": "Data Management — Edit Collections"},
     {"key": "tab.data_management.studies",          "label": "Data Management — Define Studies"},
-    {"key": "tab.data_management.enrichment",       "label": "Data Management — Scrape & Annotate"},
+    {"key": "tab.data_management.scrape",           "label": "Data Management — Scrape"},
+    {"key": "tab.data_management.annotation",       "label": "Data Management — Annotation"},
     {"key": "tab.data_management.refresh",          "label": "Data Management — Refresh Caches"},
     {"key": "tab.admin.new_users",                  "label": "Admin — New Users"},
     {"key": "tab.admin.active_users",               "label": "Admin — Active Users"},
@@ -103,6 +104,13 @@ PERMISSION_KEYS_GRANT_ALL: list[str] = [
 PERMISSION_KEY_IMPLIED_GRANTS: dict[str, list[str]] = {
     "tab.admin.general": ["tab.admin.backends", "tab.admin.stoplist"],
     "tab.admin.schema": ["tab.admin.versions", "tab.admin.ab_eval"],
+    # 2026-07 Data Management restructure: "Scrape & Annotate" split into a
+    # Scrape page and an Annotation page. Roles that held the old enrichment
+    # key gain both new keys; the stale key stays in roles.json harmlessly.
+    "tab.data_management.enrichment": [
+        "tab.data_management.scrape",
+        "tab.data_management.annotation",
+    ],
 }
 
 

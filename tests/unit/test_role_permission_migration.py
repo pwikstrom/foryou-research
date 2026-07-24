@@ -95,9 +95,27 @@ def test_migration_is_idempotent_and_skips_wildcard():
 
 
 
+def test_enrichment_key_implies_scrape_and_annotation():
+    # 2026-07 Data Management restructure: "Scrape & Annotate" split into
+    # Scrape + Annotation pages; roles holding the old key gain both.
+    rm, stub = _make_role_manager({
+        "custom": {"permissions": ["tab.data_management.enrichment"]},
+        "admin": {"permissions": ["*"]},
+    })
+    perms = set(rm.roles["custom"]["permissions"])
+    assert {"tab.data_management.scrape", "tab.data_management.annotation"} <= perms
+    # The stale umbrella key survives (harmless — no longer in the catalog).
+    assert "tab.data_management.enrichment" in perms
+    assert stub.saved is not None
+    print("PASS: enrichment key implies scrape + annotation")
+
+
+
+
 def run():
     test_umbrella_keys_imply_split_out_pages()
     test_migration_is_idempotent_and_skips_wildcard()
+    test_enrichment_key_implies_scrape_and_annotation()
 
 
 
