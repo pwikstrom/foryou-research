@@ -1,6 +1,6 @@
 <!-- Annotation sub-page -->
 <h2 style="margin: 0 0 16px 0;">
-    Annotation
+    Annotate short videos
     <span class="text-sm" style="color: var(--color-text-tertiary); font-weight: var(--weight-normal); margin-left: 16px;">
         Scraped: <span id="annot_scraped">-</span>
         &middot; Annotated: <span id="annot_annotated">-</span>
@@ -8,16 +8,28 @@
 </h2>
 
 <!-- Annotation-queue selection -->
-<div style="background: var(--section-bg); padding: 16px 20px; border-radius: 4px; border: 1px solid var(--color-border); margin-bottom: 20px;">
-    <div class="text-sm font-bold" style="margin-bottom: 10px;">Queue videos for annotation</div>
+<div style="background: var(--section-bg); padding: 20px; border-radius: 4px; border: 1px solid var(--color-border); margin-bottom: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span class="text-body font-bold">Queue videos for annotation:</span>
+            <span id="enrich_annotate_targets"
+                class="font-bold" style="color: var(--color-success-light); margin-left: 5px;">-</span><span>
+                pending</span>
+            <span id="enrich_annotate_inflight" class="text-sm meta-tooltip"
+                data-tooltip="These videos have been reserved by the async (batch) annotator and are being processed by Gemini. They have left the pending queue but are not annotated yet — they finish when the batch job completes."
+                style="color: var(--color-text-tertiary); margin-left: 8px; display: none;"></span>
+        </div>
+        <button type="button" class="btn-stop text-xs" onclick="emptyQueue('annotate')"
+            style="padding: 4px 8px;">Empty Queue</button>
+    </div>
 
     <div style="display: flex; flex-direction: column; gap: 8px;">
         <label class="text-sm" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
             <input type="radio" name="annot-selection-mode" value="study" checked
                 onchange="updateAnnotationModeControls()">
-            <span style="min-width: 180px;">Not-yet-annotated, from study</span>
+            <span style="min-width: 180px;">Not-yet-annotated</span>
             <span class="text-xs meta-tooltip" style="color: var(--color-text-tertiary);"
-                data-tooltip="Queue every scraped-but-unannotated video in the selected study (same behaviour as the old Scrape &amp; Annotate page).">?</span>
+                data-tooltip="Queue every video in the target study that has been scraped (with media) but not yet annotated.">?</span>
         </label>
         <label class="text-sm" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
             <input type="radio" name="annot-selection-mode" value="version"
@@ -28,7 +40,7 @@
                 <!-- Populated by JS from /api/manage/enrichment/annotation_versions -->
             </select>
             <span class="text-xs meta-tooltip" style="color: var(--color-text-tertiary);"
-                data-tooltip="Re-queue videos that were successfully annotated with this annotation version. They will be re-annotated with the currently active version; the archive keeps both results.">?</span>
+                data-tooltip="Re-queue the target study's videos that were successfully annotated with this annotation version. They will be re-annotated with the currently active version; the archive keeps both results.">?</span>
         </label>
         <label class="text-sm" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
             <input type="radio" name="annot-selection-mode" value="timeframe"
@@ -38,11 +50,11 @@
             <span class="text-xs" style="color: var(--color-text-tertiary);">and</span>
             <input type="date" id="annot-to-date" class="control-input" style="width: 150px;" disabled>
             <span class="text-xs meta-tooltip" style="color: var(--color-text-tertiary);"
-                data-tooltip="Re-queue videos successfully annotated in this period (from-date inclusive, to-date exclusive). They will be re-annotated with the currently active version. Older annotations without a stored timestamp are skipped and reported.">?</span>
+                data-tooltip="Re-queue the target study's videos that were successfully annotated in this period (from-date inclusive, to-date exclusive). They will be re-annotated with the currently active version. Older annotations without a stored timestamp are skipped and reported.">?</span>
         </label>
 
         <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 4px;">
-            <label class="text-sm font-bold" id="annot-study-label" style="color: var(--color-text-tertiary);">Target Study:</label>
+            <label class="text-sm font-bold" style="color: var(--color-text-tertiary);">Target Study:</label>
             <select id="annotation-study-select" class="control-input" style="width: 250px;">
                 <option value="">-- Select Study --</option>
                 <!-- Populated by JS -->
@@ -64,23 +76,13 @@
 
     <!-- Annotator Block -->
     <div style="background: var(--section-bg); padding: 20px; border-radius: 4px; border: 1px solid var(--color-border);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <span class="text-body font-bold">Annotation queue:</span>
-                <span id="enrich_annotate_targets"
-                    class="font-bold" style="color: var(--color-success-light); margin-left: 5px;">-</span><span>
-                    pending</span>
-                <span id="annotation-backend-badge" class="text-xxs font-mono meta-tooltip"
-                    data-tooltip="Active annotation backend (change in Admin → Backends)"
-                    style="display: none; padding: 1px 6px; border: 1px solid var(--color-border); border-radius: 10px; color: var(--color-text-muted);"></span>
-                <span id="annotation-health" class="cookie-pill cookie-pill--unknown meta-tooltip"
-                    data-tooltip="Checking annotation backend health…">Annotation: …</span>
-                <span id="enrich_annotate_inflight" class="text-sm meta-tooltip"
-                    data-tooltip="These videos have been reserved by the async (batch) annotator and are being processed by Gemini. They have left the pending queue but are not annotated yet — they finish when the batch job completes."
-                    style="color: var(--color-text-tertiary); margin-left: 8px; display: none;"></span>
-            </div>
-            <button type="button" class="btn-stop text-xs" onclick="emptyQueue('annotate')"
-                style="padding: 4px 8px;">Empty Queue</button>
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+            <span class="text-body font-bold">Annotate videos with:</span>
+            <span id="annotation-backend-badge" class="text-body font-bold meta-tooltip"
+                data-tooltip="Active annotation backend (change in Admin → Backends)"
+                style="display: none;"></span>
+            <span id="annotation-health" class="cookie-pill cookie-pill--unknown meta-tooltip"
+                data-tooltip="Checking annotation backend health…">Annotation: …</span>
         </div>
 
         <!-- Shown whenever the active annotation backend is not configured, so
@@ -92,9 +94,10 @@
         </div>
 
         <p class="text-xs" style="color: var(--color-text-tertiary); margin: 0 0 12px 0;">
-            Synchronously and immediately annotates videos in the annotation queue using the
-            selected annotation backend.{% if media_on_gcs %} For large, non-urgent runs on the
-            Gemini backend, the Async Annotator below costs about half as much.{% endif %}
+            Works through the annotation queue built above, immediately annotating each video with
+            the backend named in the card title (change it in Admin &rarr; Backends), in batches of
+            the size below.{% if media_on_gcs %} For large, non-urgent runs on the Gemini backend,
+            the Gemini Async Annotator below costs about half as much.{% endif %}
         </p>
 
         <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 12px;">
@@ -134,13 +137,14 @@
     {% if media_on_gcs %}
     <div style="background: var(--section-bg); padding: 20px; border-radius: 4px; border: 1px solid var(--color-border);">
         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
-            <span class="text-body font-bold">Async Annotator</span>
+            <span class="text-body font-bold">Gemini Async Annotator</span>
             <span class="text-xs" style="color: var(--color-text-tertiary);">async &middot; ~50% cheaper</span>
         </div>
         <p class="text-xs" style="color: var(--color-text-tertiary); margin: 0 0 12px 0;">
-            Annotates the same queue above via the Gemini Batch API: submits one job and polls it
-            (minutes&ndash;24h turnaround), then feeds the results through the same refine &amp; consolidate
-            path. Submitted items are reserved from the queue until the job finishes. Requires GCS-stored media.
+            Annotates the same annotation queue via the Gemini Batch API (always Gemini, regardless
+            of the backend selected above): submits one job and polls it (minutes&ndash;24h turnaround),
+            then feeds the results through the same refine &amp; consolidate path. Submitted items are
+            reserved from the queue until the job finishes. Requires GCS-stored media.
         </p>
 
         <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 12px;">
