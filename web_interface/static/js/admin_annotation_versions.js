@@ -31,6 +31,7 @@
         return div.innerHTML;
     }
 
+
     async function load() {
         _status("Loading…");
         try {
@@ -45,22 +46,20 @@
     }
 
     function render(body) {
-        const versions = body.versions || [];
-        const active = body.active;
+        // Most recent first; the synthetic legacy version (epoch created_at)
+        // sinks to the bottom naturally.
+        const versions = (body.versions || []).slice().sort(function (a, b) {
+            return String(b.created_at || "").localeCompare(String(a.created_at || ""));
+        });
         const current = body.current;
-
-        const activeLabel = document.getElementById("avActiveLabel");
-        if (activeLabel) {
-            activeLabel.textContent =
-                "Active: " + (active || "none (latest-per-item)") +
-                "  ·  current config: " + (current || "—");
-        }
 
         const tbody = document.getElementById("avTableBody");
         if (!tbody) return;
 
         const cell = 'padding: 8px; border-bottom: 1px solid var(--color-border);';
         const mono = cell + ' font-family: var(--font-mono);';
+        // The current version's row is shaded — no label needed.
+        const currentTr = '<tr style="background: var(--color-bg-elevated);">';
 
         // Pinned row for the live contract when it has no minted version yet
         // (versions are only registered when annotation runs) — its View
@@ -69,10 +68,10 @@
         const currentIsMinted = versions.some(function (v) { return v.annotation_version === current; });
         let currentRow = "";
         if (current && !currentIsMinted) {
-            currentRow = "<tr>" +
+            currentRow = currentTr +
                 '<td style="' + cell + '"></td>' +
                 '<td style="' + mono + '">' + _esc(current) + "</td>" +
-                '<td style="' + cell + ' color: var(--color-text-muted);">Current config — no annotation run yet</td>' +
+                '<td style="' + cell + ' color: var(--color-text-muted);">Version for new annotations — none saved yet</td>' +
                 '<td style="' + cell + '"></td>' +
                 '<td style="' + cell + '"></td>' +
                 '<td style="' + cell + '"></td>' +
@@ -93,9 +92,10 @@
         tbody.innerHTML = currentRow + versions.map(function (v) {
             const isActive = !!v.active;
             const isLegacy = v.annotation_version === LEGACY_VERSION;
+            const isCurrent = v.annotation_version === current;
             const activateBtn = (isActive || isLegacy) ? "" :
-                '<button class="btn-primary btn-compact av-activate" data-v="' + _esc(v.annotation_version) + '">Activate</button>';
-            return "<tr>" +
+                '<button class="btn-primary btn-compact av-activate" data-v="' + _esc(v.annotation_version) + '">Prefer</button>';
+            return (isCurrent ? currentTr : "<tr>") +
                 '<td style="' + cell + '">' + (isActive ? "✓" : "") + "</td>" +
                 '<td style="' + mono + '">' + _esc(v.annotation_version) + "</td>" +
                 '<td style="' + cell + '">' + _esc(v.label) + "</td>" +
@@ -146,7 +146,7 @@
             const body = await res.json();
             if (!res.ok) throw new Error(body.error || res.statusText);
             document.getElementById("avSnapVersion").textContent =
-                (body.version || "current") + " (current config — not yet run)";
+                (body.version || "current") + " (version for new annotations — none saved yet)";
             document.getElementById("avSnapPrompt").textContent = body.prompt || "(none)";
             document.getElementById("avSnapSchema").textContent =
                 body.schema ? JSON.stringify(body.schema, null, 2) : "(none / free-text)";
@@ -163,9 +163,9 @@
         if (btn && btn.dataset.armed !== "1") {
             btn.dataset.armed = "1";
             btn.dataset.prevHtml = btn.innerHTML;
-            btn.innerHTML = "Activate — sure?";
-            _status("Activating " + version + " rebuilds the global active dataset "
-                + "(refresh studies afterwards). Click again to confirm.");
+            btn.innerHTML = "Prefer — sure?";
+            _status("Making " + version + " the preferred version — annotation datasets "
+                + "use it after a study refresh. Click again to confirm.");
             setTimeout(function () {
                 if (btn.dataset.armed === "1") {
                     btn.dataset.armed = "";
@@ -176,7 +176,7 @@
             return;
         }
         if (btn) btn.dataset.armed = "";
-        _status("Activating…");
+        _status("Applying…");
         try {
             const res = await fetch(LIST + "/activate", {
                 method: "POST",
@@ -185,10 +185,10 @@
             });
             const body = await res.json();
             if (!res.ok) throw new Error(body.error || res.statusText);
-            _status("Activated " + version + " (active rows: " + (body.active_rows ?? "—") + "). " + (body.note || ""));
+            _status(version + " is now the preferred version (rows: " + (body.active_rows ?? "—") + "). " + (body.note || ""));
             load();
         } catch (err) {
-            _status("Activate failed: " + err.message, true);
+            _status("Could not set the preferred version: " + err.message, true);
         }
     }
 
@@ -217,16 +217,17 @@
         const err = document.getElementById("ac-error");
         const revert = document.getElementById("ac-revert-btn");
         const isRuntime = s.source === "runtime";
+        // The etag is kept for optimistic concurrency on upload, never shown —
+        // it is a storage implementation detail with no meaning to admins.
         acState.etag = s.etag || null;
         if (badge) {
-            badge.textContent = isRuntime ? "runtime" : "baked";
+            badge.textContent = isRuntime ? "custom upload" : "default";
             badge.style.color = isRuntime ? "var(--color-success)" : "var(--color-text-muted)";
             badge.style.borderColor = isRuntime ? "var(--color-success)" : "var(--color-border)";
         }
         if (meta) {
             const parts = [];
-            if (s.current_version) parts.push(`Active version: <span class="font-mono">${_esc(s.current_version)}</span>`);
-            if (s.etag) parts.push(`Etag: <span class="font-mono">${_esc(String(s.etag).slice(0, 20))}</span>`);
+            if (s.current_version) parts.push(`New annotations made with version: <span class="font-mono">${_esc(s.current_version)}</span>`);
             if (isRuntime && s.updated_by) parts.push(`Uploaded by ${_esc(s.updated_by)}`);
             if (isRuntime && s.updated_at) parts.push(_esc(s.updated_at));
             meta.innerHTML = parts.join(" · ");
@@ -234,7 +235,7 @@
         if (err) {
             if (s.error) {
                 err.style.display = "block";
-                err.textContent = `⚠ Runtime contract ignored: ${s.error} — using the baked contract.`;
+                err.textContent = `⚠ The uploaded contract could not be used: ${s.error} — using the default contract instead.`;
             } else {
                 err.style.display = "none";
                 err.textContent = "";
@@ -314,12 +315,12 @@
                 + `Existing annotations stay valid.</div>`);
         } else {
             rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
-                + `⚠ This changes the ${impact.prompt_changed && impact.schema_changed ? "prompt and response schema"
-                    : impact.prompt_changed ? "prompt" : "response schema"}. `
-                + `A new annotation version <span class="font-mono">${_esc(impact.candidate_version)}</span> `
-                + `will be minted on the next annotation run (current: `
-                + `<span class="font-mono">${_esc(impact.current_version)}</span>). `
-                + `It won&rsquo;t become active until you activate it below.</div>`);
+                + `⚠ This changes the ${impact.prompt_changed && impact.schema_changed ? "prompt and response format"
+                    : impact.prompt_changed ? "prompt" : "response format"}. `
+                + `Future annotations will be made with a new version `
+                + `<span class="font-mono">${_esc(impact.candidate_version)}</span> `
+                + `(instead of <span class="font-mono">${_esc(impact.current_version)}</span>). `
+                + `Studies keep showing what they show now until you make the new version preferred below.</div>`);
         }
         const detail = [];
         detail.push(`Prompt changed: <strong>${impact.prompt_changed ? "yes" : "no"}</strong>`);
@@ -382,7 +383,7 @@
             btn.dataset.armed = "1";
             btn.dataset.prevHtml = btn.innerHTML;
             btn.innerHTML = "Revert — sure?";
-            _acStatus("The runtime contract will be archived. Click again to revert.");
+            _acStatus("Your uploaded contract will be archived and the default contract restored. Click again to revert.");
             setTimeout(function () {
                 if (btn.dataset.armed === "1") {
                     btn.dataset.armed = "";
