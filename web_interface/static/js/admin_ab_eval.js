@@ -185,6 +185,7 @@
         try {
             const body = await _getJson(CAND);
             st.candidates = body.candidates || [];
+            st.defaultContract = body.default_contract || null;
             renderCandidates();
             renderArmPicker();
         } catch (e) {
@@ -208,14 +209,39 @@
     function renderCandidates() {
         const tbody = document.getElementById("abe-cand-tbody");
         if (!tbody) return;
-        if (!st.candidates.length) {
+        const cell = "padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top;";
+
+        // Permanent pseudo-row for the shipped default contract: inspectable,
+        // duplicatable, and graduatable (= revert to default) like a candidate.
+        // Hidden when a stored candidate shadows the reserved name.
+        let defaultRow = "";
+        const d = st.defaultContract;
+        if (d && !st.candidates.some(m => m.name === d.name)) {
+            defaultRow = `<tr>
+                <td style="${cell}" class="font-mono font-semibold">${_esc(d.name)}
+                    <span class="text-xxs" style="color: var(--color-text-muted);">(shipped)</span></td>
+                <td style="${cell}" class="font-mono text-xs">${_esc(d.candidate_version || "—")}</td>
+                <td style="${cell}">${_esc(d.n_fields ?? "—")}</td>
+                <td style="${cell} color: var(--color-text-muted);" class="text-xs">—</td>
+                <td style="${cell}" class="text-xs">The default contract this platform ships with</td>
+                <td style="${cell}; white-space: nowrap;">
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <button class="btn-discreet btn-compact abe-dl" data-n="${_esc(d.name)}">Download</button>
+                        <button class="btn-discreet btn-compact abe-dup" data-n="${_esc(d.name)}">Duplicate</button>
+                        <span style="flex: 1; min-width: 16px;"></span>
+                        <button class="btn-primary btn-compact abe-activate" data-n="${_esc(d.name)}">Graduate</button>
+                    </div>
+                </td>
+            </tr>`;
+        }
+
+        if (!st.candidates.length && !defaultRow) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-sm" style="padding: 10px 8px;' +
                 ' color: var(--color-text-muted);">No candidate contracts yet — add one with' +
                 " “Use active” or “Upload new”, or edit one in the form editor.</td></tr>";
             return;
         }
-        const cell = "padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top;";
-        tbody.innerHTML = st.candidates.map(m => `<tr>
+        tbody.innerHTML = defaultRow + st.candidates.map(m => `<tr>
             <td style="${cell}" class="font-mono font-semibold">${_esc(m.name)}</td>
             <td style="${cell}" class="font-mono text-xs">${_esc(m.candidate_version || "—")}</td>
             <td style="${cell}">${_esc(m.n_fields ?? "—")}</td>
@@ -384,7 +410,8 @@
             const impact = body.impact || {};
             const be = body.backend || {};
             const offerSwitch = !!(be.mismatch && be.can_switch_backend && be.target_available);
-            pendingActivate = { name, text: body.text, etag: body.current_etag };
+            pendingActivate = { name, text: body.text, etag: body.current_etag,
+                                builtinDefault: !!body.builtin_default };
 
             const rows = [];
             if (impact.metadata_only) {
@@ -454,14 +481,18 @@
 
     async function abeConfirmActivate(btn) {
         if (!pendingActivate) { abeCloseItemModal(); return; }
-        const { name, text, etag, switchBackend } = pendingActivate;
+        const { name, text, etag, switchBackend, builtinDefault } = pendingActivate;
         // Respect the (pre-checked) opt-out checkbox when it was offered.
         const checkbox = document.getElementById("abe-switch-backend");
         const doSwitch = switchBackend && (!checkbox || checkbox.checked);
         try {
+            // Graduating the shipped default = revert: remove the runtime
+            // override (so future shipped contract updates apply) instead of
+            // uploading identical text as a new runtime contract.
             const payload = { text, confirm: true, expected_etag: etag };
             if (doSwitch) payload.switch_backend = switchBackend;
-            const res = await _busy(btn, "Graduating…", () => _postJson(AC, payload));
+            const res = await _busy(btn, "Graduating…", () =>
+                builtinDefault ? _postJson(`${AC}/revert`, {}) : _postJson(AC, payload));
             pendingActivate = null;
             abeCloseItemModal();
             _status(res.note || `Candidate '${name}' graduated.`);
@@ -1945,6 +1976,9 @@
 
     window.abeSaveLiveAsCandidate = abeSaveLiveAsCandidate;
     window.abeOnCandidateFile = abeOnCandidateFile;
+    window.abeDownloadActive = function () {
+        window.location.href = "/api/manage/annotation-contract/download";
+    };
     window.abeConfirmName = abeConfirmName;
     window.abeCancelName = abeCancelName;
     window.abeConfirmActivate = abeConfirmActivate;

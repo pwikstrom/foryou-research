@@ -24,15 +24,54 @@ from ._blueprint import management_bp
 from .contracts import _annotation_contract_impact, _backend_target_info
 
 
+# Reserved pseudo-candidate name for the shipped (baked) default contract.
+# The Playground shows it as a permanent row so the default can be inspected,
+# duplicated and graduated (= revert) like any candidate. A pre-existing
+# STORED candidate with this name wins for back-compat reads, but new saves
+# under the name are rejected.
+DEFAULT_CANDIDATE = "default"
+
+
+
+
+def _default_candidate_payload():
+    """Return ``{name, text, contract, builtin}`` for the baked contract."""
+    from fyp import annotation_contract as ac
+
+    text = ac._read_baked_text()
+    cand, errors = ac.parse_and_validate(text)
+    if cand is None or errors:
+        raise ValueError(f"baked contract does not validate: {'; '.join(errors or [])}")
+    return {"name": DEFAULT_CANDIDATE, "text": text, "contract": cand, "builtin": True}
+
+
+
+
 @management_bp.route('/api/manage/ab-candidates', methods=['GET'])
 @permission_required('tab.admin.ab_eval')
 @login_required
 def list_ab_candidates():
-    """List stored candidate contracts (metadata only, newest first)."""
+    """List stored candidate contracts (metadata only, newest first).
+
+    Also returns ``default_contract`` — a lightweight summary of the shipped
+    default contract for the Playground's permanent pseudo-row.
+    """
     try:
         from fyp import ab_eval
 
-        return jsonify({"candidates": ab_eval.list_candidates()})
+        default_summary = None
+        try:
+            payload = _default_candidate_payload()
+            default_summary = {
+                "name": DEFAULT_CANDIDATE,
+                "candidate_version": _annotation_contract_impact(
+                    payload["contract"]).get("candidate_version"),
+                "n_fields": len(payload["contract"].get("fields", [])),
+            }
+        except Exception:
+            pass
+        return jsonify({"candidates": ab_eval.list_candidates(),
+                        "default_contract": default_summary})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -56,6 +95,9 @@ def save_ab_candidate():
 
         body = request.get_json(silent=True) or {}
         name = str(body.get('name') or "").strip()
+        if name == DEFAULT_CANDIDATE:
+            return jsonify({"error": f"'{DEFAULT_CANDIDATE}' is reserved for the "
+                                     f"shipped default contract — pick another name"}), 400
         text = body.get('text')
         if not text and isinstance(body.get('contract'), dict):
             try:
@@ -93,13 +135,19 @@ def save_ab_candidate():
 @permission_required('tab.admin.ab_eval')
 @login_required
 def get_ab_candidate(name):
-    """Return one candidate's text + parsed contract + metadata."""
+    """Return one candidate's text + parsed contract + metadata.
+
+    The reserved ``default`` name serves the shipped baked contract when no
+    stored candidate shadows it (pre-reservation back-compat).
+    """
     try:
         from fyp import ab_eval
 
         try:
             return jsonify(ab_eval.load_candidate(name))
         except FileNotFoundError:
+            if name == DEFAULT_CANDIDATE:
+                return jsonify(_default_candidate_payload())
             return jsonify({"error": f"candidate '{name}' not found"}), 404
         except ValueError as e:
             return jsonify({"error": str(e)}), 422
@@ -151,10 +199,15 @@ def activate_ab_candidate(name):
 
         from ...permissions import user_has_permission
 
+        builtin_default = False
         try:
             cand = ab_eval.load_candidate(name)
         except FileNotFoundError:
-            return jsonify({"error": f"candidate '{name}' not found"}), 404
+            if name == DEFAULT_CANDIDATE:
+                cand = _default_candidate_payload()
+                builtin_default = True
+            else:
+                return jsonify({"error": f"candidate '{name}' not found"}), 404
         except ValueError as e:
             return jsonify({"error": str(e)}), 422
 
@@ -178,6 +231,10 @@ def activate_ab_candidate(name):
             "impact": impact,
             "backend": {**binfo, "can_switch_backend": can_switch},
             "current_etag": ac.contract_status().get("etag"),
+            # The builtin default graduates via the revert endpoint (removes
+            # the runtime override so future shipped updates apply), not via
+            # a contract upload — the client branches on this flag.
+            "builtin_default": builtin_default,
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
