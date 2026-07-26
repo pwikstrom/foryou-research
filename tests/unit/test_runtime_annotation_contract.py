@@ -87,9 +87,30 @@ def _fake_load_json(storage_location="cache", filename="", verbose=False):
     return _orig_load_json(storage_location, filename, verbose)
 
 
-data_io.getmtime = _fake_getmtime
-data_io.load_text = _fake_load_text
-data_io.load_json = _fake_load_json
+def _install_fakes() -> None:
+    data_io.getmtime = _fake_getmtime
+    data_io.load_text = _fake_load_text
+    data_io.load_json = _fake_load_json
+
+
+def _uninstall_fakes() -> None:
+    data_io.getmtime = _orig_getmtime
+    data_io.load_text = _orig_load_text
+    data_io.load_json = _orig_load_json
+
+
+# Under pytest, patch data_io only for the duration of THIS module's tests —
+# module-level patching leaked into the rest of the suite and made every later
+# runtime-contract round-trip read a phantom (in-memory) file.
+import pytest
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _patched_data_io():
+    _install_fakes()
+    yield
+    _uninstall_fakes()
+    _reset_to_baked()
 
 
 def _reset_to_baked() -> None:
@@ -259,6 +280,7 @@ def test_descriptor_cache_busts_on_snapshot_swap() -> None:
 
 
 def _main() -> int:
+    _install_fakes()
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failures = 0
     for t in tests:
@@ -274,7 +296,8 @@ def _main() -> int:
 
             print(f"ERROR {t.__name__}")
             traceback.print_exc()
-    # Leave the snapshot in a clean baked state for any later in-process import.
+    # Leave data_io and the snapshot in a clean state for any later in-process use.
+    _uninstall_fakes()
     _reset_to_baked()
     print(f"\n{len(tests) - failures}/{len(tests)} passed")
     return 1 if failures else 0

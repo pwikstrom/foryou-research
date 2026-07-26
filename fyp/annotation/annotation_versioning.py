@@ -292,10 +292,21 @@ def current_version_descriptor(fresh: bool = False) -> dict:
         )
     descriptor["prompt_fn"] = active_prompt_label()
 
+    # Snapshot the SOURCE contract TOML alongside the generated prompt/schema —
+    # it is what the Versions page's "Make current" restore needs (the contract
+    # cannot be reconstructed from the generated prompt).
+    try:
+        from fyp import annotation_contract as _ac
+
+        contract_text = _ac.effective_contract_text()
+    except Exception:
+        contract_text = None
+
     _DESCRIPTOR_CACHE["signature"] = signature
     _DESCRIPTOR_CACHE["descriptor"] = descriptor
     _DESCRIPTOR_CACHE["prompt_text"] = prompt_text
     _DESCRIPTOR_CACHE["schema_json"] = schema_json
+    _DESCRIPTOR_CACHE["contract_text"] = contract_text
     return descriptor
 
 
@@ -341,6 +352,7 @@ def _register_into(
     schema_json: dict | None,
     created_at: str | None = None,
     field_metadata: dict | None = None,
+    contract_text: str | None = None,
 ) -> dict:
     """Return a copy of ``registry`` with ``descriptor`` recorded if new.
 
@@ -349,18 +361,25 @@ def _register_into(
     (stay-pinned-until-promote). ``active`` therefore stays ``None`` until the
     first explicit promotion, and consumers treat ``active is None`` as "latest
     annotation per item" (the historical, version-agnostic behaviour).
+
+    ``contract_text`` is the source contract TOML the version was generated
+    from — recorded (when available) so the version can later be restored as
+    the current one. Pre-existing records without it simply aren't restorable.
     """
     registry = _copy.deepcopy(registry)
     versions = registry.setdefault("versions", {})
     version = descriptor["annotation_version"]
     if version not in versions:
-        versions[version] = {
+        record = {
             **descriptor,
             "prompt_text": prompt_text,
             "schema_json": schema_json,
             "field_metadata": field_metadata or {},
             "created_at": created_at,
         }
+        if contract_text:
+            record["contract_text"] = contract_text
+        versions[version] = record
     return registry
 
 
@@ -405,18 +424,20 @@ def register_version(
     schema_json: dict | None = None,
     created_at: str | None = None,
     field_metadata: dict | None = None,
+    contract_text: str | None = None,
 ) -> dict:
     """Record a version in the registry if it is not already present.
 
     With no arguments the current configuration's descriptor (and its prompt /
-    schema snapshot + var_schema field metadata) is used. Returns the (possibly
-    updated) registry.
+    schema / contract snapshots + var_schema field metadata) is used. Returns
+    the (possibly updated) registry.
     """
     if descriptor is None:
         current_version_descriptor()
         descriptor = _DESCRIPTOR_CACHE["descriptor"]
         prompt_text = _DESCRIPTOR_CACHE.get("prompt_text")
         schema_json = _DESCRIPTOR_CACHE.get("schema_json")
+        contract_text = _DESCRIPTOR_CACHE.get("contract_text")
     if field_metadata is None:
         field_metadata = _snapshot_field_metadata()
     if created_at is None:
@@ -424,7 +445,8 @@ def register_version(
 
     registry = load_registry()
     updated = _register_into(
-        registry, descriptor, prompt_text, schema_json, created_at, field_metadata
+        registry, descriptor, prompt_text, schema_json, created_at, field_metadata,
+        contract_text=contract_text,
     )
     if updated != registry:
         save_registry(updated)
@@ -461,16 +483,22 @@ def promote_version(version: str) -> dict:
 
 
 def list_versions() -> list[dict]:
-    """Return version summaries (without the bulky prompt/schema/metadata snapshots)."""
+    """Return version summaries (without the bulky prompt/schema/metadata snapshots).
+
+    ``restorable`` reports whether the record carries the source contract TOML
+    (versions minted since contract snapshots shipped) — the precondition for
+    the Versions page's "Make current" restore.
+    """
     registry = load_registry()
     active = registry.get("active")
     summaries = []
     for version, info in registry.get("versions", {}).items():
         summary = {
             k: v for k, v in info.items()
-            if k not in ("prompt_text", "schema_json", "field_metadata")
+            if k not in ("prompt_text", "schema_json", "field_metadata", "contract_text")
         }
         summary["active"] = version == active
+        summary["restorable"] = bool(info.get("contract_text")) and version != LEGACY_VERSION
         summaries.append(summary)
     return summaries
 
@@ -652,6 +680,7 @@ def ensure_current_version_registered() -> str:
             descriptor=descriptor,
             prompt_text=_DESCRIPTOR_CACHE.get("prompt_text"),
             schema_json=_DESCRIPTOR_CACHE.get("schema_json"),
+            contract_text=_DESCRIPTOR_CACHE.get("contract_text"),
         )
         return descriptor["annotation_version"]
     except Exception:

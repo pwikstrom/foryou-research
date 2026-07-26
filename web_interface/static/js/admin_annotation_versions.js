@@ -102,49 +102,68 @@
 
         const cell = 'padding: 8px; border-bottom: 1px solid var(--color-border);';
         const mono = cell + ' font-family: var(--font-mono);';
-        // The current version's row is shaded — no label needed.
-        const currentTr = '<tr style="background: var(--color-bg-elevated);">';
+
+        // Per-row action buttons share one UX: a discreet action button on
+        // every applicable row; the row that already holds the state shows a
+        // colored, non-interactive button whose label states the fact.
+        function _preferBtn(v) {
+            if (v.annotation_version === LEGACY_VERSION) return "";
+            if (v.active) {
+                return '<button class="btn-save btn-compact btn-state">Preferred</button>';
+            }
+            return '<button class="btn-primary btn-compact av-activate" data-v="'
+                + _esc(v.annotation_version) + '">Prefer</button>';
+        }
+
+        function _currentBtn(v, isCurrent) {
+            if (v.annotation_version === LEGACY_VERSION) return "";
+            if (isCurrent) {
+                return '<button class="btn-save btn-compact btn-state">Current</button>';
+            }
+            if (!v.restorable) {
+                return '<button class="btn-discreet btn-compact meta-tooltip" disabled '
+                    + 'data-tooltip="Recorded before contract snapshots — its contract file '
+                    + 'was not saved, so it cannot be restored automatically.">Make current</button>';
+            }
+            return '<button class="btn-primary btn-compact av-restore" data-v="'
+                + _esc(v.annotation_version) + '">Make current</button>';
+        }
 
         // Pinned row for the live contract when it has no minted version yet
-        // (versions are only registered when annotation runs) — its View
-        // renders the generated prompt/schema from the current contract, so
-        // they can be inspected before the first run.
+        // (pre-existing deployments; new activations mint eagerly) — its View
+        // renders the generated prompt/schema from the current contract.
         const currentIsMinted = versions.some(function (v) { return v.annotation_version === current; });
         let currentRow = "";
         if (current && !currentIsMinted) {
-            currentRow = currentTr +
-                '<td style="' + cell + '"></td>' +
+            currentRow = "<tr>" +
                 '<td style="' + mono + '">' + _esc(current) + "</td>" +
                 '<td style="' + cell + ' color: var(--color-text-muted);">Version for new annotations — none saved yet</td>' +
                 '<td style="' + cell + '"></td>' +
                 '<td style="' + cell + '">' +
-                    '<button class="btn-discreet btn-compact av-view" id="avViewCurrent">View</button>' +
+                    '<button class="btn-discreet btn-compact av-view" id="avViewCurrent">View</button> ' +
+                    '<button class="btn-save btn-compact btn-state">Current</button>' +
                 "</td>" +
                 "</tr>";
         }
 
         if (!versions.length && !currentRow) {
             tbody.innerHTML =
-                '<tr><td colspan="5" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">' +
+                '<tr><td colspan="4" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">' +
                 "No versions recorded yet. Activating a contract (or running annotation) registers one." +
                 "</td></tr>";
             return;
         }
 
         tbody.innerHTML = currentRow + versions.map(function (v) {
-            const isActive = !!v.active;
-            const isLegacy = v.annotation_version === LEGACY_VERSION;
             const isCurrent = v.annotation_version === current;
-            const activateBtn = (isActive || isLegacy) ? "" :
-                '<button class="btn-primary btn-compact av-activate" data-v="' + _esc(v.annotation_version) + '">Prefer</button>';
-            return (isCurrent ? currentTr : "<tr>") +
-                '<td style="' + cell + '">' + (isActive ? "✓" : "") + "</td>" +
+            return "<tr>" +
                 '<td style="' + mono + '">' + _esc(v.annotation_version) + "</td>" +
                 '<td style="' + cell + '">' + _esc(v.label) + "</td>" +
                 '<td style="' + cell + '">' + _esc(v.created_at) + "</td>" +
-                '<td style="' + cell + '">' +
+                '<td style="' + cell + ' white-space: nowrap;">' +
                     '<button class="btn-discreet btn-compact av-view" data-v="' + _esc(v.annotation_version) + '">View</button> ' +
-                    activateBtn +
+                    _preferBtn(v) + " " +
+                    _currentBtn(v, isCurrent) +
                 "</td>" +
                 "</tr>";
         }).join("");
@@ -161,6 +180,9 @@
         });
         tbody.querySelectorAll(".av-activate").forEach(function (b) {
             b.addEventListener("click", function () { activate(b.dataset.v, b); });
+        });
+        tbody.querySelectorAll(".av-restore").forEach(function (b) {
+            b.addEventListener("click", function () { makeCurrent(b.dataset.v, b); });
         });
         _syncViewButtons();
     }
@@ -206,6 +228,106 @@
             _status("Failed to render current contract: " + err.message, true);
         }
     }
+
+    // ---------- make a recorded version current again ----------
+
+    // Restore a version's contract snapshot as the live contract (and, when
+    // it was recorded under a different, still-switchable backend, offer to
+    // switch that too) via the NORMAL contract confirm flow — the predicted
+    // version hash tells us honestly whether this restores av_X exactly or
+    // mints a new version based on it.
+    async function makeCurrent(version, btn) {
+        _status("Preparing restore…");
+        btn.disabled = true;
+        try {
+            const res = await fetch(LIST + "/" + encodeURIComponent(version));
+            const body = await res.json();
+            if (!res.ok) throw new Error(body.error || res.statusText);
+            const rec = body.record || {};
+            const restore = body.restore || {};
+            const be = restore.backend || {};
+            if (!rec.contract_text) throw new Error("this version has no contract snapshot");
+
+            const wantSwitch = !!(be.mismatch && be.can_switch_backend && be.target_available);
+
+            // Dry-run the contract upload to get the honest impact report.
+            const payload = { text: rec.contract_text };
+            if (wantSwitch) payload.switch_backend = be.target;
+            const dres = await fetch(AC_ENDPOINT, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            const dbody = await dres.json();
+            if (!dres.ok) {
+                throw new Error((dbody.errors || []).join("; ") || dbody.error || dres.statusText);
+            }
+            const impact = dbody.impact || {};
+            const exact = impact.candidate_version === version;
+
+            const rows = [];
+            if (exact) {
+                rows.push('<div style="color: var(--color-success); margin-bottom: 10px;">'
+                    + '✓ This restores version <span class="font-mono">' + _esc(version)
+                    + "</span> exactly — new annotations will be made with it again.</div>");
+            } else {
+                rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
+                    + '⚠ The model or settings have changed since <span class="font-mono">' + _esc(version)
+                    + '</span> was recorded — activating its contract now creates a new version '
+                    + '<span class="font-mono">' + _esc(impact.candidate_version)
+                    + "</span> based on it.</div>");
+            }
+            rows.push('<div style="margin-bottom: 10px;">New annotations will run on backend '
+                + "<strong>" + _esc(impact.target_backend || "gemini") + "</strong>"
+                + (impact.target_model
+                    ? ' · <span class="font-mono">' + _esc(impact.target_model) + "</span>" : "")
+                + ".</div>");
+            if (wantSwitch) {
+                rows.push('<div style="margin-bottom: 10px;">'
+                    + '<label class="text-sm" style="display: flex; gap: 8px; align-items: baseline; cursor: pointer;">'
+                    + '<input type="checkbox" id="av-restore-switch" checked> '
+                    + "<span>Also switch the active annotation backend to <strong>" + _esc(be.target)
+                    + "</strong> (currently <strong>" + _esc(be.active)
+                    + "</strong>) — the version was recorded under it.</span></label></div>");
+            } else if (be.mismatch && !be.target_available) {
+                rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
+                    + "⚠ Recorded under backend <strong>" + _esc(be.target)
+                    + "</strong>, which is not available here ("
+                    + _esc(be.target_unavailable_reason || "unavailable")
+                    + ") — the restore runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
+            } else if (be.mismatch && !be.can_switch_backend) {
+                rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
+                    + "⚠ Recorded under backend <strong>" + _esc(be.target)
+                    + "</strong>; switching backends requires the Backends admin permission — "
+                    + "the restore runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
+            }
+            rows.push('<div class="text-xs" style="color: var(--color-text-muted);">'
+                + "Studies keep using the preferred version — making a version current only "
+                + "affects how new annotations are produced.</div>");
+
+            acState.staged = {
+                text: rec.contract_text,
+                filename: version + " snapshot",
+                switchBackend: wantSwitch ? be.target : null,
+            };
+            const modalBody = document.getElementById("ac-modal-body");
+            const confirmBtn = document.getElementById("ac-confirm-btn");
+            if (confirmBtn) {
+                confirmBtn.style.display = "inline-block";
+                confirmBtn.textContent = "Make current";
+            }
+            if (modalBody) modalBody.innerHTML = rows.join("");
+            _acOpenModal();
+            _status("");
+        } catch (err) {
+            _status("Restore failed: " + err.message, true);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+
+
 
     // ---------- post-promotion staleness banner ----------
 
@@ -425,7 +547,10 @@
     function _acShowImpactModal(filename, impact) {
         const body = document.getElementById("ac-modal-body");
         const confirmBtn = document.getElementById("ac-confirm-btn");
-        if (confirmBtn) confirmBtn.style.display = "inline-block";
+        if (confirmBtn) {
+            confirmBtn.style.display = "inline-block";
+            confirmBtn.textContent = "Activate contract";  // restore flow may have relabelled it
+        }
         if (!body) return;
         const rows = [];
         if (impact.metadata_only) {
@@ -474,6 +599,12 @@
             fd.append("text", acState.staged.text);
             fd.append("confirm", "1");
             if (acState.etag) fd.append("expected_etag", acState.etag);
+            // Restore flow: carry the backend switch unless its (pre-checked)
+            // opt-out checkbox was unticked.
+            const switchCb = document.getElementById("av-restore-switch");
+            if (acState.staged.switchBackend && (!switchCb || switchCb.checked)) {
+                fd.append("switch_backend", acState.staged.switchBackend);
+            }
             const res = await fetch(AC_ENDPOINT, { method: "POST", body: fd });
             const body = await res.json();
             if (res.status === 409) {

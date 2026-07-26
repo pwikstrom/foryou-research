@@ -1193,6 +1193,15 @@ button {
     box-shadow: inset var(--shadow-sm);
 }
 
+/* Non-interactive "this row is the active one" state for row-action buttons
+   (Versions page: the row that is Preferred / Current). Pairs with a colored
+   button class (e.g. .btn-save) whose label states the fact. */
+.btn-state {
+    pointer-events: none;
+    cursor: default;
+    box-shadow: inset var(--shadow-sm);
+}
+
 
 /* ============================================================
    Status Indicators

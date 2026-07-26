@@ -64,10 +64,31 @@ def get_annotation_version(version):
             legacy_prompt = annotation_versioning.legacy_prompt_text()
             if legacy_prompt:
                 info = {**info, "prompt_text": legacy_prompt}
+
+        # Restore ("Make current") support: the record must carry its source
+        # contract TOML, and the backend selection it ran under must still be
+        # switchable-to for an exact restore. The target is the version's
+        # variant/backend (gemini when unset).
+        from flask_login import current_user
+        from ...permissions import user_has_permission
+
+        restorable = (bool(info.get("contract_text"))
+                      and version != annotation_versioning.LEGACY_VERSION)
+        target = info.get("variant") or info.get("backend") or "gemini"
+        restore = {
+            "restorable": restorable,
+            "target": target,
+            "backend": {
+                **_backend_target_info(target),
+                "can_switch_backend": user_has_permission(current_user, 'tab.admin.backends'),
+            },
+        }
         return jsonify({
             "version": version,
             "active": registry.get("active") == version,
+            "current": annotation_versioning.current_annotation_version(),
             "record": info,
+            "restore": restore,
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
