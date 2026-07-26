@@ -84,9 +84,9 @@ def test_label_default_and_override() -> None:
     assert _desc()["label"].startswith("m:")
 
 
-def test_current_version_from_real_config_is_safe() -> None:
+def test_active_version_from_real_config_is_safe() -> None:
     # Read-only: exercises the config/prompt-reading path without writing.
-    version = av.current_annotation_version()
+    version = av.active_annotation_version()
     assert version == "unknown" or version.startswith("av_")
 
 
@@ -97,7 +97,7 @@ def test_current_version_from_real_config_is_safe() -> None:
 def test_register_does_not_auto_activate() -> None:
     d = _desc()
     reg = av._register_into(av.empty_registry(), d, PROMPT_A, SCHEMA_A, "t0")
-    assert reg["active"] is None       # stay-pinned-until-promote
+    assert reg["preferred"] is None    # stay-pinned-until-promote
     assert d["annotation_version"] in reg["versions"]
 
 
@@ -105,7 +105,7 @@ def test_register_never_activates() -> None:
     d1, d2 = _desc(prompt=PROMPT_A), _desc(prompt=PROMPT_B)
     reg = av._register_into(av.empty_registry(), d1, PROMPT_A, SCHEMA_A, "t0")
     reg = av._register_into(reg, d2, PROMPT_B, SCHEMA_A, "t1")
-    assert reg["active"] is None                          # nothing auto-activates
+    assert reg["preferred"] is None                       # nothing auto-promotes
     assert d1["annotation_version"] in reg["versions"]
     assert d2["annotation_version"] in reg["versions"]
 
@@ -132,7 +132,7 @@ def test_promote_changes_active() -> None:
     reg = av._register_into(av.empty_registry(), d1, PROMPT_A, SCHEMA_A, "t0")
     reg = av._register_into(reg, d2, PROMPT_B, SCHEMA_A, "t1")
     reg = av._promote_into(reg, d2["annotation_version"])
-    assert reg["active"] == d2["annotation_version"]
+    assert reg["preferred"] == d2["annotation_version"]
 
 
 def test_promote_unknown_raises() -> None:
@@ -160,20 +160,20 @@ def _view_df() -> "pd.DataFrame":
     )
 
 
-def test_select_active_view_prefers_active_with_fallback() -> None:
-    out = av.select_active_view(_view_df(), "vA")
+def test_select_preferred_view_prefers_active_with_fallback() -> None:
+    out = av.select_preferred_view(_view_df(), "vA")
     got = dict(zip(out["item_id"], out["val"]))
     assert got == {"i1": "a1", "i2": "a2", "i3": "b3"}  # i3 falls back to vB
 
 
-def test_select_active_view_keep_last_within_version() -> None:
+def test_select_preferred_view_keep_last_within_version() -> None:
     df = pd.DataFrame(
         [
             {"item_id": "i1", "annotation_version": "vA", "val": "first"},
             {"item_id": "i1", "annotation_version": "vA", "val": "last"},
         ]
     )
-    out = av.select_active_view(df, "vA")
+    out = av.select_preferred_view(df, "vA")
     assert len(out) == 1
     assert out.iloc[0]["val"] == "last"
 
@@ -186,7 +186,7 @@ def test_select_version_view_strict() -> None:
 
 def test_select_view_without_version_column_falls_back_to_latest() -> None:
     df = pd.DataFrame([{"item_id": "i1", "val": "x"}, {"item_id": "i1", "val": "y"}])
-    out = av.select_active_view(df, "vA")
+    out = av.select_preferred_view(df, "vA")
     assert len(out) == 1
     assert out.iloc[0]["val"] == "y"
 

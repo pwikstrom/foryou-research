@@ -198,7 +198,7 @@ class QwenLocalBackend(AnnotationBackend):
             "inference_duration": -1,
             "model": qwen_cf["model_id"],
             "prompt_fn": annotation_versioning.active_prompt_label(),
-            "annotation_version": annotation_versioning.current_annotation_version(),
+            "annotation_version": annotation_versioning.active_annotation_version(),
             "structured": True,
             "usage": {},
             "error": "unknown error",

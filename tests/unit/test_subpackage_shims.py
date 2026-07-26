@@ -103,7 +103,7 @@ SCRAPE_PROBE = (
     "import fyp.scrape_queues as sq;"
     "assert sq.queue_filename(sq.default_platform());"
     "import fyp.scrape_versioning as sv;"
-    "assert callable(sv.ensure_current_version_registered);"
+    "assert callable(sv.ensure_active_version_registered);"
     "print('PROBE_OK')"
 )
 

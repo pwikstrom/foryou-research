@@ -2,7 +2,7 @@
 
 Pins the platform-agnostic pieces added when annotation opened up beyond
 TikTok: the permissive item-id sanity pattern, the composite
-``(source_platform, item_id)`` keying of ``select_active_view`` /
+``(source_platform, item_id)`` keying of ``select_preferred_view`` /
 ``select_version_view``, and the batch request builder's explicit ``file_uri``
 override. All checks are pure — no disk, no API, no real storage writes.
 
@@ -69,7 +69,7 @@ def _multi_platform_frame() -> pd.DataFrame:
 
 
 def test_active_view_keeps_same_id_on_two_platforms() -> None:
-    out = av.select_active_view(_multi_platform_frame(), "vB")
+    out = av.select_preferred_view(_multi_platform_frame(), "vB")
     # tiktok+youtube share an item_id but are distinct items; instagram falls
     # back to its vA row. 3 rows total.
     assert len(out) == 3
@@ -79,7 +79,7 @@ def test_active_view_keeps_same_id_on_two_platforms() -> None:
 
 
 def test_active_view_prefers_active_version_per_platform_item() -> None:
-    out = av.select_active_view(_multi_platform_frame(), "vA")
+    out = av.select_preferred_view(_multi_platform_frame(), "vA")
     tt = out[out["source_platform"] == "tiktok"]
     assert len(tt) == 1 and tt.iloc[0]["val"] == "tt-old"
     # youtube has no vA row -> falls back to its latest (vB)
@@ -94,7 +94,7 @@ def test_active_view_without_platform_column_unchanged() -> None:
             {"item_id": "i1", "annotation_version": "vB", "val": "new"},
         ]
     )
-    out = av.select_active_view(df, "vB")
+    out = av.select_preferred_view(df, "vB")
     assert len(out) == 1 and out.iloc[0]["val"] == "new"
 
 

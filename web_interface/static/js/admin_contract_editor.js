@@ -26,7 +26,7 @@
         previewTimer: null,
         stagedImpact: null,
         // When set (a candidate name), Save posts to /api/manage/ab-candidates
-        // instead of the live contract flow — the A/B page's "Edit" path.
+        // instead of the active contract flow — the Playground's "Edit" path.
         saveTarget: null,
     };
 
@@ -673,7 +673,7 @@
             const saveBtn = document.getElementById("ace-save-btn");
             if (st.saveTarget) {
                 if (note) note.textContent = `Editing candidate '${st.saveTarget}' — saving updates the `
-                    + "candidate only (activate it from the A/B testing page).";
+                    + "candidate only (graduate it from the Playground page).";
                 if (saveBtn) saveBtn.textContent = "Save candidate";
             } else {
                 if (note) note.textContent = `Editing the ${body.source} contract (etag ${String(st.etag).slice(0, 18)}…). ` +
@@ -781,9 +781,9 @@
                 + `⚠ This changes the ${impact.prompt_changed && impact.schema_changed ? "prompt and response schema"
                     : impact.prompt_changed ? "prompt" : "response schema"}. `
                 + `A new annotation version <span class="font-mono">${_esc(impact.candidate_version)}</span> `
-                + `will be minted on the next annotation run (current: `
-                + `<span class="font-mono">${_esc(impact.current_version)}</span>). `
-                + `It won&rsquo;t become active until you activate it.</div>`);
+                + `will be registered and become the <strong>active</strong> version `
+                + `(replacing <span class="font-mono">${_esc(impact.active_version)}</span>). `
+                + `Studies keep using the preferred version until you promote it.</div>`);
         }
         const detail = [];
         detail.push(`Prompt changed: <strong>${impact.prompt_changed ? "yes" : "no"}</strong>`);

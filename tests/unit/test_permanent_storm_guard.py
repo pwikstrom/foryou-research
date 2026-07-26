@@ -63,7 +63,7 @@ def _run_batch(ids, fake_dl, platform, max_workers=2, dry_run=True):
     """
     with patch.object(scrape, "download_single_video", side_effect=fake_dl), \
          patch.object(scrape, "_permanent_storm_threshold", return_value=STORM_THRESHOLD), \
-         patch.object(scrape.scrape_versioning, "ensure_current_version_registered",
+         patch.object(scrape.scrape_versioning, "ensure_active_version_registered",
                       lambda: None), \
          patch.object(YouTubeScraper, "inter_request_delay", return_value=0.0):
         return scrape.download_video_threads(

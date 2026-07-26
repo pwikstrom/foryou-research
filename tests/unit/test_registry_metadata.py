@@ -85,7 +85,7 @@ def test_snapshot_broken_module_degrades() -> None:
 
 
 def test_scrape_register_into_snapshots_and_list_excludes() -> None:
-    descriptor = scrape_versioning.current_version_descriptor()
+    descriptor = scrape_versioning.active_version_descriptor()
     registry = scrape_versioning._register_into(
         scrape_versioning.empty_registry(), descriptor,
         created_at="2026-01-01T00:00:00",

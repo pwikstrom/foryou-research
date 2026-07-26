@@ -87,7 +87,7 @@ from .management.collections import (  # noqa: F401
 )
 from .management.contracts import (  # noqa: F401
     _annotation_contract_impact,
-    activate_annotation_version,
+    promote_annotation_version,
     download_annotation_contract,
     get_annotation_contract,
     get_annotation_contract_parsed,

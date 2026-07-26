@@ -79,7 +79,7 @@ python scripts/gen_route_inventory.py
 | management_bp | `/api/manage/annotation-contract/revert` | POST | `management_bp.revert_annotation_contract` |
 | management_bp | `/api/manage/annotation-versions` | GET | `management_bp.list_annotation_versions` |
 | management_bp | `/api/manage/annotation-versions/<version>` | GET | `management_bp.get_annotation_version` |
-| management_bp | `/api/manage/annotation-versions/activate` | POST | `management_bp.activate_annotation_version` |
+| management_bp | `/api/manage/annotation-versions/promote` | POST | `management_bp.promote_annotation_version` |
 | management_bp | `/api/manage/collection/save_annotation` | POST | `management_bp.save_collection_annotation` |
 | management_bp | `/api/manage/collections` | GET | `management_bp.list_collections` |
 | management_bp | `/api/manage/collections/affected_studies` | GET | `management_bp.affected_studies_for_collection` |

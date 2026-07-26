@@ -73,7 +73,7 @@ def test_call_machine_threads_dispatches_to_backend(stub_backend, monkeypatch):
     import fyp.data_io as data_io
 
     monkeypatch.setattr(data_io, "save_json", _fake_save_json)
-    monkeypatch.setattr(ma.annotation_versioning, "ensure_current_version_registered",
+    monkeypatch.setattr(ma.annotation_versioning, "ensure_active_version_registered",
                         lambda: None)
 
     results, filename = ma.call_machine_threads(
@@ -117,7 +117,7 @@ def test_dry_run_makes_no_backend_calls(stub_backend, monkeypatch):
     import fyp.data_io as data_io
 
     monkeypatch.setattr(data_io, "save_json", lambda **k: None)
-    monkeypatch.setattr(ma.annotation_versioning, "ensure_current_version_registered",
+    monkeypatch.setattr(ma.annotation_versioning, "ensure_active_version_registered",
                         lambda: None)
     results, filename = ma.call_machine_threads(
         interesting_videos=["11"], dry_run=True)

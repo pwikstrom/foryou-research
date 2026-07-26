@@ -164,7 +164,7 @@ def test_rebuild_active_from_archive_reflects_promotion() -> None:
         av.register_version(descriptor={"annotation_version": "v2", "label": "v2"},
                             prompt_text="p", schema_json=None)
         av.promote_version("v2")
-        n = ma.rebuild_active_annotations_from_archive(verbose=False)
+        n = ma.rebuild_preferred_annotations_from_archive(verbose=False)
         recoded = data_io.load_parquet(
             storage_location="recoded", filename=f"{ma.MACHINE_ANNOTATIONS_LABEL}_recoded.parquet"
         )

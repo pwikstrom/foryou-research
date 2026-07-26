@@ -144,13 +144,13 @@ def _variant_contract_text(marker: str) -> str:
 def test_impact_gemini_path_unchanged():
     """Baked contract vs itself on the gemini path → metadata-only, same av_."""
     impact = _annotation_contract_impact(_baked_contract(), target_backend="gemini")
-    cur = annotation_versioning.current_version_descriptor(fresh=True)
+    cur = annotation_versioning.active_version_descriptor(fresh=True)
     if cur.get("backend"):
         pytest.skip("non-gemini backend active locally — gemini identity check not applicable")
     assert impact["candidate_version"] == cur["annotation_version"]
     assert impact["metadata_only"] is True
     assert impact["target_backend"] == "gemini"
-    assert impact["backend_mismatch"] is (annotation_versioning.current_version_descriptor().get("backend") is not None)
+    assert impact["backend_mismatch"] is (annotation_versioning.active_version_descriptor().get("backend") is not None)
 
 
 

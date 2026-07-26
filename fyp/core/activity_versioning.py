@@ -93,7 +93,7 @@ def build_activity_version_descriptor(contract: dict, label: str | None = None) 
 
 
 
-def current_version_descriptor(fresh: bool = False) -> dict:
+def active_version_descriptor(fresh: bool = False) -> dict:
     """Return the version descriptor for the current activity contract.
 
     Cached for the process lifetime — the contract is a file on disk that does
@@ -115,10 +115,10 @@ def current_version_descriptor(fresh: bool = False) -> dict:
 
 
 
-def current_activity_version(fresh: bool = False) -> str:
+def active_activity_version(fresh: bool = False) -> str:
     """Return just the current ``activity_contract_version`` id, never raising."""
     try:
-        return current_version_descriptor(fresh=fresh)["activity_contract_version"]
+        return active_version_descriptor(fresh=fresh)["activity_contract_version"]
     except Exception:
         return "unknown"
 
@@ -127,7 +127,7 @@ def current_activity_version(fresh: bool = False) -> str:
 
 def empty_registry() -> dict:
     """Return a fresh, empty version registry."""
-    return {"versions": {}, "active": None}
+    return {"versions": {}, "preferred": None}
 
 
 
@@ -160,11 +160,12 @@ def _register_into(
 
 
 def _promote_into(registry: dict, version: str) -> dict:
-    """Return a copy of ``registry`` with ``active`` set to ``version``."""
+    """Return a copy of ``registry`` with ``preferred`` set to ``version``."""
     registry = _copy.deepcopy(registry)
     if version not in registry.get("versions", {}):
         raise KeyError(f"unknown activity_contract_version: {version}")
-    registry["active"] = version
+    registry.pop("active", None)  # pre-2026-07 key name
+    registry["preferred"] = version
     return registry
 
 
@@ -177,6 +178,10 @@ def load_registry() -> dict:
             storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
         )
         if isinstance(registry, dict) and "versions" in registry:
+            # The promoted pointer was called "active" before the 2026-07
+            # terminology change (active now means "used for new rows").
+            if "preferred" not in registry and "active" in registry:
+                registry["preferred"] = registry.pop("active")
             return registry
     return empty_registry()
 
@@ -195,7 +200,7 @@ def save_registry(registry: dict) -> None:
 def register_version(descriptor: dict | None = None, created_at: str | None = None) -> dict:
     """Record a version in the registry if it is not already present."""
     if descriptor is None:
-        descriptor = current_version_descriptor()
+        descriptor = active_version_descriptor()
     if created_at is None:
         created_at = _dt.datetime.now().isoformat(timespec="seconds")
 
@@ -212,9 +217,9 @@ def register_version(descriptor: dict | None = None, created_at: str | None = No
 
 
 
-def get_active_version() -> str | None:
+def get_preferred_version() -> str | None:
     """Return the currently active (promoted) activity version, if any."""
-    return load_registry().get("active")
+    return load_registry().get("preferred")
 
 
 
@@ -231,11 +236,11 @@ def promote_version(version: str) -> dict:
 def list_versions() -> list[dict]:
     """Return version summaries (without the bulky per-field snapshots)."""
     registry = load_registry()
-    active = registry.get("active")
+    preferred = registry.get("preferred")
     summaries = []
     for version, info in registry.get("versions", {}).items():
         summary = {k: v for k, v in info.items() if k not in ("field_digest", "field_metadata")}
-        summary["active"] = version == active
+        summary["preferred"] = version == preferred
         summaries.append(summary)
     return summaries
 
@@ -263,21 +268,21 @@ def union_field_metadata(versions_to_include: set | None = None) -> dict:
 def stamp_version(df: pd.DataFrame) -> pd.DataFrame:
     """Stamp the per-row ``activity_contract_version`` provenance column in place."""
     df[PROVENANCE_COLUMN] = pd.Series(
-        current_activity_version(), index=df.index, dtype="string[pyarrow]"
+        active_activity_version(), index=df.index, dtype="string[pyarrow]"
     )
     return df
 
 
 
 
-def ensure_current_version_registered() -> str:
+def ensure_active_version_registered() -> str:
     """Register the current contract's version if new; return its id.
 
     Safe to call repeatedly (idempotent) and never raises — intended to be
     invoked once per ingest run.
     """
     try:
-        descriptor = current_version_descriptor()
+        descriptor = active_version_descriptor()
         register_version(descriptor=descriptor)
         return descriptor["activity_contract_version"]
     except Exception:

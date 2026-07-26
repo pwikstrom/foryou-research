@@ -2,13 +2,13 @@
  * Admin "Versions" panel.
  *
  * Lists recorded annotation versions (GET /api/manage/annotation-versions),
- * shows a version's prompt/schema snapshot, promotes the preferred version
- * (POST .../activate), and restores a recorded version as current ("Make
- * current": the version's contract snapshot re-activated through the normal
- * contract confirm flow at /api/manage/annotation-contract). Contract
- * AUTHORING lives on the Playground page; here only a slim read-only status
- * strip reports which contract is live (and whether an uploaded contract
- * failed to parse). The global fetch wrapper in main.js injects the CSRF
+ * shows a version's prompt/schema snapshot, promotes the PREFERRED version
+ * (POST .../promote — the version studies read), and re-activates a recorded
+ * version ("Activate": its contract snapshot re-applied through the normal
+ * contract confirm flow at /api/manage/annotation-contract, making it the
+ * version new annotations use). Contract AUTHORING lives on the Playground
+ * page; here only a slim read-only status strip reports which contract is
+ * active (and whether an uploaded contract failed to parse). The global fetch wrapper in main.js injects the CSRF
  * header, so plain fetch is sufficient (matches admin_var_schema.js).
  */
 (function () {
@@ -33,17 +33,17 @@
         return div.innerHTML;
     }
 
-    // Key of the version whose snapshot is shown below the table ("__current__"
-    // for the unminted live contract), or null when the snapshot is hidden.
+    // Key of the version whose snapshot is shown below the table ("__active__"
+    // for an active contract with no minted version yet), or null when hidden.
     // Drives the depressed state of the matching View button.
     let viewedKey = null;
 
     function _snapshotKeyFor(btn) {
-        return btn.id === "avViewCurrent" ? "__current__" : btn.dataset.v;
+        return btn.id === "avViewActive" ? "__active__" : btn.dataset.v;
     }
 
     function _syncViewButtons() {
-        document.querySelectorAll("#avTableBody .av-view, #avViewCurrent").forEach(function (b) {
+        document.querySelectorAll("#avTableBody .av-view, #avViewActive").forEach(function (b) {
             b.classList.toggle("btn-pressed", _snapshotKeyFor(b) === viewedKey);
         });
     }
@@ -97,7 +97,7 @@
         const versions = (body.versions || []).slice().sort(function (a, b) {
             return String(b.created_at || "").localeCompare(String(a.created_at || ""));
         });
-        const current = body.current;
+        const activeVersion = body.active;
 
         const tbody = document.getElementById("avTableBody");
         if (!tbody) return;
@@ -110,54 +110,54 @@
         // colored, non-interactive button whose label states the fact.
         function _preferBtn(v) {
             if (v.annotation_version === LEGACY_VERSION) return "";
-            if (v.active) {
+            if (v.preferred) {
                 return '<button class="btn-save btn-compact btn-state av-btn-fixed">Preferred</button>';
             }
-            return '<button class="btn-primary btn-compact av-btn-fixed av-activate" data-v="'
+            return '<button class="btn-primary btn-compact av-btn-fixed av-prefer" data-v="'
                 + _esc(v.annotation_version) + '">Prefer</button>';
         }
 
-        function _currentBtn(v, isCurrent) {
+        function _activeBtn(v, isActive) {
             if (v.annotation_version === LEGACY_VERSION) return "";
-            if (isCurrent) {
-                return '<button class="btn-save btn-compact btn-state av-btn-fixed">Current</button>';
+            if (isActive) {
+                return '<button class="btn-save btn-compact btn-state av-btn-fixed">Active</button>';
             }
             if (!v.restorable) {
                 return '<button class="btn-discreet btn-compact av-btn-fixed meta-tooltip" disabled '
                     + 'data-tooltip="Recorded before contract snapshots — its contract file '
-                    + 'was not saved, so it cannot be restored automatically.">Make current</button>';
+                    + 'was not saved, so it cannot be re-activated automatically.">Activate</button>';
             }
             return '<button class="btn-primary btn-compact av-btn-fixed av-restore" data-v="'
-                + _esc(v.annotation_version) + '">Make current</button>';
+                + _esc(v.annotation_version) + '">Activate</button>';
         }
 
-        // Pinned row for the live contract when it has no minted version yet
+        // Pinned row for the active contract when it has no minted version yet
         // (pre-existing deployments; new activations mint eagerly) — its View
-        // renders the generated prompt/schema from the current contract.
-        const currentIsMinted = versions.some(function (v) { return v.annotation_version === current; });
-        let currentRow = "";
-        if (current && !currentIsMinted) {
-            currentRow = "<tr>" +
-                '<td style="' + mono + '">' + _esc(current) + "</td>" +
+        // renders the generated prompt/schema from the active contract.
+        const activeIsMinted = versions.some(function (v) { return v.annotation_version === activeVersion; });
+        let activeRow = "";
+        if (activeVersion && !activeIsMinted) {
+            activeRow = "<tr>" +
+                '<td style="' + mono + '">' + _esc(activeVersion) + "</td>" +
                 '<td style="' + cell + ' color: var(--color-text-muted);">Version for new annotations — none saved yet</td>' +
                 '<td style="' + cell + '"></td>' +
                 '<td style="' + cell + '">' +
-                    '<button class="btn-discreet btn-compact av-view" id="avViewCurrent">View</button> ' +
-                    '<button class="btn-save btn-compact btn-state av-btn-fixed">Current</button>' +
+                    '<button class="btn-discreet btn-compact av-view" id="avViewActive">View</button> ' +
+                    '<button class="btn-save btn-compact btn-state av-btn-fixed">Active</button>' +
                 "</td>" +
                 "</tr>";
         }
 
-        if (!versions.length && !currentRow) {
+        if (!versions.length && !activeRow) {
             tbody.innerHTML =
                 '<tr><td colspan="4" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">' +
-                "No versions recorded yet. Activating a contract (or running annotation) registers one." +
+                "No versions recorded yet. Graduating a contract (or running annotation) registers one." +
                 "</td></tr>";
             return;
         }
 
-        tbody.innerHTML = currentRow + versions.map(function (v) {
-            const isCurrent = v.annotation_version === current;
+        tbody.innerHTML = activeRow + versions.map(function (v) {
+            const isActive = v.annotation_version === activeVersion;
             return "<tr>" +
                 '<td style="' + mono + '">' + _esc(v.annotation_version) + "</td>" +
                 '<td style="' + cell + '">' + _esc(v.label) + "</td>" +
@@ -165,7 +165,7 @@
                 '<td style="' + cell + ' white-space: nowrap;">' +
                     '<button class="btn-discreet btn-compact av-view" data-v="' + _esc(v.annotation_version) + '">View</button> ' +
                     _preferBtn(v) + " " +
-                    _currentBtn(v, isCurrent) +
+                    _activeBtn(v, isActive) +
                 "</td>" +
                 "</tr>";
         }).join("");
@@ -176,15 +176,15 @@
             b.addEventListener("click", function () {
                 const key = _snapshotKeyFor(b);
                 if (key === viewedKey) { _hideSnapshot(); return; }
-                if (key === "__current__") viewCurrentRendered();
+                if (key === "__active__") viewActiveRendered();
                 else viewSnapshot(key);
             });
         });
-        tbody.querySelectorAll(".av-activate").forEach(function (b) {
-            b.addEventListener("click", function () { activate(b.dataset.v, b); });
+        tbody.querySelectorAll(".av-prefer").forEach(function (b) {
+            b.addEventListener("click", function () { promote(b.dataset.v, b); });
         });
         tbody.querySelectorAll(".av-restore").forEach(function (b) {
-            b.addEventListener("click", function () { makeCurrent(b.dataset.v, b); });
+            b.addEventListener("click", function () { makeActive(b.dataset.v, b); });
         });
         _syncViewButtons();
     }
@@ -210,36 +210,36 @@
         }
     }
 
-    async function viewCurrentRendered() {
-        _status("Rendering current contract…");
+    async function viewActiveRendered() {
+        _status("Rendering active contract…");
         try {
             const res = await fetch("/api/manage/annotation-contract/rendered");
             const body = await res.json();
             if (!res.ok) throw new Error(body.error || res.statusText);
             document.getElementById("avSnapVersion").textContent =
-                (body.version || "current") + " (version for new annotations — none saved yet)";
+                (body.version || "active") + " (version for new annotations — none saved yet)";
             _renderSnapSettings(body.descriptor || {});
             document.getElementById("avSnapPrompt").textContent = body.prompt || "(none)";
             document.getElementById("avSnapSchema").textContent =
                 body.schema ? JSON.stringify(body.schema, null, 2) : "(none / free-text)";
             document.getElementById("avSnapshot").style.display = "block";
-            viewedKey = "__current__";
+            viewedKey = "__active__";
             _syncViewButtons();
             _status("");
         } catch (err) {
-            _status("Failed to render current contract: " + err.message, true);
+            _status("Failed to render active contract: " + err.message, true);
         }
     }
 
-    // ---------- make a recorded version current again ----------
+    // ---------- re-activate a recorded version ----------
 
-    // Restore a version's contract snapshot as the live contract (and, when
-    // it was recorded under a different, still-switchable backend, offer to
-    // switch that too) via the NORMAL contract confirm flow — the predicted
-    // version hash tells us honestly whether this restores av_X exactly or
+    // Re-apply a version's contract snapshot as the active contract (and,
+    // when it was recorded under a different, still-switchable backend, offer
+    // to switch that too) via the NORMAL contract confirm flow — the predicted
+    // version hash tells us honestly whether this re-activates av_X exactly or
     // mints a new version based on it.
-    async function makeCurrent(version, btn) {
-        _status("Preparing restore…");
+    async function makeActive(version, btn) {
+        _status("Preparing activation…");
         btn.disabled = true;
         try {
             const res = await fetch(LIST + "/" + encodeURIComponent(version));
@@ -270,7 +270,7 @@
             const rows = [];
             if (exact) {
                 rows.push('<div style="color: var(--color-success); margin-bottom: 10px;">'
-                    + '✓ This restores version <span class="font-mono">' + _esc(version)
+                    + '✓ This re-activates version <span class="font-mono">' + _esc(version)
                     + "</span> exactly — new annotations will be made with it again.</div>");
             } else {
                 rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
@@ -296,15 +296,15 @@
                     + "⚠ Recorded under backend <strong>" + _esc(be.target)
                     + "</strong>, which is not available here ("
                     + _esc(be.target_unavailable_reason || "unavailable")
-                    + ") — the restore runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
+                    + ") — activation runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
             } else if (be.mismatch && !be.can_switch_backend) {
                 rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
                     + "⚠ Recorded under backend <strong>" + _esc(be.target)
                     + "</strong>; switching backends requires the Backends admin permission — "
-                    + "the restore runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
+                    + "activation runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
             }
             rows.push('<div class="text-xs" style="color: var(--color-text-muted);">'
-                + "Studies keep using the preferred version — making a version current only "
+                + "Studies keep using the preferred version — activating a version only "
                 + "affects how new annotations are produced.</div>");
 
             acState.staged = {
@@ -316,13 +316,13 @@
             const confirmBtn = document.getElementById("ac-confirm-btn");
             if (confirmBtn) {
                 confirmBtn.style.display = "inline-block";
-                confirmBtn.textContent = "Make current";
+                confirmBtn.textContent = "Activate";
             }
             if (modalBody) modalBody.innerHTML = rows.join("");
             _acOpenModal();
             _status("");
         } catch (err) {
-            _status("Restore failed: " + err.message, true);
+            _status("Activation failed: " + err.message, true);
         } finally {
             btn.disabled = false;
         }
@@ -399,7 +399,7 @@
 
 
 
-    async function activate(version, btn) {
+    async function promote(version, btn) {
         // Two-click confirm (native confirm() is blocked in embedded preview
         // browsers): first click arms the button, second within 4s activates.
         if (btn && btn.dataset.armed !== "1") {
@@ -420,14 +420,14 @@
         if (btn) btn.dataset.armed = "";
         _status("Applying…");
         try {
-            const res = await fetch(LIST + "/activate", {
+            const res = await fetch(LIST + "/promote", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ version: version }),
             });
             const body = await res.json();
             if (!res.ok) throw new Error(body.error || res.statusText);
-            _status(version + " is now the preferred version (rows: " + (body.active_rows ?? "—") + "). " + (body.note || ""));
+            _status(version + " is now the preferred version (rows: " + (body.preferred_rows ?? "—") + "). " + (body.note || ""));
             load();
             loadStaleness();
         } catch (err) {
@@ -469,7 +469,7 @@
         }
         if (meta) {
             const parts = [];
-            if (s.current_version) parts.push(`New annotations made with version: <span class="font-mono">${_esc(s.current_version)}</span>`);
+            if (s.active_version) parts.push(`Active version (used for new annotations): <span class="font-mono">${_esc(s.active_version)}</span>`);
             if (isRuntime && s.updated_by) parts.push(`Uploaded by ${_esc(s.updated_by)}`);
             if (isRuntime && s.updated_at) parts.push(_esc(s.updated_at));
             meta.innerHTML = parts.join(" · ");
@@ -530,7 +530,7 @@
         } catch (e) {
             _acStatus(`Error: ${e.message}`, "var(--color-danger)");
         } finally {
-            if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = "Make current"; }
+            if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = "Activate"; }
         }
     }
 
@@ -545,7 +545,7 @@
     }
 
     // Public globals used by inline handlers in the template (the confirm
-    // modal, which the "Make current" restore flow drives).
+    // modal, which the "Activate" re-activation flow drives).
     window.acConfirmUpload = _acConfirmUpload;
     window.acCloseModal = _acCloseModal;
 
@@ -585,7 +585,7 @@
 
     // Any contract activation/revert (a Playground graduation, the form
     // editor, or a restore here) announces itself; refresh the status strip
-    // + versions list — a changed contract shifts the current version.
+    // + versions list — a changed contract shifts the active version.
     document.addEventListener("fyp:contract-changed", function () {
         if (!bootstrapped) return;
         _acLoadStatus();

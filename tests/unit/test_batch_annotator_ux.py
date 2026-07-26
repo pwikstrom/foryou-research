@@ -29,7 +29,7 @@ def test_download_and_ingest_does_not_need_machine_prompt_key(monkeypatch):
     monkeypatch.setattr(batch, "platform_map_for", lambda ids: {})
     monkeypatch.setattr(batch, "_machine_annotations_label", lambda: "machine_annotations")
     monkeypatch.setattr(batch.annotation_versioning,
-                        "current_annotation_version", lambda: "av_test")
+                        "active_annotation_version", lambda: "av_test")
     saved = {}
     monkeypatch.setattr(
         batch.data_io, "save_json",

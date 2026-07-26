@@ -120,8 +120,8 @@ def test_get_status(client):
     body = res.get_json() or {}
     ok = (res.status_code == 200
           and body.get("source") in ("baked", "runtime")
-          and isinstance(body.get("current_version"), str)
-          and body["current_version"].startswith("av_"))
+          and isinstance(body.get("active_version"), str)
+          and body["active_version"].startswith("av_"))
     _check("test_get_status", ok, f"status={res.status_code} body={body}")
 
 
