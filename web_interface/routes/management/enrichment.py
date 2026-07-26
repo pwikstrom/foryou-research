@@ -31,6 +31,7 @@ from ...task_status import is_cloud_run
 
 from ...services.stats_service import (
     _evaluate_consolidation_staleness,
+    _evaluate_version_promotion_staleness,
 )
 from ...services.worker_status import (
     PIPELINE_STEPS_ORDER,
@@ -99,6 +100,8 @@ def get_enrichment_stats():
     # downstream refreshes — otherwise the impact panel lingers forever when
     # the UI never happens to call /api/manage/refresh/staleness.
     _evaluate_consolidation_staleness()
+    # Same passive self-clear for the preferred-version promotion marker.
+    _evaluate_version_promotion_staleness()
 
     # 1. Load Enrichment Status
     enrichment_status = None
@@ -1240,18 +1243,25 @@ def api_refresh_downstream():
 
 
 @management_bp.route('/api/manage/refresh/staleness', methods=['GET'])
-@permission_required('tab.data_management.refresh')
+@permission_required('tab.data_management.refresh', 'tab.admin.versions')
 @login_required
 def api_refresh_staleness():
-    """Check which downstream processes are stale relative to the last consolidation impact."""
+    """Check which downstream processes are stale relative to the last consolidation impact.
+
+    Also reports ``version_promotion`` staleness — a promoted preferred
+    annotation version whose study refresh hasn't run yet (consumed by the
+    admin Versions page banner and the Refresh Caches page).
+    """
+    promotion = _evaluate_version_promotion_staleness()
     status = _evaluate_consolidation_staleness()
     if not status["has_impact"] and not status.get("impact"):
-        return jsonify({"has_impact": False})
+        return jsonify({"has_impact": False, "version_promotion": promotion})
 
     return jsonify({
         "has_impact": status["has_impact"],
         "impact": status["impact"],
         "processes": status["processes"],
+        "version_promotion": promotion,
     })
 
 

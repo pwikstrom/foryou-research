@@ -21,7 +21,7 @@ from ...services.worker_status import (
 
 
 from ._blueprint import management_bp
-from .contracts import _annotation_contract_impact
+from .contracts import _annotation_contract_impact, _backend_target_info
 
 
 @management_bp.route('/api/manage/ab-candidates', methods=['GET'])
@@ -132,15 +132,24 @@ def delete_ab_candidate(name):
 @permission_required('tab.admin.ab_eval')
 @login_required
 def activate_ab_candidate(name):
-    """Dry-run a candidate for activation (the graduation path).
+    """Dry-run a candidate for graduation.
 
     Returns the candidate's TOML text + the standard version-impact report;
     the UI then drives the NORMAL contract-confirm POST with that text, so
     graduation is exactly the upload flow (etag guard, backup, versioning).
+    Optional JSON body ``{"backend": "<selection>"}`` names the backend the
+    candidate was tested on (from the run manifest) — the response's
+    ``backend`` block then reports the target vs the active backend so the
+    modal can offer the "also switch backend" checkbox, and the impact is
+    computed against the backend the contract would actually run on.
     """
     try:
+        from flask_login import current_user
         from fyp import ab_eval
         from fyp import annotation_contract as ac
+        from fyp.annotation.backends import variants
+
+        from ...permissions import user_has_permission
 
         try:
             cand = ab_eval.load_candidate(name)
@@ -149,11 +158,25 @@ def activate_ab_candidate(name):
         except ValueError as e:
             return jsonify({"error": str(e)}), 422
 
-        impact = _annotation_contract_impact(cand["contract"])
+        body = request.get_json(force=True, silent=True) or {}
+        requested = str(body.get("backend") or "").strip() or None
+        if requested and requested not in variants.selection_ids():
+            return jsonify({"error": f"unknown backend selection: {requested}"}), 400
+
+        binfo = _backend_target_info(requested)
+        can_switch = user_has_permission(current_user, 'tab.admin.backends')
+        # Impact reflects the backend the contract will actually run on:
+        # the target only when the switch can really happen.
+        switchable = binfo["mismatch"] and can_switch and binfo["target_available"]
+        impact = _annotation_contract_impact(
+            cand["contract"],
+            target_backend=binfo["target"] if switchable or not binfo["mismatch"] else None,
+        )
         return jsonify({
             "name": name,
             "text": cand["text"],
             "impact": impact,
+            "backend": {**binfo, "can_switch_backend": can_switch},
             "current_etag": ac.contract_status().get("etag"),
         })
     except Exception as e:

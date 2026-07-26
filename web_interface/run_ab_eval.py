@@ -79,7 +79,7 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
         for name in names:
             cand = ab_eval.load_candidate(name)   # raises on missing/invalid → fail fast
             arms.append({"name": name, "source": "candidate", "text": cand["text"],
-                         **arm_params.get(name, {})})
+                         "candidate": name, **arm_params.get(name, {})})
         if include_live:
             arms.append({"name": "live", "source": "live", "text": ac.effective_contract_text(),
                          **arm_params.get("live", {})})
