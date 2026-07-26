@@ -336,6 +336,40 @@ def test_make_current_restores_exact_version(client):
 
 
 
+def test_default_pseudo_candidate(client):
+    """The reserved 'default' candidate serves the shipped baked contract."""
+    res = client.get("/api/manage/ab-candidates")
+    body = res.get_json()
+    assert res.status_code == 200, body
+    d = body.get("default_contract")
+    assert d and d["name"] == "default"
+    assert isinstance(d.get("n_fields"), int) and d["n_fields"] > 0
+
+    res = client.get("/api/manage/ab-candidates/default")
+    body = res.get_json()
+    assert res.status_code == 200, body
+    assert body["builtin"] is True
+    assert body["text"] == ac._read_baked_text()
+
+    # The reserved name cannot be claimed by a stored candidate.
+    res = client.post("/api/manage/ab-candidates",
+                      json={"name": "default", "text": ac._read_baked_text()})
+    assert res.status_code == 400
+    assert "reserved" in res.get_json()["error"]
+
+    # Graduation dry-run works and flags the builtin (client routes confirm
+    # to the revert endpoint).
+    res = client.post("/api/manage/ab-candidates/default/activate", json={})
+    body = res.get_json()
+    assert res.status_code == 200, body
+    assert body["builtin_default"] is True
+    assert "impact" in body
+
+
+
+
+
+
 def test_impact_helper_still_flags_prompt_change():
     """Regression guard carried from the pre-change behaviour."""
     edited = copy.deepcopy(_baked_contract())

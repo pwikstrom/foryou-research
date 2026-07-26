@@ -2,22 +2,25 @@
 
 <h2 style="margin: 0 0 8px 0;">Versions</h2>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 10px 0;">
-    The <strong>annotation contract</strong> is the file that is used to generate both the
-    annotation prompt and the response schema used for the annotations. Upload an edited
-    <code>annotation_contract.toml</code> to change the contract or edit the contract as
-    a form in the app. Every time you change the contract, you generate a new
-    <strong>annotation version</strong>. The <strong>annotation version</strong> controls
-    exactly how an annotation is produced: which AI model, prompt, response format and
-    settings are used. Annotations using a certain version are stamped with the version
-    id, to record how the annotation was made. Note that even if a video is re-annotated,
-    past annotations are never deleted. Results from past annotations remain in the
-    dataset and can be used if a study so requires.
+    An <strong>annotation version</strong> controls exactly how an annotation is
+    produced: which AI model, prompt, response format and settings are used.
+    Annotations using a certain version are stamped with the version id, to record
+    how the annotation was made. Versions are created ("baked") from an annotation
+    contract on the <em>Playground</em> page &mdash; that is where you author, test
+    and graduate contracts. This page is the version history: inspect any version,
+    choose which one analyses read, and restore an earlier version for new
+    annotations. Note that even if a video is re-annotated, past annotations are
+    never deleted &mdash; results from past annotations remain in the dataset and
+    can be used if a study so requires.
 </p>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 4px 0;">
     We refer to two different version types:
 </p>
-<ul class="text-sm" style="color: var(--color-text-muted); margin: 0 0 20px 0; padding-left: 22px;">
-    <li><strong>Current</strong>: The version holding the instructions for the next annotation</li>
+<ul class="text-sm" style="color: var(--color-text-muted); margin: 0 0 12px 0; padding-left: 22px;">
+    <li><strong>Current</strong>: The version holding the instructions for the next
+        annotation. Change it by graduating a contract in the <em>Playground</em>, or
+        by pressing <strong>Make current</strong> on an earlier version below to
+        restore it.</li>
     <li><strong>Preferred</strong>: The version used to build annotation datasets for analysis.
         If a video has annotations made with multiple versions, the annotation made with the
         preferred version is selected (if available). If the video has not been annotated with
@@ -25,41 +28,24 @@
         version requires a refresh of relevant study datasets to be applied.</li>
 </ul>
 
-<!-- Annotation contract card -->
-<h3 style="margin: 0 0 8px 0; color: var(--color-text-heading);">Annotation contract</h3>
-<section id="ac-card" class="text-sm" style="margin: 0 0 24px 0; padding: 14px 16px;
-        border: 1px solid var(--color-border-strong); border-radius: 8px;
-        background: var(--color-bg-elevated);">
-    <div style="display: flex; align-items: flex-start; justify-content: space-between;
-            gap: 12px; flex-wrap: wrap;">
-        <span id="ac-source-badge" class="text-xxs uppercase font-semibold"
-            style="padding: 3px 10px; border-radius: 10px; border: 1px solid var(--color-border);
-                   color: var(--color-text-muted); white-space: nowrap; margin-left: auto;">…</span>
-    </div>
-
-    <div id="ac-meta" class="text-xs" style="margin-top: 10px; color: var(--color-text-muted);
-        display: flex; flex-wrap: wrap; gap: 16px;"></div>
-
-    <div id="ac-error" class="text-xs" style="display: none; margin-top: 8px;
+<!-- Slim live-contract status strip (read-only — contract authoring lives on
+     the Playground page). Populated by admin_annotation_versions.js. -->
+<div id="ac-card" class="text-xs" style="margin: 0 0 20px 0; padding: 8px 12px;
+        border: 1px solid var(--color-border); border-radius: 6px;
+        color: var(--color-text-muted); display: flex; flex-wrap: wrap;
+        gap: 6px 16px; align-items: center;">
+    <div id="ac-meta" style="display: flex; flex-wrap: wrap; gap: 16px;"></div>
+    <span style="flex: 1;"></span>
+    <span id="ac-card-status"></span>
+    <span id="ac-source-badge" class="text-xxs uppercase font-semibold"
+        style="padding: 3px 10px; border-radius: 10px; border: 1px solid var(--color-border);
+               color: var(--color-text-muted); white-space: nowrap;">…</span>
+    <div id="ac-error" style="display: none; flex-basis: 100%;
         color: var(--color-danger);"></div>
+</div>
 
-    <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center;">
-        <button onclick="acDownload()" class="btn-discreet text-sm"
-            style="padding: 6px 12px;">Download current</button>
-        <label class="btn-primary text-sm" style="padding: 6px 12px; cursor: pointer; margin: 0;">
-            Upload new&hellip;
-            <input id="ac-file-input" type="file" accept=".toml,text/plain"
-                style="display: none;" onchange="acOnFileChosen(this)">
-        </label>
-        <button onclick="aceOpen()" class="btn-primary text-sm"
-            style="padding: 6px 12px;">Edit current&hellip;</button>
-        <button id="ac-revert-btn" onclick="acRevert()" class="btn-discreet text-sm"
-            style="padding: 6px 12px; display: none;">Revert to default contract</button>
-        <span id="ac-card-status" class="text-xs" style="color: var(--color-text-muted);"></span>
-    </div>
-</section>
-
-<!-- Annotation contract upload / impact modal -->
+<!-- "Make current" restore confirmation modal (driven by
+     admin_annotation_versions.js makeCurrent → acConfirmUpload). -->
 <div id="ac-modal" class="modal" style="display: none; align-items: flex-start;
         justify-content: center; padding-top: 8vh;" onclick="acCloseModal()">
     <div class="modal-content" onclick="event.stopPropagation()"
@@ -67,14 +53,14 @@
         <span class="close" onclick="acCloseModal()"
             style="position: absolute; top: 12px; right: 16px; cursor: pointer;
                    font-size: var(--text-h3);">&times;</span>
-        <h3 style="margin: 0 0 12px 0; color: var(--color-text-heading);">Review contract change</h3>
+        <h3 style="margin: 0 0 12px 0; color: var(--color-text-heading);">Make this version current</h3>
         <div id="ac-modal-body" class="text-sm"></div>
         <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;
                 padding-top: 12px; border-top: 1px solid var(--color-border);">
             <button onclick="acCloseModal()" class="btn-discreet text-sm"
                 style="padding: 6px 12px;">Cancel</button>
             <button id="ac-confirm-btn" onclick="acConfirmUpload()" class="btn-save text-sm"
-                style="padding: 6px 14px;">Activate contract</button>
+                style="padding: 6px 14px;">Make current</button>
         </div>
     </div>
 </div>

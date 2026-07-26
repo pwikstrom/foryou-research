@@ -1202,6 +1202,16 @@ button {
     box-shadow: inset var(--shadow-sm);
 }
 
+/* Versions-table Prefer / Make current buttons: fixed width so state-label
+   swaps ("Prefer" → "Preferred", "Make current" → "Current") don't reflow
+   the row. Sized to the longest label (the armed "Prefer — sure?"). */
+.av-btn-fixed {
+    width: 110px;
+    padding-left: 0;
+    padding-right: 0;
+    text-align: center;
+}
+
 
 /* ============================================================
    Status Indicators
