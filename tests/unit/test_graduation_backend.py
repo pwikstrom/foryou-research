@@ -103,6 +103,9 @@ def client(monkeypatch):
         data_io.save_text(runtime_text, storage_location=ac.RUNTIME_LOCATION,
                           filename=ac.RUNTIME_FILENAME)
     ac.refresh_runtime_contract()
+    from fyp.fyp_config import fyp_cf, load_var_schema
+
+    load_var_schema(fyp_cf, verbose=False)
     try:
         ab_eval.delete_candidate(_CAND_NAME)
     except Exception:
@@ -115,6 +118,23 @@ def client(monkeypatch):
 
 def _baked_contract() -> dict:
     return tomllib.loads(ac._read_baked_text())
+
+
+
+
+
+
+def _variant_contract_text(marker: str) -> str:
+    """Baked contract with a prompt-affecting desc edit → a genuinely new av_.
+
+    A comment-only edit is metadata-only and hashes to the already-registered
+    current version (whose pre-existing record predates contract snapshots),
+    so snapshot assertions need a version that is truly minted by the test.
+    """
+    contract = copy.deepcopy(_baked_contract())
+    field = contract["fields"][0]
+    field["desc"] = (field.get("desc") or "") + " " + marker
+    return ac.serialize_contract(contract, base_text=ac._read_baked_text())
 
 
 
@@ -246,7 +266,7 @@ def test_confirm_unknown_switch_backend_rejected(client):
 
 def test_confirm_mints_version_eagerly(client):
     """A confirmed upload registers the resulting version immediately."""
-    upload_text = ac._read_baked_text() + "\n# graduation mint test\n"
+    upload_text = _variant_contract_text("EAGER MINT TEST MARKER")
     res = client.post("/api/manage/annotation-contract",
                       json={"text": upload_text, "confirm": True})
     body = res.get_json()
@@ -255,9 +275,61 @@ def test_confirm_mints_version_eagerly(client):
     assert isinstance(minted, str) and minted.startswith("av_")
     registry = annotation_versioning.load_registry()
     assert minted in registry.get("versions", {})
-    # The registered snapshot carries the prompt/schema (Versions-page View).
+    # The registered snapshot carries the prompt/schema (Versions-page View)
+    # and the source contract TOML (Versions-page "Make current" restore).
     record = registry["versions"][minted]
     assert record.get("prompt_text")
+    assert record.get("contract_text") == upload_text
+
+
+
+
+
+
+def test_version_summaries_report_restorable(client):
+    """list endpoint: no bulky contract_text, but a restorable flag per version."""
+    upload_text = _variant_contract_text("RESTORABLE SUMMARY TEST MARKER")
+    res = client.post("/api/manage/annotation-contract",
+                      json={"text": upload_text, "confirm": True})
+    minted = (res.get_json() or {}).get("minted_version")
+    res = client.get("/api/manage/annotation-versions")
+    body = res.get_json()
+    assert res.status_code == 200, body
+    by_version = {v["annotation_version"]: v for v in body["versions"]}
+    assert minted in by_version
+    assert by_version[minted]["restorable"] is True
+    assert "contract_text" not in by_version[minted]
+
+
+
+
+
+
+def test_make_current_restores_exact_version(client):
+    """Detail endpoint exposes the restore block; re-uploading the snapshot
+    reproduces the same av_ (exact restore) while config is unchanged."""
+    upload_text = _variant_contract_text("EXACT RESTORE TEST MARKER")
+    res = client.post("/api/manage/annotation-contract",
+                      json={"text": upload_text, "confirm": True})
+    minted = (res.get_json() or {}).get("minted_version")
+
+    res = client.get(f"/api/manage/annotation-versions/{minted}")
+    body = res.get_json()
+    assert res.status_code == 200, body
+    restore = body["restore"]
+    assert restore["restorable"] is True
+    assert restore["backend"]["can_switch_backend"] is True
+    snapshot = body["record"]["contract_text"]
+    assert snapshot == upload_text
+
+    # Move the live contract elsewhere, then dry-run the snapshot back:
+    # the predicted candidate version must equal the recorded one.
+    res = client.post("/api/manage/annotation-contract",
+                      json={"text": _variant_contract_text("ELSEWHERE MARKER"), "confirm": True})
+    assert res.status_code == 200
+    res = client.post("/api/manage/annotation-contract", json={"text": snapshot})
+    impact = (res.get_json() or {}).get("impact") or {}
+    assert impact.get("candidate_version") == minted
 
 
 

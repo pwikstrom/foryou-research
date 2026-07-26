@@ -2,7 +2,7 @@
 
 <h2 style="margin: 0 0 8px 0;">Versions</h2>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 10px 0;">
-    The <strong>annotation contract</strong> is a file that is used to generate both the
+    The <strong>annotation contract</strong> is the file that is used to generate both the
     annotation prompt and the response schema used for the annotations. Upload an edited
     <code>annotation_contract.toml</code> to change the contract or edit the contract as
     a form in the app. Every time you change the contract, you generate a new
@@ -103,9 +103,6 @@
     <thead>
         <tr class="text-sm" style="text-align: left; color: var(--color-text-muted);">
             <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
-                <span class="meta-tooltip" data-tooltip="✓ marks the preferred version — the one used to build annotation datasets for analysis.">Preferred</span>
-            </th>
-            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
                 <span class="meta-tooltip" data-tooltip="Automatically generated ID identifying exactly how annotations under this version were produced.">Version</span>
             </th>
             <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
@@ -114,11 +111,13 @@
             <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
                 <span class="meta-tooltip" data-tooltip="When this version was first recorded.">Created</span>
             </th>
-            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Actions</th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
+                <span class="meta-tooltip" data-tooltip="Preferred = the version analyses read. Current = the version new annotations are made with.">Actions</span>
+            </th>
         </tr>
     </thead>
     <tbody id="avTableBody">
-        <tr><td colspan="5" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">
+        <tr><td colspan="4" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">
             Click Refresh to load versions.
         </td></tr>
     </tbody>

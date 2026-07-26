@@ -2,18 +2,17 @@
      static/js/admin_ab_eval.js from the /api/manage/ab-* endpoints. -->
 <h2 style="margin: 0 0 8px 0;">Playground</h2>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
-    The playground is a safe place to <strong>experiment</strong> with how your
+    The playground is where you can experiment with how your
     videos get annotated: try out different contracts (prompts and response
     fields) and different annotation backends (AI models), run them side by
     side on a small set of already-downloaded videos, and compare how well
-    each performs. Test runs make <strong>real annotation calls</strong>
+    each performs. Note that test runs make <strong>real annotation calls</strong>
     (contracts &times; videos) but results are stored in an isolated
-    location &mdash; they never enter the machine-annotation archive or studies.
-    When an experiment produces a winner, use its <strong>Graduate</strong>
-    button: after you review the impact and confirm, the winning contract (and,
-    if you choose, its tested backend) becomes the one used for new
-    annotations, and its version is registered under <em>Versions</em> &mdash;
-    make it preferred there when ready.
+    location and never enter the machine-annotation archive or studies.
+    When you are happy with a candidate contract, you press its <strong>Graduate</strong>
+    button to review the impact and confirm. The ingredients defined by the contract (and,
+    if you choose, its tested backend) is "baked" to a <em>version</em>, to be used
+    for new annotations.
 </p>
 
 <div id="abe-status" class="text-sm" style="min-height: 18px; margin-bottom: 8px;

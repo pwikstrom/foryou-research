@@ -39,6 +39,10 @@ def client(monkeypatch):
     fname = backend_settings.SETTINGS_FILENAME
     had_file = data_io.exists(storage_location="users", filename=fname)
     saved_settings = data_io.load_json(storage_location="users", filename=fname) if had_file else None
+    # Start from the fresh-install state — the tests assert the DEFAULTS, which
+    # a real local store (e.g. a locally-selected non-gemini backend) would mask.
+    if had_file:
+        data_io.remove(storage_location="users", filename=fname)
 
     app.testing = True
     app.config["WTF_CSRF_ENABLED"] = False

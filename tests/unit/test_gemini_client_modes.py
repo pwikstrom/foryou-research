@@ -39,7 +39,14 @@ from fyp.fyp_config import fyp_cf
 
 @contextmanager
 def _machine(vertexai: bool, project: str, key: str, use_gcs_for_media: bool = False):
-    """Temporarily install a [machine]/[data_io] config combination."""
+    """Temporarily install a [machine]/[data_io] config combination.
+
+    Also pins the active annotation backend to gemini for the duration — this
+    module tests the GEMINI gate, and ``annotation_configured()`` dispatches to
+    whatever backend the machine's real settings store selects.
+    """
+    from fyp.annotation.backends import settings as backend_settings
+
     machine = fyp_cf["machine"]["gemini"]
     data_io_cf = fyp_cf["data_io"]
     saved = (
@@ -49,6 +56,8 @@ def _machine(vertexai: bool, project: str, key: str, use_gcs_for_media: bool = F
         data_io_cf.get("use_gcs_for_media"),
         gc._FALLBACK_WARNED,
     )
+    saved_load_settings = backend_settings._load_settings
+    backend_settings._load_settings = lambda: {"annotation_backend": "gemini"}
     machine["vertexai"] = vertexai
     machine["project"] = project
     machine["key"] = key
@@ -63,6 +72,7 @@ def _machine(vertexai: bool, project: str, key: str, use_gcs_for_media: bool = F
             data_io_cf["use_gcs_for_media"],
             gc._FALLBACK_WARNED,
         ) = saved
+        backend_settings._load_settings = saved_load_settings
 
 
 def test_vertex_with_project_is_vertex_mode() -> None:
