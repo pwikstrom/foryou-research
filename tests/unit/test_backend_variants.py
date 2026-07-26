@@ -146,10 +146,10 @@ def test_active_backend_name_accepts_declared_variant(variant_config, monkeypatc
 def test_default_gemini_hash_unmoved_by_variant_declarations(variant_config, monkeypatch):
     monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
     variant_config({})
-    baseline = av.current_version_descriptor(fresh=True)["annotation_version"]
+    baseline = av.active_version_descriptor(fresh=True)["annotation_version"]
 
     variant_config({"gemini": {"gemini_x": {"model": "gemini-x-flash"}}})
-    assert av.current_version_descriptor(fresh=True)["annotation_version"] == baseline
+    assert av.active_version_descriptor(fresh=True)["annotation_version"] == baseline
 
 
 
@@ -160,13 +160,13 @@ def test_gemini_variant_identical_to_default_yields_same_hash(variant_config, mo
     """Generic-branch descriptor for a no-op gemini variant == legacy branch."""
     monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
     variant_config({})
-    baseline = av.current_version_descriptor(fresh=True)
+    baseline = av.active_version_descriptor(fresh=True)
 
     gemini_cf = get_config()["machine"]["gemini"]
     variant_config({"gemini": {"gemini_same": {"model": gemini_cf["model"]}}})
     monkeypatch.setattr(backend_settings, "_load_settings",
                         lambda: {"annotation_backend": "gemini_same"})
-    same = av.current_version_descriptor(fresh=True)
+    same = av.active_version_descriptor(fresh=True)
     assert same["annotation_version"] == baseline["annotation_version"]
     assert same.get("variant") == "gemini_same"  # provenance only
     assert "backend" not in same  # gemini implementation is normalized away
@@ -179,12 +179,12 @@ def test_gemini_variant_identical_to_default_yields_same_hash(variant_config, mo
 def test_gemini_variant_new_model_forks_the_version(variant_config, monkeypatch):
     monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
     variant_config({})
-    baseline = av.current_version_descriptor(fresh=True)["annotation_version"]
+    baseline = av.active_version_descriptor(fresh=True)["annotation_version"]
 
     variant_config({"gemini": {"gemini_x": {"model": "gemini-x-flash"}}})
     monkeypatch.setattr(backend_settings, "_load_settings",
                         lambda: {"annotation_backend": "gemini_x"})
-    forked = av.current_version_descriptor(fresh=True)
+    forked = av.active_version_descriptor(fresh=True)
     assert forked["annotation_version"] != baseline
     assert forked["model"] == "gemini-x-flash"
     assert forked["variant"] == "gemini_x"
@@ -193,7 +193,7 @@ def test_gemini_variant_new_model_forks_the_version(variant_config, monkeypatch)
     # different variant override -> new descriptor without fresh=True.
     variant_config({"gemini": {"gemini_x": {"model": "gemini-y-flash"}}})
     backends._instances.pop("gemini_x", None)
-    assert av.current_version_descriptor()["model"] == "gemini-y-flash"
+    assert av.active_version_descriptor()["model"] == "gemini-y-flash"
 
 
 

@@ -486,7 +486,7 @@ def api_admin_settings():
         try:
             from fyp import annotation_versioning
 
-            minted = annotation_versioning.ensure_current_version_registered()
+            minted = annotation_versioning.ensure_active_version_registered()
             activity_log.record(
                 actor=getattr(current_user, "username", "") or "",
                 category="admin",

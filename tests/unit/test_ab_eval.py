@@ -603,7 +603,7 @@ def test_source_isolation_guard():
     bad_saves = [loc for loc in save_calls if loc not in allowed]
     forbidden_calls = ("consolidate_and_save_refined_annotations",
                        "refine_one_raw_annotation_batch",
-                       "rebuild_active_annotations_from_archive")
+                       "rebuild_preferred_annotations_from_archive")
     call_hits = [c for c in forbidden_calls if c in source]
     ok = save_calls and not bad_saves and not call_hits
     _check("test_source_isolation_guard", bool(ok),

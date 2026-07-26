@@ -8,9 +8,20 @@ the response-schema shape, and the key generation parameters. A registry
 version so the precise inputs that produced any annotation are preserved even if
 the prompt file is later edited in place.
 
-The active version (the one studies read by default) only changes on an explicit
-:func:`promote_version` call — newly seen versions are recorded but never
-auto-activated, so in-flight analyses do not shift underfoot.
+Two distinct pointers exist; the vocabulary is deliberate and used verbatim in
+the admin UI:
+
+* **active** — the version the NEXT annotation will be stamped with. It is not
+  stored: :func:`active_annotation_version` derives it from the live contract,
+  the selected backend and the generation parameters.
+* **preferred** — the version studies read when an item was annotated under
+  several. It IS stored (the registry's ``preferred`` key) and only changes on
+  an explicit :func:`promote_version` call, so in-flight analyses do not shift
+  underfoot.
+
+Historical note: the registry key was called ``active`` until 2026-07, when the
+UI settled on active = "used for new annotations". :func:`load_registry`
+migrates the old key on read, so pre-existing registries keep working.
 """
 
 import copy as _copy
@@ -216,7 +227,7 @@ def legacy_prompt_text() -> str:
 
 
 
-def current_version_descriptor(fresh: bool = False) -> dict:
+def active_version_descriptor(fresh: bool = False) -> dict:
     """Return the version descriptor for the current configuration.
 
     The descriptor (and the prompt text / schema snapshot used to build it) is
@@ -312,10 +323,14 @@ def current_version_descriptor(fresh: bool = False) -> dict:
 
 
 
-def current_annotation_version(fresh: bool = False) -> str:
-    """Return just the current ``annotation_version`` id, never raising."""
+def active_annotation_version(fresh: bool = False) -> str:
+    """Return just the active ``annotation_version`` id, never raising.
+
+    "Active" = what the next annotation is stamped with (derived from the live
+    contract + backend + params), NOT the promoted ``preferred`` version.
+    """
     try:
-        return current_version_descriptor(fresh=fresh)["annotation_version"]
+        return active_version_descriptor(fresh=fresh)["annotation_version"]
     except Exception:
         return "unknown"
 
@@ -324,7 +339,7 @@ def current_annotation_version(fresh: bool = False) -> str:
 
 def empty_registry() -> dict:
     """Return a fresh, empty version registry."""
-    return {"versions": {}, "active": None}
+    return {"versions": {}, "preferred": None}
 
 
 
@@ -356,15 +371,15 @@ def _register_into(
 ) -> dict:
     """Return a copy of ``registry`` with ``descriptor`` recorded if new.
 
-    Recording a version never changes the ``active`` pointer — the active
-    version only ever changes via :func:`promote_version`
-    (stay-pinned-until-promote). ``active`` therefore stays ``None`` until the
-    first explicit promotion, and consumers treat ``active is None`` as "latest
-    annotation per item" (the historical, version-agnostic behaviour).
+    Recording a version never changes the ``preferred`` pointer — it only ever
+    changes via :func:`promote_version` (stay-pinned-until-promote).
+    ``preferred`` therefore stays ``None`` until the first explicit promotion,
+    and consumers treat ``preferred is None`` as "latest annotation per item"
+    (the historical, version-agnostic behaviour).
 
     ``contract_text`` is the source contract TOML the version was generated
-    from — recorded (when available) so the version can later be restored as
-    the current one. Pre-existing records without it simply aren't restorable.
+    from — recorded (when available) so the version can later be re-activated.
+    Pre-existing records without it simply aren't restorable.
     """
     registry = _copy.deepcopy(registry)
     versions = registry.setdefault("versions", {})
@@ -386,23 +401,31 @@ def _register_into(
 
 
 def _promote_into(registry: dict, version: str) -> dict:
-    """Return a copy of ``registry`` with ``active`` set to ``version``."""
+    """Return a copy of ``registry`` with ``preferred`` set to ``version``."""
     registry = _copy.deepcopy(registry)
     if version not in registry.get("versions", {}):
         raise KeyError(f"unknown annotation_version: {version}")
-    registry["active"] = version
+    registry.pop("active", None)  # drop the pre-2026-07 key name if present
+    registry["preferred"] = version
     return registry
 
 
 
 
 def load_registry() -> dict:
-    """Load the version registry from storage, or an empty one if absent."""
+    """Load the version registry from storage, or an empty one if absent.
+
+    Registries written before the 2026-07 terminology change store the promoted
+    version under ``active``; it is migrated to ``preferred`` on read (the file
+    itself is rewritten on the next save).
+    """
     if _data_io().exists(storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME):
         registry = _data_io().load_json(
             storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
         )
         if isinstance(registry, dict) and "versions" in registry:
+            if "preferred" not in registry and "active" in registry:
+                registry["preferred"] = registry.pop("active")
             return registry
     return empty_registry()
 
@@ -433,7 +456,7 @@ def register_version(
     the (possibly updated) registry.
     """
     if descriptor is None:
-        current_version_descriptor()
+        active_version_descriptor()
         descriptor = _DESCRIPTOR_CACHE["descriptor"]
         prompt_text = _DESCRIPTOR_CACHE.get("prompt_text")
         schema_json = _DESCRIPTOR_CACHE.get("schema_json")
@@ -455,19 +478,23 @@ def register_version(
 
 
 
-def get_active_version() -> str | None:
-    """Return the currently active (promoted) annotation version, if any."""
-    return load_registry().get("active")
+def get_preferred_version() -> str | None:
+    """Return the promoted (preferred) annotation version, if any.
+
+    This is the version studies read — distinct from the *active* version that
+    new annotations are stamped with (:func:`active_annotation_version`).
+    """
+    return load_registry().get("preferred")
 
 
 
 
 def promote_version(version: str) -> dict:
-    """Promote ``version`` to be the active version. Returns the registry.
+    """Promote ``version`` to be the preferred version. Returns the registry.
 
     The synthetic ``v0_legacy`` version only exists to keep pre-versioning legacy
     fields contract-owned — it has no prompt/schema snapshot and can never be the
-    active version, so promoting it is rejected.
+    preferred version, so promoting it is rejected.
 
     Raises:
         ValueError: If ``version`` is the legacy version.
@@ -487,17 +514,17 @@ def list_versions() -> list[dict]:
 
     ``restorable`` reports whether the record carries the source contract TOML
     (versions minted since contract snapshots shipped) — the precondition for
-    the Versions page's "Make current" restore.
+    the Versions page's "Activate" restore.
     """
     registry = load_registry()
-    active = registry.get("active")
+    preferred = registry.get("preferred")
     summaries = []
     for version, info in registry.get("versions", {}).items():
         summary = {
             k: v for k, v in info.items()
             if k not in ("prompt_text", "schema_json", "field_metadata", "contract_text")
         }
-        summary["active"] = version == active
+        summary["preferred"] = version == preferred
         summary["restorable"] = bool(info.get("contract_text")) and version != LEGACY_VERSION
         summaries.append(summary)
     return summaries
@@ -580,7 +607,7 @@ def union_field_metadata(versions_to_include: set | None = None) -> dict:
     if versions_to_include is None:
         in_data = versions_in_data()
         if in_data is not None:
-            versions_to_include = in_data | {current_annotation_version()}
+            versions_to_include = in_data | {active_annotation_version()}
     from fyp import registry_metadata as rm
 
     return rm.union_field_metadata(registry, versions_to_include)
@@ -602,45 +629,45 @@ def _item_key_cols(df: pd.DataFrame, item_col: str) -> list[str]:
 
 
 
-def select_active_view(
+def select_preferred_view(
     df: pd.DataFrame,
-    active_version: str,
+    preferred_version: str,
     item_col: str = "item_id",
     version_col: str = "annotation_version",
 ) -> pd.DataFrame:
-    """Build the active annotation view from a multi-version frame.
+    """Build the preferred annotation view from a multi-version frame.
 
-    Rows of ``active_version`` take precedence per item; items not covered by
-    the active version fall back to their latest row from any other version, so
+    Rows of ``preferred_version`` take precedence per item; items not covered by
+    the preferred version fall back to their latest row from any other version, so
     coverage never drops when a version is promoted. Within a version the last
     row per item is kept. Items are keyed composite ``(source_platform,
     item_col)`` when the platform column is present (see :func:`_item_key_cols`).
 
     Args:
         df: A frame containing ``item_col`` and ``version_col``.
-        active_version: The promoted version to prefer.
+        preferred_version: The promoted version to prefer.
         item_col: The per-item key column.
         version_col: The version column.
 
     Returns:
-        One row per item: the active version where available, else the latest
+        One row per item: the preferred version where available, else the latest
         other version.
     """
     key_cols = _item_key_cols(df, item_col)
     if version_col not in df.columns:
         return df.drop_duplicates(subset=key_cols, keep="last").reset_index(drop=True)
-    active_rows = df[df[version_col] == active_version].drop_duplicates(
+    preferred_rows = df[df[version_col] == preferred_version].drop_duplicates(
         subset=key_cols, keep="last"
     )
     if len(key_cols) == 1:
-        covered_mask = df[item_col].isin(set(active_rows[item_col]))
+        covered_mask = df[item_col].isin(set(preferred_rows[item_col]))
     else:
-        covered = set(map(tuple, active_rows[key_cols].itertuples(index=False)))
+        covered = set(map(tuple, preferred_rows[key_cols].itertuples(index=False)))
         covered_mask = pd.Series(
             list(map(tuple, df[key_cols].itertuples(index=False))), index=df.index
         ).isin(covered)
     fallback = df[~covered_mask].drop_duplicates(subset=key_cols, keep="last")
-    combined = pd.concat([active_rows, fallback], ignore_index=True)
+    combined = pd.concat([preferred_rows, fallback], ignore_index=True)
     return combined.reset_index(drop=True)
 
 
@@ -668,14 +695,14 @@ def select_version_view(
 
 
 
-def ensure_current_version_registered() -> str:
+def ensure_active_version_registered() -> str:
     """Register the current config's version if new; return its id.
 
     Safe to call repeatedly (idempotent) and never raises — intended to be
     invoked once per annotation batch before workers start.
     """
     try:
-        descriptor = current_version_descriptor()
+        descriptor = active_version_descriptor()
         register_version(
             descriptor=descriptor,
             prompt_text=_DESCRIPTOR_CACHE.get("prompt_text"),

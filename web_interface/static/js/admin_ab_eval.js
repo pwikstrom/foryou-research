@@ -421,8 +421,8 @@
             } else {
                 rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
                     + `⚠ A new annotation version <span class="font-mono">${_esc(impact.candidate_version)}</span> `
-                    + `will be registered (current: `
-                    + `<span class="font-mono">${_esc(impact.current_version)}</span>). `
+                    + `and become the <strong>active</strong> version (replacing `
+                    + `<span class="font-mono">${_esc(impact.active_version)}</span>). `
                     + `Studies keep using the preferred version until you promote it under <em>Versions</em>.</div>`);
             }
             // Backend section: always say which backend+model the graduated
@@ -500,7 +500,7 @@
         } catch (e) {
             abeCloseItemModal();
             if (e.status === 409) {
-                _status("Rejected: the live contract changed underneath — reload and retry.", true);
+                _status("Rejected: the active contract changed underneath — reload and retry.", true);
             } else if (e.status === 403) {
                 _status("Rejected: switching the annotation backend requires the Backends admin permission.", true);
             } else {

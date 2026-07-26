@@ -8,7 +8,7 @@
     how the annotation was made. Versions are created ("baked") from an annotation
     contract on the <em>Playground</em> page &mdash; that is where you author, test
     and graduate contracts. This page is the version history: inspect any version,
-    choose which one analyses read, and restore an earlier version for new
+    choose which one analyses read, and re-activate an earlier version for new
     annotations. Note that even if a video is re-annotated, past annotations are
     never deleted &mdash; results from past annotations remain in the dataset and
     can be used if a study so requires.
@@ -17,10 +17,10 @@
     We refer to two different version types:
 </p>
 <ul class="text-sm" style="color: var(--color-text-muted); margin: 0 0 12px 0; padding-left: 22px;">
-    <li><strong>Current</strong>: The version holding the instructions for the next
+    <li><strong>Active</strong>: The version holding the instructions for the next
         annotation. Change it by graduating a contract in the <em>Playground</em>, or
-        by pressing <strong>Make current</strong> on an earlier version below to
-        restore it.</li>
+        by pressing <strong>Activate</strong> on an earlier version below to bring
+        it back.</li>
     <li><strong>Preferred</strong>: The version used to build annotation datasets for analysis.
         If a video has annotations made with multiple versions, the annotation made with the
         preferred version is selected (if available). If the video has not been annotated with
@@ -28,7 +28,7 @@
         version requires a refresh of relevant study datasets to be applied.</li>
 </ul>
 
-<!-- Slim live-contract status strip (read-only — contract authoring lives on
+<!-- Slim active-contract status strip (read-only — contract authoring lives on
      the Playground page). Populated by admin_annotation_versions.js. -->
 <div id="ac-card" class="text-xs" style="margin: 0 0 20px 0; padding: 8px 12px;
         border: 1px solid var(--color-border); border-radius: 6px;
@@ -44,8 +44,8 @@
         color: var(--color-danger);"></div>
 </div>
 
-<!-- "Make current" restore confirmation modal (driven by
-     admin_annotation_versions.js makeCurrent → acConfirmUpload). -->
+<!-- "Activate" (re-activate a recorded version) confirmation modal, driven
+     by admin_annotation_versions.js makeActive → acConfirmUpload. -->
 <div id="ac-modal" class="modal" style="display: none; align-items: flex-start;
         justify-content: center; padding-top: 8vh;" onclick="acCloseModal()">
     <div class="modal-content" onclick="event.stopPropagation()"
@@ -53,14 +53,14 @@
         <span class="close" onclick="acCloseModal()"
             style="position: absolute; top: 12px; right: 16px; cursor: pointer;
                    font-size: var(--text-h3);">&times;</span>
-        <h3 style="margin: 0 0 12px 0; color: var(--color-text-heading);">Make this version current</h3>
+        <h3 style="margin: 0 0 12px 0; color: var(--color-text-heading);">Activate this version</h3>
         <div id="ac-modal-body" class="text-sm"></div>
         <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;
                 padding-top: 12px; border-top: 1px solid var(--color-border);">
             <button onclick="acCloseModal()" class="btn-discreet text-sm"
                 style="padding: 6px 12px;">Cancel</button>
             <button id="ac-confirm-btn" onclick="acConfirmUpload()" class="btn-save text-sm"
-                style="padding: 6px 14px;">Make current</button>
+                style="padding: 6px 14px;">Activate</button>
         </div>
     </div>
 </div>
@@ -98,7 +98,7 @@
                 <span class="meta-tooltip" data-tooltip="When this version was first recorded.">Created</span>
             </th>
             <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
-                <span class="meta-tooltip" data-tooltip="Preferred = the version analyses read. Current = the version new annotations are made with.">Actions</span>
+                <span class="meta-tooltip" data-tooltip="Preferred = the version analyses read. Active = the version new annotations are made with.">Actions</span>
             </th>
         </tr>
     </thead>

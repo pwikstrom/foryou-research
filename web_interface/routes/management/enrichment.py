@@ -839,7 +839,7 @@ def enrichment_annotation_versions():
             # pre-versioning id) still need to be selectable.
             for version in sorted(in_data - known):
                 summaries.append({"annotation_version": version, "label": version})
-        active = annotation_versioning.get_active_version()
+        active = annotation_versioning.get_preferred_version()
         return jsonify({"status": "success", "versions": summaries, "active": active})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

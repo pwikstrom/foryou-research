@@ -12,7 +12,7 @@ from fyp.fyp_config import (
     load_var_schema,
 )
 import fyp.annotation_versioning as annotation_versioning
-from fyp.machine_annotation import rebuild_active_annotations_from_archive
+from fyp.machine_annotation import rebuild_preferred_annotations_from_archive
 
 from ... import activity_log
 from ...data_service import (
@@ -36,12 +36,16 @@ from .schema import _var_schema_admin_enabled
 @permission_required('tab.admin.versions', 'tab.admin.ab_eval')
 @login_required
 def list_annotation_versions():
-    """List recorded annotation versions and the active one."""
+    """List recorded annotation versions plus the active and preferred ones.
+
+    ``active`` = the version new annotations are stamped with; ``preferred`` =
+    the promoted version studies read.
+    """
     try:
         return jsonify({
             "versions": annotation_versioning.list_versions(),
-            "active": annotation_versioning.get_active_version(),
-            "current": annotation_versioning.current_annotation_version(),
+            "preferred": annotation_versioning.get_preferred_version(),
+            "active": annotation_versioning.active_annotation_version(),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -85,8 +89,8 @@ def get_annotation_version(version):
         }
         return jsonify({
             "version": version,
-            "active": registry.get("active") == version,
-            "current": annotation_versioning.current_annotation_version(),
+            "preferred": registry.get("preferred") == version,
+            "active": annotation_versioning.active_annotation_version(),
             "record": info,
             "restore": restore,
         })
@@ -95,23 +99,24 @@ def get_annotation_version(version):
 
 
 
-@management_bp.route('/api/manage/annotation-versions/activate', methods=['POST'])
+@management_bp.route('/api/manage/annotation-versions/promote', methods=['POST'])
 @permission_required('tab.admin.versions', 'tab.admin.ab_eval')
 @login_required
-def activate_annotation_version():
-    """Activate a version and rebuild the global active dataset.
+def promote_annotation_version():
+    """Make a version PREFERRED and rebuild the global preferred dataset.
 
-    Updates the registry, re-derives ``machine_annotations_recoded.parquet`` from
-    the version archive (fast — no re-refinement), and clears the study RAM
-    cache. Per-study datasets still need a study refresh to fully reflect the
-    activation.
+    Preferred = the version studies read (not the *active* version that new
+    annotations are stamped with). Updates the registry, re-derives
+    ``machine_annotations_recoded.parquet`` from the version archive (fast — no
+    re-refinement), and clears the study RAM cache. Per-study datasets still
+    need a study refresh to fully reflect the promotion.
     """
     try:
         body = request.get_json(force=True, silent=True) or {}
         version = body.get("version")
         if not version:
             return jsonify({"error": "version is required"}), 400
-        previous_version = annotation_versioning.get_active_version()
+        previous_version = annotation_versioning.get_preferred_version()
         try:
             annotation_versioning.promote_version(version)
         except KeyError:
@@ -119,7 +124,7 @@ def activate_annotation_version():
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
 
-        rebuilt = rebuild_active_annotations_from_archive(verbose=False)
+        rebuilt = rebuild_preferred_annotations_from_archive(verbose=False)
         with study_cache.lock:
             study_cache.cache.clear()
 
@@ -144,15 +149,15 @@ def activate_annotation_version():
         activity_log.record(
             actor=_actor(),
             category="admin",
-            action="annotation_version.activate",
-            details={"version": version, "active_rows": rebuilt},
+            action="annotation_version.promote",
+            details={"version": version, "preferred_rows": rebuilt},
         )
         return jsonify({
             "ok": True,
-            "active": version,
-            "active_rows": rebuilt,
+            "preferred": version,
+            "preferred_rows": rebuilt,
             "staleness": {"studies_stale": True},
-            "note": "Global active annotations rebuilt. Refresh studies to apply to per-study datasets.",
+            "note": "Global preferred annotations rebuilt. Refresh studies to apply to per-study datasets.",
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -171,7 +176,7 @@ def _annotation_contract_impact(cand_contract: dict, target_backend: str | None 
         cand_contract: The parsed candidate contract dict.
         target_backend: The backend selection the candidate would run under
             (default: the active selection). The candidate descriptor is built
-            against it — mirroring ``current_version_descriptor``'s branching,
+            against it — mirroring ``active_version_descriptor``'s branching,
             including the byte-identical legacy path for plain ``gemini``.
     """
     from fyp import annotation_contract as ac
@@ -186,7 +191,7 @@ def _annotation_contract_impact(cand_contract: dict, target_backend: str | None 
             backend = get_backend(selection)
         except Exception:
             # Unimportable backend (e.g. local-only deps missing) — same
-            # fallback current_version_descriptor uses.
+            # fallback active_version_descriptor uses.
             backend, selection = None, "gemini"
 
     cand_prompt = sch.build_prompt(cand_contract)
@@ -209,12 +214,12 @@ def _annotation_contract_impact(cand_contract: dict, target_backend: str | None 
             variant=selection if selection != backend.name else None,
         )
 
-    cur = annotation_versioning.current_version_descriptor(fresh=True)
+    cur = annotation_versioning.active_version_descriptor(fresh=True)
     cur_names = {f.get("name") for f in ac.load_contract().get("fields", [])}
     cand_names = {f.get("name") for f in cand_contract.get("fields", [])}
     version_changed = cand["annotation_version"] != cur.get("annotation_version")
     return {
-        "current_version": cur.get("annotation_version"),
+        "active_version": cur.get("annotation_version"),
         "candidate_version": cand["annotation_version"],
         "prompt_changed": cand["prompt_hash"] != cur.get("prompt_hash"),
         "schema_changed": cand["schema_hash"] != cur.get("schema_hash"),
@@ -300,7 +305,7 @@ def get_annotation_contract():
         status = ac.contract_status()
         return jsonify({
             **status,
-            "current_version": annotation_versioning.current_annotation_version(),
+            "active_version": annotation_versioning.active_annotation_version(),
             "runtime_filename": ac.RUNTIME_FILENAME,
         })
     except Exception as e:
@@ -388,12 +393,12 @@ def rendered_annotation_contract():
         if contract is None:
             return jsonify({"error": "effective contract does not parse", "errors": errors}), 500
         return jsonify({
-            "version": annotation_versioning.current_annotation_version(),
+            "version": annotation_versioning.active_annotation_version(),
             "prompt": sch.build_prompt(contract),
             "schema": sch.get_annotation_json_schema(contract),
             # Model + generation settings the next run would be stamped with —
             # lets the Versions page show settings for the not-yet-minted row.
-            "descriptor": annotation_versioning.current_version_descriptor(),
+            "descriptor": annotation_versioning.active_version_descriptor(),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -580,9 +585,9 @@ def upload_annotation_contract():
         # 8. Mint the new version eagerly so it appears on the Versions page
         #    (and can be preferred) without waiting for the first annotation
         #    run. The descriptor cache self-busts on the new contract etag /
-        #    backend; ensure_current_version_registered is idempotent and
+        #    backend; ensure_active_version_registered is idempotent and
         #    never raises.
-        minted_version = annotation_versioning.ensure_current_version_registered()
+        minted_version = annotation_versioning.ensure_active_version_registered()
 
         activity_log.record(
             actor=_actor(),
@@ -653,7 +658,7 @@ def revert_annotation_contract():
 
         # Mint the (restored) baked contract's version eagerly — same
         # rationale as the upload path.
-        annotation_versioning.ensure_current_version_registered()
+        annotation_versioning.ensure_active_version_registered()
 
         activity_log.record(
             actor=_actor(),

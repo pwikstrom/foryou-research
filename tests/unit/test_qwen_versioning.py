@@ -93,18 +93,18 @@ def test_current_descriptor_forks_when_qwen_active(monkeypatch):
     from fyp.annotation.backends import settings as backend_settings
 
     monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
-    gemini_id = av.current_version_descriptor(fresh=True)["annotation_version"]
+    gemini_id = av.active_version_descriptor(fresh=True)["annotation_version"]
 
     monkeypatch.setattr(backend_settings, "_load_settings",
                         lambda: {"annotation_backend": "qwen_local"})
-    qwen_descriptor = av.current_version_descriptor(fresh=True)
+    qwen_descriptor = av.active_version_descriptor(fresh=True)
     assert qwen_descriptor["annotation_version"] != gemini_id
     assert qwen_descriptor["backend"] == "qwen_local"
     assert qwen_descriptor["model"].startswith("mlx-community/")
     assert qwen_descriptor["gen_params"]["n_frames"] == 8
 
     monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
-    assert av.current_version_descriptor(fresh=True)["annotation_version"] == gemini_id
+    assert av.active_version_descriptor(fresh=True)["annotation_version"] == gemini_id
 
 
 
@@ -122,7 +122,7 @@ def test_qwen_descriptor_registers_cleanly():
     stored = registry["versions"][qwen_descriptor["annotation_version"]]
     assert stored["backend"] == "qwen_local"
     assert stored["gen_params"]["n_frames"] == 8
-    assert registry["active"] is None  # registration never promotes
+    assert registry["preferred"] is None  # registration never promotes
 
     # The legacy-metadata harvester (var_schema "Gemini"-source rows) is
     # independent of registry contents — it must keep working untouched.
@@ -137,11 +137,11 @@ def test_current_descriptor_forks_when_minicpm_active(monkeypatch):
     from fyp.annotation.backends import settings as backend_settings
 
     monkeypatch.setattr(backend_settings, "_load_settings", lambda: {})
-    gemini_id = av.current_version_descriptor(fresh=True)["annotation_version"]
+    gemini_id = av.active_version_descriptor(fresh=True)["annotation_version"]
 
     monkeypatch.setattr(backend_settings, "_load_settings",
                         lambda: {"annotation_backend": "minicpm_local"})
-    minicpm_descriptor = av.current_version_descriptor(fresh=True)
+    minicpm_descriptor = av.active_version_descriptor(fresh=True)
     assert minicpm_descriptor["annotation_version"] != gemini_id
     assert minicpm_descriptor["backend"] == "minicpm_local"
     assert minicpm_descriptor["model"].startswith("mlx-community/MiniCPM")
@@ -149,5 +149,5 @@ def test_current_descriptor_forks_when_minicpm_active(monkeypatch):
 
     monkeypatch.setattr(backend_settings, "_load_settings",
                         lambda: {"annotation_backend": "qwen_local"})
-    qwen_id = av.current_version_descriptor(fresh=True)["annotation_version"]
+    qwen_id = av.active_version_descriptor(fresh=True)["annotation_version"]
     assert minicpm_descriptor["annotation_version"] != qwen_id

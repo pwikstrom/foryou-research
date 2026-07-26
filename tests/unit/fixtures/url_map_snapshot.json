@@ -371,8 +371,8 @@
   ]
  ],
  [
-  "/api/manage/annotation-versions/activate",
-  "management_bp.activate_annotation_version",
+  "/api/manage/annotation-versions/promote",
+  "management_bp.promote_annotation_version",
   [
    "POST"
   ]

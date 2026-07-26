@@ -468,7 +468,7 @@ def download_and_ingest(output_uri: str, submitted_ids: list) -> str:
         records, submitted_ids,
         model=_cf()["machine"]["gemini"]["model"],
         prompt_fn=annotation_versioning.active_prompt_label(),
-        annotation_version=annotation_versioning.current_annotation_version(),
+        annotation_version=annotation_versioning.active_annotation_version(),
         platform_by_id=platform_map_for([str(v) for v in submitted_ids]),
     )
     fine_ts = "".join(c for c in str(_dt.datetime.now()) if c in "0123456789")

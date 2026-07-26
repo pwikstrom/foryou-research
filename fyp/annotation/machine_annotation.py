@@ -386,7 +386,7 @@ def call_machine(
         "inference_duration" : -1,
         "model" : effective_model,
         "prompt_fn" : annotation_versioning.active_prompt_label(),
-        "annotation_version" : annotation_versioning.current_annotation_version(),
+        "annotation_version" : annotation_versioning.active_annotation_version(),
         "structured" : True,
         "usage" : {},
         # None until an exception handler fills it — a successful call must
@@ -567,7 +567,7 @@ def call_machine_threads(
     if backend is None:
         initialize_machine()
 
-    annotation_versioning.ensure_current_version_registered()
+    annotation_versioning.ensure_active_version_registered()
 
     results_by_index = {}
 
@@ -1964,16 +1964,16 @@ def consolidate_and_save_refined_annotations(
         annotation_archive["annotation_version"].dropna().unique()
     )
 
-    active_version = annotation_versioning.get_active_version()
-    if active_version is None:
+    preferred_version = annotation_versioning.get_preferred_version()
+    if preferred_version is None:
         # No version promoted yet: keep the most recent annotation per item
         # (the historical, version-agnostic behaviour — zero migration change).
         consolidated_annotations = consolidated_annotations.drop_duplicates(
             subset=["source_platform", "item_id"], keep="last"
         ).reset_index(drop=True)
     else:
-        consolidated_annotations = annotation_versioning.select_active_view(
-            consolidated_annotations, active_version
+        consolidated_annotations = annotation_versioning.select_preferred_view(
+            consolidated_annotations, preferred_version
         )
 
     memory_per_column = consolidated_annotations.memory_usage(deep=True) 
@@ -2024,21 +2024,21 @@ def consolidate_and_save_refined_annotations(
 
 
 
-def rebuild_active_annotations_from_archive(verbose: bool = False):
-    """Rebuild the active recoded annotations from the version archive.
+def rebuild_preferred_annotations_from_archive(verbose: bool = False):
+    """Rebuild the preferred recoded annotations from the version archive.
 
     Fast path used after promoting a version: re-derives
     ``machine_annotations_recoded.parquet`` from the already-built
-    ``machine_annotations_all_versions.parquet`` using the current active
+    ``machine_annotations_all_versions.parquet`` using the preferred
     version (or latest-per-item when nothing is promoted) — no re-refinement of
     raw files. Per-study cached datasets still need a study refresh to pick up
-    the change; this only updates the global active dataset.
+    the change; this only updates the global preferred dataset.
 
     Args:
         verbose: Whether to print I/O progress.
 
     Returns:
-        The number of rows in the rebuilt active dataset, or ``None`` if the
+        The number of rows in the rebuilt preferred dataset, or ``None`` if the
         archive is missing/empty.
     """
     archive_fn = f"{_machine_annotations_label()}_all_versions.parquet"
@@ -2049,19 +2049,19 @@ def rebuild_active_annotations_from_archive(verbose: bool = False):
     if archive is None or archive.empty:
         return None
 
-    active_version = annotation_versioning.get_active_version()
+    preferred_version = annotation_versioning.get_preferred_version()
     dedup_cols = (
         ["source_platform", "item_id"] if "source_platform" in archive.columns else ["item_id"]
     )
-    if active_version is None:
-        active_df = archive.drop_duplicates(subset=dedup_cols, keep="last").reset_index(drop=True)
+    if preferred_version is None:
+        preferred_df = archive.drop_duplicates(subset=dedup_cols, keep="last").reset_index(drop=True)
     else:
-        active_df = annotation_versioning.select_active_view(archive, active_version)
+        preferred_df = annotation_versioning.select_preferred_view(archive, preferred_version)
 
     data_io.save_parquet(
-        df=active_df, storage_location="recoded", filename=recoded_fn, verbose=verbose
+        df=preferred_df, storage_location="recoded", filename=recoded_fn, verbose=verbose
     )
-    return len(active_df)
+    return len(preferred_df)
 
 
 

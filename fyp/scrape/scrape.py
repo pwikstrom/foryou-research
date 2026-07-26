@@ -979,7 +979,7 @@ def download_video_threads(
 
     results_by_index = {}
     # Record the active scrape-contract version once per batch (idempotent, non-raising).
-    scrape_versioning.ensure_current_version_registered()
+    scrape_versioning.ensure_active_version_registered()
     # Concurrency bounds are platform policy (e.g. TikTok caps at 6: a single
     # session behind cookies trips behavioural flags beyond that).
     throttle_initial, throttle_min, throttle_max = scraper.throttle_limits(max_workers)
@@ -1863,7 +1863,7 @@ def consolidate_and_save_scrape_data(
     # renames) only run inside a rebuild, so skipping would leave the
     # consolidated parquet on the previous contract's column set forever.
     from fyp.scrape import scrape_versioning
-    current_sv = scrape_versioning.current_scrape_version()
+    current_sv = scrape_versioning.active_scrape_version()
     latest_sv = dataset_meta.get(_scrapes_label(), {}).get("scrape_contract_version")
     if (not force_consolidation
             and set(files_to_concatenate) <= set(latest_filename_list)

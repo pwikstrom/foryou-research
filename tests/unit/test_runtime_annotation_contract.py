@@ -9,7 +9,7 @@ its cache/version interactions:
   * a metadata-only edit (display_name / role / scale / [recode.drop]) leaves the
     ``av_`` version unchanged, while a prompt/schema-affecting edit (desc / enum)
     changes it — this is the whole point of lifting the contract to storage;
-  * ``current_version_descriptor`` busts its cache when the snapshot swaps.
+  * ``active_version_descriptor`` busts its cache when the snapshot swaps.
 
 The runtime file is simulated by monkeypatching the ``fyp.data_io`` primitives
 the snapshot loader calls, so nothing touches real local/GCS storage.
@@ -260,7 +260,7 @@ def test_descriptor_cache_busts_on_snapshot_swap() -> None:
     machine["use_structured_output"] = True
     try:
         _reset_to_baked()
-        v1 = av.current_annotation_version()
+        v1 = av.active_annotation_version()
 
         # Simulate an uploaded contract whose prompt differs, then swap the live
         # snapshot the way refresh_runtime_contract would (new contract + etag).
@@ -271,7 +271,7 @@ def test_descriptor_cache_busts_on_snapshot_swap() -> None:
         ac._SNAPSHOT["etag"] = "runtime:swaptest0000"
         sch._SPECS_CACHE.clear()
 
-        v2 = av.current_annotation_version()
+        v2 = av.active_annotation_version()
         assert v1 != v2, (v1, v2)
     finally:
         machine.clear()

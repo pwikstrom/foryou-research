@@ -288,7 +288,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     # Record the active activity-contract version once per ingest run (idempotent,
     # non-raising) so the registry captures the schema that stamped these rows.
     from fyp import activity_versioning
-    activity_versioning.ensure_current_version_registered()
+    activity_versioning.ensure_active_version_registered()
 
     reporter.update_progress(75, "Adding local time features...")
     _t_phase = time.perf_counter()

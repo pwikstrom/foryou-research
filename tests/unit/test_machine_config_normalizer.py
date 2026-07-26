@@ -106,7 +106,7 @@ def test_descriptor_identical_for_flat_and_nested_config(monkeypatch):
     """av_ stability: relocation must not move the hash (value-derived)."""
     import fyp.annotation_versioning as av
 
-    nested = av.current_version_descriptor(fresh=True)
+    nested = av.active_version_descriptor(fresh=True)
 
     # Simulate the pre-restructure layout: copy the gemini values back to
     # flat keys, re-normalize, and confirm the descriptor is byte-identical.
@@ -120,5 +120,5 @@ def test_descriptor_identical_for_flat_and_nested_config(monkeypatch):
                 "max_output_tokens", "version_label"):
         assert cf["machine"]["gemini"].get(key) == machine["gemini"].get(key)
 
-    again = av.current_version_descriptor(fresh=True)
+    again = av.active_version_descriptor(fresh=True)
     assert again == nested
