@@ -136,6 +136,13 @@
         }
     }
 
+    // A contract graduation from the Playground may also switch the active
+    // annotation backend — refresh the Backends widgets so the select and
+    // requirements panel reflect it.
+    document.addEventListener('fyp:contract-changed', function () {
+        if (_hasPerm('tab.admin.backends')) loadAdminSettings();
+    });
+
     async function saveDefaultNewUserRoleSetting(select) {
         const status = document.getElementById('setting-default-new-user-role-status');
         const desired = select.value;

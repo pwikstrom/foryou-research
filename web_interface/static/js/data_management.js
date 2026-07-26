@@ -2910,19 +2910,31 @@ function fetchStalenessStatus() {
                 if (typeof renderConsolidationImpact === 'function') {
                     renderConsolidationImpact(null);
                 }
-                return;
+            } else {
+                const procs = data.processes || {};
+                for (const [name, info] of Object.entries(procs)) {
+                    const el = document.getElementById(`${name}-stale`);
+                    if (!el) continue;
+                    if (info.stale) {
+                        const count = info.affected ? info.affected.length : 0;
+                        const unit = name === 'timelines_refresh' ? 'collection(s)' : 'study/studies';
+                        el.textContent = `(${count} ${unit} need refresh)`;
+                        el.style.display = '';
+                    } else {
+                        el.style.display = 'none';
+                    }
+                }
             }
-            const procs = data.processes || {};
-            for (const [name, info] of Object.entries(procs)) {
-                const el = document.getElementById(`${name}-stale`);
-                if (!el) continue;
-                if (info.stale) {
-                    const count = info.affected ? info.affected.length : 0;
-                    const unit = name === 'timelines_refresh' ? 'collection(s)' : 'study/studies';
-                    el.textContent = `(${count} ${unit} need refresh)`;
+            // A promoted preferred annotation version keeps the Study
+            // Definitions refresh stale independently of any consolidation.
+            const vp = data.version_promotion || {};
+            if (vp.stale) {
+                const el = document.getElementById('recode_refresh_studies-stale');
+                if (el) {
+                    el.textContent = el.style.display === '' && el.textContent
+                        ? `${el.textContent} (+ new preferred annotation version)`
+                        : '(new preferred annotation version — refresh needed)';
                     el.style.display = '';
-                } else {
-                    el.style.display = 'none';
                 }
             }
         })

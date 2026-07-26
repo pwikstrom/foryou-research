@@ -1,15 +1,19 @@
 <!-- Annotation testing sub-page. All content rendered by
      static/js/admin_ab_eval.js from the /api/manage/ab-* endpoints. -->
-<h2 style="margin: 0 0 8px 0;">Contracts</h2>
+<h2 style="margin: 0 0 8px 0;">Playground</h2>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
-    Compare annotation-contract <strong>candidate contracts</strong> against
-    each other (and/or the active contract) on a fixed test set of
-    already-downloaded videos. Test runs make <strong>real annotation calls</strong>
+    The playground is a safe place to <strong>experiment</strong> with how your
+    videos get annotated: try out different contracts (prompts and response
+    fields) and different annotation backends (AI models), run them side by
+    side on a small set of already-downloaded videos, and compare how well
+    each performs. Test runs make <strong>real annotation calls</strong>
     (contracts &times; videos) but results are stored in an isolated
     location &mdash; they never enter the machine-annotation archive or studies.
-    A winning candidate graduates through the normal contract activation flow
-    (dry-run impact &rarr; confirm &rarr; activate its version under
-    <em>Annotation Versions</em>).
+    When an experiment produces a winner, use its <strong>Graduate</strong>
+    button: after you review the impact and confirm, the winning contract (and,
+    if you choose, its tested backend) becomes the one used for new
+    annotations, and its version is registered under <em>Versions</em> &mdash;
+    make it preferred there when ready.
 </p>
 
 <div id="abe-status" class="text-sm" style="min-height: 18px; margin-bottom: 8px;
@@ -21,7 +25,7 @@
         background: var(--color-bg-elevated);">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <h3 style="margin: 0; color: var(--color-text-heading); flex: 1;">Candidate contracts</h3>
-        <span class="text-sm" style="color: var(--color-text-muted);">Add contract for testing</span>
+        <span class="text-sm" style="color: var(--color-text-muted);">Add new candidate contract:</span>
         <button onclick="abeSaveLiveAsCandidate(this)" class="btn-discreet btn-compact"
             >Use active</button>
         <label class="btn-primary btn-compact" style="cursor: pointer; margin: 0;">
@@ -70,7 +74,7 @@
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-        <h3 style="margin: 0; color: var(--color-text-heading);">Test set</h3>
+        <h3 style="margin: 0; color: var(--color-text-heading);">Create a set of videos to be test annotated</h3>
         <select id="abe-set-picker" class="text-sm" onchange="abeSelectSet(this.value)"
             style="padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 4px;
             background: var(--color-bg-input); color: var(--color-text-primary); min-width: 180px;">
@@ -145,6 +149,11 @@
         margin: 0 0 10px 0;"></div>
     <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 4px;">
         Contracts in this test</div>
+    <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 6px;">
+        The dropdown next to each contract selects the <strong>annotation backend</strong>
+        &mdash; the AI model that runs the annotations for that contract. Leave it on the
+        default, or pick different backends to compare models as well as contracts.
+        (Backends are configured under <em>Backends</em>.)</div>
     <div id="abe-arm-picker" style="display: flex; flex-direction: column; gap: 4px;"></div>
     <div style="margin-top: 6px;">
         <button onclick="abeAddLiveToTest()" class="btn-discreet btn-compact">+ active contract</button>
@@ -158,7 +167,7 @@
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-        <h3 style="margin: 0; color: var(--color-text-heading);">Results</h3>
+        <h3 style="margin: 0; color: var(--color-text-heading);">Test results</h3>
         <select id="abe-run-picker" class="text-sm" onchange="abeLoadRun(this.value)"
             style="padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 4px;
             background: var(--color-bg-input); color: var(--color-text-primary); min-width: 280px;">
@@ -182,7 +191,7 @@
                    font-size: var(--text-h3);">&times;</span>
         <div style="display: flex; align-items: center; gap: 12px; margin: 0 28px 12px 0; flex-wrap: wrap;">
             <h3 style="margin: 0; color: var(--color-text-heading);">
-                Item <span id="abe-item-id" class="font-mono"></span> &mdash; field by field
+                <span class="abe-item-chrome">Item </span><span id="abe-item-id" class="font-mono"></span><span class="abe-item-chrome"> &mdash; field by field</span>
             </h3>
             <span id="abe-item-pos" class="text-xs" style="color: var(--color-text-muted);"></span>
             <span style="flex: 1;"></span>

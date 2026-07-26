@@ -1663,6 +1663,9 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
         parsed_arms.append({
             "name": arm["name"],
             "source": arm.get("source", "candidate"),
+            # The underlying candidate name — distinct from the arm name/label
+            # when one candidate runs as several arms (e.g. once per backend).
+            "candidate": arm.get("candidate") or "",
             "etag": ac._etag(arm["text"], arm.get("source", "candidate")),
             "contract": contract,
             "text": arm["text"],
@@ -1683,8 +1686,9 @@ def execute_run(run_id: str, arms: list[dict], item_ids: list[str],
         "item_ids": item_ids,
         "n_items": len(item_ids),
         "arms": [
-            {"name": a["name"], "source": a["source"], "etag": a["etag"],
-             "backend": a["backend"], "gen_overrides": a["gen_overrides"]}
+            {"name": a["name"], "source": a["source"], "candidate": a["candidate"],
+             "etag": a["etag"], "backend": a["backend"],
+             "gen_overrides": a["gen_overrides"]}
             for a in parsed_arms
         ],
     }

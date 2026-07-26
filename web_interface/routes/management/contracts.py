@@ -90,6 +90,7 @@ def activate_annotation_version():
         version = body.get("version")
         if not version:
             return jsonify({"error": "version is required"}), 400
+        previous_version = annotation_versioning.get_active_version()
         try:
             annotation_versioning.promote_version(version)
         except KeyError:
@@ -101,6 +102,24 @@ def activate_annotation_version():
         with study_cache.lock:
             study_cache.cache.clear()
 
+        # Persist a promotion marker so the "studies need refresh" signal
+        # survives page reloads; the staleness evaluator clears it once
+        # recode_refresh_studies succeeds after this timestamp. Reload the
+        # shared stats first (cross-service file — never clobber the runner).
+        try:
+            from ...process_manager import load_process_stats, process_stats, save_process_stats
+
+            load_process_stats()
+            entry = process_stats.setdefault("annotation_versions", {})
+            entry["promotion_impact"] = {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "version": version,
+                "previous_version": previous_version,
+            }
+            save_process_stats()
+        except Exception:
+            pass
+
         activity_log.record(
             actor=_actor(),
             category="admin",
@@ -111,6 +130,7 @@ def activate_annotation_version():
             "ok": True,
             "active": version,
             "active_rows": rebuilt,
+            "staleness": {"studies_stale": True},
             "note": "Global active annotations rebuilt. Refresh studies to apply to per-study datasets.",
         })
     except Exception as e:
@@ -118,26 +138,57 @@ def activate_annotation_version():
 
 
 
-def _annotation_contract_impact(cand_contract: dict) -> dict:
+def _annotation_contract_impact(cand_contract: dict, target_backend: str | None = None) -> dict:
     """Predict the version impact of activating ``cand_contract``.
 
     Renders the candidate prompt + response schema exactly the way the annotator
     would and compares the resulting ``av_`` descriptor to the current one, so
     the admin sees "metadata-only — no new version" vs "a new version will be
     minted" before confirming. Also reports the field-name delta.
+
+    Args:
+        cand_contract: The parsed candidate contract dict.
+        target_backend: The backend selection the candidate would run under
+            (default: the active selection). The candidate descriptor is built
+            against it — mirroring ``current_version_descriptor``'s branching,
+            including the byte-identical legacy path for plain ``gemini``.
     """
     from fyp import annotation_contract as ac
     from fyp import annotation_schema as sch
+    from fyp.annotation.backends import active_backend_name, get_backend
 
-    machine = fyp_cf["machine"]["gemini"]
-    model = machine.get("model")
-    gen_params = {k: machine.get(k) for k in annotation_versioning._VERSION_GEN_PARAM_KEYS}
+    active_selection = active_backend_name()
+    selection = target_backend or active_selection
+    backend = None
+    if selection != "gemini":
+        try:
+            backend = get_backend(selection)
+        except Exception:
+            # Unimportable backend (e.g. local-only deps missing) — same
+            # fallback current_version_descriptor uses.
+            backend, selection = None, "gemini"
 
-    cur = annotation_versioning.current_version_descriptor(fresh=True)
     cand_prompt = sch.build_prompt(cand_contract)
     cand_schema = sch.get_annotation_json_schema(cand_contract)
-    cand = annotation_versioning.build_version_descriptor(model, cand_prompt, cand_schema, gen_params)
+    if backend is None:
+        machine = fyp_cf["machine"]["gemini"]
+        target_model = machine.get("model")
+        gen_params = {k: machine.get(k) for k in annotation_versioning._VERSION_GEN_PARAM_KEYS}
+        cand = annotation_versioning.build_version_descriptor(
+            target_model, cand_prompt, cand_schema, gen_params)
+    else:
+        target_model = backend.effective_model_id()
+        cand = annotation_versioning.build_version_descriptor(
+            model=target_model,
+            prompt_text=cand_prompt + backend.prompt_suffix(),
+            schema_json=cand_schema,
+            gen_params=backend.version_gen_params(),
+            extra_params=backend.version_extra_params(),
+            backend=backend.name,
+            variant=selection if selection != backend.name else None,
+        )
 
+    cur = annotation_versioning.current_version_descriptor(fresh=True)
     cur_names = {f.get("name") for f in ac.load_contract().get("fields", [])}
     cand_names = {f.get("name") for f in cand_contract.get("fields", [])}
     version_changed = cand["annotation_version"] != cur.get("annotation_version")
@@ -152,7 +203,67 @@ def _annotation_contract_impact(cand_contract: dict) -> dict:
         "fields_removed": sorted(n for n in (cur_names - cand_names) if n),
         "use_generated_prompt": True,
         "use_structured_output": True,
+        "target_backend": selection,
+        "target_model": target_model,
+        "active_backend": active_selection,
+        "active_model": cur.get("model"),
+        "backend_mismatch": selection != active_selection,
     }
+
+
+
+
+def _backend_target_info(target: str | None) -> dict:
+    """Resolve graduation-backend info for the dry-run modal and confirm guard.
+
+    Args:
+        target: The requested backend selection (a backend id or declared
+            variant name), or ``None`` for the active selection.
+
+    Returns:
+        ``{active, active_model, target, target_model, mismatch,
+        target_available, target_unavailable_reason}``. ``target_available``
+        is False for an unknown/unimportable selection, a failing availability
+        check, or a local-only backend on Cloud Run.
+    """
+    from fyp.annotation.backends import active_backend_name, get_backend
+    from ...task_status import is_cloud_run
+
+    active = active_backend_name()
+    info = {
+        "active": active,
+        "active_model": None,
+        "target": target or active,
+        "target_model": None,
+        "mismatch": bool(target) and target != active,
+        "target_available": True,
+        "target_unavailable_reason": "",
+    }
+    try:
+        info["active_model"] = get_backend(active).effective_model_id()
+    except Exception:
+        pass
+    try:
+        backend = get_backend(info["target"])
+        info["target_model"] = backend.effective_model_id()
+    except ValueError as exc:
+        info["target_available"] = False
+        info["target_unavailable_reason"] = str(exc)
+        return info
+    # Gemini readiness is checked by the worker's config gate (mirrors
+    # ab_eval._validate_arm_backend); other backends probe availability here.
+    if backend.name != "gemini":
+        result = backend.availability(deep=False)
+        if not result.ok:
+            info["target_available"] = False
+            info["target_unavailable_reason"] = result.reason
+            return info
+    if is_cloud_run() and not backend.cloud_run_capable:
+        info["target_available"] = False
+        info["target_unavailable_reason"] = (
+            f"the '{info['target']}' backend runs only on a local machine "
+            f"and cannot be the active backend on Cloud Run")
+    return info
 
 
 
@@ -259,6 +370,9 @@ def rendered_annotation_contract():
             "version": annotation_versioning.current_annotation_version(),
             "prompt": sch.build_prompt(contract),
             "schema": sch.get_annotation_json_schema(contract),
+            # Model + generation settings the next run would be stamped with —
+            # lets the Versions page show settings for the not-yet-minted row.
+            "descriptor": annotation_versioning.current_version_descriptor(),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -352,8 +466,34 @@ def upload_annotation_contract():
         if errors:
             return jsonify({"valid": False, "errors": errors}), 400
 
-        # 3. Version-impact dry-run report.
-        impact = _annotation_contract_impact(cand)
+        # 3. Optional backend switch (the Playground graduation path) — resolve
+        #    and validate BEFORE any write, and compute the impact against the
+        #    backend the contract will actually run on.
+        switch_backend = (request.form.get('switch_backend')
+                          or json_body.get('switch_backend') or "").strip() or None
+        if switch_backend:
+            from flask_login import current_user
+            from ...admin_settings import validate_setting_value
+            from ...permissions import user_has_permission
+            from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY
+
+            if not user_has_permission(current_user, 'tab.admin.backends'):
+                return jsonify({
+                    "error": "forbidden",
+                    "message": "Switching the annotation backend requires the Backends admin permission.",
+                }), 403
+            err = validate_setting_value(ANNOTATION_BACKEND_KEY, switch_backend)
+            if err:
+                return jsonify({"error": err}), 400
+            binfo = _backend_target_info(switch_backend)
+            if not binfo["target_available"]:
+                return jsonify({
+                    "error": f"backend '{switch_backend}' cannot be activated: "
+                             f"{binfo['target_unavailable_reason']}",
+                }), 400
+
+        # Version-impact dry-run report (against the target backend).
+        impact = _annotation_contract_impact(cand, target_backend=switch_backend)
 
         def _flag(v) -> bool:
             return str(v).strip().lower() in ('1', 'true', 'yes')
@@ -393,12 +533,35 @@ def upload_annotation_contract():
             filename=ac.RUNTIME_META_FILENAME,
         )
 
+        # 6b. Apply the requested backend switch (validated above) alongside
+        #     the contract write, so the deployed contract × backend pair
+        #     matches what was tested in the Playground.
+        backend_switched = None
+        if switch_backend:
+            from fyp.annotation.backends import active_backend_name
+            from fyp.annotation.backends.settings import ANNOTATION_BACKEND_KEY
+            from ...admin_settings import load_admin_settings, save_admin_settings
+
+            prev_backend = active_backend_name()
+            if switch_backend != prev_backend:
+                settings = load_admin_settings()
+                settings[ANNOTATION_BACKEND_KEY] = switch_backend
+                save_admin_settings(settings)
+                backend_switched = {"from": prev_backend, "to": switch_backend}
+
         # 7. Refresh the snapshot + rebuild the schema so overlays pick up new
         #    metadata; clear the study RAM cache (recode/metadata may change).
         ac.refresh_runtime_contract()
         fyp_cf = load_var_schema(fyp_cf, verbose=False)
         with study_cache.lock:
             study_cache.cache.clear()
+
+        # 8. Mint the new version eagerly so it appears on the Versions page
+        #    (and can be preferred) without waiting for the first annotation
+        #    run. The descriptor cache self-busts on the new contract etag /
+        #    backend; ensure_current_version_registered is idempotent and
+        #    never raises.
+        minted_version = annotation_versioning.ensure_current_version_registered()
 
         activity_log.record(
             actor=_actor(),
@@ -408,20 +571,27 @@ def upload_annotation_contract():
                 "impact": impact,
                 "backup": backup_name,
                 "original_filename": original_filename,
+                **({"switch_backend": backend_switched} if backend_switched else {}),
             },
         )
         new_status = ac.contract_status()
+        switch_note = (
+            f" Annotation backend switched to '{backend_switched['to']}'."
+            if backend_switched else ""
+        )
         return jsonify({
             "ok": True,
             "source": new_status.get("source"),
             "etag": new_status.get("etag"),
             "impact": impact,
             "backup": backup_name,
+            "backend_switched": backend_switched,
+            "minted_version": minted_version,
             "note": (
-                "Contract activated. A new annotation version will be minted on the "
-                "next annotation run if the prompt/schema changed; activate it when ready."
+                f"Contract activated. New annotation version {minted_version} has been "
+                f"registered — make it preferred under Versions when ready.{switch_note}"
                 if impact.get("version_changed")
-                else "Contract activated (metadata-only change — no new annotation version)."
+                else f"Contract activated (metadata-only change — no new annotation version).{switch_note}"
             ),
         })
     except Exception as e:
@@ -459,6 +629,10 @@ def revert_annotation_contract():
         fyp_cf = load_var_schema(fyp_cf, verbose=False)
         with study_cache.lock:
             study_cache.cache.clear()
+
+        # Mint the (restored) baked contract's version eagerly — same
+        # rationale as the upload path.
+        annotation_versioning.ensure_current_version_registered()
 
         activity_log.record(
             actor=_actor(),

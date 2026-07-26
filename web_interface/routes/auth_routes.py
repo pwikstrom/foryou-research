@@ -473,8 +473,30 @@ def api_admin_settings():
             return jsonify({"error": semantic_error}), 400
 
     current = load_admin_settings()
+    prev_annotation_backend = current.get(
+        "annotation_backend", ADMIN_SETTINGS_DEFAULTS.get("annotation_backend"))
     current.update(data)
     save_admin_settings(current)
+
+    # A backend switch forks the effective annotation version — register it
+    # eagerly so it shows on the Versions page without waiting for the first
+    # annotation run. Never let registry plumbing fail the settings save.
+    if ("annotation_backend" in data
+            and data["annotation_backend"] != prev_annotation_backend):
+        try:
+            from fyp import annotation_versioning
+
+            minted = annotation_versioning.ensure_current_version_registered()
+            activity_log.record(
+                actor=getattr(current_user, "username", "") or "",
+                category="admin",
+                action="annotation_backend.switch",
+                details={"from": prev_annotation_backend,
+                         "to": data["annotation_backend"],
+                         "annotation_version": minted},
+            )
+        except Exception:
+            pass
 
     merged = {**ADMIN_SETTINGS_DEFAULTS, **current}
     return jsonify({"status": "success", "message": "Settings updated", "settings": merged})

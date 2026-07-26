@@ -1185,6 +1185,14 @@ button {
     cursor: default;
 }
 
+/* Sticky depressed state for toggle-style row buttons (e.g. the Versions
+   page's View buttons while their snapshot is shown below the table). */
+.btn-discreet.btn-pressed,
+.btn-discreet.btn-pressed:hover {
+    background: var(--btn-discreet-active);
+    box-shadow: inset var(--shadow-sm);
+}
+
 
 /* ============================================================
    Status Indicators

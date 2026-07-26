@@ -52,7 +52,7 @@
                 style="display: none;" onchange="acOnFileChosen(this)">
         </label>
         <button onclick="aceOpen()" class="btn-primary text-sm"
-            style="padding: 6px 12px;">Edit as form&hellip;</button>
+            style="padding: 6px 12px;">Edit current&hellip;</button>
         <button id="ac-revert-btn" onclick="acRevert()" class="btn-discreet text-sm"
             style="padding: 6px 12px; display: none;">Revert to default contract</button>
         <span id="ac-card-status" class="text-xs" style="color: var(--color-text-muted);"></span>
@@ -81,6 +81,18 @@
 
 <h3 style="margin: 0 0 8px 0; color: var(--color-text-heading);">Annotation versions</h3>
 
+<!-- Persistent "studies need refresh" banner after a preferred-version
+     promotion; rendered by admin_annotation_versions.js from
+     /api/manage/refresh/staleness. Only role-admins may start processes. -->
+<div id="avStaleBanner" data-can-start="{{ 1 if user.is_admin() else 0 }}"
+    class="text-sm" style="display: none; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin: 0 0 12px 0; padding: 10px 14px; border: 1px solid var(--color-warning);
+    border-radius: 8px; color: var(--color-warning);">
+    <span id="avStaleText" style="flex: 1; min-width: 240px;"></span>
+    <button id="avStaleRefreshBtn" class="btn-primary btn-compact"
+        style="display: none;">Refresh studies now</button>
+</div>
+
 <section style="display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px;">
     <button id="avRefreshBtn" class="btn-primary">Refresh</button>
 </section>
@@ -100,19 +112,13 @@
                 <span class="meta-tooltip" data-tooltip="Short human-readable name for the version.">Label</span>
             </th>
             <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
-                <span class="meta-tooltip" data-tooltip="The AI model that produced the annotations under this version.">Model</span>
-            </th>
-            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
-                <span class="meta-tooltip" data-tooltip="Fingerprint of the response format the model was asked to follow — two versions with the same value collected the same fields.">Response format</span>
-            </th>
-            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
                 <span class="meta-tooltip" data-tooltip="When this version was first recorded.">Created</span>
             </th>
             <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">Actions</th>
         </tr>
     </thead>
     <tbody id="avTableBody">
-        <tr><td colspan="7" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">
+        <tr><td colspan="5" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">
             Click Refresh to load versions.
         </td></tr>
     </tbody>
@@ -121,7 +127,9 @@
 <!-- Version snapshot viewer -->
 <div id="avSnapshot" style="display: none; margin-top: 16px;">
     <h3 class="text-h3" style="margin: 0 0 8px 0;">Snapshot: <span id="avSnapVersion" style="font-family: var(--font-mono);"></span></h3>
-    <div class="text-sm" style="color: var(--color-text-muted); margin-bottom: 6px;">Prompt text</div>
+    <div class="text-sm" style="color: var(--color-text-muted); margin-bottom: 6px;">Model &amp; settings</div>
+    <div id="avSnapSettings" class="text-xs" style="background: var(--color-bg-elevated); padding: 12px; border-radius: 6px; display: flex; flex-wrap: wrap; gap: 6px 24px;"></div>
+    <div class="text-sm" style="color: var(--color-text-muted); margin: 10px 0 6px 0;">Prompt text</div>
     <pre id="avSnapPrompt" class="text-xs" style="max-height: 240px; overflow: auto; background: var(--color-bg-elevated); padding: 12px; border-radius: 6px; white-space: pre-wrap;"></pre>
     <div class="text-sm" style="color: var(--color-text-muted); margin: 10px 0 6px 0;">Response schema</div>
     <pre id="avSnapSchema" class="text-xs" style="max-height: 240px; overflow: auto; background: var(--color-bg-elevated); padding: 12px; border-radius: 6px;"></pre>

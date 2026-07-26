@@ -31,6 +31,50 @@
         return div.innerHTML;
     }
 
+    // Key of the version whose snapshot is shown below the table ("__current__"
+    // for the unminted live contract), or null when the snapshot is hidden.
+    // Drives the depressed state of the matching View button.
+    let viewedKey = null;
+
+    function _snapshotKeyFor(btn) {
+        return btn.id === "avViewCurrent" ? "__current__" : btn.dataset.v;
+    }
+
+    function _syncViewButtons() {
+        document.querySelectorAll("#avTableBody .av-view, #avViewCurrent").forEach(function (b) {
+            b.classList.toggle("btn-pressed", _snapshotKeyFor(b) === viewedKey);
+        });
+    }
+
+    function _hideSnapshot() {
+        viewedKey = null;
+        const snap = document.getElementById("avSnapshot");
+        if (snap) snap.style.display = "none";
+        _syncViewButtons();
+    }
+
+    // Render the version's model + generation settings into the snapshot.
+    // schema_hash doubles as the "response format" id shown in the old table
+    // column; gen_params carries temperature/thinking budget/etc.
+    function _renderSnapSettings(rec) {
+        const el = document.getElementById("avSnapSettings");
+        if (!el) return;
+        const pairs = [];
+        pairs.push(["Model", rec.model]);
+        if (rec.backend) pairs.push(["Backend", rec.backend]);
+        if (rec.variant) pairs.push(["Variant", rec.variant]);
+        pairs.push(["Response format", rec.schema_hash]);
+        const params = rec.gen_params || {};
+        Object.keys(params).sort().forEach(function (key) {
+            pairs.push([key, params[key]]);
+        });
+        el.innerHTML = pairs.map(function (p) {
+            const value = p[1] == null || p[1] === "" ? "—" : String(p[1]);
+            return '<span style="white-space: nowrap;"><span style="color: var(--color-text-muted);">'
+                + _esc(p[0]) + ':</span> <span class="font-mono">' + _esc(value) + "</span></span>";
+        }).join("");
+    }
+
 
     async function load() {
         _status("Loading…");
@@ -73,18 +117,16 @@
                 '<td style="' + mono + '">' + _esc(current) + "</td>" +
                 '<td style="' + cell + ' color: var(--color-text-muted);">Version for new annotations — none saved yet</td>' +
                 '<td style="' + cell + '"></td>' +
-                '<td style="' + cell + '"></td>' +
-                '<td style="' + cell + '"></td>' +
                 '<td style="' + cell + '">' +
-                    '<button class="btn-discreet btn-compact" id="avViewCurrent">View</button>' +
+                    '<button class="btn-discreet btn-compact av-view" id="avViewCurrent">View</button>' +
                 "</td>" +
                 "</tr>";
         }
 
         if (!versions.length && !currentRow) {
             tbody.innerHTML =
-                '<tr><td colspan="7" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">' +
-                "No versions recorded yet. They appear once annotation runs under the current config." +
+                '<tr><td colspan="5" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">' +
+                "No versions recorded yet. Activating a contract (or running annotation) registers one." +
                 "</td></tr>";
             return;
         }
@@ -99,8 +141,6 @@
                 '<td style="' + cell + '">' + (isActive ? "✓" : "") + "</td>" +
                 '<td style="' + mono + '">' + _esc(v.annotation_version) + "</td>" +
                 '<td style="' + cell + '">' + _esc(v.label) + "</td>" +
-                '<td style="' + cell + '">' + _esc(v.model) + "</td>" +
-                '<td style="' + mono + '">' + _esc(v.schema_hash) + "</td>" +
                 '<td style="' + cell + '">' + _esc(v.created_at) + "</td>" +
                 '<td style="' + cell + '">' +
                     '<button class="btn-discreet btn-compact av-view" data-v="' + _esc(v.annotation_version) + '">View</button> ' +
@@ -109,16 +149,20 @@
                 "</tr>";
         }).join("");
 
+        // Every View button toggles: clicking the depressed one hides the
+        // snapshot, clicking another switches it.
         tbody.querySelectorAll(".av-view").forEach(function (b) {
-            b.addEventListener("click", function () { viewSnapshot(b.dataset.v); });
+            b.addEventListener("click", function () {
+                const key = _snapshotKeyFor(b);
+                if (key === viewedKey) { _hideSnapshot(); return; }
+                if (key === "__current__") viewCurrentRendered();
+                else viewSnapshot(key);
+            });
         });
-        const viewCurrentBtn = document.getElementById("avViewCurrent");
-        if (viewCurrentBtn) {
-            viewCurrentBtn.addEventListener("click", viewCurrentRendered);
-        }
         tbody.querySelectorAll(".av-activate").forEach(function (b) {
             b.addEventListener("click", function () { activate(b.dataset.v, b); });
         });
+        _syncViewButtons();
     }
 
     async function viewSnapshot(version) {
@@ -129,10 +173,13 @@
             if (!res.ok) throw new Error(body.error || res.statusText);
             const rec = body.record || {};
             document.getElementById("avSnapVersion").textContent = version;
+            _renderSnapSettings(rec);
             document.getElementById("avSnapPrompt").textContent = rec.prompt_text || "(none)";
             document.getElementById("avSnapSchema").textContent =
                 rec.schema_json ? JSON.stringify(rec.schema_json, null, 2) : "(none / free-text)";
             document.getElementById("avSnapshot").style.display = "block";
+            viewedKey = version;
+            _syncViewButtons();
             _status("");
         } catch (err) {
             _status("Failed to load snapshot: " + err.message, true);
@@ -147,15 +194,86 @@
             if (!res.ok) throw new Error(body.error || res.statusText);
             document.getElementById("avSnapVersion").textContent =
                 (body.version || "current") + " (version for new annotations — none saved yet)";
+            _renderSnapSettings(body.descriptor || {});
             document.getElementById("avSnapPrompt").textContent = body.prompt || "(none)";
             document.getElementById("avSnapSchema").textContent =
                 body.schema ? JSON.stringify(body.schema, null, 2) : "(none / free-text)";
             document.getElementById("avSnapshot").style.display = "block";
+            viewedKey = "__current__";
+            _syncViewButtons();
             _status("");
         } catch (err) {
             _status("Failed to render current contract: " + err.message, true);
         }
     }
+
+    // ---------- post-promotion staleness banner ----------
+
+    // After a preferred-version promotion, per-study datasets stay on the
+    // previous version until recode_refresh_studies runs. The server keeps a
+    // persistent marker (auto-cleared once the refresh succeeds); this banner
+    // surfaces it with a one-click refresh for role-admins.
+    async function loadStaleness() {
+        const banner = document.getElementById("avStaleBanner");
+        if (!banner) return;
+        try {
+            const res = await fetch("/api/manage/refresh/staleness");
+            if (!res.ok) return;
+            const body = await res.json();
+            renderStaleBanner((body.version_promotion || {}).stale ? body.version_promotion : null);
+        } catch (err) { /* banner is best-effort */ }
+    }
+
+    function renderStaleBanner(promotion) {
+        const banner = document.getElementById("avStaleBanner");
+        const text = document.getElementById("avStaleText");
+        const btn = document.getElementById("avStaleRefreshBtn");
+        if (!banner || !text || !btn) return;
+        if (!promotion) {
+            banner.style.display = "none";
+            return;
+        }
+        const canStart = banner.dataset.canStart === "1";
+        const version = promotion.impact ? promotion.impact.version : (promotion.version || "");
+        text.textContent = "Studies are still built from the previous preferred version"
+            + (version ? " (now preferred: " + version + ")" : "")
+            + " — a study refresh is needed."
+            + (canStart ? "" : " Ask an administrator to run a study refresh.");
+        btn.style.display = canStart ? "inline-block" : "none";
+        banner.style.display = "flex";
+    }
+
+    async function startStudyRefresh(btn) {
+        btn.disabled = true;
+        const prev = btn.textContent;
+        btn.textContent = "Starting…";
+        try {
+            // Non-forced is sufficient: the promote already rewrote the active
+            // annotation parquet, so every study's fingerprint check rebuilds.
+            const res = await fetch("/api/start/recode_refresh_studies", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({}),
+            });
+            const body = await res.json().catch(function () { return {}; });
+            if (res.status === 409 || (body.error || "").indexOf("already running") !== -1) {
+                _status("A study refresh is already running — the banner clears when it succeeds.");
+            } else if (!res.ok) {
+                throw new Error(body.error || res.statusText);
+            } else {
+                _status("Study refresh started — the banner clears once it completes. "
+                    + "Track it under Data Management → Refresh Caches.");
+            }
+        } catch (err) {
+            _status("Could not start the study refresh: " + err.message, true);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = prev;
+        }
+    }
+
+
+
 
     async function activate(version, btn) {
         // Two-click confirm (native confirm() is blocked in embedded preview
@@ -187,6 +305,7 @@
             if (!res.ok) throw new Error(body.error || res.statusText);
             _status(version + " is now the preferred version (rows: " + (body.active_rows ?? "—") + "). " + (body.note || ""));
             load();
+            loadStaleness();
         } catch (err) {
             _status("Could not set the preferred version: " + err.message, true);
         }
@@ -440,8 +559,11 @@
         bootstrapped = true;
         const btn = document.getElementById("avRefreshBtn");
         if (btn) btn.addEventListener("click", load);
+        const staleBtn = document.getElementById("avStaleRefreshBtn");
+        if (staleBtn) staleBtn.addEventListener("click", function () { startStudyRefresh(staleBtn); });
         if (document.getElementById("avTableBody")) load();
         _acLoadStatus();
+        loadStaleness();
     }
 
     // Hook the admin sidebar's openAdminPage flow — it just toggles the
@@ -464,6 +586,7 @@
         if (!bootstrapped) return;
         _acLoadStatus();
         load();
+        loadStaleness();
     });
 
     if (document.readyState === "loading") {

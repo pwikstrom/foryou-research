@@ -730,3 +730,40 @@ def _evaluate_consolidation_staleness() -> dict:
         return {"has_impact": False, "impact": impact, "processes": result}
 
     return {"has_impact": True, "impact": impact, "processes": result}
+
+
+
+
+def _evaluate_version_promotion_staleness() -> dict:
+    """Return staleness for the last preferred-annotation-version promotion.
+
+    Promoting a version rebuilds the global active annotation parquet, but
+    per-study recoded datasets stay on the previous version until
+    ``recode_refresh_studies`` runs (which forks the meta/pca/timelines
+    cascade, so that single process is a sufficient freshness proxy). The
+    promote endpoint writes a ``promotion_impact`` marker into process_stats;
+    this evaluator reports it and clears it once the refresh has succeeded
+    after the promotion. The signal is deliberately global — studies pinned to
+    a specific annotation version never read the active parquet, but tracking
+    them here isn't worth the coupling.
+
+    Returns:
+        ``{has_impact, impact, stale}`` — ``stale`` is True while a study
+        refresh is still owed.
+    """
+    load_process_stats()
+
+    entry = process_stats.get("annotation_versions", {})
+    impact = entry.get("promotion_impact")
+    if not impact or not impact.get("timestamp"):
+        return {"has_impact": False, "impact": None, "stale": False}
+
+    last_success = process_stats.get("recode_refresh_studies", {}).get("last_success")
+    stale = not last_success or last_success < impact["timestamp"]
+    if not stale:
+        entry.pop("promotion_impact", None)
+        process_stats["annotation_versions"] = entry
+        save_process_stats()
+        return {"has_impact": False, "impact": impact, "stale": False}
+
+    return {"has_impact": True, "impact": impact, "stale": True}

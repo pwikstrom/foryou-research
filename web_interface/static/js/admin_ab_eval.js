@@ -224,18 +224,18 @@
             <td style="${cell}" class="text-xs">${_esc(m.note || "")}</td>
             <td style="${cell}; white-space: nowrap;">
                 <div style="display: flex; align-items: center; gap: 4px;">
-                    <button class="btn-discreet btn-compact abe-view" data-n="${_esc(m.name)}">View</button>
+                    <button class="btn-discreet btn-compact abe-dl" data-n="${_esc(m.name)}">Download</button>
                     <button class="btn-discreet btn-compact abe-edit" data-n="${_esc(m.name)}">Edit</button>
                     <button class="btn-discreet btn-compact abe-dup" data-n="${_esc(m.name)}">Duplicate</button>
                     <button class="btn-discreet btn-compact abe-add" data-n="${_esc(m.name)}">Add to test</button>
                     <span style="flex: 1; min-width: 16px;"></span>
-                    <button class="btn-primary btn-compact abe-activate" data-n="${_esc(m.name)}">Activate</button>
+                    <button class="btn-primary btn-compact abe-activate" data-n="${_esc(m.name)}">Graduate</button>
                     <button class="btn-danger btn-compact abe-del" data-n="${_esc(m.name)}">✕</button>
                 </div>
             </td>
         </tr>`).join("");
-        tbody.querySelectorAll(".abe-view").forEach(b =>
-            b.addEventListener("click", () => viewCandidate(b.dataset.n, b)));
+        tbody.querySelectorAll(".abe-dl").forEach(b =>
+            b.addEventListener("click", () => downloadCandidate(b.dataset.n, b)));
         tbody.querySelectorAll(".abe-edit").forEach(b =>
             b.addEventListener("click", () => editCandidate(b.dataset.n)));
         tbody.querySelectorAll(".abe-dup").forEach(b =>
@@ -340,17 +340,21 @@
         }
     }
 
-    async function viewCandidate(name, btn) {
+    // Save the candidate's TOML text as a local <name>.toml file.
+    async function downloadCandidate(name, btn) {
         try {
             const body = await _busy(btn, "…", () => _getJson(`${CAND}/${encodeURIComponent(name)}`));
-            const modal = document.getElementById("abe-item-modal");
-            document.getElementById("abe-item-id").textContent = name + ".toml";
-            document.getElementById("abe-item-body").innerHTML =
-                `<pre class="text-xs" style="white-space: pre-wrap; background: var(--color-bg-elevated);` +
-                ` padding: 12px; border-radius: 6px; max-height: 70vh; overflow: auto;">${_esc(body.text)}</pre>`;
-            if (modal) modal.style.display = "flex";
+            const blob = new Blob([body.text || ""], { type: "application/toml" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${name}.toml`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
         } catch (e) {
-            _status(`View failed: ${e.message}`, true);
+            _status(`Download failed: ${e.message}`, true);
         }
     }
 
@@ -364,15 +368,22 @@
         }
     }
 
-    // Staged activation: the activate endpoint's dry-run result, awaiting the
-    // modal's confirm click.
+    // Staged graduation: the activate endpoint's dry-run result, awaiting the
+    // modal's confirm click. switchBackend carries the tested backend when the
+    // "also switch" checkbox applies.
     let pendingActivate = null;
 
-    async function activateCandidate(name, btn) {
+    // Graduate a candidate: dry-run the impact (optionally against the backend
+    // it was tested on), confirm in the modal, then drive the normal contract
+    // upload flow. `testedBackend` comes from the run manifest's arm.
+    async function activateCandidate(name, btn, testedBackend) {
         try {
             const body = await _busy(btn, "Checking…", () =>
-                _postJson(`${CAND}/${encodeURIComponent(name)}/activate`));
+                _postJson(`${CAND}/${encodeURIComponent(name)}/activate`,
+                    testedBackend ? { backend: testedBackend } : {}));
             const impact = body.impact || {};
+            const be = body.backend || {};
+            const offerSwitch = !!(be.mismatch && be.can_switch_backend && be.target_available);
             pendingActivate = { name, text: body.text, etag: body.current_etag };
 
             const rows = [];
@@ -383,9 +394,36 @@
             } else {
                 rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
                     + `⚠ A new annotation version <span class="font-mono">${_esc(impact.candidate_version)}</span> `
-                    + `will be minted on the next annotation run (current: `
+                    + `will be registered (current: `
                     + `<span class="font-mono">${_esc(impact.current_version)}</span>). `
-                    + `It won&rsquo;t become active until you activate it under <em>Annotation Versions</em>.</div>`);
+                    + `Studies keep using the preferred version until you promote it under <em>Versions</em>.</div>`);
+            }
+            // Backend section: always say which backend+model the graduated
+            // contract will run on; offer the switch when it differs from the
+            // tested one and the user may change backends.
+            const runBackend = offerSwitch ? be.target : be.active;
+            const runModel = offerSwitch ? be.target_model : be.active_model;
+            rows.push(`<div style="margin-bottom: 10px;">This contract will run on backend `
+                + `<strong>${_esc(runBackend || "gemini")}</strong>`
+                + (runModel ? ` · <span class="font-mono">${_esc(runModel)}</span>` : "")
+                + `.</div>`);
+            if (offerSwitch) {
+                rows.push(`<div style="margin-bottom: 10px;">`
+                    + `<label class="text-sm" style="display: flex; gap: 8px; align-items: baseline; cursor: pointer;">`
+                    + `<input type="checkbox" id="abe-switch-backend" checked> `
+                    + `<span>Also switch the active annotation backend to `
+                    + `<strong>${_esc(be.target)}</strong> (currently <strong>${_esc(be.active)}</strong>) — `
+                    + `this contract was tested on it.</span></label></div>`);
+            } else if (be.mismatch && !be.can_switch_backend) {
+                rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
+                    + `⚠ This contract was tested on <strong>${_esc(be.target)}</strong>, but switching `
+                    + `backends requires the Backends admin permission — after graduation it will run on `
+                    + `<strong>${_esc(be.active)}</strong>.</div>`);
+            } else if (be.mismatch && !be.target_available) {
+                rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
+                    + `⚠ This contract was tested on <strong>${_esc(be.target)}</strong>, which is not `
+                    + `available here (${_esc(be.target_unavailable_reason || "unavailable")}) — after `
+                    + `graduation it will run on <strong>${_esc(be.active)}</strong>.</div>`);
             }
             const detail = [];
             detail.push(`Prompt changed: <strong>${impact.prompt_changed ? "yes" : "no"}</strong>`);
@@ -397,37 +435,45 @@
                 detail.push(`Fields removed: <span class="font-mono">${impact.fields_removed.map(_esc).join(", ")}</span>`);
             }
             const modal = document.getElementById("abe-item-modal");
-            document.getElementById("abe-item-id").textContent = `— activate candidate '${name}'`;
+            _setItemModalChrome(false);
+            document.getElementById("abe-item-id").textContent = `Graduate candidate '${name}'`;
             document.getElementById("abe-item-body").innerHTML = rows.join("")
                 + '<ul style="margin: 6px 0 0 18px; padding: 0;" class="text-sm">'
                 + detail.map(d => `<li>${d}</li>`).join("") + "</ul>"
                 + `<div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;
                         padding-top: 12px; border-top: 1px solid var(--color-border);">
                     <button onclick="abeCloseItemModal()" class="btn-discreet btn-compact">Cancel</button>
-                    <button onclick="abeConfirmActivate(this)" class="btn-save btn-compact">Activate contract</button>
+                    <button onclick="abeConfirmActivate(this)" class="btn-save btn-compact">Graduate contract</button>
                 </div>`;
+            pendingActivate.switchBackend = offerSwitch ? be.target : null;
             if (modal) modal.style.display = "flex";
         } catch (e) {
-            _status(`Activate failed: ${e.message}`, true);
+            _status(`Graduate failed: ${e.message}`, true);
         }
     }
 
     async function abeConfirmActivate(btn) {
         if (!pendingActivate) { abeCloseItemModal(); return; }
-        const { name, text, etag } = pendingActivate;
+        const { name, text, etag, switchBackend } = pendingActivate;
+        // Respect the (pre-checked) opt-out checkbox when it was offered.
+        const checkbox = document.getElementById("abe-switch-backend");
+        const doSwitch = switchBackend && (!checkbox || checkbox.checked);
         try {
-            const res = await _busy(btn, "Activating…", () =>
-                _postJson(AC, { text, confirm: true, expected_etag: etag }));
+            const payload = { text, confirm: true, expected_etag: etag };
+            if (doSwitch) payload.switch_backend = switchBackend;
+            const res = await _busy(btn, "Graduating…", () => _postJson(AC, payload));
             pendingActivate = null;
             abeCloseItemModal();
-            _status(res.note || `Candidate '${name}' activated.`);
+            _status(res.note || `Candidate '${name}' graduated.`);
             document.dispatchEvent(new CustomEvent("fyp:contract-changed"));
         } catch (e) {
             abeCloseItemModal();
             if (e.status === 409) {
                 _status("Rejected: the live contract changed underneath — reload and retry.", true);
+            } else if (e.status === 403) {
+                _status("Rejected: switching the annotation backend requires the Backends admin permission.", true);
             } else {
-                _status(`Activate failed: ${e.message}`, true);
+                _status(`Graduate failed: ${e.message}`, true);
             }
         }
     }
@@ -1102,6 +1148,23 @@
             return;
         }
 
+        // Graduate button for a candidate arm's cost card. The manifest's
+        // `candidate` field (recorded per arm) is the real candidate name;
+        // older manifests lack it — fall back to the arm label unless it's a
+        // duplicated arm (`name~2`), where the label is not a candidate name.
+        function _armGraduateButton(arm, meta, isCandidate) {
+            if (!isCandidate) return "";
+            const candidate = meta.candidate || (arm.includes("~") ? null : arm);
+            if (!candidate) {
+                return `<button class="btn-primary btn-compact meta-tooltip" disabled
+                    style="margin-top: 6px;"
+                    data-tooltip="This run predates candidate tracking — re-run the test to enable graduation.">Graduate</button>`;
+            }
+            return `<button class="btn-primary btn-compact abe-activate-arm"
+                data-n="${_esc(candidate)}" data-backend="${_esc(meta.backend || "gemini")}"
+                style="margin-top: 6px;">Graduate</button>`;
+        }
+
         // Per-contract cost cards.
         html += '<div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px;">';
         for (const arm of report.arms || arms) {
@@ -1121,10 +1184,7 @@
                 <div class="text-xs" style="color: var(--color-text-muted); margin-top: 2px;">
                     ${_costLine(c)}${_esc(String(c.n_errors ?? "—"))} errors ·
                     ${_fmt(c.mean_inference_duration, 1)}s mean</div>
-                ${isCandidate
-                    ? `<button class="btn-primary btn-compact abe-activate-arm" data-n="${_esc(arm)}"
-                        style="margin-top: 6px;">Activate</button>`
-                    : ""}
+                ${_armGraduateButton(arm, meta, isCandidate)}
             </div>`;
         }
         html += _humanInputCard(human);
@@ -1185,7 +1245,8 @@
 
         container.innerHTML = html;
         container.querySelectorAll(".abe-activate-arm").forEach(b =>
-            b.addEventListener("click", () => activateCandidate(b.dataset.n, b)));
+            b.addEventListener("click", () =>
+                activateCandidate(b.dataset.n, b, b.dataset.backend || null)));
         container.querySelectorAll(".abe-item-any").forEach(a =>
             a.addEventListener("click", (ev) => { ev.preventDefault(); openItemView(a.dataset.i); }));
         // Human value distributions need the coders' rows — render the N-way
@@ -1752,11 +1813,27 @@
         if (label) label.textContent = hidden ? "Hide video" : "Show video";
     }
 
+    // The item modal doubles as a plain dialog (the Graduate confirm). Its
+    // item-review chrome — video panel, prev/next, position — only makes
+    // sense in the per-item view, so each opener sets the mode explicitly.
+    function _setItemModalChrome(show) {
+        ["abe-item-video-panel", "abe-item-prev", "abe-item-next", "abe-item-pos"]
+            .forEach(function (id) {
+                const el = document.getElementById(id);
+                if (el) el.style.display = show ? "" : "none";
+            });
+        // The header's static "Item … — field by field" framing text.
+        document.querySelectorAll("#abe-item-modal .abe-item-chrome").forEach(function (el) {
+            el.style.display = show ? "" : "none";
+        });
+    }
+
     async function openItemView(itemId) {
         const modal = document.getElementById("abe-item-modal");
         const body = document.getElementById("abe-item-body");
         const report = st.currentRun && st.currentRun.report;
         if (!modal || !body || !report) return;
+        _setItemModalChrome(true);
         document.getElementById("abe-item-id").textContent = itemId;
         body.innerHTML = '<span style="color: var(--color-text-muted);">Loading…</span>';
         modal.style.display = "flex";
