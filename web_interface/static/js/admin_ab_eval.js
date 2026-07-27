@@ -273,13 +273,13 @@
         }
 
         // The shipped default: inspectable and duplicatable like any contract,
-        // and activating it restores the platform default.
+        // and activating it restores the built-in default.
         if (d && !defaultShadowed) {
             rows.push(`<tr>
                 <td style="${cell}"><span class="font-mono font-semibold">${_esc(d.name)}</span>
                     ${_rowBadge("built-in", false)}${builtinIsActive ? " " + _rowBadge("active", true) : ""}
                     <div class="text-xxs" style="color: var(--color-text-muted); min-width: 220px;
-                        max-width: 300px;">The standard contract that comes with the platform —
+                        max-width: 300px;">The standard contract that comes with the Data Hub —
                         always listed here, so you can return to it at any time by pressing
                         Activate.</div></td>
                 <td style="${cell}" class="font-mono text-xs">${_esc(d.version || "—")}</td>
@@ -933,7 +933,7 @@
         } catch (e) {
             _status(`Save failed: ${e.message}`, true);
         } finally {
-            if (btn) { btn.textContent = "Save set"; btn.disabled = !st.setDirty; }
+            if (btn) { btn.textContent = "Save"; btn.disabled = !st.setDirty; }
         }
     }
 
@@ -999,10 +999,14 @@
     function renderArmPicker() {
         const el = document.getElementById("abe-arm-picker");
         if (!el) return;
+        // The "Contracts in this test run / AI model" column titles only make
+        // sense above actual rows.
+        const header = document.getElementById("abe-arm-header");
+        if (header) header.style.display = st.testArms.length ? "flex" : "none";
         if (!st.testArms.length) {
             el.innerHTML = '<div class="text-sm" style="color: var(--color-text-muted);">'
-                + 'No contracts in this test yet — use “Add to test” on a candidate contract'
-                + ' (or “+ active contract” below).</div>';
+                + 'No contracts in this test run yet — press “Add to test” on a contract'
+                + ' in the table above (or “+ active contract” below).</div>';
             refreshEstimate();
             return;
         }
@@ -1016,7 +1020,7 @@
             return `<div style="display: flex; align-items: center; gap: 8px;">
                 <span class="text-sm" style="min-width: 180px;">${display}${suffix}</span>
                 ${_armBackendSelect(arm)}
-                <button class="btn-discreet btn-compact" title="Remove from test"
+                <button class="btn-discreet btn-compact" title="Remove from this test run"
                     onclick="abeRemoveFromTest('${_esc(arm.label)}')">&times;</button>
             </div>`;
         }).join("");
@@ -1042,44 +1046,44 @@
         const setName = st.evalSet.name ? ` from set '${st.evalSet.name}'` : "";
         el.textContent = nArms && nItems
             ? `${nArms} contract(s) × ${nItems} video(s)${setName} = `
-                + `${nArms * nItems} annotation calls${unsaved}`
-            : "Add at least one contract to the test and curate a non-empty test set.";
+                + `${nArms * nItems} annotation calls in this test run${unsaved}`
+            : "Add at least one contract to the test run (step 2) and choose at least one test video (step 1).";
     }
 
     async function abeStartRun() {
-        if (!st.testArms.length) { _status("Add at least one contract to the test.", true); return; }
+        if (!st.testArms.length) { _status("Add at least one contract to the test run.", true); return; }
         const runBtn = document.getElementById("abe-run-btn");
         try {
             // First click: fetch the authoritative estimate (visible feedback
             // while it loads), then arm the button with the real call count.
             if (!runBtn || runBtn.dataset.armed !== "1") {
                 if (runBtn) { runBtn.disabled = true; runBtn.textContent = "Checking cost…"; }
-                _status("Checking run cost…");
+                _status("Checking the cost of this test run…");
                 let est;
                 try {
                     est = await _postJson(`${EVAL}/estimate`, { n_arms: st.testArms.length });
                 } finally {
-                    if (runBtn) { runBtn.disabled = false; runBtn.textContent = "Run…"; }
+                    if (runBtn) { runBtn.disabled = false; runBtn.textContent = "Start test run…"; }
                 }
                 if (!est.n_items) { _status("The saved test set is empty — save it first.", true); return; }
                 _armTwoClick(runBtn, `Confirm: ${est.n_calls} annotation calls?`);
                 _status(st.setDirty
-                    ? "Note: the run uses the last SAVED set — you have unsaved set edits. Click again to start."
-                    : "Click again to start the run.", st.setDirty);
+                    ? "Note: the test run uses the last SAVED test videos — you have unsaved edits. Click again to start."
+                    : "Click again to start the test run.", st.setDirty);
                 return;
             }
             // Second click (armed): lock the button through the whole start
             // request so a double-click can never dispatch two runs.
             _armTwoClick(runBtn, "");
             _setRunning(true);
-            _status("Starting run…");
+            _status("Starting test run…");
             const nameInput = document.getElementById("abe-run-name");
             const body = await _postJson(`${EVAL}/run`, {
                 arms_spec: _armsSpec(),
                 eval_set: st.evalSet.name || undefined,
                 name: (nameInput && nameInput.value.trim()) || undefined,
             });
-            _status(`Run ${body.run_id} started.`);
+            _status(`Test run ${body.run_id} started.`);
             _pollRun(body.run_id);
         } catch (e) {
             _setRunning(false);
@@ -1123,9 +1127,9 @@
                 _setRunning(false);
                 if (progress) progress.textContent = "";
                 if (entry.last_run_outcome === "Fail") {
-                    _status(`Run failed: ${entry.last_message || "see logs"}`, true);
+                    _status(`Test run failed: ${entry.last_message || "see logs"}`, true);
                 } else {
-                    _status(`Run ${runId} finished.`);
+                    _status(`Test run ${runId} finished.`);
                 }
                 await abeRefreshRuns();
                 const picker = document.getElementById("abe-run-picker");
@@ -1140,7 +1144,7 @@
     async function abeCancelRun(btn) {
         try {
             await _busy(btn, "Cancelling…", () => _postJson("/api/stop/ab_eval", {}));
-            _status("Cancel requested — the run stops after the in-flight items.");
+            _status("Cancel requested — the test run stops after the in-flight items.");
         } catch (e) {
             _status(`Cancel failed: ${e.message}`, true);
         }
@@ -1294,15 +1298,15 @@
                     display: flex; gap: 18px; flex-wrap: wrap;">
                 <span>Started ${_esc((manifest.started_at || "—").replace("T", " "))}
                     by ${_esc(manifest.started_by || "?")}</span>
-                <span>Test set <span class="font-mono" style="color: var(--color-text-primary);">${_esc(manifest.eval_set || "—")}</span></span>
+                <span>Test videos <span class="font-mono" style="color: var(--color-text-primary);">${_esc(manifest.eval_set || "—")}</span></span>
                 <span>${_esc(String(manifest.n_items ?? "?"))} videos</span>
             </div>
             ${manifest.error ? `<div class="text-xs" style="color: var(--color-danger); margin-top: 6px;">${_esc(manifest.error)}</div>` : ""}
             <div class="text-xxs" style="color: var(--color-text-muted); margin-top: 8px;
                     line-height: var(--leading-relaxed);">
-                Test runs make real annotation calls but are stored in isolation — they never enter the
-                machine-annotation archive or studies. Every score below is pairwise agreement across the
-                contracts, not a verdict on which contract is correct.
+                Test runs make real annotation calls, but their results are stored separately for
+                comparison only — they never enter your research datasets. Every score below is
+                pairwise agreement across the contracts, not a verdict on which contract is correct.
             </div>
         </div>`;
 
