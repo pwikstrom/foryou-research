@@ -206,60 +206,111 @@
         }
     }
 
+    // Small pill stating what a row IS (active / built-in).
+    function _rowBadge(label, isActive) {
+        return '<span class="row-badge text-xxs uppercase font-semibold'
+            + (isActive ? " row-badge-active" : "") + '">' + _esc(label) + "</span>";
+    }
+
+    // Trailing action: the contract already in use shows a non-interactive
+    // state button (same pattern as the Versions page), everything else an
+    // Activate button.
+    function _activateCell(name, isActive) {
+        if (isActive) {
+            return '<button class="btn-save btn-compact btn-state btn-row-fixed">Active</button>';
+        }
+        return '<button class="btn-primary btn-compact btn-row-fixed abe-activate" data-n="'
+            + _esc(name) + '">Activate</button>';
+    }
+
     function renderCandidates() {
         const tbody = document.getElementById("abe-cand-tbody");
         if (!tbody) return;
         const cell = "padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top;";
-
-        // Permanent pseudo-row for the shipped default contract: inspectable,
-        // duplicatable, and graduatable (= revert to default) like a candidate.
-        // Hidden when a stored candidate shadows the reserved name.
-        let defaultRow = "";
+        const muted = ' style="color: var(--color-text-muted);"';
+        const active = st.activeContract || {};
+        const activeVersion = active.version || null;
         const d = st.defaultContract;
-        if (d && !st.candidates.some(m => m.name === d.name)) {
-            defaultRow = `<tr>
-                <td style="${cell}" class="font-mono font-semibold">${_esc(d.name)}
-                    <span class="text-xxs" style="color: var(--color-text-muted);">(shipped)</span></td>
-                <td style="${cell}" class="font-mono text-xs">${_esc(d.candidate_version || "—")}</td>
+        const defaultShadowed = !!(d && st.candidates.some(m => m.name === d.name));
+
+        // Does a real row already represent the active contract? If so it just
+        // gets the badge; only an otherwise-unrepresented active contract
+        // (uploaded directly, or from a since-edited candidate) needs a row.
+        const builtinIsActive = !!(d && !defaultShadowed && activeVersion && d.version === activeVersion);
+        const candidateIsActive = st.candidates.some(m => activeVersion && m.version === activeVersion);
+        const rows = [];
+
+        if (activeVersion && !builtinIsActive && !candidateIsActive) {
+            const who = active.updated_by ? _esc(active.updated_by) : "";
+            const when = active.updated_at ? _esc(String(active.updated_at).replace("T", " ")) : "";
+            rows.push(`<tr>
+                <td style="${cell}"><span${muted}>active contract</span> ${_rowBadge("active", true)}
+                    <div class="text-xxs"${muted}>Uploaded contract, not saved as a candidate</div></td>
+                <td style="${cell}" class="font-mono text-xs">${_esc(activeVersion)}</td>
+                <td style="${cell}">${_esc(active.n_fields ?? "—")}</td>
+                <td style="${cell}" class="text-xs">${when}<br><span${muted}>${who}</span></td>
+                <td style="${cell}; white-space: nowrap;">
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <button class="btn-discreet btn-compact abe-dl-active">Download</button>
+                        <button class="btn-discreet btn-compact abe-dup-active">Duplicate</button>
+                        <span style="flex: 1; min-width: 16px;"></span>
+                        <button class="btn-save btn-compact btn-state btn-row-fixed">Active</button>
+                    </div>
+                </td>
+            </tr>`);
+        }
+
+        // The shipped default: inspectable and duplicatable like any contract,
+        // and activating it restores the platform default.
+        if (d && !defaultShadowed) {
+            rows.push(`<tr>
+                <td style="${cell}"><span class="font-mono font-semibold">${_esc(d.name)}</span>
+                    ${_rowBadge("built-in", false)}${builtinIsActive ? " " + _rowBadge("active", true) : ""}
+                    <div class="text-xxs"${muted}>Ships with the platform — activate to reset to it</div></td>
+                <td style="${cell}" class="font-mono text-xs">${_esc(d.version || "—")}</td>
                 <td style="${cell}">${_esc(d.n_fields ?? "—")}</td>
                 <td style="${cell} color: var(--color-text-muted);" class="text-xs">—</td>
-                <td style="${cell}" class="text-xs">The default contract this platform ships with</td>
                 <td style="${cell}; white-space: nowrap;">
                     <div style="display: flex; align-items: center; gap: 4px;">
                         <button class="btn-discreet btn-compact abe-dl" data-n="${_esc(d.name)}">Download</button>
                         <button class="btn-discreet btn-compact abe-dup" data-n="${_esc(d.name)}">Duplicate</button>
                         <span style="flex: 1; min-width: 16px;"></span>
-                        <button class="btn-primary btn-compact abe-activate" data-n="${_esc(d.name)}">Graduate</button>
+                        ${_activateCell(d.name, builtinIsActive)}
                     </div>
                 </td>
-            </tr>`;
+            </tr>`);
         }
 
-        if (!st.candidates.length && !defaultRow) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-sm" style="padding: 10px 8px;' +
-                ' color: var(--color-text-muted);">No candidate contracts yet — add one with' +
-                " “Use active” or “Upload new”, or edit one in the form editor.</td></tr>";
+        for (const m of st.candidates) {
+            const isActive = !!(activeVersion && m.version === activeVersion);
+            rows.push(`<tr>
+                <td style="${cell}"><span class="font-mono font-semibold">${_esc(m.name)}</span>
+                    ${isActive ? " " + _rowBadge("active", true) : ""}</td>
+                <td style="${cell}" class="font-mono text-xs">${_esc(m.version || "—")}</td>
+                <td style="${cell}">${_esc(m.n_fields ?? "—")}</td>
+                <td style="${cell}" class="text-xs">${_esc((m.created_at || "").replace("T", " "))}<br>
+                    <span${muted}>${_esc(m.created_by || "")}</span></td>
+                <td style="${cell}; white-space: nowrap;">
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <button class="btn-discreet btn-compact abe-dl" data-n="${_esc(m.name)}">Download</button>
+                        <button class="btn-discreet btn-compact abe-edit" data-n="${_esc(m.name)}">Edit</button>
+                        <button class="btn-discreet btn-compact abe-dup" data-n="${_esc(m.name)}">Duplicate</button>
+                        <button class="btn-discreet btn-compact abe-add" data-n="${_esc(m.name)}">Add to test</button>
+                        <span style="flex: 1; min-width: 16px;"></span>
+                        ${_activateCell(m.name, isActive)}
+                        <button class="btn-danger btn-compact abe-del" data-n="${_esc(m.name)}">✕</button>
+                    </div>
+                </td>
+            </tr>`);
+        }
+
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-sm" style="padding: 10px 8px;'
+                + ' color: var(--color-text-muted);">No contracts to show — upload one to get started.</td></tr>';
             return;
         }
-        tbody.innerHTML = defaultRow + st.candidates.map(m => `<tr>
-            <td style="${cell}" class="font-mono font-semibold">${_esc(m.name)}</td>
-            <td style="${cell}" class="font-mono text-xs">${_esc(m.candidate_version || "—")}</td>
-            <td style="${cell}">${_esc(m.n_fields ?? "—")}</td>
-            <td style="${cell}" class="text-xs">${_esc((m.created_at || "").replace("T", " "))}<br>
-                <span style="color: var(--color-text-muted);">${_esc(m.created_by || "")}</span></td>
-            <td style="${cell}" class="text-xs">${_esc(m.note || "")}</td>
-            <td style="${cell}; white-space: nowrap;">
-                <div style="display: flex; align-items: center; gap: 4px;">
-                    <button class="btn-discreet btn-compact abe-dl" data-n="${_esc(m.name)}">Download</button>
-                    <button class="btn-discreet btn-compact abe-edit" data-n="${_esc(m.name)}">Edit</button>
-                    <button class="btn-discreet btn-compact abe-dup" data-n="${_esc(m.name)}">Duplicate</button>
-                    <button class="btn-discreet btn-compact abe-add" data-n="${_esc(m.name)}">Add to test</button>
-                    <span style="flex: 1; min-width: 16px;"></span>
-                    <button class="btn-primary btn-compact abe-activate" data-n="${_esc(m.name)}">Graduate</button>
-                    <button class="btn-danger btn-compact abe-del" data-n="${_esc(m.name)}">✕</button>
-                </div>
-            </td>
-        </tr>`).join("");
+        tbody.innerHTML = rows.join("");
+
         tbody.querySelectorAll(".abe-dl").forEach(b =>
             b.addEventListener("click", () => downloadCandidate(b.dataset.n, b)));
         tbody.querySelectorAll(".abe-edit").forEach(b =>
@@ -272,6 +323,12 @@
             b.addEventListener("click", () => activateCandidate(b.dataset.n, b)));
         tbody.querySelectorAll(".abe-del").forEach(b =>
             b.addEventListener("click", () => deleteCandidate(b.dataset.n, b)));
+        // The pinned active-contract row has no candidate name behind it: it
+        // reads the live contract endpoints instead.
+        tbody.querySelectorAll(".abe-dl-active").forEach(b =>
+            b.addEventListener("click", () => abeDownloadActive()));
+        tbody.querySelectorAll(".abe-dup-active").forEach(b =>
+            b.addEventListener("click", () => duplicateActiveContract(b)));
     }
 
     // Inline naming row (native prompt() is blocked in embedded browsers, so
@@ -341,14 +398,14 @@
         }
     }
 
-    async function abeSaveLiveAsCandidate(btn) {
+    async function duplicateActiveContract(btn) {
         try {
             const dl = await _busy(btn, "Reading…", () => fetch(`${AC}/download`));
             if (!dl.ok) throw new Error("could not read the active contract");
             nameFlow.text = await dl.text();
-            _showNameRow("Snapshot the active contract as a candidate:", "active-snapshot");
+            _showNameRow("Duplicate the active contract as:", "active-copy");
         } catch (e) {
-            _status(`Save failed: ${e.message}`, true);
+            _status(`Duplicate failed: ${e.message}`, true);
         }
     }
 
@@ -394,12 +451,12 @@
         }
     }
 
-    // Staged graduation: the activate endpoint's dry-run result, awaiting the
+    // Staged activation: the activate endpoint's dry-run result, awaiting the
     // modal's confirm click. switchBackend carries the tested backend when the
     // "also switch" checkbox applies.
     let pendingActivate = null;
 
-    // Graduate a candidate: dry-run the impact (optionally against the backend
+    // Activate a contract: dry-run the impact (optionally against the backend
     // it was tested on), confirm in the modal, then drive the normal contract
     // upload flow. `testedBackend` comes from the run manifest's arm.
     async function activateCandidate(name, btn, testedBackend) {
@@ -425,7 +482,7 @@
                     + `<span class="font-mono">${_esc(impact.active_version)}</span>). `
                     + `Studies keep using the preferred version until you promote it under <em>Versions</em>.</div>`);
             }
-            // Backend section: always say which backend+model the graduated
+            // Backend section: always say which backend+model the activated
             // contract will run on; offer the switch when it differs from the
             // tested one and the user may change backends.
             const runBackend = offerSwitch ? be.target : be.active;
@@ -444,13 +501,13 @@
             } else if (be.mismatch && !be.can_switch_backend) {
                 rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
                     + `⚠ This contract was tested on <strong>${_esc(be.target)}</strong>, but switching `
-                    + `backends requires the Backends admin permission — after graduation it will run on `
+                    + `backends requires the Backends admin permission — after activation it will run on `
                     + `<strong>${_esc(be.active)}</strong>.</div>`);
             } else if (be.mismatch && !be.target_available) {
                 rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
                     + `⚠ This contract was tested on <strong>${_esc(be.target)}</strong>, which is not `
                     + `available here (${_esc(be.target_unavailable_reason || "unavailable")}) — after `
-                    + `graduation it will run on <strong>${_esc(be.active)}</strong>.</div>`);
+                    + `activation it will run on <strong>${_esc(be.active)}</strong>.</div>`);
             }
             const detail = [];
             detail.push(`Prompt changed: <strong>${impact.prompt_changed ? "yes" : "no"}</strong>`);
@@ -463,19 +520,19 @@
             }
             const modal = document.getElementById("abe-item-modal");
             _setItemModalChrome(false);
-            document.getElementById("abe-item-id").textContent = `Graduate candidate '${name}'`;
+            document.getElementById("abe-item-id").textContent = `Activate contract '${name}'`;
             document.getElementById("abe-item-body").innerHTML = rows.join("")
                 + '<ul style="margin: 6px 0 0 18px; padding: 0;" class="text-sm">'
                 + detail.map(d => `<li>${d}</li>`).join("") + "</ul>"
                 + `<div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;
                         padding-top: 12px; border-top: 1px solid var(--color-border);">
                     <button onclick="abeCloseItemModal()" class="btn-discreet btn-compact">Cancel</button>
-                    <button onclick="abeConfirmActivate(this)" class="btn-save btn-compact">Graduate contract</button>
+                    <button onclick="abeConfirmActivate(this)" class="btn-save btn-compact">Activate contract</button>
                 </div>`;
             pendingActivate.switchBackend = offerSwitch ? be.target : null;
             if (modal) modal.style.display = "flex";
         } catch (e) {
-            _status(`Graduate failed: ${e.message}`, true);
+            _status(`Activate failed: ${e.message}`, true);
         }
     }
 
@@ -486,16 +543,16 @@
         const checkbox = document.getElementById("abe-switch-backend");
         const doSwitch = switchBackend && (!checkbox || checkbox.checked);
         try {
-            // Graduating the shipped default = revert: remove the runtime
+            // Activating the shipped default = revert: remove the runtime
             // override (so future shipped contract updates apply) instead of
             // uploading identical text as a new runtime contract.
             const payload = { text, confirm: true, expected_etag: etag };
             if (doSwitch) payload.switch_backend = switchBackend;
-            const res = await _busy(btn, "Graduating…", () =>
+            const res = await _busy(btn, "Activating…", () =>
                 builtinDefault ? _postJson(`${AC}/revert`, {}) : _postJson(AC, payload));
             pendingActivate = null;
             abeCloseItemModal();
-            _status(res.note || `Candidate '${name}' graduated.`);
+            _status(res.note || `'${name}' is now the active contract.`);
             document.dispatchEvent(new CustomEvent("fyp:contract-changed"));
         } catch (e) {
             abeCloseItemModal();
@@ -504,7 +561,7 @@
             } else if (e.status === 403) {
                 _status("Rejected: switching the annotation backend requires the Backends admin permission.", true);
             } else {
-                _status(`Graduate failed: ${e.message}`, true);
+                _status(`Activate failed: ${e.message}`, true);
             }
         }
     }
@@ -798,7 +855,7 @@
             renderEvalSet();
             refreshEstimate();
         } catch (e) {
-            _status(`Save failed: ${e.message}`, true);
+            _status(`Duplicate failed: ${e.message}`, true);
         } finally {
             if (btn) { btn.textContent = "Save set"; btn.disabled = !st.setDirty; }
         }
@@ -1179,21 +1236,21 @@
             return;
         }
 
-        // Graduate button for a candidate arm's cost card. The manifest's
+        // Activate button for a candidate arm's cost card. The manifest's
         // `candidate` field (recorded per arm) is the real candidate name;
         // older manifests lack it — fall back to the arm label unless it's a
         // duplicated arm (`name~2`), where the label is not a candidate name.
-        function _armGraduateButton(arm, meta, isCandidate) {
+        function _armActivateButton(arm, meta, isCandidate) {
             if (!isCandidate) return "";
             const candidate = meta.candidate || (arm.includes("~") ? null : arm);
             if (!candidate) {
                 return `<button class="btn-primary btn-compact meta-tooltip" disabled
                     style="margin-top: 6px;"
-                    data-tooltip="This run predates candidate tracking — re-run the test to enable graduation.">Graduate</button>`;
+                    data-tooltip="This run predates candidate tracking — re-run the test to enable activation.">Activate</button>`;
             }
             return `<button class="btn-primary btn-compact abe-activate-arm"
                 data-n="${_esc(candidate)}" data-backend="${_esc(meta.backend || "gemini")}"
-                style="margin-top: 6px;">Graduate</button>`;
+                style="margin-top: 6px;">Activate</button>`;
         }
 
         // Per-contract cost cards.
@@ -1215,7 +1272,7 @@
                 <div class="text-xs" style="color: var(--color-text-muted); margin-top: 2px;">
                     ${_costLine(c)}${_esc(String(c.n_errors ?? "—"))} errors ·
                     ${_fmt(c.mean_inference_duration, 1)}s mean</div>
-                ${_armGraduateButton(arm, meta, isCandidate)}
+                ${_armActivateButton(arm, meta, isCandidate)}
             </div>`;
         }
         html += _humanInputCard(human);
@@ -1844,7 +1901,7 @@
         if (label) label.textContent = hidden ? "Hide video" : "Show video";
     }
 
-    // The item modal doubles as a plain dialog (the Graduate confirm). Its
+    // The item modal doubles as a plain dialog (the Activate confirm). Its
     // item-review chrome — video panel, prev/next, position — only makes
     // sense in the per-item view, so each opener sets the mode explicitly.
     function _setItemModalChrome(show) {
@@ -1974,11 +2031,11 @@
         if (bootstrapped) loadCandidates();
     });
 
-    window.abeSaveLiveAsCandidate = abeSaveLiveAsCandidate;
     window.abeOnCandidateFile = abeOnCandidateFile;
-    window.abeDownloadActive = function () {
-        window.location.href = "/api/manage/annotation-contract/download";
-    };
+
+    function abeDownloadActive() {
+        window.location.href = `${AC}/download`;
+    }
     window.abeConfirmName = abeConfirmName;
     window.abeCancelName = abeCancelName;
     window.abeConfirmActivate = abeConfirmActivate;

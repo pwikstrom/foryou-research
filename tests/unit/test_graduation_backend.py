@@ -344,6 +344,11 @@ def test_default_pseudo_candidate(client):
     d = body.get("default_contract")
     assert d and d["name"] == "default"
     assert isinstance(d.get("n_fields"), int) and d["n_fields"] > 0
+    assert str(d.get("version") or "").startswith("av_")
+    # The active contract is summarised too (the table pins it as a row).
+    active = body.get("active_contract")
+    assert active and str(active.get("version") or "").startswith("av_")
+    assert active.get("source") in ("baked", "runtime")
 
     res = client.get("/api/manage/ab-candidates/default")
     body = res.get_json()
@@ -364,6 +369,30 @@ def test_default_pseudo_candidate(client):
     assert res.status_code == 200, body
     assert body["builtin_default"] is True
     assert "impact" in body
+
+
+
+
+
+
+def test_candidate_version_is_computed_live(client):
+    """The listed version ignores the stale save-time snapshot in the meta file.
+
+    The stored ``candidate_version`` is only correct for the backend/model that
+    was active when the candidate was saved; the table must show what the
+    contract would produce NOW.
+    """
+    ab_eval.save_candidate(_CAND_NAME, ac._read_baked_text(), actor="test", overwrite=True)
+    meta_fn = f"{_CAND_NAME}.meta.json"
+    meta = data_io.load_json(storage_location=ab_eval.CANDIDATES_LOCATION, filename=meta_fn)
+    meta["candidate_version"] = "av_stale_snapshot"
+    data_io.save_json(data=meta, storage_location=ab_eval.CANDIDATES_LOCATION, filename=meta_fn)
+
+    res = client.get("/api/manage/ab-candidates")
+    row = next(m for m in res.get_json()["candidates"] if m["name"] == _CAND_NAME)
+    assert row["version"] != "av_stale_snapshot"
+    assert row["version"] == _annotation_contract_impact(
+        tomllib.loads(ac._read_baked_text()))["candidate_version"]
 
 
 

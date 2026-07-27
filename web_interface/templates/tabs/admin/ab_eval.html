@@ -1,42 +1,39 @@
 <!-- Annotation testing sub-page. All content rendered by
      static/js/admin_ab_eval.js from the /api/manage/ab-* endpoints. -->
-<h2 style="margin: 0 0 8px 0;">Playground</h2>
+<h2 style="margin: 0 0 8px 0;">Contracts</h2>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
-    The playground is where you can experiment with how your
+    This page is where you experiment with how your
     videos get annotated: try out different contracts (prompts and response
     fields) and different annotation backends (AI models), run them side by
     side on a small set of already-downloaded videos, and compare how well
     each performs. Note that test runs make <strong>real annotation calls</strong>
     (contracts &times; videos) but results are stored in an isolated
     location and never enter the machine-annotation archive or studies.
-    When you are happy with a candidate contract, you press its <strong>Graduate</strong>
-    button to review the impact and confirm. The ingredients defined by the contract (and,
-    if you choose, its tested backend) is "baked" to a <em>version</em>, to be used
-    for new annotations.
+    When you are happy with a contract, press its <strong>Activate</strong> button
+    to review the impact and confirm. The ingredients defined by the contract (and,
+    if you choose, its tested backend) are "baked" into a <em>version</em>, which is
+    then used for new annotations.
 </p>
 
 <div id="abe-status" class="text-sm" style="min-height: 18px; margin-bottom: 8px;
     color: var(--color-text-muted);"></div>
 
-<!-- 1. Candidate contracts -->
+<!-- 1. Contracts -->
 <section class="text-sm" style="margin: 0 0 20px 0; padding: 14px 16px;
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-        <h3 style="margin: 0; color: var(--color-text-heading); flex: 1;">Candidate contracts</h3>
-        <button onclick="abeDownloadActive()" class="btn-discreet btn-compact"
-            >Download active</button>
-        <span class="text-sm" style="color: var(--color-text-muted);">Add new candidate contract:</span>
-        <button onclick="abeSaveLiveAsCandidate(this)" class="btn-discreet btn-compact"
-            >Use active</button>
+        <h3 style="margin: 0; color: var(--color-text-heading); flex: 1;">Available contracts</h3>
+        <span class="text-sm" style="color: var(--color-text-muted);">Start from an existing
+            contract with <strong>Duplicate</strong>, or</span>
         <label class="btn-primary btn-compact" style="cursor: pointer; margin: 0;">
-            Upload new
+            Upload a contract&hellip;
             <input id="abe-cand-file" type="file" accept=".toml,text/plain"
                 style="display: none;" onchange="abeOnCandidateFile(this)">
         </label>
     </div>
 
-    <!-- Inline naming row for the two create-candidate flows (no native prompt) -->
+    <!-- Inline naming row for the upload / duplicate flows (no native prompt) -->
     <div id="abe-name-row" style="display: none; gap: 8px; margin-top: 10px;
             align-items: center; flex-wrap: wrap; padding: 10px 12px;
             border: 1px solid var(--color-border); border-radius: 6px;">
@@ -55,15 +52,16 @@
             <thead>
                 <tr class="text-xs" style="text-align: left; color: var(--color-text-muted);">
                     <th style="padding: 6px 8px; border-bottom: 1px solid var(--color-border);">Name</th>
-                    <th style="padding: 6px 8px; border-bottom: 1px solid var(--color-border);">Version preview</th>
+                    <th style="padding: 6px 8px; border-bottom: 1px solid var(--color-border);">
+                        <span class="meta-tooltip" data-tooltip="The annotation version this contract produces under the current backend and model settings.">Version</span>
+                    </th>
                     <th style="padding: 6px 8px; border-bottom: 1px solid var(--color-border);">Fields</th>
                     <th style="padding: 6px 8px; border-bottom: 1px solid var(--color-border);">Created</th>
-                    <th style="padding: 6px 8px; border-bottom: 1px solid var(--color-border);">Note</th>
                     <th style="padding: 6px 8px; border-bottom: 1px solid var(--color-border);">Actions</th>
                 </tr>
             </thead>
             <tbody id="abe-cand-tbody">
-                <tr><td colspan="6" class="text-sm" style="padding: 10px 8px;
+                <tr><td colspan="5" class="text-sm" style="padding: 10px 8px;
                     color: var(--color-text-muted);">Loading&hellip;</td></tr>
             </tbody>
         </table>

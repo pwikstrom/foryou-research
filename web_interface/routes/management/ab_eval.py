@@ -20,8 +20,14 @@ from ...services.worker_status import (
 
 
 
+import fyp.annotation_versioning as annotation_versioning
+
 from ._blueprint import management_bp
-from .contracts import _annotation_contract_impact, _backend_target_info
+from .contracts import (
+    _annotation_contract_impact,
+    _backend_target_info,
+    candidate_version_descriptor,
+)
 
 
 # Reserved pseudo-candidate name for the shipped (baked) default contract.
@@ -47,31 +53,70 @@ def _default_candidate_payload():
 
 
 
+def _live_version_of(contract: dict) -> str | None:
+    """The ``av_`` a contract would produce under the active backend, or None."""
+    try:
+        descriptor, _, _ = candidate_version_descriptor(contract)
+        return descriptor["annotation_version"]
+    except Exception:
+        return None
+
+
+
+
 @management_bp.route('/api/manage/ab-candidates', methods=['GET'])
 @permission_required('tab.admin.ab_eval')
 @login_required
 def list_ab_candidates():
-    """List stored candidate contracts (metadata only, newest first).
+    """List stored contracts for the Playground's contracts table.
 
-    Also returns ``default_contract`` — a lightweight summary of the shipped
-    default contract for the Playground's permanent pseudo-row.
+    Each candidate's ``version`` is computed LIVE (the stored
+    ``candidate_version`` is a save-time snapshot that goes stale the moment
+    the backend or model changes). Also returns summaries of the built-in
+    ``default_contract`` and the ``active_contract``, which the table pins as
+    rows so every contract in play is visible in one place.
     """
     try:
         from fyp import ab_eval
+        from fyp import annotation_contract as ac
+
+        candidates = []
+        for meta in ab_eval.list_candidates():
+            version = None
+            try:
+                version = _live_version_of(ab_eval.load_candidate(meta["name"])["contract"])
+            except Exception:
+                pass
+            candidates.append({**meta, "version": version or meta.get("candidate_version")})
 
         default_summary = None
         try:
             payload = _default_candidate_payload()
             default_summary = {
                 "name": DEFAULT_CANDIDATE,
-                "candidate_version": _annotation_contract_impact(
-                    payload["contract"]).get("candidate_version"),
+                "version": _live_version_of(payload["contract"]),
                 "n_fields": len(payload["contract"].get("fields", [])),
             }
         except Exception:
             pass
-        return jsonify({"candidates": ab_eval.list_candidates(),
-                        "default_contract": default_summary})
+
+        active_summary = None
+        try:
+            status = ac.contract_status()
+            active_contract = ac.load_contract()
+            active_summary = {
+                "version": annotation_versioning.active_annotation_version(),
+                "n_fields": len(active_contract.get("fields", [])),
+                "source": status.get("source"),
+                "updated_at": status.get("updated_at"),
+                "updated_by": status.get("updated_by"),
+            }
+        except Exception:
+            pass
+
+        return jsonify({"candidates": candidates,
+                        "default_contract": default_summary,
+                        "active_contract": active_summary})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

@@ -136,7 +136,7 @@
         }
     }
 
-    // A contract graduation from the Playground may also switch the active
+    // Activating a contract from the Contracts page may also switch the active
     // annotation backend — refresh the Backends widgets so the select and
     // requirements panel reflect it.
     document.addEventListener('fyp:contract-changed', function () {

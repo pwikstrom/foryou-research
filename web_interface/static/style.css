@@ -1202,14 +1202,30 @@ button {
     box-shadow: inset var(--shadow-sm);
 }
 
-/* Versions-table Prefer / Make current buttons: fixed width so state-label
-   swaps ("Prefer" → "Preferred", "Make current" → "Current") don't reflow
-   the row. Sized to the longest label (the armed "Prefer — sure?"). */
-.av-btn-fixed {
+/* Row-action buttons whose label swaps with state ("Prefer" → "Preferred",
+   "Activate" → "Active"): fixed width so the swap doesn't reflow the row.
+   Sized to the longest label (the armed "Prefer — sure?"). */
+.btn-row-fixed {
     width: 110px;
     padding-left: 0;
     padding-right: 0;
     text-align: center;
+}
+
+/* Small pill marking what a table row IS (e.g. the active or built-in
+   contract) — informational, never interactive. */
+.row-badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 9px;
+    border: 1px solid var(--color-border);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.row-badge-active {
+    border-color: var(--color-success);
+    color: var(--color-success);
 }
 
 
