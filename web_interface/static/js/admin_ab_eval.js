@@ -118,6 +118,16 @@
         el.style.color = isError ? "var(--color-danger)" : "var(--color-text-muted)";
     }
 
+    // Status line inside the "Available contracts" card — contract actions
+    // (save/duplicate/activate/delete) report here, next to their buttons;
+    // the evaluation workflow (sets, runs, results) uses _status further down.
+    function _statusContracts(msg, isError) {
+        const el = document.getElementById("abe-cand-status");
+        if (!el) { _status(msg, isError); return; }
+        el.textContent = msg || "";
+        el.style.color = isError ? "var(--color-danger)" : "var(--color-text-muted)";
+    }
+
     // Two-click confirmation for destructive/costly buttons — native
     // confirm()/prompt() dialogs are blocked in embedded preview browsers.
     // First click arms the button (relabels it); a second click within 4s
@@ -189,7 +199,7 @@
             renderCandidates();
             renderArmPicker();
         } catch (e) {
-            _status(`Failed to load candidates: ${e.message}`, true);
+            _statusContracts(`Failed to load candidates: ${e.message}`, true);
         }
     }
 
@@ -217,7 +227,7 @@
     // Activate button.
     function _activateCell(name, isActive) {
         if (isActive) {
-            return '<button class="btn-save btn-compact btn-state btn-row-fixed">Active</button>';
+            return '<button class="btn-compact btn-state btn-row-fixed">✓ Active</button>';
         }
         return '<button class="btn-primary btn-compact btn-row-fixed abe-activate" data-n="'
             + _esc(name) + '">Activate</button>';
@@ -245,16 +255,18 @@
             const when = active.updated_at ? _esc(String(active.updated_at).replace("T", " ")) : "";
             rows.push(`<tr>
                 <td style="${cell}"><span${muted}>active contract</span> ${_rowBadge("active", true)}
-                    <div class="text-xxs"${muted}>Uploaded contract, not saved as a candidate</div></td>
+                    <div class="text-xxs" style="color: var(--color-text-muted); min-width: 220px;
+                        max-width: 300px;">Uploaded contract, not saved as a candidate</div></td>
                 <td style="${cell}" class="font-mono text-xs">${_esc(activeVersion)}</td>
                 <td style="${cell}">${_esc(active.n_fields ?? "—")}</td>
                 <td style="${cell}" class="text-xs">${when}<br><span${muted}>${who}</span></td>
-                <td style="${cell}; white-space: nowrap;">
-                    <div style="display: flex; align-items: center; gap: 4px;">
+                <td style="${cell}">
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 300px;">
+                        <button class="btn-discreet btn-compact abe-view-active">View</button>
                         <button class="btn-discreet btn-compact abe-dl-active">Download</button>
                         <button class="btn-discreet btn-compact abe-dup-active">Duplicate</button>
                         <span style="flex: 1; min-width: 16px;"></span>
-                        <button class="btn-save btn-compact btn-state btn-row-fixed">Active</button>
+                        <button class="btn-compact btn-state btn-row-fixed">✓ Active</button>
                     </div>
                 </td>
             </tr>`);
@@ -266,12 +278,16 @@
             rows.push(`<tr>
                 <td style="${cell}"><span class="font-mono font-semibold">${_esc(d.name)}</span>
                     ${_rowBadge("built-in", false)}${builtinIsActive ? " " + _rowBadge("active", true) : ""}
-                    <div class="text-xxs"${muted}>Ships with the platform — activate to reset to it</div></td>
+                    <div class="text-xxs" style="color: var(--color-text-muted); min-width: 220px;
+                        max-width: 300px;">The standard contract that comes with the platform —
+                        always listed here, so you can return to it at any time by pressing
+                        Activate.</div></td>
                 <td style="${cell}" class="font-mono text-xs">${_esc(d.version || "—")}</td>
                 <td style="${cell}">${_esc(d.n_fields ?? "—")}</td>
                 <td style="${cell} color: var(--color-text-muted);" class="text-xs">—</td>
-                <td style="${cell}; white-space: nowrap;">
-                    <div style="display: flex; align-items: center; gap: 4px;">
+                <td style="${cell}">
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 300px;">
+                        <button class="btn-discreet btn-compact abe-view" data-n="${_esc(d.name)}">View</button>
                         <button class="btn-discreet btn-compact abe-dl" data-n="${_esc(d.name)}">Download</button>
                         <button class="btn-discreet btn-compact abe-dup" data-n="${_esc(d.name)}">Duplicate</button>
                         <span style="flex: 1; min-width: 16px;"></span>
@@ -290,8 +306,9 @@
                 <td style="${cell}">${_esc(m.n_fields ?? "—")}</td>
                 <td style="${cell}" class="text-xs">${_esc((m.created_at || "").replace("T", " "))}<br>
                     <span${muted}>${_esc(m.created_by || "")}</span></td>
-                <td style="${cell}; white-space: nowrap;">
-                    <div style="display: flex; align-items: center; gap: 4px;">
+                <td style="${cell}">
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 300px;">
+                        <button class="btn-discreet btn-compact abe-view" data-n="${_esc(m.name)}">View</button>
                         <button class="btn-discreet btn-compact abe-dl" data-n="${_esc(m.name)}">Download</button>
                         <button class="btn-discreet btn-compact abe-edit" data-n="${_esc(m.name)}">Edit</button>
                         <button class="btn-discreet btn-compact abe-dup" data-n="${_esc(m.name)}">Duplicate</button>
@@ -311,6 +328,10 @@
         }
         tbody.innerHTML = rows.join("");
 
+        tbody.querySelectorAll(".abe-view").forEach(b =>
+            b.addEventListener("click", () => viewContract(b.dataset.n, b)));
+        tbody.querySelectorAll(".abe-view-active").forEach(b =>
+            b.addEventListener("click", () => viewActiveContract(b)));
         tbody.querySelectorAll(".abe-dl").forEach(b =>
             b.addEventListener("click", () => downloadCandidate(b.dataset.n, b)));
         tbody.querySelectorAll(".abe-edit").forEach(b =>
@@ -371,7 +392,7 @@
             await _busy(btn, "Saving…", () =>
                 _postJson(CAND, { name, text: nameFlow.text, overwrite: nameFlow.overwrite }));
             abeCancelName();
-            _status(`Candidate '${name}' saved.`);
+            _statusContracts(`Candidate '${name}' saved.`);
             await loadCandidates();
         } catch (e) {
             if (e.status === 409 && !nameFlow.overwrite) {
@@ -394,7 +415,7 @@
             nameFlow.text = body.text;
             _showNameRow(`Duplicate '${name}' as:`, `${name}-copy`.slice(0, 40));
         } catch (e) {
-            _status(`Duplicate failed: ${e.message}`, true);
+            _statusContracts(`Duplicate failed: ${e.message}`, true);
         }
     }
 
@@ -405,7 +426,7 @@
             nameFlow.text = await dl.text();
             _showNameRow("Duplicate the active contract as:", "active-copy");
         } catch (e) {
-            _status(`Duplicate failed: ${e.message}`, true);
+            _statusContracts(`Duplicate failed: ${e.message}`, true);
         }
     }
 
@@ -419,7 +440,7 @@
                 file.name.replace(/\.toml$/i, "").toLowerCase()
                     .replace(/[^a-z0-9_\-]/g, "-").slice(0, 40));
         } catch (e) {
-            _status(`Upload failed: ${e.message}`, true);
+            _statusContracts(`Upload failed: ${e.message}`, true);
         }
     }
 
@@ -437,7 +458,62 @@
             a.remove();
             URL.revokeObjectURL(url);
         } catch (e) {
-            _status(`Download failed: ${e.message}`, true);
+            _statusContracts(`Download failed: ${e.message}`, true);
+        }
+    }
+
+    // ---------- contract preview ("View") ----------
+
+    // Read-only preview of any contract in the table — including the built-in
+    // default and the pinned active contract. Shows the response fields and
+    // the exact instructions (prompt) the AI model would receive, rendered by
+    // the same code path the annotator uses.
+    function _showContractModal(title, contract, prompt, schema) {
+        const modal = document.getElementById("abe-item-modal");
+        const body = document.getElementById("abe-item-body");
+        if (!modal || !body) return;
+        _setItemModalChrome(false);
+        document.getElementById("abe-item-id").textContent = title;
+        const fields = (contract && contract.fields) || [];
+        const pre = 'max-height: 45vh; overflow: auto; background: var(--color-bg-elevated);'
+            + ' padding: 12px; border-radius: 6px; white-space: pre-wrap; margin: 4px 0 0 0;';
+        const parts = [];
+        parts.push(`<div class="text-sm" style="margin-bottom: 10px;">`
+            + `<span style="color: var(--color-text-muted);">Response fields (${fields.length}):</span> `
+            + `<span class="font-mono">${fields.map(f => _esc(f.name)).join(", ") || "—"}</span></div>`);
+        parts.push(`<div class="text-sm" style="color: var(--color-text-muted);">`
+            + `Instructions sent to the AI model for every video:</div>`);
+        parts.push(`<pre class="text-xs" style="${pre}">${_esc(prompt || "(none)")}</pre>`);
+        if (schema) {
+            parts.push(`<details style="margin-top: 10px;"><summary class="text-sm"`
+                + ` style="color: var(--color-text-muted); cursor: pointer;">`
+                + `Required answer format (technical)</summary>`
+                + `<pre class="text-xs" style="${pre}">${_esc(JSON.stringify(schema, null, 2))}</pre></details>`);
+        }
+        body.innerHTML = parts.join("");
+        modal.style.display = "flex";
+    }
+
+    async function viewContract(name, btn) {
+        try {
+            const cand = await _busy(btn, "…", () => _getJson(`${CAND}/${encodeURIComponent(name)}`));
+            const rendered = await _postJson(`${AC}/preview`, { contract: cand.contract });
+            if (rendered.valid === false) {
+                throw new Error((rendered.errors || []).join("; ") || "contract does not validate");
+            }
+            _showContractModal(`Contract '${name}'`, cand.contract, rendered.prompt, rendered.schema);
+        } catch (e) {
+            _statusContracts(`Could not show '${name}': ${e.message}`, true);
+        }
+    }
+
+    async function viewActiveContract(btn) {
+        try {
+            const parsed = await _busy(btn, "…", () => _getJson(`${AC}/parsed`));
+            const rendered = await _getJson(`${AC}/rendered`);
+            _showContractModal("Active contract", parsed.contract, rendered.prompt, rendered.schema);
+        } catch (e) {
+            _statusContracts(`Could not show the active contract: ${e.message}`, true);
         }
     }
 
@@ -447,7 +523,7 @@
         if (typeof window.aceOpen === "function") {
             window.aceOpen({ candidate: name });
         } else {
-            _status("The contract form editor is not loaded on this page.", true);
+            _statusContracts("The contract form editor is not loaded on this page.", true);
         }
     }
 
@@ -532,7 +608,7 @@
             pendingActivate.switchBackend = offerSwitch ? be.target : null;
             if (modal) modal.style.display = "flex";
         } catch (e) {
-            _status(`Activate failed: ${e.message}`, true);
+            _statusContracts(`Activate failed: ${e.message}`, true);
         }
     }
 
@@ -552,16 +628,16 @@
                 builtinDefault ? _postJson(`${AC}/revert`, {}) : _postJson(AC, payload));
             pendingActivate = null;
             abeCloseItemModal();
-            _status(res.note || `'${name}' is now the active contract.`);
+            _statusContracts(res.note || `'${name}' is now the active contract.`);
             document.dispatchEvent(new CustomEvent("fyp:contract-changed"));
         } catch (e) {
             abeCloseItemModal();
             if (e.status === 409) {
-                _status("Rejected: the active contract changed underneath — reload and retry.", true);
+                _statusContracts("Rejected: the active contract changed underneath — reload and retry.", true);
             } else if (e.status === 403) {
-                _status("Rejected: switching the annotation backend requires the Backends admin permission.", true);
+                _statusContracts("Rejected: switching the annotation backend requires the Backends admin permission.", true);
             } else {
-                _status(`Activate failed: ${e.message}`, true);
+                _statusContracts(`Activate failed: ${e.message}`, true);
             }
         }
     }
@@ -571,12 +647,12 @@
         try {
             await _busy(btn, "…", () =>
                 _postJson(`${CAND}/${encodeURIComponent(name)}`, undefined, "DELETE"));
-            _status(`Candidate '${name}' deleted.`);
+            _statusContracts(`Candidate '${name}' deleted.`);
             // Drop any test arms that referenced the deleted candidate.
             st.testArms = st.testArms.filter(a => a.source !== "candidate" || a.name !== name);
             await loadCandidates();
         } catch (e) {
-            _status(`Delete failed: ${e.message}`, true);
+            _statusContracts(`Delete failed: ${e.message}`, true);
         }
     }
 
@@ -855,7 +931,7 @@
             renderEvalSet();
             refreshEstimate();
         } catch (e) {
-            _status(`Duplicate failed: ${e.message}`, true);
+            _status(`Save failed: ${e.message}`, true);
         } finally {
             if (btn) { btn.textContent = "Save set"; btn.disabled = !st.setDirty; }
         }

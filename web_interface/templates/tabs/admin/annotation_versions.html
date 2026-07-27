@@ -97,13 +97,22 @@
             <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
                 <span class="meta-tooltip" data-tooltip="When this version was first recorded.">Created</span>
             </th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border); text-align: right;">
+                <span class="meta-tooltip" data-tooltip="Number of videos with a successful annotation made under this version. Counted from the annotation archive, which is updated at each Consolidate &amp; Refresh.">Annotated videos</span>
+            </th>
             <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
-                <span class="meta-tooltip" data-tooltip="Preferred = the version analyses read. Active = the version new annotations are made with.">Actions</span>
+                <span class="meta-tooltip" data-tooltip="Show this version's model settings, prompt and response format below the table.">Details</span>
+            </th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
+                <span class="meta-tooltip" data-tooltip="The preferred version is the one analyses and study datasets read. Press Prefer on another version to switch.">Preferred</span>
+            </th>
+            <th style="padding: 8px; border-bottom: 1px solid var(--color-border);">
+                <span class="meta-tooltip" data-tooltip="The active version is the one used when new annotations are made. Press Activate to bring an earlier version back into use.">Active</span>
             </th>
         </tr>
     </thead>
     <tbody id="avTableBody">
-        <tr><td colspan="4" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">
+        <tr><td colspan="7" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">
             Click Refresh to load versions.
         </td></tr>
     </tbody>

@@ -2,24 +2,20 @@
      static/js/admin_ab_eval.js from the /api/manage/ab-* endpoints. -->
 <h2 style="margin: 0 0 8px 0;">Contracts</h2>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
-    This page is where you experiment with how your
-    videos get annotated: try out different contracts (prompts and response
-    fields) and different annotation backends (AI models), run them side by
-    side on a small set of already-downloaded videos, and compare how well
-    each performs. Note that test runs make <strong>real annotation calls</strong>
-    (contracts &times; videos) but results are stored in an isolated
-    location and never enter the machine-annotation archive or studies.
-    When you are happy with a contract, press its <strong>Activate</strong> button
-    to review the impact and confirm. The ingredients defined by the contract (and,
-    if you choose, its tested backend) are "baked" into a <em>version</em>, which is
-    then used for new annotations.
+    An <strong>annotation contract</strong> is the recipe for how your videos get
+    annotated: the questions the AI model is asked to answer about each video,
+    and the form its answers must take. The table below lists every contract on
+    this platform. Exactly one contract is <strong>active</strong> at any time
+    &mdash; it is the one used whenever new annotations are made. To switch, press
+    <strong>Activate</strong> on another contract: you will see a summary of what
+    changes before anything is applied, and the activated contract (together with
+    the AI model and its settings) is recorded as a new <em>version</em> on the
+    <em>Versions</em> page. Use <strong>View</strong> to read any contract, or
+    <strong>Duplicate</strong> to use it as the starting point for your own.
 </p>
 
-<div id="abe-status" class="text-sm" style="min-height: 18px; margin-bottom: 8px;
-    color: var(--color-text-muted);"></div>
-
 <!-- 1. Contracts -->
-<section class="text-sm" style="margin: 0 0 20px 0; padding: 14px 16px;
+<section class="text-sm" style="margin: 0 0 24px 0; padding: 14px 16px;
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
@@ -32,6 +28,11 @@
                 style="display: none;" onchange="abeOnCandidateFile(this)">
         </label>
     </div>
+    <!-- Status line for contract actions (save/activate/delete/…) — kept
+         inside this card so feedback appears next to the buttons that caused
+         it; run/test messages use the #abe-status line further down. -->
+    <div id="abe-cand-status" class="text-sm" style="min-height: 18px; margin-top: 8px;
+        color: var(--color-text-muted);"></div>
 
     <!-- Inline naming row for the upload / duplicate flows (no native prompt) -->
     <div id="abe-name-row" style="display: none; gap: 8px; margin-top: 10px;
@@ -67,6 +68,23 @@
         </table>
     </div>
 </section>
+
+<!-- ============ Contract evaluation (test runs on a small video set) ============ -->
+<hr style="border: none; border-top: 1px solid var(--color-border); margin: 28px 0 20px 0;">
+<h3 style="margin: 0 0 8px 0; color: var(--color-text-heading);">Contract evaluation</h3>
+
+<!-- Status messages for the evaluation workflow (test sets, runs, results). -->
+<div id="abe-status" class="text-sm" style="min-height: 18px; margin-bottom: 8px;
+    color: var(--color-text-muted);"></div>
+
+<p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
+    Before switching to a new contract, you can try it out here. Pick a small
+    set of already-downloaded videos, run two or more contracts (or AI models)
+    on the same videos side by side, and compare their answers field by field.
+    Test runs make <strong>real annotation calls</strong> (contracts &times;
+    videos), but the results are stored separately for comparison only &mdash;
+    they never enter your research datasets.
+</p>
 
 <!-- 2. Test sets -->
 <section class="text-sm" style="margin: 0 0 20px 0; padding: 14px 16px;

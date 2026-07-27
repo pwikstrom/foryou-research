@@ -98,37 +98,52 @@
             return String(b.created_at || "").localeCompare(String(a.created_at || ""));
         });
         const activeVersion = body.active;
+        // {version: n annotated videos}; null when the archive was unreadable —
+        // then show "—" instead of a misleading 0.
+        const counts = body.counts;
 
         const tbody = document.getElementById("avTableBody");
         if (!tbody) return;
 
         const cell = 'padding: 8px; border-bottom: 1px solid var(--color-border);';
         const mono = cell + ' font-family: var(--font-mono);';
+        const num = cell + ' text-align: right; font-variant-numeric: tabular-nums;';
 
-        // Per-row action buttons share one UX: a discreet action button on
-        // every applicable row; the row that already holds the state shows a
-        // colored, non-interactive button whose label states the fact.
-        function _preferBtn(v) {
-            if (v.annotation_version === LEGACY_VERSION) return "";
-            if (v.preferred) {
-                return '<button class="btn-save btn-compact btn-state btn-row-fixed">Preferred</button>';
+        function _countCell(version) {
+            if (counts == null) {
+                return '<td style="' + num + ' color: var(--color-text-muted);">—</td>';
             }
-            return '<button class="btn-primary btn-compact btn-row-fixed av-prefer" data-v="'
-                + _esc(v.annotation_version) + '">Prefer</button>';
+            const n = counts[version] || 0;
+            return '<td style="' + num + (n ? '' : ' color: var(--color-text-muted);') + '">'
+                + n.toLocaleString() + "</td>";
         }
 
-        function _activeBtn(v, isActive) {
-            if (v.annotation_version === LEGACY_VERSION) return "";
+        // One column per button kind, so the same button always sits in the
+        // same place: Details (View), Preferred (Prefer / ✓ Preferred), Active
+        // (Activate / ✓ Active). A row that already holds a state shows a
+        // green, non-interactive button stating the fact; a row the button
+        // does not apply to gets an empty cell.
+        function _preferCell(v) {
+            if (v.annotation_version === LEGACY_VERSION) return '<td style="' + cell + '"></td>';
+            if (v.preferred) {
+                return '<td style="' + cell + '"><button class="btn-compact btn-state btn-row-fixed">✓ Preferred</button></td>';
+            }
+            return '<td style="' + cell + '"><button class="btn-primary btn-compact btn-row-fixed av-prefer" data-v="'
+                + _esc(v.annotation_version) + '">Prefer</button></td>';
+        }
+
+        function _activeCell(v, isActive) {
+            if (v.annotation_version === LEGACY_VERSION) return '<td style="' + cell + '"></td>';
             if (isActive) {
-                return '<button class="btn-save btn-compact btn-state btn-row-fixed">Active</button>';
+                return '<td style="' + cell + '"><button class="btn-compact btn-state btn-row-fixed">✓ Active</button></td>';
             }
             if (!v.restorable) {
-                return '<button class="btn-discreet btn-compact btn-row-fixed meta-tooltip" disabled '
+                return '<td style="' + cell + '"><button class="btn-discreet btn-compact btn-row-fixed meta-tooltip" disabled '
                     + 'data-tooltip="Recorded before contract snapshots — its contract file '
-                    + 'was not saved, so it cannot be re-activated automatically.">Activate</button>';
+                    + 'was not saved, so it cannot be re-activated automatically.">Activate</button></td>';
             }
-            return '<button class="btn-primary btn-compact btn-row-fixed av-restore" data-v="'
-                + _esc(v.annotation_version) + '">Activate</button>';
+            return '<td style="' + cell + '"><button class="btn-primary btn-compact btn-row-fixed av-restore" data-v="'
+                + _esc(v.annotation_version) + '">Activate</button></td>';
         }
 
         // Pinned row for the active contract when it has no minted version yet
@@ -141,16 +156,16 @@
                 '<td style="' + mono + '">' + _esc(activeVersion) + "</td>" +
                 '<td style="' + cell + ' color: var(--color-text-muted);">Version for new annotations — none saved yet</td>' +
                 '<td style="' + cell + '"></td>' +
-                '<td style="' + cell + '">' +
-                    '<button class="btn-discreet btn-compact av-view" id="avViewActive">View</button> ' +
-                    '<button class="btn-save btn-compact btn-state btn-row-fixed">Active</button>' +
-                "</td>" +
+                _countCell(activeVersion) +
+                '<td style="' + cell + '"><button class="btn-discreet btn-compact av-view" id="avViewActive">View</button></td>' +
+                '<td style="' + cell + '"></td>' +
+                '<td style="' + cell + '"><button class="btn-compact btn-state btn-row-fixed">✓ Active</button></td>' +
                 "</tr>";
         }
 
         if (!versions.length && !activeRow) {
             tbody.innerHTML =
-                '<tr><td colspan="4" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">' +
+                '<tr><td colspan="7" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">' +
                 "No versions recorded yet. Activating a contract (or running annotation) registers one." +
                 "</td></tr>";
             return;
@@ -162,11 +177,11 @@
                 '<td style="' + mono + '">' + _esc(v.annotation_version) + "</td>" +
                 '<td style="' + cell + '">' + _esc(v.label) + "</td>" +
                 '<td style="' + cell + '">' + _esc(v.created_at) + "</td>" +
-                '<td style="' + cell + ' white-space: nowrap;">' +
-                    '<button class="btn-discreet btn-compact av-view" data-v="' + _esc(v.annotation_version) + '">View</button> ' +
-                    _preferBtn(v) + " " +
-                    _activeBtn(v, isActive) +
-                "</td>" +
+                _countCell(v.annotation_version) +
+                '<td style="' + cell + '"><button class="btn-discreet btn-compact av-view" data-v="'
+                    + _esc(v.annotation_version) + '">View</button></td>' +
+                _preferCell(v) +
+                _activeCell(v, isActive) +
                 "</tr>";
         }).join("");
 
