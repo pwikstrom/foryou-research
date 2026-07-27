@@ -505,6 +505,14 @@ def _enrichment_status_frame() -> pd.DataFrame | None:
             storage_location="recoded", filename="enrichment_status.parquet",
             columns=["item_id", "source_platform", "video_downloaded", "scraped_ok"],
         )
+        if frame is None or "item_id" not in frame.columns:
+            return None
+        # Status parquets from before multi-platform lack source_platform (and
+        # load_parquet_selective silently skips absent columns) — normalise to
+        # the full schema so resolve/sample can rely on every column existing.
+        for col in ("source_platform", "video_downloaded", "scraped_ok"):
+            if col not in frame.columns:
+                frame[col] = pd.NA
         frame["item_id"] = frame["item_id"].astype(str)
         _STATUS_CACHE["frame"] = frame
         _STATUS_CACHE["ts"] = now
