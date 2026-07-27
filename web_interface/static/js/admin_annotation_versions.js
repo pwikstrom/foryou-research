@@ -6,7 +6,7 @@
  * (POST .../promote — the version studies read), and re-activates a recorded
  * version ("Activate": its contract snapshot re-applied through the normal
  * contract confirm flow at /api/manage/annotation-contract, making it the
- * version new annotations use). Contract AUTHORING lives on the Playground
+ * version new annotations use). Contract AUTHORING lives on the Contracts
  * page; here only a slim read-only status strip reports which contract is
  * active (and whether an uploaded contract failed to parse). The global fetch wrapper in main.js injects the CSRF
  * header, so plain fetch is sufficient (matches admin_var_schema.js).
@@ -111,23 +111,23 @@
         function _preferBtn(v) {
             if (v.annotation_version === LEGACY_VERSION) return "";
             if (v.preferred) {
-                return '<button class="btn-save btn-compact btn-state av-btn-fixed">Preferred</button>';
+                return '<button class="btn-save btn-compact btn-state btn-row-fixed">Preferred</button>';
             }
-            return '<button class="btn-primary btn-compact av-btn-fixed av-prefer" data-v="'
+            return '<button class="btn-primary btn-compact btn-row-fixed av-prefer" data-v="'
                 + _esc(v.annotation_version) + '">Prefer</button>';
         }
 
         function _activeBtn(v, isActive) {
             if (v.annotation_version === LEGACY_VERSION) return "";
             if (isActive) {
-                return '<button class="btn-save btn-compact btn-state av-btn-fixed">Active</button>';
+                return '<button class="btn-save btn-compact btn-state btn-row-fixed">Active</button>';
             }
             if (!v.restorable) {
-                return '<button class="btn-discreet btn-compact av-btn-fixed meta-tooltip" disabled '
+                return '<button class="btn-discreet btn-compact btn-row-fixed meta-tooltip" disabled '
                     + 'data-tooltip="Recorded before contract snapshots — its contract file '
                     + 'was not saved, so it cannot be re-activated automatically.">Activate</button>';
             }
-            return '<button class="btn-primary btn-compact av-btn-fixed av-restore" data-v="'
+            return '<button class="btn-primary btn-compact btn-row-fixed av-restore" data-v="'
                 + _esc(v.annotation_version) + '">Activate</button>';
         }
 
@@ -143,7 +143,7 @@
                 '<td style="' + cell + '"></td>' +
                 '<td style="' + cell + '">' +
                     '<button class="btn-discreet btn-compact av-view" id="avViewActive">View</button> ' +
-                    '<button class="btn-save btn-compact btn-state av-btn-fixed">Active</button>' +
+                    '<button class="btn-save btn-compact btn-state btn-row-fixed">Active</button>' +
                 "</td>" +
                 "</tr>";
         }
@@ -151,7 +151,7 @@
         if (!versions.length && !activeRow) {
             tbody.innerHTML =
                 '<tr><td colspan="4" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">' +
-                "No versions recorded yet. Graduating a contract (or running annotation) registers one." +
+                "No versions recorded yet. Activating a contract (or running annotation) registers one." +
                 "</td></tr>";
             return;
         }
@@ -583,7 +583,7 @@
         _maybeBootstrap();
     }
 
-    // Any contract activation/revert (a Playground graduation, the form
+    // Any contract activation/revert (from the Playground, the form
     // editor, or a restore here) announces itself; refresh the status strip
     // + versions list — a changed contract shifts the active version.
     document.addEventListener("fyp:contract-changed", function () {

@@ -164,6 +164,59 @@ def promote_annotation_version():
 
 
 
+def candidate_version_descriptor(cand_contract: dict, target_backend: str | None = None) -> tuple:
+    """Build the version descriptor ``cand_contract`` would produce.
+
+    Mirrors ``active_version_descriptor``'s branching — including the
+    byte-identical legacy path for plain ``gemini`` — so a contract's predicted
+    ``av_`` matches what annotating under ``target_backend`` would actually
+    stamp.
+
+    Args:
+        cand_contract: The parsed candidate contract dict.
+        target_backend: Backend selection to build against (default: the active
+            one). An unimportable selection falls back to gemini.
+
+    Returns:
+        ``(descriptor, selection, target_model)``.
+    """
+    from fyp import annotation_schema as sch
+    from fyp.annotation.backends import active_backend_name, get_backend
+
+    selection = target_backend or active_backend_name()
+    backend = None
+    if selection != "gemini":
+        try:
+            backend = get_backend(selection)
+        except Exception:
+            # Unimportable backend (e.g. local-only deps missing) — same
+            # fallback active_version_descriptor uses.
+            backend, selection = None, "gemini"
+
+    cand_prompt = sch.build_prompt(cand_contract)
+    cand_schema = sch.get_annotation_json_schema(cand_contract)
+    if backend is None:
+        machine = fyp_cf["machine"]["gemini"]
+        target_model = machine.get("model")
+        gen_params = {k: machine.get(k) for k in annotation_versioning._VERSION_GEN_PARAM_KEYS}
+        descriptor = annotation_versioning.build_version_descriptor(
+            target_model, cand_prompt, cand_schema, gen_params)
+    else:
+        target_model = backend.effective_model_id()
+        descriptor = annotation_versioning.build_version_descriptor(
+            model=target_model,
+            prompt_text=cand_prompt + backend.prompt_suffix(),
+            schema_json=cand_schema,
+            gen_params=backend.version_gen_params(),
+            extra_params=backend.version_extra_params(),
+            backend=backend.name,
+            variant=selection if selection != backend.name else None,
+        )
+    return descriptor, selection, target_model
+
+
+
+
 def _annotation_contract_impact(cand_contract: dict, target_backend: str | None = None) -> dict:
     """Predict the version impact of activating ``cand_contract``.
 
@@ -180,39 +233,11 @@ def _annotation_contract_impact(cand_contract: dict, target_backend: str | None 
             including the byte-identical legacy path for plain ``gemini``.
     """
     from fyp import annotation_contract as ac
-    from fyp import annotation_schema as sch
-    from fyp.annotation.backends import active_backend_name, get_backend
+    from fyp.annotation.backends import active_backend_name
 
     active_selection = active_backend_name()
-    selection = target_backend or active_selection
-    backend = None
-    if selection != "gemini":
-        try:
-            backend = get_backend(selection)
-        except Exception:
-            # Unimportable backend (e.g. local-only deps missing) — same
-            # fallback active_version_descriptor uses.
-            backend, selection = None, "gemini"
-
-    cand_prompt = sch.build_prompt(cand_contract)
-    cand_schema = sch.get_annotation_json_schema(cand_contract)
-    if backend is None:
-        machine = fyp_cf["machine"]["gemini"]
-        target_model = machine.get("model")
-        gen_params = {k: machine.get(k) for k in annotation_versioning._VERSION_GEN_PARAM_KEYS}
-        cand = annotation_versioning.build_version_descriptor(
-            target_model, cand_prompt, cand_schema, gen_params)
-    else:
-        target_model = backend.effective_model_id()
-        cand = annotation_versioning.build_version_descriptor(
-            model=target_model,
-            prompt_text=cand_prompt + backend.prompt_suffix(),
-            schema_json=cand_schema,
-            gen_params=backend.version_gen_params(),
-            extra_params=backend.version_extra_params(),
-            backend=backend.name,
-            variant=selection if selection != backend.name else None,
-        )
+    cand, selection, target_model = candidate_version_descriptor(
+        cand_contract, target_backend)
 
     cur = annotation_versioning.active_version_descriptor(fresh=True)
     cur_names = {f.get("name") for f in ac.load_contract().get("fields", [])}

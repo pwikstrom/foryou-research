@@ -26,7 +26,7 @@
         previewTimer: null,
         stagedImpact: null,
         // When set (a candidate name), Save posts to /api/manage/ab-candidates
-        // instead of the active contract flow — the Playground's "Edit" path.
+        // instead of the active contract flow — the Contracts page's "Edit" path.
         saveTarget: null,
     };
 
@@ -673,7 +673,7 @@
             const saveBtn = document.getElementById("ace-save-btn");
             if (st.saveTarget) {
                 if (note) note.textContent = `Editing candidate '${st.saveTarget}' — saving updates the `
-                    + "candidate only (graduate it from the Playground page).";
+                    + "candidate only (activate it from the Contracts page).";
                 if (saveBtn) saveBtn.textContent = "Save candidate";
             } else {
                 if (note) note.textContent = `Editing the ${body.source} contract (etag ${String(st.etag).slice(0, 18)}…). ` +
