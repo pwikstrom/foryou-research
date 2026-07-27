@@ -2111,6 +2111,16 @@
         if (bootstrapped) loadCandidates();
     });
 
+    // The active contract or backend changed (an activation here or on the
+    // Versions page, or a backend switch on the Backends page) — recompute the
+    // live version ids, the "active" badges, and the per-arm backend list.
+    document.addEventListener("fyp:contract-changed", function () {
+        if (bootstrapped) {
+            loadCandidates();
+            loadBackends();
+        }
+    });
+
     window.abeOnCandidateFile = abeOnCandidateFile;
 
     function abeDownloadActive() {

@@ -10,9 +10,11 @@
         section of <span class="font-mono">config/config.toml</span> and require a rebuild/redeploy to change.
     </p>
     <p class="text-xs font-semibold" style="margin: 0 0 12px 0; color: var(--color-text-warning, var(--color-text-primary)); max-width: 680px;">
-        Changing the backend (or the configured model/parameters) forks a new annotation version
-        (<span class="font-mono">av_…</span>). Existing annotations stay under their version;
-        see Admin &rarr; Annotation Versions.
+        Switching the backend changes how new annotations are made from now on: a new
+        annotation version (<span class="font-mono">av_…</span>) becomes active and future
+        annotations are stamped with it. Existing annotations are untouched, and analyses
+        keep reading the preferred version &mdash; nothing needs to be refreshed until you
+        re-annotate videos and promote the new version on the <em>Versions</em> page.
     </p>
 
     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
@@ -43,9 +45,11 @@
         run with no cloud calls (niche names then come from each niche's top terms instead of Gemini).
     </p>
     <p class="text-xs font-semibold" style="margin: 0 0 12px 0; color: var(--color-text-warning, var(--color-text-primary)); max-width: 680px;">
-        Changing the backend re-embeds the corpus under the new model on the next embeddings
-        refresh (existing vectors are kept, so switching back costs nothing). Rebuild the video
-        map afterwards.
+        Changing the backend takes effect on the next embeddings refresh, which re-embeds the
+        corpus under the new model (existing vectors are kept, so switching back costs nothing).
+        To apply it, run <em>Embeddings &rarr; Refresh</em> and then <em>Video map &rarr; Rebuild</em>
+        under <em>Data Pipeline &rarr; Refresh Caches</em>; until then the Semantic Space map keeps
+        showing the previous model and reports itself as stale.
     </p>
 
     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
