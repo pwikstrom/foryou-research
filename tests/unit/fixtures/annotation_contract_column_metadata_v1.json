@@ -1,0 +1,164 @@
+{
+  "advertising": {
+    "description": "AI detection of advertising content (Yes/No).",
+    "display_name": "Advertising - Gemini",
+    "role": "feature",
+    "scale": "categorical"
+  },
+  "aigc": {
+    "description": "AI detection of AI-generated content (Yes/No).",
+    "display_name": "AIGC",
+    "role": null,
+    "scale": "categorical"
+  },
+  "background_music": {
+    "description": "Description of the style/mood of background music.",
+    "display_name": "Background music",
+    "role": null,
+    "scale": "text"
+  },
+  "call_to_action": {
+    "description": "Text of actions the video asks viewers to take.",
+    "display_name": "Call to action",
+    "role": null,
+    "scale": "text"
+  },
+  "content_category": {
+    "description": "AI classification of content (e.g., Comedy, Sports).",
+    "display_name": "Content category",
+    "role": "feature",
+    "scale": "list"
+  },
+  "faces_age_estimate": {
+    "description": "Estimated age range of faces visible in the video.",
+    "display_name": "Average age of observed faces",
+    "role": null,
+    "scale": "numeric"
+  },
+  "faces_ethnicity": {
+    "description": "List of ethnicities for all faces detected.",
+    "display_name": "Ethnicity of observed faces",
+    "role": "skip",
+    "scale": "list"
+  },
+  "faces_gender": {
+    "description": "List of genders for all faces detected.",
+    "display_name": "Gender of observed faces",
+    "role": "skip",
+    "scale": "list"
+  },
+  "main_activity": {
+    "description": "Primary action occurring in the video (verb + object).",
+    "display_name": "Main activity",
+    "role": "feature",
+    "scale": "categorical"
+  },
+  "main_ethnicity": {
+    "description": "Primary ethnic group represented in the video.",
+    "display_name": "Main ethnicity",
+    "role": "feature",
+    "scale": "categorical"
+  },
+  "main_gender": {
+    "description": "Primary gender represented in the video.",
+    "display_name": "Main gender",
+    "role": "feature",
+    "scale": "categorical"
+  },
+  "multilingual": {
+    "description": "Are multiple languages spoken or sung in the video? (Yes/No).",
+    "display_name": "Multilingual",
+    "role": "feature",
+    "scale": "categorical"
+  },
+  "notable_sounds": {
+    "description": "Specific sound effects (e.g., sirens) detected.",
+    "display_name": "Notable sounds",
+    "role": null,
+    "scale": "list"
+  },
+  "objects": {
+    "description": "List of physical items detected in the video.",
+    "display_name": "Objects in video",
+    "role": null,
+    "scale": "list"
+  },
+  "political_score": {
+    "description": "AI-estimated probability (0-100) of political content.",
+    "display_name": "Political? (score 0-1)",
+    "role": null,
+    "scale": "numeric"
+  },
+  "primary_country": {
+    "description": "Country the video is primarily connected to (creator origin / subject / audience).",
+    "display_name": "Primary country",
+    "role": null,
+    "scale": "categorical"
+  },
+  "sensitivity_score": {
+    "description": "AI-estimated probability (0-100) of sensitive topics.",
+    "display_name": "Sensitive? (score 0-1)",
+    "role": null,
+    "scale": "numeric"
+  },
+  "speech_vs_music": {
+    "description": "Ratio of spoken word to background music.",
+    "display_name": "Speech % (vs music)",
+    "role": null,
+    "scale": "numeric"
+  },
+  "spoken_language": {
+    "description": "Primary language spoken or sung in the video.",
+    "display_name": "Spoken language",
+    "role": null,
+    "scale": "categorical"
+  },
+  "symbols_and_brands": {
+    "description": "Visible logos, flags, or symbols detected by AI.",
+    "display_name": "Symbols and brands",
+    "role": null,
+    "scale": "list"
+  },
+  "text_overlays": {
+    "description": "Text detected on-screen via OCR.",
+    "display_name": "Text overlays",
+    "role": null,
+    "scale": "list"
+  },
+  "tiktok_native": {
+    "description": "Does the video use styles/formats native to the platform it appears on? (Yes/No).",
+    "display_name": "Platform Native",
+    "role": "feature",
+    "scale": "categorical"
+  },
+  "transcript_no_repetitions": {
+    "description": "Transcription of spoken words",
+    "display_name": "Transcript",
+    "role": null,
+    "scale": "text"
+  },
+  "trend_cultural": {
+    "description": "Does the video replicate a cultural short-video trend (participatory format like a dance/meme)? (Yes/No).",
+    "display_name": "Cultural trend",
+    "role": "feature",
+    "scale": "categorical"
+  },
+  "trend_technical": {
+    "description": "Does the video leverage a technical short-video trend (trending template/effect/sound)? (Yes/No).",
+    "display_name": "Technical trend",
+    "role": "feature",
+    "scale": "categorical"
+  },
+  "type_of_story": {
+    "description": "Narrative classification (e.g., Issue, Event, Human-Interest).",
+    "display_name": "Type of story",
+    "role": "feature",
+    "scale": "categorical"
+  },
+  "video_story": {
+    "description": "Concise AI-generated narrative summary of the video.",
+    "display_name": "Video story",
+    "role": null,
+    "scale": "text"
+  }
+}

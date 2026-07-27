@@ -605,7 +605,7 @@ def _apply_contract_accepted_labels(cf) -> None:
     enum_labels: dict[str, str] = {}
     for field in contract.get("fields", []):
         ref = field.get("enum")
-        scale = str(field.get("scale") or "").strip().lower()
+        scale = str(ac.effective_scale(field) or "").strip().lower()
         if ref and scale in ("categorical", "list"):
             values = ac.enum_values(contract, ref)
             enum_labels[field["name"]] = "[" + ", ".join(str(v).lower() for v in values) + "]"

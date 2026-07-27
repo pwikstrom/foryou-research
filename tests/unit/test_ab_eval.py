@@ -232,7 +232,7 @@ def test_run_arm_threads_candidate_contract():
     live = tomllib.loads(ac._read_baked_text())
     cand = copy.deepcopy(live)
     cand["fields"].append({
-        "name": "ab_test_only_field", "section": "scoring",
+        "name": "ab_test_only_field",
         "desc": "A field only the candidate contract has.", "scale": "text",
     })
     live_prompt = sch.build_prompt(live)
@@ -272,7 +272,7 @@ def test_candidate_field_survives_refine():
     """
     live = tomllib.loads(ac._read_baked_text())
     cand = copy.deepcopy(live)
-    cand["fields"].append({"name": "funniness", "section": "scoring",
+    cand["fields"].append({"name": "funniness",
                            "scale": "text", "desc": "How funny the video is."})
     records = []
     for i, item in enumerate(["11111", "22222"]):
@@ -474,7 +474,7 @@ def test_contract_scale_map_covers_new_fields():
     """A candidate's brand-new field is classified from its contract declaration."""
     live = tomllib.loads(ac._read_baked_text())
     cand = copy.deepcopy(live)
-    cand["fields"].append({"name": "funniness", "section": "scoring",
+    cand["fields"].append({"name": "funniness",
                            "scale": "text", "desc": "How funny the video is."})
     mapping = ab_eval.contract_scale_map(cand)
     # Object sub-keys resolve to their flattened output column name. background_music
@@ -507,7 +507,7 @@ def test_execute_run_isolation():
     live = tomllib.loads(live_text)
     cand = copy.deepcopy(live)
     cand["prompt"]["footer"] = "CANDIDATE FOOTER (ab_eval unit test)"
-    cand["fields"].append({"name": "funniness", "section": "scoring",
+    cand["fields"].append({"name": "funniness",
                            "scale": "text", "desc": "How funny the video is."})
     cand_text = ac.serialize_contract(cand, base_text=live_text)
 

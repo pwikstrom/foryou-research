@@ -76,7 +76,7 @@ fyp_main_v02/
 ├── config/
 │   ├── config.toml              # Active config (paths, GCS, Gemini, labels)
 │   ├── legacy_annotation_prompt.txt # Retained pre-versioning "v0_legacy" prompt — display-only, shown by the admin Annotation Versions viewer (not used for go-forward annotation)
-│   ├── annotation_contract.toml # Declarative source for the Gemini prompt + response_schema + flattener
+│   ├── annotation_contract.toml # Declarative source for the Gemini prompt + response_schema + flattener (sectionless flat prompt since 2026-07; scale inferred from field shape except free-text categorical/text)
 │   ├── scrape_contract.toml     # Declarative source for the canonical cross-platform scrape schema (base + per-platform fields)
 │   ├── activity_contract.toml   # Declarative source for the platform-agnostic activity schema (ingest required columns + required-core hard-drop set + derived local_*/session fields)
 │   └── derived_contract.toml    # Declarative source for merge-derived columns (days_since_created/completion_rate/scraped_fail, niche/niche_name, desc_hashtags/desc_raw, status flags)
