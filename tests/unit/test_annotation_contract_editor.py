@@ -132,7 +132,7 @@ def test_field_add_remove_reparses():
     contract = tomllib.loads(baked)
 
     added = copy.deepcopy(contract)
-    added["fields"].append({"name": "editor_test_field", "section": "scoring",
+    added["fields"].append({"name": "editor_test_field",
                             "desc": "test", "scale": "text", "display_name": "Editor test"})
     out_add = ac.serialize_contract(added, base_text=baked)
 
@@ -230,7 +230,7 @@ def test_preview_endpoint(client):
           and body.get("schema") == sch.get_annotation_json_schema(contract))
     # Invalid candidate → 200 with errors (debounce-friendly).
     bad = copy.deepcopy(contract)
-    bad["fields"][0].pop("section")
+    bad["fields"][0].pop("name")
     res2 = client.post("/api/manage/annotation-contract/preview", json={"contract": bad})
     body2 = res2.get_json() or {}
     ok2 = res2.status_code == 200 and body2.get("valid") is False and body2.get("errors")

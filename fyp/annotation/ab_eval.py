@@ -1076,12 +1076,15 @@ def contract_scale_map(contract: dict) -> dict[str, str]:
         if not name:
             continue
         if field.get("type") == "object":
+            parent_array = bool(field.get("array"))
             for key, spec in (field.get("keys") or {}).items():
-                scale = (spec or {}).get("scale") if isinstance(spec, dict) else None
+                scale = ac.effective_subkey_scale(spec, parent_array=parent_array)
                 if scale:
                     out[ac.contract_output_column(name, key)] = str(scale)
-        elif field.get("scale"):
-            out[ac.contract_output_column(name)] = str(field["scale"])
+        else:
+            scale = ac.effective_scale(field)
+            if scale:
+                out[ac.contract_output_column(name)] = str(scale)
     return out
 
 

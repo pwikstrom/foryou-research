@@ -181,10 +181,13 @@ def _bullet_text(field: dict, contract: dict) -> str:
 def build_prompt(contract: dict | None = None) -> str:
     """Render the Gemini system-instruction prompt from the contract.
 
-    Pure deterministic templating (no LLM): a global header, then each section's
-    title + intro + per-field bullets (enums auto-rendered from the contract) +
-    optional footer, then a global footer. Determinism keeps the prompt-text
-    version hash stable.
+    Pure deterministic templating (no LLM): a global header, then one bullet per
+    field (enums auto-rendered from the contract), then a global footer. A
+    contract that declares ``[[section]]`` entries (the pre-2026-07 shape) keeps
+    the historical sectioned rendering — numbered section titles + intros with
+    indented bullets — byte-identical, so stored candidates and registered
+    annotation versions keep their prompt hashes. Determinism keeps the
+    prompt-text version hash stable.
 
     Args:
         contract: When given, render this contract (used by the upload dry-run);
@@ -194,20 +197,27 @@ def build_prompt(contract: dict | None = None) -> str:
         The full prompt text.
     """
     contract = _resolve_contract(contract)
-    fields_by_section: dict[str, list[dict]] = {}
-    for field in contract.get("fields", []):
-        fields_by_section.setdefault(field.get("section"), []).append(field)
-
     lines: list[str] = [contract["prompt"]["header"], ""]
-    for num, section in enumerate(_ac.sections(contract), 1):
-        lines.append(f"{num}. **{section['title']}**")
-        if section.get("intro"):
-            lines.append(f"   {section['intro']}")
-        for field in fields_by_section.get(section["name"], []):
-            lines.append(f"   • '{field['name']}': {_bullet_text(field, contract)}")
-        if section.get("footer"):
-            lines.append(f"   {section['footer']}")
+
+    section_list = _ac.sections(contract)
+    if section_list:
+        fields_by_section: dict[str, list[dict]] = {}
+        for field in contract.get("fields", []):
+            fields_by_section.setdefault(field.get("section"), []).append(field)
+        for num, section in enumerate(section_list, 1):
+            lines.append(f"{num}. **{section['title']}**")
+            if section.get("intro"):
+                lines.append(f"   {section['intro']}")
+            for field in fields_by_section.get(section["name"], []):
+                lines.append(f"   • '{field['name']}': {_bullet_text(field, contract)}")
+            if section.get("footer"):
+                lines.append(f"   {section['footer']}")
+            lines.append("")
+    else:
+        for field in contract.get("fields", []):
+            lines.append(f"• '{field['name']}': {_bullet_text(field, contract)}")
         lines.append("")
+
     lines.append(contract["prompt"]["footer"])
     return "\n".join(lines)
 

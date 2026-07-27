@@ -43,11 +43,6 @@ PROMPT_SNAPSHOT = FIXTURE_DIR / "prompt.generated.snapshot.txt"
 
 _FIELD_RE = re.compile(r"[•·]\s*['\"]([a-zA-Z_][a-zA-Z0-9_]*)['\"]")
 
-_SECTION_TITLES = [
-    "Video Profile Extraction",
-    "Persuasion & Scoring",
-]
-
 
 def _current_field_specs() -> list:
     return [
@@ -115,7 +110,10 @@ def test_prompt_functionally_complete() -> None:
     missing = sorted(v for v in enum_values if v not in prompt)
     assert not missing, f"enum values missing from prompt: {missing}"
 
-    missing_titles = [t for t in _SECTION_TITLES if t not in prompt]
+    # Legacy sectioned contracts must render their section titles; a
+    # sectionless contract (the 2026-07 shape) has none to check.
+    section_titles = [s.get("title", "") for s in schema._CONTRACT.get("section", [])]
+    missing_titles = [t for t in section_titles if t and t not in prompt]
     assert not missing_titles, f"section titles missing from prompt: {missing_titles}"
 
 

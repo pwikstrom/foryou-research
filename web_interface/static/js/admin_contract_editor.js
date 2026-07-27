@@ -163,6 +163,44 @@
         return html + "</select>";
     }
 
+    // A select whose option values differ from their labels ([value, label] pairs).
+    // An unknown current value (e.g. a legacy role) is appended so it is never lost.
+    function _labelSelect(attrs, pairs, current) {
+        const opts = pairs.slice();
+        if (current && !opts.some(([v]) => v === current)) opts.push([current, current]);
+        let html = `<select ${attrs} style="${IN}">`;
+        for (const [v, label] of opts) {
+            html += `<option value="${_escAttr(v)}" ${v === (current || "") ? "selected" : ""}>${_esc(label)}</option>`;
+        }
+        return html + "</select>";
+    }
+
+    // The only roles annotation fields use ('factor'/'group_factor' belong to the
+    // activity contract) — plain-language labels for the Advanced row.
+    const ROLE_OPTIONS = [
+        ["", "(default)"],
+        ["feature", "Correlations feature"],
+        ["skip", "Skip recoding"],
+    ];
+
+    // Mirror fyp.annotation_contract.infer_scale / infer_subkey_scale: the scale
+    // is determined by the schema shape except for free-text (labels vs prose).
+    function inferScale(f) {
+        if ((f.type || "string") === "object") return "";
+        if (f.array) return "list";
+        if (f.type === "int") return "numeric";
+        if (f.enum) return "categorical";
+        return "";
+    }
+
+    function inferSubkeyScale(p, parentArray) {
+        if (p.kind === "list") return "list";
+        if (p.kind === "int") return "numeric";
+        if (parentArray) return "list";
+        if (p.kind === "enum") return "categorical";
+        return "";
+    }
+
     function _btn(act, extra, label) {
         return `<button data-act="${act}" ${extra} class="btn-discreet text-xs"` +
             ` style="padding: 2px 8px;">${label}</button>`;
@@ -181,34 +219,11 @@
         </details>`;
     }
 
-    function _panelSections(c) {
-        const sections = c.section || [];
-        let rows = sections.map((s, i) => `<div style="${CARD_STYLE}">
-            <div style="${ROW}">
-                <input data-act="section" data-i="${i}" data-key="name" value="${_escAttr(s.name || "")}"
-                    placeholder="name" style="${IN} width: 110px;" class="font-mono">
-                <input data-act="section" data-i="${i}" data-key="title" value="${_escAttr(s.title || "")}"
-                    placeholder="title" style="${IN} flex: 1; min-width: 140px;">
-                <span style="flex-basis: 100%;"></span>
-                <input data-act="section" data-i="${i}" data-key="intro" value="${_escAttr(s.intro || "")}"
-                    placeholder="intro sentence" style="${IN} flex: 1; min-width: 200px;">
-                ${_btn("section-move", `data-i="${i}" data-dir="-1"`, "↑")}
-                ${_btn("section-move", `data-i="${i}" data-dir="1"`, "↓")}
-                ${_btn("section-del", `data-i="${i}"`, "✕")}
-            </div>
-        </div>`).join("");
-        return `<details open style="${PANEL_STYLE}">
-            <summary style="${SUMMARY_STYLE}" class="font-semibold">Sections (${sections.length})${_hlp("section")}</summary>
-            ${rows}
-            <div style="${ROW}">${_btn("section-add", "", "+ Add section")}</div>
-        </details>`;
-    }
-
-    function _keyRow(fieldIdx, keyName, specVal, ki, c) {
+    function _keyRow(fieldIdx, keyName, specVal, ki, c, parentArray) {
         const p = parseSpec(specVal);
         const enumNames = Object.keys(c.enums || {});
-        const kindSel = _select(`data-act="key" data-i="${fieldIdx}" data-k="${ki}" data-part="kind"`,
-            ["enum", "list", "int", "text"], p.kind);
+        const kindSel = _labelSelect(`data-act="key" data-i="${fieldIdx}" data-k="${ki}" data-part="kind"`,
+            [["text", "free text"], ["enum", "category"], ["int", "number"], ["list", "list of text"]], p.kind);
         let kindCtl = "";
         if (p.kind === "enum") {
             kindCtl = _select(`data-act="key" data-i="${fieldIdx}" data-k="${ki}" data-part="enum"`,
@@ -221,7 +236,7 @@
         }
         const descCtl = p.kind === "enum" ? "" :
             `<input data-act="key" data-i="${fieldIdx}" data-k="${ki}" data-part="desc"
-                value="${_escAttr(p.desc)}" placeholder="description (feeds the schema)"
+                value="${_escAttr(p.desc)}" placeholder="prompt/schema description"
                 style="${IN} flex: 1; min-width: 160px;">`;
         return `<div style="${CARD_STYLE} background: var(--color-bg-elevated);">
             <div style="${ROW}">
@@ -231,79 +246,105 @@
                 ${_btn("key-del", `data-i="${fieldIdx}" data-k="${ki}"`, "✕")}
             </div>
             <div style="${ROW}">
-                <span class="text-xxs" style="${LBL}">var_schema:</span>
-                ${_select(`data-act="key" data-i="${fieldIdx}" data-k="${ki}" data-part="role"`, st.roles, p.role, "(role)")}
-                ${_select(`data-act="key" data-i="${fieldIdx}" data-k="${ki}" data-part="scale"`, st.scales, p.scale, "(scale)")}
+                <span class="text-xxs" style="${LBL}">details:</span>
+                ${_labelSelect(`data-act="key" data-i="${fieldIdx}" data-k="${ki}" data-part="role"`, ROLE_OPTIONS, p.role)}
                 <input data-act="key" data-i="${fieldIdx}" data-k="${ki}" data-part="display_name"
                     value="${_escAttr(p.display_name)}" placeholder="display name" style="${IN} width: 170px;">
-                <input data-act="key" data-i="${fieldIdx}" data-k="${ki}" data-part="description"
-                    value="${_escAttr(p.description)}" placeholder="web-UI description" style="${IN} flex: 1; min-width: 160px;">
+                ${_select(`data-act="key" data-i="${fieldIdx}" data-k="${ki}" data-part="scale"`, st.scales, p.scale,
+                    `scale (auto: ${inferSubkeyScale(p, parentArray) || "choose"})`)}${_hlp("fields.scale")}
             </div>
         </div>`;
     }
 
-    function _fieldCard(f, i, c) {
-        const sectionNames = (c.section || []).map(s => s.name);
-        const enumNames = Object.keys(c.enums || {});
+    // The composite "answer" of a field: what type/enum/keys encode underneath.
+    function _fieldAnswer(f) {
         const type = f.type || "string";
-        const arrayMode = f.array === true ? "true" : (typeof f.array === "number" ? "cap" : "");
-        const badge = `<span class="text-xxs font-mono" style="color: var(--color-text-muted);">` +
-            `${type}${f.array ? "[]" : ""}${f.enum ? " · " + _esc(f.enum) : ""}</span>`;
+        if (type === "object") return "object";
+        if (type === "int") return "number";
+        return ("enum" in f) ? "category" : "text";
+    }
 
-        let typeCtls = "";
-        if (type === "int") {
-            typeCtls = `<span style="${LBL}">min / max${_hlp("fields.min")}</span>
+    function _fieldCard(f, i, c) {
+        const enumNames = Object.keys(c.enums || {});
+        const answer = _fieldAnswer(f);
+        const badge = `<span class="text-xxs font-mono" style="color: var(--color-text-muted);">` +
+            `${answer}${f.array ? "[]" : ""}${f.enum ? " · " + _esc(f.enum) : ""}</span>`;
+
+        // The one Answer row: what Gemini returns + how many + the per-answer
+        // extras (enum picker / min-max), all writing the type/enum/array keys.
+        let answerCtls = "";
+        if (answer === "number") {
+            answerCtls = `<span style="${LBL} min-width: 0;">min / max${_hlp("fields.min")}</span>
                 <input data-act="field-min" data-i="${i}" type="number" value="${f.min !== undefined ? f.min : ""}" style="${IN} width: 70px;">
                 <input data-act="field-max" data-i="${i}" type="number" value="${f.max !== undefined ? f.max : ""}" style="${IN} width: 70px;">`;
-        } else if (type === "string") {
-            typeCtls = `<span style="${LBL}">enum${_hlp("fields.enum")}</span>
-                ${_select(`data-act="field-enum" data-i="${i}"`, enumNames, f.enum || "", "(open text)")}`;
+        } else if (answer === "category") {
+            answerCtls = _select(`data-act="field-enum" data-i="${i}"`, enumNames, f.enum || "", "(pick enum)") + _hlp("fields.enum");
+        }
+        const howMany = answer === "number" ? "" : _arraySelect(f, i) + _hlp("fields.array");
+
+        // Free-text single values are the one shape whose recode scale cannot be
+        // inferred — the choice lives on the main card because saving requires it.
+        let scaleChoice = "";
+        if (answer === "text" && !f.array) {
+            scaleChoice = `<div style="${ROW}">
+                <span style="${LBL}">recode as${_hlp("fields.scale")}</span>
+                ${_labelSelect(`data-act="field-scalechoice" data-i="${i}"`,
+                    [["", "(choose…)"], ["categorical", "short labels — cleaned like a value list"], ["text", "long prose — kept as-is"]],
+                    f.scale || "")}
+            </div>`;
         }
 
         let keysHtml = "";
-        if (type === "object") {
+        if (answer === "object") {
             const keys = f.keys || {};
-            keysHtml = `<div style="${ROW}"><span style="${LBL}">keys${_hlp("fields.keys")}</span></div>` +
-                Object.entries(keys).map(([k, v], ki) => _keyRow(i, k, v, ki, c)).join("") +
+            keysHtml = `<div style="${ROW}"><span style="${LBL}">sub-keys${_hlp("fields.keys")}</span></div>` +
+                Object.entries(keys).map(([k, v], ki) => _keyRow(i, k, v, ki, c, !!f.array)).join("") +
                 `<div style="${ROW}">${_btn("key-add", `data-i="${i}"`, "+ Add sub-key")}</div>`;
+        }
+
+        // Rarely-touched, metadata-only attributes live behind an Advanced
+        // expander (object fields carry their metadata on the sub-keys instead).
+        let advanced = "";
+        if (answer !== "object") {
+            const overrideCtl = (answer === "text" && !f.array) ? "" :
+                `<span class="text-xxs" style="${LBL}">scale override${_hlp("fields.scale")}</span>
+                ${_select(`data-act="field" data-i="${i}" data-key="scale"`, st.scales, f.scale || "", `(auto: ${inferScale(f) || "?"})`)}`;
+            advanced = `<details style="margin-top: 8px;">
+                <summary class="text-xs" style="cursor: pointer; color: var(--color-text-muted);">Advanced</summary>
+                <div style="${ROW}">
+                    <span class="text-xxs" style="${LBL}">role${_hlp("fields.role")}</span>
+                    ${_labelSelect(`data-act="field" data-i="${i}" data-key="role"`, ROLE_OPTIONS, f.role || "")}
+                    <span class="text-xxs" style="${LBL}">display name${_hlp("fields.display_name")}</span>
+                    <input data-act="field" data-i="${i}" data-key="display_name" value="${_escAttr(f.display_name || "")}"
+                        placeholder="display name" style="${IN} width: 170px;">
+                    ${overrideCtl}
+                </div>
+            </details>`;
         }
 
         return `<details style="${CARD_STYLE}" ${st.openField === i ? "open" : ""} data-field-card="${i}">
             <summary style="${SUMMARY_STYLE}">
                 <span class="font-mono font-semibold">${_esc(f.name || "(unnamed)")}</span>
                 &nbsp;${badge}
-                <span class="text-xxs" style="color: var(--color-text-muted);">· ${_esc(f.section || "?")}</span>
             </summary>
             <div style="${ROW}">
                 <span style="${LBL}">name${_hlp("fields.name")}</span>
                 <input data-act="field" data-i="${i}" data-key="name" value="${_escAttr(f.name || "")}"
                     style="${IN} width: 180px;" class="font-mono">
-                <span style="${LBL}">section${_hlp("fields.section")}</span>
-                ${_select(`data-act="field" data-i="${i}" data-key="section"`, sectionNames, f.section || "")}
-                <span style="${LBL}">type${_hlp("fields.type")}</span>
-                ${_select(`data-act="field-type" data-i="${i}"`, ["string", "int", "object"], type)}
             </div>
             <div style="${ROW}">
-                <span style="${LBL}">list${_hlp("fields.array")}</span>
-                ${_arraySelect(f, i)}
+                <span style="${LBL}">answer${_hlp("fields.answer")}</span>
+                ${_labelSelect(`data-act="field-answer" data-i="${i}"`,
+                    [["text", "free text"], ["category", "category (enum)"], ["number", "number"], ["object", "sub-fields (object)"]],
+                    answer)}
+                ${howMany} ${answerCtls}
             </div>
-            <div style="${ROW}">${typeCtls}</div>
-            <div style="${ROW}"><span style="${LBL}">desc (prompt)${_hlp("fields.desc")}</span></div>
+            ${scaleChoice}
+            <div style="${ROW}"><span style="${LBL}">prompt instruction${_hlp("fields.desc")}</span></div>
             <textarea data-act="field" data-i="${i}" data-key="desc" rows="2"
                 style="${IN} width: 100%; resize: vertical;">${_esc(f.desc || "")}</textarea>
             ${keysHtml}
-            <div style="${ROW}">
-                <span class="text-xxs" style="${LBL}">var_schema:</span>
-                ${_select(`data-act="field" data-i="${i}" data-key="role"`, st.roles, f.role || "", "(role)")}${_hlp("fields.role")}
-                ${_select(`data-act="field" data-i="${i}" data-key="scale"`, st.scales, f.scale || "", "(scale)")}${_hlp("fields.scale")}
-                <input data-act="field" data-i="${i}" data-key="display_name" value="${_escAttr(f.display_name || "")}"
-                    placeholder="display name" style="${IN} width: 170px;">${_hlp("fields.display_name")}
-            </div>
-            <div style="${ROW}">
-                <span class="text-xxs" style="${LBL}">description</span>
-                <input data-act="field" data-i="${i}" data-key="description" value="${_escAttr(f.description || "")}"
-                    placeholder="web-UI description (falls back to desc)" style="${IN} flex: 1; min-width: 200px;">${_hlp("fields.description")}
-            </div>
+            ${advanced}
             <div style="${ROW}">
                 ${_btn("field-move", `data-i="${i}" data-dir="-1"`, "↑ move up")}
                 ${_btn("field-move", `data-i="${i}" data-dir="1"`, "↓ move down")}
@@ -388,7 +429,13 @@
     function _renderForm() {
         const el = document.getElementById("ace-form");
         if (!el || !st.contract) return;
-        el.innerHTML = _panelPrompt(st.contract) + _panelSections(st.contract)
+        const notice = st.flattenedLegacy
+            ? `<div class="text-sm" style="margin-bottom: 10px; padding: 8px 12px; border: 1px solid var(--color-warning);` +
+              ` border-radius: 6px; color: var(--color-warning);">This contract used prompt sections (a legacy shape).` +
+              ` They have been flattened into a single field list — saving changes the prompt text and registers a new` +
+              ` annotation version.</div>`
+            : "";
+        el.innerHTML = notice + _panelPrompt(st.contract)
             + _panelFields(st.contract) + _panelEnums(st.contract) + _panelDrop(st.contract);
     }
 
@@ -413,8 +460,6 @@
         if (act === "prompt") {
             c.prompt = c.prompt || {};
             _setIf(c.prompt, t.dataset.key, t.value);
-        } else if (act === "section") {
-            _setIf(c.section[i], t.dataset.key, t.value);
         } else if (act === "field") {
             _setIf(c.fields[i], t.dataset.key, t.value);
         } else if (act === "field-min" || act === "field-max") {
@@ -489,23 +534,39 @@
         const c = st.contract;
         const i = t.dataset.i !== undefined ? parseInt(t.dataset.i, 10) : null;
 
-        if (act === "field-type") {
+        if (act === "field-answer") {
             const f = c.fields[i];
-            f.type = t.value;
-            if (t.value !== "object") delete f.keys;
-            else f.keys = f.keys || { new_key: "description of the sub-key" };
-            if (t.value !== "int") { delete f.min; delete f.max; }
-            if (t.value !== "string") delete f.enum;
-            if (t.value === "string") delete f.type;   // string is the default — keep files minimal
+            // Reset the shape keys, then set the ones the chosen answer needs
+            // (type stays unwritten for strings — the default keeps files minimal).
+            delete f.type; delete f.enum; delete f.keys; delete f.min; delete f.max;
+            if (t.value !== "text") delete f.scale;   // inferred from the shape
+            if (t.value === "category") {
+                f.enum = f.enum || "";   // empty ref = "(pick enum)"; validation flags it until picked
+            } else if (t.value === "number") {
+                f.type = "int";
+                delete f.array;
+            } else if (t.value === "object") {
+                f.type = "object";
+                f.keys = { new_key: "description of the sub-key" };
+                delete f.scale; delete f.role; delete f.display_name;
+            }
             st.openField = i;
         } else if (act === "field-enum") {
-            _setIf(c.fields[i], "enum", t.value);
+            // Keep the key even when empty so the card stays a category
+            // (validation rejects the empty ref until an enum is picked).
+            c.fields[i].enum = t.value;
             st.openField = i;
         } else if (act === "field-array") {
             const f = c.fields[i];
             if (t.value === "") delete f.array;
             else if (t.value === "true") f.array = true;
             else f.array = typeof f.array === "number" && f.array > 0 ? f.array : 2;
+            // A free-text field's scale follows the shape: list ⇒ inferred, single
+            // ⇒ the labels-vs-prose choice must be (re)made explicitly.
+            if (!f.type && !("enum" in f)) delete f.scale;
+            st.openField = i;
+        } else if (act === "field-scalechoice") {
+            _setIf(c.fields[i], "scale", t.value);
             st.openField = i;
         } else if (act === "key" && t.dataset.part === "kind") {
             const entries = _keyEntries(c.fields[i]);
@@ -531,19 +592,9 @@
         const c = st.contract;
         const i = t.dataset.i !== undefined ? parseInt(t.dataset.i, 10) : null;
 
-        if (act === "section-add") {
-            c.section = c.section || [];
-            c.section.push({ name: `section_${c.section.length + 1}`, title: "New section", intro: "" });
-        } else if (act === "section-del") {
-            c.section.splice(i, 1);
-        } else if (act === "section-move") {
-            const j = i + parseInt(t.dataset.dir, 10);
-            if (j < 0 || j >= c.section.length) return;
-            [c.section[i], c.section[j]] = [c.section[j], c.section[i]];
-        } else if (act === "field-add") {
+        if (act === "field-add") {
             c.fields = c.fields || [];
-            const firstSection = (c.section && c.section[0] && c.section[0].name) || "";
-            c.fields.push({ name: `new_field_${c.fields.length + 1}`, section: firstSection, desc: "" });
+            c.fields.push({ name: `new_field_${c.fields.length + 1}`, desc: "" });
             st.openField = c.fields.length - 1;
         } else if (act === "field-del") {
             if (!_armTwoClick(t, "✕ delete — sure?")) return;
@@ -665,8 +716,17 @@
             }
             st.dirty = false;
             st.openField = null;
+            // Legacy contracts carry [[section]] prompt grouping; the editor is
+            // sectionless, so flatten the working copy and flag the version fork.
+            st.flattenedLegacy = false;
+            if (st.contract && (st.contract.section || (st.contract.fields || []).some(f => "section" in f))) {
+                delete st.contract.section;
+                (st.contract.fields || []).forEach(f => { delete f.section; });
+                st.flattenedLegacy = true;
+                st.dirty = true;
+            }
             const dirtyEl = document.getElementById("ace-dirty");
-            if (dirtyEl) dirtyEl.style.display = "none";
+            if (dirtyEl) dirtyEl.style.display = st.dirty ? "inline" : "none";
             const ov = document.getElementById("ace-help-overview");
             if (ov && st.help.overview) ov.setAttribute("data-tooltip", st.help.overview);
             const note = document.getElementById("ace-footer-note");

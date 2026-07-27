@@ -8,10 +8,12 @@ TOML, validates it, and turns each field into the
 ``(gemini_field, json_schema_node, flatten_rule)`` tuple the rest of the
 pipeline consumes.
 
-The per-field surface is intentionally small: everything except ``name`` and
-``section`` is optional, and the flatten rule + full JSON-schema node + the
-``required`` set are *inferred* from the field's ``type`` / ``enum`` / ``array``
-/ ``keys``. The three flatten rules are:
+The per-field surface is intentionally small: everything except ``name`` is
+optional, and the flatten rule + full JSON-schema node + the ``required`` set
+are *inferred* from the field's ``type`` / ``enum`` / ``array`` / ``keys``
+(``scale`` too, except for free-text strings — see :func:`infer_scale`).
+Prompt ``[[section]]`` grouping is a legacy shape: contracts without sections
+render a flat bullet list. The three flatten rules are:
 
   * ``scalar``        — a string / integer leaf.
   * ``list_join``     — an array of strings / enums (pipe-joined).
@@ -579,6 +581,78 @@ def _build_node(field: dict, contract: dict) -> dict:
 
 
 
+def infer_scale(field: dict) -> str | None:
+    """Infer a scalar/list field's var_schema ``scale`` from its schema shape.
+
+    The schema shape determines the scale for every field except a free-text
+    string, where ``categorical`` (short labels) vs ``text`` (long prose) is a
+    recode-behavior choice the contract must make explicitly:
+
+      * ``array`` (any list)      → ``list``
+      * ``type = "int"``          → ``numeric``
+      * ``enum`` (single value)   → ``categorical``
+      * free-text string          → ``None`` (ambiguous — declare ``scale``)
+
+    Object fields return ``None``; their sub-keys are inferred individually via
+    :func:`infer_subkey_scale`.
+    """
+    if field.get("type") == "object":
+        return None
+    if _is_array(field):
+        return "list"
+    if field.get("type") == "int":
+        return "numeric"
+    if field.get("enum"):
+        return "categorical"
+    return None
+
+
+
+
+def infer_subkey_scale(spec, parent_array: bool = False) -> str | None:
+    """Infer a ``[fields.keys]`` sub-key's ``scale`` from its spec string.
+
+    ``list:`` specs are lists; ``int`` specs are numeric (under an array parent
+    the pipe-joined numbers collapse to a mean — see
+    :func:`contract_numeric_array_fields`); any other sub-key under an
+    ``array = true`` parent pipe-joins across elements, so it is a list; a
+    single-object ``enum:`` sub-key is categorical. A free-text sub-key of a
+    single object is ambiguous (``None``) — declare ``scale`` explicitly.
+
+    Args:
+        spec: the sub-key spec (string or inline-table form).
+        parent_array: whether the owning object field declares ``array``.
+    """
+    spec_str = _subkey_spec(spec)
+    if spec_str.startswith("list:"):
+        return "list"
+    if _INT_SUBKEY_RE.match(spec_str):
+        return "numeric"
+    if parent_array:
+        return "list"
+    if spec_str.startswith("enum:"):
+        return "categorical"
+    return None
+
+
+
+
+def effective_scale(field: dict) -> str | None:
+    """Return a field's declared ``scale``, or the inferred one when omitted."""
+    return field.get("scale") or infer_scale(field)
+
+
+
+
+def effective_subkey_scale(spec, parent_array: bool = False) -> str | None:
+    """Return a sub-key's declared ``scale``, or the inferred one when omitted."""
+    if isinstance(spec, dict) and spec.get("scale"):
+        return str(spec["scale"])
+    return infer_subkey_scale(spec, parent_array)
+
+
+
+
 def _infer_flatten(field: dict) -> str:
     """Infer the flatten rule from a field's structure."""
     if field.get("type") == "object":
@@ -673,13 +747,20 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
                 meta = _subkey_metadata(spec)
                 if not meta or not (meta.get("role") or meta.get("scale") or meta.get("display_name")):
                     continue
+                if not meta.get("scale"):
+                    meta["scale"] = infer_subkey_scale(spec, parent_array=_is_array(field))
+                if not meta.get("description"):
+                    # Web-UI tooltip fallback: the spec's own description text
+                    # (empty for enum:/bare int: specs), else the parent's desc.
+                    spec_desc = parse_key_spec(_subkey_spec(spec)).get("desc")
+                    meta["description"] = spec_desc or field.get("desc")
                 out[contract_output_column(name, key)] = meta
         else:
             if not (field.get("role") or field.get("scale") or field.get("display_name")):
                 continue
             out[contract_output_column(name)] = {
                 "role": field.get("role"),
-                "scale": field.get("scale"),
+                "scale": effective_scale(field),
                 "display_name": field.get("display_name"),
                 "description": field.get("description", field.get("desc")),
             }
@@ -704,7 +785,8 @@ def validate_contract(contract: dict) -> list[str]:
     errors: list[str] = []
     enums = contract.get("enums", {})
     fields = contract.get("fields", [])
-    section_names = {s.get("name") for s in contract.get("section", [])}
+    section_list = contract.get("section", [])
+    section_names = {s.get("name") for s in section_list}
 
     # var_schema role/scale vocabularies live in recode_variables; import lazily so
     # this module never pulls in fyp_config (which recode_variables imports) at load.
@@ -749,8 +831,14 @@ def validate_contract(contract: dict) -> list[str]:
             errors.append(f"duplicate field name '{name}'")
         seen_names.add(name)
 
-        if field.get("section") not in section_names:
-            errors.append(f"{where}: section '{field.get('section')}' not in [[section]]")
+        # Sections are optional prompt structure (legacy contracts only): with
+        # [[section]] entries every field must belong to one; without them the
+        # key must be absent (a stale value would silently vanish from the prompt).
+        if section_list:
+            if field.get("section") not in section_names:
+                errors.append(f"{where}: section '{field.get('section')}' not in [[section]]")
+        elif "section" in field:
+            errors.append(f"{where}: 'section' declared but the contract has no [[section]] entries")
 
         ftype = field.get("type", "string")
         if ftype not in VALID_TYPES:
@@ -762,6 +850,20 @@ def validate_contract(contract: dict) -> list[str]:
 
         if "enum" in field:
             _check_enum_ref(field["enum"], where)
+
+        # A free-text string is the one shape whose scale cannot be inferred:
+        # 'categorical' (short labels) vs 'text' (long prose) picks the recode
+        # function, so the contract must decide explicitly.
+        if (
+            ftype == "string"
+            and not _is_array(field)
+            and "enum" not in field
+            and not field.get("scale")
+        ):
+            errors.append(
+                f"{where}: free-text field needs an explicit scale — "
+                "'categorical' (short labels) or 'text' (long prose)"
+            )
 
         _check_role_scale(field, where)
 
