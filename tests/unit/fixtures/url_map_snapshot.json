@@ -413,6 +413,41 @@
   ]
  ],
  [
+  "/api/manage/data-contracts/<kind>",
+  "management_bp.get_data_contract",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/manage/data-contracts/<kind>/download",
+  "management_bp.download_data_contract",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/manage/data-contracts/<kind>/raw",
+  "management_bp.get_data_contract_raw",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/manage/data-contracts/<kind>/versions",
+  "management_bp.list_data_contract_versions",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/manage/data-contracts/<kind>/versions/<version>",
+  "management_bp.get_data_contract_version",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/manage/embedding/backends",
   "management_bp.get_embedding_backends",
   [

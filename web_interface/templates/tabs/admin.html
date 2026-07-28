@@ -54,12 +54,17 @@
         {% endif %}
 
         {% if user.can_access('tab.admin.schema') or user.can_access('tab.admin.stoplist')
-              or user.can_access('tab.admin.scrapers') %}
+              or user.can_access('tab.admin.scrapers') or user.can_access('tab.admin.data_contracts') %}
         <div class="dm-sidebar-group">Data &amp; Variables</div>
         {% endif %}
         {% if user.can_access('tab.admin.schema') %}
         <div class="dm-sidebar-item" data-page="admin-page-schema" onclick="openAdminPage('admin-page-schema', this)">
             Variable Visibility
+        </div>
+        {% endif %}
+        {% if user.can_access('tab.admin.data_contracts') %}
+        <div class="dm-sidebar-item" data-page="admin-page-data-contracts" onclick="openAdminPage('admin-page-data-contracts', this)">
+            Data Contracts
         </div>
         {% endif %}
         {% if user.can_access('tab.admin.stoplist') %}
@@ -136,6 +141,12 @@
         {% if user.can_access('tab.admin.schema') %}
         <div id="admin-page-schema" class="dm-page">
             {% include 'tabs/admin/var_schema.html' %}
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.admin.data_contracts') %}
+        <div id="admin-page-data-contracts" class="dm-page">
+            {% include 'tabs/admin/data_contracts.html' %}
         </div>
         {% endif %}
 
