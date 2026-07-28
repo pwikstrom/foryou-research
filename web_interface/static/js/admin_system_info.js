@@ -130,7 +130,7 @@ function _renderHealthCheckRow(key, check) {
 
 // Banner rows for active scraper alerts (raised by the scrape worker when a
 // platform's scraper looks systematically broken — e.g. a permanent-failure
-// storm). Dismissal lives on the Data Management → enrichment card; here the
+// storm). Dismissal lives on the Data Pipeline → Scrape card; here the
 // alert is informational.
 function _renderScraperAlertBanners(alerts) {
     return Object.entries(alerts || {}).map(([platform, alert]) => {

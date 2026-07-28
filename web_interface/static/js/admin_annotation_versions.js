@@ -416,6 +416,39 @@
         banner.style.display = "flex";
     }
 
+    // While a study refresh is expected to clear the banner, poll the
+    // staleness endpoint until it does (or ~30 min pass) — without this the
+    // banner promised to clear "once the refresh completes" but only actually
+    // did so on a full page reload.
+    let stalePollTimer = null;
+
+    function _pollStalenessUntilClear() {
+        if (stalePollTimer) clearInterval(stalePollTimer);
+        let ticks = 0;
+        stalePollTimer = setInterval(async function () {
+            ticks++;
+            if (ticks > 120) {
+                clearInterval(stalePollTimer);
+                stalePollTimer = null;
+                return;
+            }
+            try {
+                const res = await fetch("/api/manage/refresh/staleness");
+                if (!res.ok) return;
+                const body = await res.json();
+                if (!(body.version_promotion || {}).stale) {
+                    clearInterval(stalePollTimer);
+                    stalePollTimer = null;
+                    renderStaleBanner(null);
+                    _status("Study refresh completed — study datasets now read the preferred version.");
+                }
+            } catch (err) { /* transient poll error — keep polling */ }
+        }, 15000);
+    }
+
+
+
+
     async function startStudyRefresh(btn) {
         btn.disabled = true;
         const prev = btn.textContent;
@@ -430,12 +463,14 @@
             });
             const body = await res.json().catch(function () { return {}; });
             if (res.status === 409 || (body.error || "").indexOf("already running") !== -1) {
-                _status("A study refresh is already running — the banner clears when it succeeds.");
+                _status("A study refresh is already running — this banner clears automatically when it succeeds.");
+                _pollStalenessUntilClear();
             } else if (!res.ok) {
                 throw new Error(body.error || res.statusText);
             } else {
-                _status("Study refresh started — the banner clears once it completes. "
-                    + "Track it under Data Management → Refresh Caches.");
+                _status("Study refresh started — this banner clears automatically when it completes. "
+                    + "You can follow its progress under Data Pipeline → Refresh Caches.");
+                _pollStalenessUntilClear();
             }
         } catch (err) {
             _status("Could not start the study refresh: " + err.message, true);
