@@ -16,5 +16,6 @@ from . import (  # noqa: E402,F401
     contracts,
     ab_eval,
     schema,
+    data_contracts,
     ingestion,
 )

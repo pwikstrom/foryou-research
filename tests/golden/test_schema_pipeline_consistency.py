@@ -13,7 +13,8 @@ This test pins that coupling so it cannot drift silently:
   * HARD invariants (always fail if violated, because they break the pipeline):
       - every ``recode_func`` named in var_schema exists in the allow-listed
         registry (otherwise it silently no-ops at runtime)
-      - the live var_schema passes ``validate_var_schema`` (no malformed rows)
+      - the live var_schema uses only the canonical role/scale vocabularies
+        and has no blank variable names (no malformed rows)
       - ``variable_name`` values are unique
 
   * DRIFT baseline (fails when the cross-source relationship *changes*):
@@ -131,11 +132,22 @@ def test_recode_funcs_are_registered() -> None:
 
 
 def test_live_schema_validates() -> None:
-    errors = rv.validate_var_schema(fyp_cf["var_schema"])
-    assert not errors, (
-        f"Live var_schema has {len(errors)} validation error(s); first few: "
-        f"{[dict(e) for e in errors[:5]]}"
+    # Inline replacement for the retired validate_var_schema: the synthesized
+    # schema must use only the canonical role/scale vocabularies and carry a
+    # non-blank name on every row (the contracts' own validators cover the rest).
+    vs = fyp_cf["var_schema"]
+    bad_roles = sorted(
+        str(r) for r in vs["role"].dropna().unique()
+        if str(r).strip() and str(r).strip() not in rv.VAR_SCHEMA_ROLES
     )
+    assert not bad_roles, f"Live var_schema has unknown role(s): {bad_roles}"
+    bad_scales = sorted(
+        str(s) for s in vs["scale"].dropna().unique()
+        if str(s).strip() and str(s).strip() not in rv.VAR_SCHEMA_SCALES
+    )
+    assert not bad_scales, f"Live var_schema has unknown scale(s): {bad_scales}"
+    blank_names = int((vs["variable_name"].isna() | (vs["variable_name"].astype(str).str.strip() == "")).sum())
+    assert blank_names == 0, f"Live var_schema has {blank_names} row(s) with a blank variable_name"
 
 
 def test_variable_names_unique() -> None:

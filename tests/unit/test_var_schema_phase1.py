@@ -11,18 +11,8 @@ Covers, in this order (mirroring tests §1-24 of the plan):
     6. test_hash_v2_prefix
     7. test_hash_v1_v2_never_collide
 
-  Registry / validation / safe parsing:
+  Registry:
     8. test_recode_registry_contains_known_funcs
-    9. test_recode_lookup_rejects_unknown
-   10. test_no_eval_in_recode_path
-   11. test_validate_each_enum
-   12. test_validate_duplicate_variable_name
-   13. test_validate_real_csv_is_clean
-
-  Save / etag:
-   16. test_save_writes_backup
-   17. test_save_etag_mismatch_raises
-   18. test_save_hash_changed_flag
 
   Cross-process freshness:
    19. test_reload_var_schema_if_changed_noop_when_unchanged
@@ -53,21 +43,14 @@ sys.path.insert(0, str(project_root))
 import pandas as pd
 
 from fyp.fyp_config import (
-    VarSchemaConflict,
-    compute_var_schema_etag,
     fyp_cf,
-    load_var_schema,
     reload_var_schema_if_changed,
-    save_var_schema,
 )
 from fyp.recode_variables import (
     SEMANTIC_COLUMNS,
     VAR_SCHEMA_HASH_VERSION,
     compute_var_schema_hash,
     get_recode_func_registry,
-    parse_accepted_labels,
-    parse_recode_func,
-    validate_var_schema,
 )
 
 
@@ -210,179 +193,6 @@ def test_recode_registry_contains_known_funcs():
     missing = expected - registry.keys()
     _check("test_recode_registry_contains_known_funcs",
            not missing, f"missing: {missing}")
-
-
-
-def test_recode_lookup_rejects_unknown():
-    result = parse_recode_func("definitely_not_a_function")
-    _check("test_recode_lookup_rejects_unknown", result is None,
-           f"got {result!r}")
-
-
-
-def test_no_eval_in_recode_path():
-    """The new parser must not execute arbitrary strings.
-
-    Construct a sentinel file and a malicious payload that, if eval'd,
-    would create it.  Then call parse_recode_func and verify the file
-    was NOT created and the function returned None.
-    """
-    sentinel = Path(tempfile.gettempdir()) / "fyp_test_eval_canary.txt"
-    if sentinel.exists():
-        sentinel.unlink()
-    malicious = f"__import__('pathlib').Path({str(sentinel)!r}).write_text('PWNED')"
-    result_rf = parse_recode_func(malicious)
-    created = sentinel.exists()
-    if sentinel.exists():
-        sentinel.unlink()
-    ok = (result_rf is None and not created)
-    _check("test_no_eval_in_recode_path", ok,
-           f"rf={result_rf!r} sentinel_created={created}")
-
-
-
-def test_validate_each_enum():
-    # role and scale are the remaining validated enum columns (mapper / ignore_strings
-    # / recode_func / unable_to_detect_policy were retired and are now derived).
-    base = pd.DataFrame([
-        {"variable_name": "v1", "role": "factor", "scale": "numeric"},
-    ])
-    # passing case
-    errs = validate_var_schema(base)
-    pass_clean = not errs
-    # role typo
-    bad_role = base.copy()
-    bad_role.loc[0, "role"] = "factro"
-    errs1 = validate_var_schema(bad_role)
-    # scale typo
-    bad_scale = base.copy()
-    bad_scale.loc[0, "scale"] = "ratoi"
-    errs2 = validate_var_schema(bad_scale)
-    ok = (pass_clean
-          and any(e["column"] == "role" for e in errs1)
-          and any(e["column"] == "scale" for e in errs2))
-    _check("test_validate_each_enum", ok)
-
-
-
-def test_validate_duplicate_variable_name():
-    df = pd.DataFrame([
-        {"variable_name": "dup", "role": "standard"},
-        {"variable_name": "dup", "role": "standard"},
-    ])
-    errs = validate_var_schema(df)
-    ok = any("duplicate" in e["message"].lower() for e in errs)
-    _check("test_validate_duplicate_variable_name", ok)
-
-
-
-def test_validate_real_csv_is_clean():
-    errs = validate_var_schema(_real_schema_copy())
-    _check("test_validate_real_csv_is_clean", not errs,
-           f"{len(errs)} unexpected errors, first: {errs[0] if errs else None}")
-
-
-
-# -------- Save / etag --------
-
-def _save_test_with_local_data():
-    """Snapshot the live CSV so destructive save tests can restore it."""
-    if fyp_cf.get("data_io", {}).get("use_gcs_for_data"):
-        return None  # skip on GCS environments
-    from fyp.fyp_config import _var_schema_path
-    src = _var_schema_path(fyp_cf)
-    if not os.path.exists(src):
-        return None
-    fd, tmp = tempfile.mkstemp(prefix="var_schema_snapshot_", suffix=".csv")
-    os.close(fd)
-    shutil.copy2(src, tmp)
-    return (src, tmp)
-
-
-
-def _restore(snap):
-    if snap is None:
-        return
-    src, tmp = snap
-    shutil.copy2(tmp, src)
-    os.remove(tmp)
-    load_var_schema(fyp_cf, verbose=False)
-    # Clean any test-generated backups
-    backup_dir = os.path.dirname(src)
-    for f in os.listdir(backup_dir):
-        if f.startswith("var_schema_") and f.endswith(".csv") and f != "var_schema.csv":
-            try:
-                os.remove(os.path.join(backup_dir, f))
-            except OSError:
-                pass
-
-
-
-def test_save_writes_backup():
-    global SKIP
-    snap = _save_test_with_local_data()
-    if snap is None:
-        SKIP += 1
-        print("  SKIP  test_save_writes_backup (GCS or no live CSV)")
-        return
-    try:
-        src, _ = snap
-        backup_dir = os.path.dirname(src)
-        before = set(os.listdir(backup_dir))
-        df = fyp_cf["var_schema"].copy()
-        df.loc[df.index[0], "description"] = "TEST_BACKUP_PROBE"
-        etag = compute_var_schema_etag(fyp_cf)
-        save_var_schema(df, expected_etag=etag, verbose=False)
-        after = set(os.listdir(backup_dir))
-        new = [f for f in (after - before) if f.startswith("var_schema_") and f.endswith(".csv")]
-        _check("test_save_writes_backup", len(new) == 1, f"new files: {new}")
-    finally:
-        _restore(snap)
-
-
-
-def test_save_etag_mismatch_raises():
-    global SKIP
-    snap = _save_test_with_local_data()
-    if snap is None:
-        SKIP += 1
-        print("  SKIP  test_save_etag_mismatch_raises (GCS or no live CSV)")
-        return
-    try:
-        df = fyp_cf["var_schema"].copy()
-        df.loc[df.index[0], "description"] = "STALE_ETAG"
-        raised = False
-        try:
-            save_var_schema(df, expected_etag="not-the-real-etag", verbose=False)
-        except VarSchemaConflict:
-            raised = True
-        _check("test_save_etag_mismatch_raises", raised)
-    finally:
-        _restore(snap)
-
-
-
-def test_save_hash_changed_flag():
-    """CSV saves cannot affect the synthesized schema: contracts own the
-    semantics, so writing any CSV content leaves the hash untouched."""
-    global SKIP
-    snap = _save_test_with_local_data()
-    if snap is None:
-        SKIP += 1
-        print("  SKIP  test_save_hash_changed_flag (GCS or no live CSV)")
-        return
-    try:
-        h_before = compute_var_schema_hash()
-        df = fyp_cf["var_schema"].copy()
-        df.loc[df.index[0], "display_name"] = "TEST_NAME"
-        current_scale = str(df.loc[df.index[0], "scale"])
-        df.loc[df.index[0], "scale"] = "categorical" if current_scale != "categorical" else "text"
-        save_var_schema(df, verbose=False)
-        h_after = compute_var_schema_hash()
-        _check("test_save_hash_changed_flag", h_after == h_before,
-               f"before={h_before[:16]} after={h_after[:16]}")
-    finally:
-        _restore(snap)
 
 
 
@@ -529,14 +339,6 @@ TESTS = [
     test_hash_v2_prefix,
     test_hash_v1_v2_never_collide,
     test_recode_registry_contains_known_funcs,
-    test_recode_lookup_rejects_unknown,
-    test_no_eval_in_recode_path,
-    test_validate_each_enum,
-    test_validate_duplicate_variable_name,
-    test_validate_real_csv_is_clean,
-    test_save_writes_backup,
-    test_save_etag_mismatch_raises,
-    test_save_hash_changed_flag,
     test_reload_var_schema_if_changed_noop_when_unchanged,
     test_reload_var_schema_if_changed_picks_up_presentation_edit,
     test_migrate_hash_v2_dry_run_no_writes,

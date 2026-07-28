@@ -1,0 +1,34 @@
+<!-- Data Contracts sub-page (read-only) -->
+
+<h2 style="margin: 0 0 8px 0;">Data Contracts</h2>
+<p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 10px 0;">
+    Besides the annotation contract (authored and activated on the
+    <em>Contracts</em> page), the platform's variable schema is governed by three
+    further declarative contracts: the <strong>scrape</strong> contract (the
+    canonical cross-platform scrape schema), the <strong>activity</strong>
+    contract (the platform-agnostic donation/engagement schema) and the
+    <strong>derived</strong> contract (columns computed at merge time). This page
+    is a read-only view of those contracts and, for scrape and activity, their
+    version history &mdash; every stored row is stamped with the contract version
+    it was produced under.
+</p>
+<p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
+    These contracts are deliberately <strong>not editable here</strong>: their
+    fields only change together with the scraper / ingester code that emits them,
+    so they are edited in the repository and deployed. A deployed change forks a
+    new version automatically.
+</p>
+
+<section style="display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px;">
+    <button id="dcRefreshBtn" class="btn-primary">Refresh</button>
+</section>
+
+<div id="dcStatus" class="text-sm" style="min-height: 18px; margin-bottom: 8px; color: var(--color-text-muted);"></div>
+
+<div id="dcSections">
+    <div class="text-sm" style="color: var(--color-text-muted); padding: 12px 0;">
+        Click Refresh to load the contracts.
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/admin_data_contracts.js') }}" defer></script>

@@ -35,7 +35,7 @@ import pandas as pd
 
 from web_interface import security
 from web_interface.auth import ROLE_ADMIN, User
-from fyp.fyp_config import _var_schema_path, fyp_cf, load_var_schema
+from fyp.fyp_config import fyp_cf, load_var_schema
 from fyp.recode_variables import compute_var_schema_hash
 from fyp import var_presentation as vp
 
@@ -126,37 +126,6 @@ def _login(client, username):
     with client.session_transaction() as sess:
         sess["_user_id"] = username
         sess["_fresh"] = True
-
-
-
-# ------- backup live CSV so tests are non-destructive -------
-
-def _snapshot_csv():
-    src = _var_schema_path(fyp_cf)
-    if not os.path.exists(src):
-        return None
-    fd, tmp = tempfile.mkstemp(prefix="phase2_schema_", suffix=".csv")
-    os.close(fd)
-    shutil.copy2(src, tmp)
-    return (src, tmp)
-
-
-
-def _restore_csv(snap):
-    if snap is None:
-        return
-    src, tmp = snap
-    shutil.copy2(tmp, src)
-    os.remove(tmp)
-    load_var_schema(fyp_cf, verbose=False)
-    # Remove any backups created by tests
-    backup_dir = os.path.dirname(src)
-    for f in os.listdir(backup_dir):
-        if f.startswith("var_schema_") and f.endswith(".csv") and f != "var_schema.csv":
-            try:
-                os.remove(os.path.join(backup_dir, f))
-            except OSError:
-                pass
 
 
 

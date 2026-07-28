@@ -48,6 +48,7 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.admin.ab_eval",                    "label": "Admin — Contracts"},
     {"key": "tab.admin.human_eval",                 "label": "Admin — Reliability Control"},
     {"key": "tab.admin.schema",                     "label": "Admin — Variable Visibility"},
+    {"key": "tab.admin.data_contracts",             "label": "Admin — Data Contracts"},
     {"key": "tab.admin.stoplist",                   "label": "Admin — Hashtag Stoplist"},
     {"key": "tab.admin.scrapers",                   "label": "Admin — Scrapers"},
     {"key": "tab.admin.general",                    "label": "Admin — Site Settings"},
@@ -104,6 +105,9 @@ PERMISSION_KEYS_GRANT_ALL: list[str] = [
 PERMISSION_KEY_IMPLIED_GRANTS: dict[str, list[str]] = {
     "tab.admin.general": ["tab.admin.backends", "tab.admin.stoplist"],
     "tab.admin.schema": ["tab.admin.versions", "tab.admin.ab_eval"],
+    # 2026-07 read-only Data Contracts page: version history for the scrape /
+    # activity contracts, so it rides with the annotation Versions key.
+    "tab.admin.versions": ["tab.admin.data_contracts"],
     # 2026-07 Data Management restructure: "Scrape & Annotate" split into a
     # Scrape page and an Annotation page. Roles that held the old enrichment
     # key gain both new keys; the stale key stays in roles.json harmlessly.
