@@ -2,24 +2,20 @@
      static/js/admin_ab_eval.js from the /api/manage/ab-* endpoints. -->
 <h2 style="margin: 0 0 8px 0;">Contracts</h2>
 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0;">
-    This page is where you experiment with how your
-    videos get annotated: try out different contracts (prompts and response
-    fields) and different annotation backends (AI models), run them side by
-    side on a small set of already-downloaded videos, and compare how well
-    each performs. Note that test runs make <strong>real annotation calls</strong>
-    (contracts &times; videos) but results are stored in an isolated
-    location and never enter the machine-annotation archive or studies.
-    When you are happy with a contract, press its <strong>Activate</strong> button
-    to review the impact and confirm. The ingredients defined by the contract (and,
-    if you choose, its tested backend) are "baked" into a <em>version</em>, which is
-    then used for new annotations.
+    An <strong>annotation contract</strong> is the recipe for how your videos get
+    annotated: the questions the AI model is asked to answer about each video,
+    and the form its answers must take. The table below lists every contract on
+    this Data Hub. Exactly one contract is <strong>active</strong> at any time
+    &mdash; it is the one used whenever new annotations are made. To switch, press
+    <strong>Activate</strong> on another contract: you will see a summary of what
+    changes before anything is applied, and the activated contract (together with
+    the AI model and its settings) is recorded as a new <em>version</em> on the
+    <em>Versions</em> page. Use <strong>View</strong> to read any contract, or
+    <strong>Duplicate</strong> to use it as the starting point for your own.
 </p>
 
-<div id="abe-status" class="text-sm" style="min-height: 18px; margin-bottom: 8px;
-    color: var(--color-text-muted);"></div>
-
 <!-- 1. Contracts -->
-<section class="text-sm" style="margin: 0 0 20px 0; padding: 14px 16px;
+<section class="text-sm" style="margin: 0 0 24px 0; padding: 14px 16px;
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
@@ -32,6 +28,11 @@
                 style="display: none;" onchange="abeOnCandidateFile(this)">
         </label>
     </div>
+    <!-- Status line for contract actions (save/activate/delete/…) — kept
+         inside this card so feedback appears next to the buttons that caused
+         it; run/test messages use the #abe-status line further down. -->
+    <div id="abe-cand-status" class="text-sm" style="min-height: 18px; margin-top: 8px;
+        color: var(--color-text-muted);"></div>
 
     <!-- Inline naming row for the upload / duplicate flows (no native prompt) -->
     <div id="abe-name-row" style="display: none; gap: 8px; margin-top: 10px;
@@ -68,12 +69,30 @@
     </div>
 </section>
 
+<!-- ============ Contract evaluation (test runs on a small video set) ============ -->
+<hr style="border: none; border-top: 1px solid var(--color-border); margin: 28px 0 20px 0;">
+<h3 style="margin: 0 0 8px 0; color: var(--color-text-heading);">Contract evaluation</h3>
+
+<p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 8px 0;">
+    Before switching to a new contract, you can try it out here, in three steps:
+    choose a small set of <strong>test videos</strong> (step 1), start a
+    <strong>test run</strong> in which two or more contracts (or AI models)
+    annotate those same videos (step 2), and compare their answers field by
+    field (step 3). A test run makes <strong>real annotation calls</strong>
+    (contracts &times; videos), but its results are stored separately for
+    comparison only &mdash; they never enter your research datasets.
+</p>
+
+<!-- Status messages for the evaluation workflow (test videos, test runs, results). -->
+<div id="abe-status" class="text-sm" style="min-height: 18px; margin-bottom: 8px;
+    color: var(--color-text-muted);"></div>
+
 <!-- 2. Test sets -->
 <section class="text-sm" style="margin: 0 0 20px 0; padding: 14px 16px;
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-        <h3 style="margin: 0; color: var(--color-text-heading);">Create a set of videos to be test annotated</h3>
+        <h3 style="margin: 0; color: var(--color-text-heading);">Step 1 &middot; Choose test videos</h3>
         <select id="abe-set-picker" class="text-sm" onchange="abeSelectSet(this.value)"
             style="padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 4px;
             background: var(--color-bg-input); color: var(--color-text-primary); min-width: 180px;">
@@ -134,25 +153,26 @@
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
     <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 0 0 6px 0;">
-        <h3 style="margin: 0; color: var(--color-text-heading);">Select contracts and annotation backends for the next test</h3>
+        <h3 style="margin: 0; color: var(--color-text-heading);">Step 2 &middot; Choose contracts and start the test run</h3>
         <input id="abe-run-name" type="text" maxlength="60"
-            placeholder="run name (optional)" class="text-sm"
+            placeholder="test run name (optional)" class="text-sm"
             style="padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 4px;
             background: var(--color-bg-input); color: var(--color-text-primary); min-width: 200px;">
         <button id="abe-run-btn" onclick="abeStartRun()" class="btn-primary btn-compact"
-            >Run&hellip;</button>
+            >Start test run&hellip;</button>
         <button id="abe-cancel-btn" onclick="abeCancelRun(this)" class="btn-stop btn-compact"
-            style="display: none;">Cancel run</button>
+            style="display: none;">Cancel test run</button>
     </div>
     <div id="abe-estimate" class="text-sm" style="color: var(--color-text-primary);
         margin: 0 0 10px 0;"></div>
-    <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 4px;">
-        Contracts in this test</div>
-    <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 6px;">
-        The dropdown next to each contract selects the <strong>annotation backend</strong>
-        &mdash; the AI model that runs the annotations for that contract. Leave it on the
-        default, or pick different backends to compare models as well as contracts.
-        (Backends are configured under <em>Backends</em>.)</div>
+    <!-- Column titles for the selected contracts and their backends; the arm
+         rows below use the same fixed widths. Hidden by renderArmPicker when
+         no contract is selected yet. -->
+    <div id="abe-arm-header" class="text-xs font-semibold"
+        style="display: flex; gap: 8px; margin-bottom: 4px; color: var(--color-text-muted);">
+        <span style="min-width: 180px;">Contracts in this test run</span>
+        <span style="width: 150px;" class="meta-tooltip" data-tooltip="The AI model that annotates the test videos for this contract. Pick different models to compare them. Models are configured under Backends.">AI model (backend)</span>
+    </div>
     <div id="abe-arm-picker" style="display: flex; flex-direction: column; gap: 4px;"></div>
     <div style="margin-top: 6px;">
         <button onclick="abeAddLiveToTest()" class="btn-discreet btn-compact">+ active contract</button>
@@ -166,16 +186,16 @@
         border: 1px solid var(--color-border-strong); border-radius: 8px;
         background: var(--color-bg-elevated);">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-        <h3 style="margin: 0; color: var(--color-text-heading);">Test results</h3>
+        <h3 style="margin: 0; color: var(--color-text-heading);">Step 3 &middot; Compare results</h3>
         <select id="abe-run-picker" class="text-sm" onchange="abeLoadRun(this.value)"
             style="padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 4px;
             background: var(--color-bg-input); color: var(--color-text-primary); min-width: 280px;">
-            <option value="">(no runs yet)</option>
+            <option value="">(no test runs yet)</option>
         </select>
         <button onclick="abeRefreshRuns(this)" class="btn-discreet btn-compact">Refresh</button>
         <span style="flex: 1;"></span>
         <button id="abe-run-delete" onclick="abeDeleteRun()" class="btn-danger btn-compact"
-            style="display: none;">Delete run</button>
+            style="display: none;">Delete test run</button>
     </div>
     <div id="abe-results" style="margin-top: 12px;"></div>
 </section>

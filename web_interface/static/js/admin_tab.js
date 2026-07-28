@@ -323,14 +323,35 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ [key]: value })
             });
+            const data = await response.json().catch(() => ({}));
             if (!response.ok) {
-                const data = await response.json().catch(() => ({}));
                 throw new Error(data.error || 'Save failed');
             }
             (window._adminSettings || (window._adminSettings = {}))[key] = value;
-            if (status) {
+            if (key === 'annotation_backend') {
+                // Spell out what the switch did (the new active av_ comes back
+                // from the server) and let the other panels — Versions,
+                // Contracts, and this page's requirement cards with their
+                // "active" markers — refresh themselves.
+                const sw = data.annotation_backend_switch || {};
+                if (status) {
+                    status.textContent = sw.to
+                        ? `Saved — new annotations now use '${sw.to}'`
+                          + (sw.annotation_version
+                              ? `. Annotation version ${sw.annotation_version} is now active (see Versions).`
+                              : '.')
+                        : 'Saved (unchanged)';
+                }
+                document.dispatchEvent(new CustomEvent('fyp:contract-changed'));
+            } else if (key === 'embedding_backend') {
+                if (status) {
+                    status.textContent = 'Saved — to apply, run Embeddings → Refresh and then '
+                        + 'Video map → Rebuild under Data Pipeline → Refresh Caches.';
+                }
+                loadEmbeddingBackendRequirements(String(value));
+            } else if (status) {
                 status.textContent = 'Saved';
-                setTimeout(() => { if (status.textContent.startsWith('Saved')) status.textContent = ''; }, 4000);
+                setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 4000);
             }
         } catch (e) {
             console.error('saveMachineSetting:', key, e);
@@ -622,7 +643,7 @@
                     const d = entry.data || {};
                     _iwApplySetStatus('var(--color-success)',
                         `Updated ${d.rows_changed || 0} hashtag row(s) in ${d.files_changed || 0} file(s). `
-                        + 'Now run Force Reconsolidate (Data Management → Enrichment) to apply to studies.');
+                        + 'Now run Force Reconsolidate (Data Pipeline → Refresh Caches) to apply to studies.');
                 }
             } catch (e) {
                 console.error('_pollIrrelevantWordsApply:', e);

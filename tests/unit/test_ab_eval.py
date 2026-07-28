@@ -297,6 +297,35 @@ def test_resolve_items_unknown_ids():
     _check("test_resolve_items_unknown_ids", ok, f"resolved={resolved}")
 
 
+def test_resolve_and_sample_survive_legacy_status_frame():
+    """A pre-multi-platform enrichment_status.parquet has no source_platform.
+
+    load_parquet_selective silently skips absent columns, so resolve/sample
+    once crashed with "'Pandas' object has no attribute 'source_platform'"
+    (prod-shape bug found on a local snapshot, 2026-07-28). The loader now
+    normalises the schema; simulate the legacy frame through the cache.
+    """
+    snap = dict(ab_eval._STATUS_CACHE)
+    try:
+        legacy = pd.DataFrame({
+            "item_id": ["111", "222", "333"],
+            "video_downloaded": [True, True, False],
+            "scraped_ok": [True, True, True],
+        })
+        # What _enrichment_status_frame would produce after normalisation.
+        legacy["source_platform"] = pd.NA
+        ab_eval._STATUS_CACHE.update({"frame": legacy, "ts": __import__("time").monotonic()})
+        resolved = ab_eval.resolve_items(["111", "999"])
+        sampled = ab_eval.sample_items(2, seed=1)
+        ok = (resolved[0]["platform"] is None and resolved[0]["downloaded"] is True
+              and resolved[1]["platform"] is None and resolved[1]["downloaded"] is None
+              and set(sampled) <= {"111", "222"} and len(sampled) == 2)
+        _check("test_resolve_and_sample_survive_legacy_status_frame", bool(ok),
+               f"resolved={resolved} sampled={sampled}")
+    finally:
+        ab_eval._STATUS_CACHE.update(snap)
+
+
 def test_refine_from_flat_dicts():
     live = tomllib.loads(ac._read_baked_text())
     records = []
@@ -596,7 +625,8 @@ def test_source_isolation_guard():
     never slip in), and the production archive save entry points are never
     referenced.
     """
-    source = (project_root / "fyp" / "ab_eval.py").read_text()
+    # The real module — fyp/ab_eval.py is only the back-compat alias shim.
+    source = (project_root / "fyp" / "annotation" / "ab_eval.py").read_text()
     allowed = {"LOCATION", "CANDIDATES_LOCATION", "EVAL_SET_LOCATION"}
     save_calls = re.findall(
         r"data_io\.save_\w+\([^)]*?storage_location=([\"']?\w+[\"']?)", source, re.DOTALL)
@@ -714,6 +744,7 @@ def main():
         test_run_arm_failed_item_yields_bare_row,
         test_candidate_field_survives_refine,
         test_resolve_items_unknown_ids,
+        test_resolve_and_sample_survive_legacy_status_frame,
         test_refine_from_flat_dicts,
         test_compare_arms_metrics,
         test_declared_scale_beats_length_heuristic,

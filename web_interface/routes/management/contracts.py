@@ -32,6 +32,42 @@ from ._blueprint import management_bp
 from .schema import _var_schema_admin_enabled
 
 
+def _annotation_counts_by_version() -> dict | None:
+    """Count successfully annotated videos per ``annotation_version``.
+
+    Reads only the two needed columns from the consolidated all-versions
+    archive (one row per (source_platform, item_id, annotation_version)), so
+    the count is "distinct videos annotated under this version".
+
+    Returns:
+        ``{version: count}`` (an empty dict when no archive exists yet — i.e.
+        nothing has been annotated), or ``None`` when the archive could not be
+        read, so the UI can distinguish "0 videos" from "count unavailable".
+    """
+    try:
+        label = fyp_cf["labels"]["MACHINE_ANNOTATIONS_LABEL"]
+        archive_fn = f"{label}_all_versions.parquet"
+        if not data_io.exists(storage_location="recoded", filename=archive_fn):
+            return {}
+        df = data_io.load_parquet_selective(
+            storage_location="recoded",
+            filename=archive_fn,
+            columns=["annotation_version", "annotated_ok"],
+        )
+        if df is None or "annotation_version" not in df.columns:
+            return None
+        if "annotated_ok" in df.columns:
+            df = df[df["annotated_ok"].fillna(False) == True]  # noqa: E712
+        counts = df["annotation_version"].dropna().value_counts()
+        return {str(version): int(n) for version, n in counts.items()}
+    except Exception:
+        return None
+
+
+
+
+
+
 @management_bp.route('/api/manage/annotation-versions', methods=['GET'])
 @permission_required('tab.admin.versions', 'tab.admin.ab_eval')
 @login_required
@@ -39,13 +75,15 @@ def list_annotation_versions():
     """List recorded annotation versions plus the active and preferred ones.
 
     ``active`` = the version new annotations are stamped with; ``preferred`` =
-    the promoted version studies read.
+    the promoted version studies read. ``counts`` maps each version to the
+    number of videos annotated under it (``None`` when unavailable).
     """
     try:
         return jsonify({
             "versions": annotation_versioning.list_versions(),
             "preferred": annotation_versioning.get_preferred_version(),
             "active": annotation_versioning.active_annotation_version(),
+            "counts": _annotation_counts_by_version(),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500

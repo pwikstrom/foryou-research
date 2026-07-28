@@ -480,13 +480,19 @@ def api_admin_settings():
 
     # A backend switch forks the effective annotation version — register it
     # eagerly so it shows on the Versions page without waiting for the first
-    # annotation run. Never let registry plumbing fail the settings save.
+    # annotation run, and report it back so the Backends page can tell the
+    # admin what just changed. Never let registry plumbing fail the save.
+    switch_info = None
     if ("annotation_backend" in data
             and data["annotation_backend"] != prev_annotation_backend):
+        switch_info = {"from": prev_annotation_backend,
+                       "to": data["annotation_backend"],
+                       "annotation_version": None}
         try:
             from fyp import annotation_versioning
 
             minted = annotation_versioning.ensure_active_version_registered()
+            switch_info["annotation_version"] = minted
             activity_log.record(
                 actor=getattr(current_user, "username", "") or "",
                 category="admin",
@@ -499,7 +505,10 @@ def api_admin_settings():
             pass
 
     merged = {**ADMIN_SETTINGS_DEFAULTS, **current}
-    return jsonify({"status": "success", "message": "Settings updated", "settings": merged})
+    payload = {"status": "success", "message": "Settings updated", "settings": merged}
+    if switch_info:
+        payload["annotation_backend_switch"] = switch_info
+    return jsonify(payload)
 
 
 @auth_bp.route('/api/admin/irrelevant_words', methods=['GET', 'PUT'])

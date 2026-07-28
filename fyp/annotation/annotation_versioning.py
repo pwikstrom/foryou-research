@@ -492,16 +492,14 @@ def get_preferred_version() -> str | None:
 def promote_version(version: str) -> dict:
     """Promote ``version`` to be the preferred version. Returns the registry.
 
-    The synthetic ``v0_legacy`` version only exists to keep pre-versioning legacy
-    fields contract-owned — it has no prompt/schema snapshot and can never be the
-    preferred version, so promoting it is rejected.
+    The synthetic ``v0_legacy`` version may be preferred like any other —
+    preference only selects which archive rows studies read, and legacy rows
+    exist in the archive. (It can never be re-*activated*, though: it has no
+    contract snapshot to rebuild the prompt from.)
 
     Raises:
-        ValueError: If ``version`` is the legacy version.
         KeyError: If ``version`` is not in the registry.
     """
-    if version == LEGACY_VERSION:
-        raise ValueError("the legacy version cannot be promoted")
     registry = _promote_into(load_registry(), version)
     save_registry(registry)
     return registry

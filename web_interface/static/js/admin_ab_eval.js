@@ -118,6 +118,16 @@
         el.style.color = isError ? "var(--color-danger)" : "var(--color-text-muted)";
     }
 
+    // Status line inside the "Available contracts" card — contract actions
+    // (save/duplicate/activate/delete) report here, next to their buttons;
+    // the evaluation workflow (sets, runs, results) uses _status further down.
+    function _statusContracts(msg, isError) {
+        const el = document.getElementById("abe-cand-status");
+        if (!el) { _status(msg, isError); return; }
+        el.textContent = msg || "";
+        el.style.color = isError ? "var(--color-danger)" : "var(--color-text-muted)";
+    }
+
     // Two-click confirmation for destructive/costly buttons — native
     // confirm()/prompt() dialogs are blocked in embedded preview browsers.
     // First click arms the button (relabels it); a second click within 4s
@@ -189,7 +199,7 @@
             renderCandidates();
             renderArmPicker();
         } catch (e) {
-            _status(`Failed to load candidates: ${e.message}`, true);
+            _statusContracts(`Failed to load candidates: ${e.message}`, true);
         }
     }
 
@@ -217,7 +227,7 @@
     // Activate button.
     function _activateCell(name, isActive) {
         if (isActive) {
-            return '<button class="btn-save btn-compact btn-state btn-row-fixed">Active</button>';
+            return '<button class="btn-compact btn-state btn-row-fixed">✓ Active</button>';
         }
         return '<button class="btn-primary btn-compact btn-row-fixed abe-activate" data-n="'
             + _esc(name) + '">Activate</button>';
@@ -245,33 +255,39 @@
             const when = active.updated_at ? _esc(String(active.updated_at).replace("T", " ")) : "";
             rows.push(`<tr>
                 <td style="${cell}"><span${muted}>active contract</span> ${_rowBadge("active", true)}
-                    <div class="text-xxs"${muted}>Uploaded contract, not saved as a candidate</div></td>
+                    <div class="text-xxs" style="color: var(--color-text-muted); min-width: 220px;
+                        max-width: 300px;">Uploaded contract, not saved as a candidate</div></td>
                 <td style="${cell}" class="font-mono text-xs">${_esc(activeVersion)}</td>
                 <td style="${cell}">${_esc(active.n_fields ?? "—")}</td>
                 <td style="${cell}" class="text-xs">${when}<br><span${muted}>${who}</span></td>
-                <td style="${cell}; white-space: nowrap;">
-                    <div style="display: flex; align-items: center; gap: 4px;">
+                <td style="${cell}">
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 300px;">
+                        <button class="btn-discreet btn-compact abe-view-active">View</button>
                         <button class="btn-discreet btn-compact abe-dl-active">Download</button>
                         <button class="btn-discreet btn-compact abe-dup-active">Duplicate</button>
                         <span style="flex: 1; min-width: 16px;"></span>
-                        <button class="btn-save btn-compact btn-state btn-row-fixed">Active</button>
+                        <button class="btn-compact btn-state btn-row-fixed">✓ Active</button>
                     </div>
                 </td>
             </tr>`);
         }
 
         // The shipped default: inspectable and duplicatable like any contract,
-        // and activating it restores the platform default.
+        // and activating it restores the built-in default.
         if (d && !defaultShadowed) {
             rows.push(`<tr>
                 <td style="${cell}"><span class="font-mono font-semibold">${_esc(d.name)}</span>
                     ${_rowBadge("built-in", false)}${builtinIsActive ? " " + _rowBadge("active", true) : ""}
-                    <div class="text-xxs"${muted}>Ships with the platform — activate to reset to it</div></td>
+                    <div class="text-xxs" style="color: var(--color-text-muted); min-width: 220px;
+                        max-width: 300px;">The standard contract that comes with the Data Hub —
+                        always listed here, so you can return to it at any time by pressing
+                        Activate.</div></td>
                 <td style="${cell}" class="font-mono text-xs">${_esc(d.version || "—")}</td>
                 <td style="${cell}">${_esc(d.n_fields ?? "—")}</td>
                 <td style="${cell} color: var(--color-text-muted);" class="text-xs">—</td>
-                <td style="${cell}; white-space: nowrap;">
-                    <div style="display: flex; align-items: center; gap: 4px;">
+                <td style="${cell}">
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 300px;">
+                        <button class="btn-discreet btn-compact abe-view" data-n="${_esc(d.name)}">View</button>
                         <button class="btn-discreet btn-compact abe-dl" data-n="${_esc(d.name)}">Download</button>
                         <button class="btn-discreet btn-compact abe-dup" data-n="${_esc(d.name)}">Duplicate</button>
                         <span style="flex: 1; min-width: 16px;"></span>
@@ -290,8 +306,9 @@
                 <td style="${cell}">${_esc(m.n_fields ?? "—")}</td>
                 <td style="${cell}" class="text-xs">${_esc((m.created_at || "").replace("T", " "))}<br>
                     <span${muted}>${_esc(m.created_by || "")}</span></td>
-                <td style="${cell}; white-space: nowrap;">
-                    <div style="display: flex; align-items: center; gap: 4px;">
+                <td style="${cell}">
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 300px;">
+                        <button class="btn-discreet btn-compact abe-view" data-n="${_esc(m.name)}">View</button>
                         <button class="btn-discreet btn-compact abe-dl" data-n="${_esc(m.name)}">Download</button>
                         <button class="btn-discreet btn-compact abe-edit" data-n="${_esc(m.name)}">Edit</button>
                         <button class="btn-discreet btn-compact abe-dup" data-n="${_esc(m.name)}">Duplicate</button>
@@ -311,6 +328,10 @@
         }
         tbody.innerHTML = rows.join("");
 
+        tbody.querySelectorAll(".abe-view").forEach(b =>
+            b.addEventListener("click", () => viewContract(b.dataset.n, b)));
+        tbody.querySelectorAll(".abe-view-active").forEach(b =>
+            b.addEventListener("click", () => viewActiveContract(b)));
         tbody.querySelectorAll(".abe-dl").forEach(b =>
             b.addEventListener("click", () => downloadCandidate(b.dataset.n, b)));
         tbody.querySelectorAll(".abe-edit").forEach(b =>
@@ -371,7 +392,7 @@
             await _busy(btn, "Saving…", () =>
                 _postJson(CAND, { name, text: nameFlow.text, overwrite: nameFlow.overwrite }));
             abeCancelName();
-            _status(`Candidate '${name}' saved.`);
+            _statusContracts(`Candidate '${name}' saved.`);
             await loadCandidates();
         } catch (e) {
             if (e.status === 409 && !nameFlow.overwrite) {
@@ -394,7 +415,7 @@
             nameFlow.text = body.text;
             _showNameRow(`Duplicate '${name}' as:`, `${name}-copy`.slice(0, 40));
         } catch (e) {
-            _status(`Duplicate failed: ${e.message}`, true);
+            _statusContracts(`Duplicate failed: ${e.message}`, true);
         }
     }
 
@@ -405,7 +426,7 @@
             nameFlow.text = await dl.text();
             _showNameRow("Duplicate the active contract as:", "active-copy");
         } catch (e) {
-            _status(`Duplicate failed: ${e.message}`, true);
+            _statusContracts(`Duplicate failed: ${e.message}`, true);
         }
     }
 
@@ -419,7 +440,7 @@
                 file.name.replace(/\.toml$/i, "").toLowerCase()
                     .replace(/[^a-z0-9_\-]/g, "-").slice(0, 40));
         } catch (e) {
-            _status(`Upload failed: ${e.message}`, true);
+            _statusContracts(`Upload failed: ${e.message}`, true);
         }
     }
 
@@ -437,7 +458,62 @@
             a.remove();
             URL.revokeObjectURL(url);
         } catch (e) {
-            _status(`Download failed: ${e.message}`, true);
+            _statusContracts(`Download failed: ${e.message}`, true);
+        }
+    }
+
+    // ---------- contract preview ("View") ----------
+
+    // Read-only preview of any contract in the table — including the built-in
+    // default and the pinned active contract. Shows the response fields and
+    // the exact instructions (prompt) the AI model would receive, rendered by
+    // the same code path the annotator uses.
+    function _showContractModal(title, contract, prompt, schema) {
+        const modal = document.getElementById("abe-item-modal");
+        const body = document.getElementById("abe-item-body");
+        if (!modal || !body) return;
+        _setItemModalChrome(false);
+        document.getElementById("abe-item-id").textContent = title;
+        const fields = (contract && contract.fields) || [];
+        const pre = 'max-height: 45vh; overflow: auto; background: var(--color-bg-elevated);'
+            + ' padding: 12px; border-radius: 6px; white-space: pre-wrap; margin: 4px 0 0 0;';
+        const parts = [];
+        parts.push(`<div class="text-sm" style="margin-bottom: 10px;">`
+            + `<span style="color: var(--color-text-muted);">Response fields (${fields.length}):</span> `
+            + `<span class="font-mono">${fields.map(f => _esc(f.name)).join(", ") || "—"}</span></div>`);
+        parts.push(`<div class="text-sm" style="color: var(--color-text-muted);">`
+            + `Instructions sent to the AI model for every video:</div>`);
+        parts.push(`<pre class="text-xs" style="${pre}">${_esc(prompt || "(none)")}</pre>`);
+        if (schema) {
+            parts.push(`<details style="margin-top: 10px;"><summary class="text-sm"`
+                + ` style="color: var(--color-text-muted); cursor: pointer;">`
+                + `Required answer format (technical)</summary>`
+                + `<pre class="text-xs" style="${pre}">${_esc(JSON.stringify(schema, null, 2))}</pre></details>`);
+        }
+        body.innerHTML = parts.join("");
+        modal.style.display = "flex";
+    }
+
+    async function viewContract(name, btn) {
+        try {
+            const cand = await _busy(btn, "…", () => _getJson(`${CAND}/${encodeURIComponent(name)}`));
+            const rendered = await _postJson(`${AC}/preview`, { contract: cand.contract });
+            if (rendered.valid === false) {
+                throw new Error((rendered.errors || []).join("; ") || "contract does not validate");
+            }
+            _showContractModal(`Contract '${name}'`, cand.contract, rendered.prompt, rendered.schema);
+        } catch (e) {
+            _statusContracts(`Could not show '${name}': ${e.message}`, true);
+        }
+    }
+
+    async function viewActiveContract(btn) {
+        try {
+            const parsed = await _busy(btn, "…", () => _getJson(`${AC}/parsed`));
+            const rendered = await _getJson(`${AC}/rendered`);
+            _showContractModal("Active contract", parsed.contract, rendered.prompt, rendered.schema);
+        } catch (e) {
+            _statusContracts(`Could not show the active contract: ${e.message}`, true);
         }
     }
 
@@ -447,7 +523,7 @@
         if (typeof window.aceOpen === "function") {
             window.aceOpen({ candidate: name });
         } else {
-            _status("The contract form editor is not loaded on this page.", true);
+            _statusContracts("The contract form editor is not loaded on this page.", true);
         }
     }
 
@@ -467,47 +543,62 @@
             const impact = body.impact || {};
             const be = body.backend || {};
             const offerSwitch = !!(be.mismatch && be.can_switch_backend && be.target_available);
+            // When a backend switch is on offer, also dry-run the no-switch
+            // outcome so the modal can show the truth for either checkbox state.
+            let impactNoSwitch = impact;
+            if (offerSwitch) {
+                try {
+                    const alt = await _postJson(`${CAND}/${encodeURIComponent(name)}/activate`, {});
+                    impactNoSwitch = alt.impact || impact;
+                } catch (e) { /* fall back to the switch impact */ }
+            }
             pendingActivate = { name, text: body.text, etag: body.current_etag,
                                 builtinDefault: !!body.builtin_default };
 
-            const rows = [];
-            if (impact.metadata_only) {
-                rows.push(`<div style="color: var(--color-success); margin-bottom: 10px;">`
-                    + `✓ Metadata-only change — <strong>no new annotation version</strong>. `
-                    + `Existing annotations stay valid.</div>`);
-            } else {
-                rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
-                    + `⚠ A new annotation version <span class="font-mono">${_esc(impact.candidate_version)}</span> `
-                    + `and become the <strong>active</strong> version (replacing `
-                    + `<span class="font-mono">${_esc(impact.active_version)}</span>). `
-                    + `Studies keep using the preferred version until you promote it under <em>Versions</em>.</div>`);
+            // One self-contained outcome statement per checkbox state: version
+            // consequence plus the backend + model new annotations run on.
+            function outcomeHtml(im) {
+                const backendPart = `new annotations will run on backend `
+                    + `<strong>${_esc(im.target_backend || "gemini")}</strong>`
+                    + (im.target_model ? ` · <span class="font-mono">${_esc(im.target_model)}</span>` : "");
+                if (im.metadata_only) {
+                    return `<div style="color: var(--color-success); margin-bottom: 10px;">`
+                        + `✓ Metadata-only change — <strong>no new annotation version</strong>; `
+                        + `existing annotations stay valid, and ${backendPart}.</div>`;
+                }
+                return `<div style="color: var(--color-warning); margin-bottom: 10px;">`
+                    + `⚠ A new annotation version <span class="font-mono">${_esc(im.candidate_version)}</span> `
+                    + `will be created and become the <strong>active</strong> version (replacing `
+                    + `<span class="font-mono">${_esc(im.active_version)}</span>), and ${backendPart}. `
+                    + `Studies keep using the preferred version until you promote it under <em>Versions</em>.</div>`;
             }
-            // Backend section: always say which backend+model the activated
-            // contract will run on; offer the switch when it differs from the
-            // tested one and the user may change backends.
-            const runBackend = offerSwitch ? be.target : be.active;
-            const runModel = offerSwitch ? be.target_model : be.active_model;
-            rows.push(`<div style="margin-bottom: 10px;">This contract will run on backend `
-                + `<strong>${_esc(runBackend || "gemini")}</strong>`
-                + (runModel ? ` · <span class="font-mono">${_esc(runModel)}</span>` : "")
-                + `.</div>`);
+
+            const rows = [];
             if (offerSwitch) {
+                // Context → choice → outcome, with the outcome re-rendered on
+                // checkbox change so the two never disagree.
+                rows.push(`<div style="margin-bottom: 10px;">This contract was tested on backend `
+                    + `<strong>${_esc(be.target)}</strong>; the active backend is currently `
+                    + `<strong>${_esc(be.active)}</strong>.</div>`);
                 rows.push(`<div style="margin-bottom: 10px;">`
                     + `<label class="text-sm" style="display: flex; gap: 8px; align-items: baseline; cursor: pointer;">`
                     + `<input type="checkbox" id="abe-switch-backend" checked> `
-                    + `<span>Also switch the active annotation backend to `
-                    + `<strong>${_esc(be.target)}</strong> (currently <strong>${_esc(be.active)}</strong>) — `
-                    + `this contract was tested on it.</span></label></div>`);
-            } else if (be.mismatch && !be.can_switch_backend) {
-                rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
-                    + `⚠ This contract was tested on <strong>${_esc(be.target)}</strong>, but switching `
-                    + `backends requires the Backends admin permission — after activation it will run on `
-                    + `<strong>${_esc(be.active)}</strong>.</div>`);
-            } else if (be.mismatch && !be.target_available) {
-                rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
-                    + `⚠ This contract was tested on <strong>${_esc(be.target)}</strong>, which is not `
-                    + `available here (${_esc(be.target_unavailable_reason || "unavailable")}) — after `
-                    + `activation it will run on <strong>${_esc(be.active)}</strong>.</div>`);
+                    + `<span>Switch the active annotation backend to `
+                    + `<strong>${_esc(be.target)}</strong> as part of the activation.</span></label></div>`);
+                rows.push(`<div id="abe-activate-outcome">${outcomeHtml(impact)}</div>`);
+            } else {
+                rows.push(outcomeHtml(impact));
+                if (be.mismatch && !be.can_switch_backend) {
+                    rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
+                        + `⚠ This contract was tested on <strong>${_esc(be.target)}</strong>, but switching `
+                        + `backends requires the Backends admin permission — after activation it will run on `
+                        + `<strong>${_esc(be.active)}</strong>.</div>`);
+                } else if (be.mismatch && !be.target_available) {
+                    rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
+                        + `⚠ This contract was tested on <strong>${_esc(be.target)}</strong>, which is not `
+                        + `available here (${_esc(be.target_unavailable_reason || "unavailable")}) — after `
+                        + `activation it will run on <strong>${_esc(be.active)}</strong>.</div>`);
+                }
             }
             const detail = [];
             detail.push(`Prompt changed: <strong>${impact.prompt_changed ? "yes" : "no"}</strong>`);
@@ -530,9 +621,16 @@
                     <button onclick="abeConfirmActivate(this)" class="btn-save btn-compact">Activate contract</button>
                 </div>`;
             pendingActivate.switchBackend = offerSwitch ? be.target : null;
+            const switchCb = document.getElementById("abe-switch-backend");
+            if (switchCb) {
+                switchCb.addEventListener("change", () => {
+                    const out = document.getElementById("abe-activate-outcome");
+                    if (out) out.innerHTML = outcomeHtml(switchCb.checked ? impact : impactNoSwitch);
+                });
+            }
             if (modal) modal.style.display = "flex";
         } catch (e) {
-            _status(`Activate failed: ${e.message}`, true);
+            _statusContracts(`Activate failed: ${e.message}`, true);
         }
     }
 
@@ -552,16 +650,16 @@
                 builtinDefault ? _postJson(`${AC}/revert`, {}) : _postJson(AC, payload));
             pendingActivate = null;
             abeCloseItemModal();
-            _status(res.note || `'${name}' is now the active contract.`);
+            _statusContracts(res.note || `'${name}' is now the active contract.`);
             document.dispatchEvent(new CustomEvent("fyp:contract-changed"));
         } catch (e) {
             abeCloseItemModal();
             if (e.status === 409) {
-                _status("Rejected: the active contract changed underneath — reload and retry.", true);
+                _statusContracts("Rejected: the active contract changed underneath — reload and retry.", true);
             } else if (e.status === 403) {
-                _status("Rejected: switching the annotation backend requires the Backends admin permission.", true);
+                _statusContracts("Rejected: switching the annotation backend requires the Backends admin permission.", true);
             } else {
-                _status(`Activate failed: ${e.message}`, true);
+                _statusContracts(`Activate failed: ${e.message}`, true);
             }
         }
     }
@@ -571,12 +669,12 @@
         try {
             await _busy(btn, "…", () =>
                 _postJson(`${CAND}/${encodeURIComponent(name)}`, undefined, "DELETE"));
-            _status(`Candidate '${name}' deleted.`);
+            _statusContracts(`Candidate '${name}' deleted.`);
             // Drop any test arms that referenced the deleted candidate.
             st.testArms = st.testArms.filter(a => a.source !== "candidate" || a.name !== name);
             await loadCandidates();
         } catch (e) {
-            _status(`Delete failed: ${e.message}`, true);
+            _statusContracts(`Delete failed: ${e.message}`, true);
         }
     }
 
@@ -855,9 +953,9 @@
             renderEvalSet();
             refreshEstimate();
         } catch (e) {
-            _status(`Duplicate failed: ${e.message}`, true);
+            _status(`Save failed: ${e.message}`, true);
         } finally {
-            if (btn) { btn.textContent = "Save set"; btn.disabled = !st.setDirty; }
+            if (btn) { btn.textContent = "Save"; btn.disabled = !st.setDirty; }
         }
     }
 
@@ -923,10 +1021,14 @@
     function renderArmPicker() {
         const el = document.getElementById("abe-arm-picker");
         if (!el) return;
+        // The "Contracts in this test run / AI model" column titles only make
+        // sense above actual rows.
+        const header = document.getElementById("abe-arm-header");
+        if (header) header.style.display = st.testArms.length ? "flex" : "none";
         if (!st.testArms.length) {
             el.innerHTML = '<div class="text-sm" style="color: var(--color-text-muted);">'
-                + 'No contracts in this test yet — use “Add to test” on a candidate contract'
-                + ' (or “+ active contract” below).</div>';
+                + 'No contracts in this test run yet — press “Add to test” on a contract'
+                + ' in the table above (or “+ active contract” below).</div>';
             refreshEstimate();
             return;
         }
@@ -940,7 +1042,7 @@
             return `<div style="display: flex; align-items: center; gap: 8px;">
                 <span class="text-sm" style="min-width: 180px;">${display}${suffix}</span>
                 ${_armBackendSelect(arm)}
-                <button class="btn-discreet btn-compact" title="Remove from test"
+                <button class="btn-discreet btn-compact" title="Remove from this test run"
                     onclick="abeRemoveFromTest('${_esc(arm.label)}')">&times;</button>
             </div>`;
         }).join("");
@@ -966,44 +1068,44 @@
         const setName = st.evalSet.name ? ` from set '${st.evalSet.name}'` : "";
         el.textContent = nArms && nItems
             ? `${nArms} contract(s) × ${nItems} video(s)${setName} = `
-                + `${nArms * nItems} annotation calls${unsaved}`
-            : "Add at least one contract to the test and curate a non-empty test set.";
+                + `${nArms * nItems} annotation calls in this test run${unsaved}`
+            : "Add at least one contract to the test run (step 2) and choose at least one test video (step 1).";
     }
 
     async function abeStartRun() {
-        if (!st.testArms.length) { _status("Add at least one contract to the test.", true); return; }
+        if (!st.testArms.length) { _status("Add at least one contract to the test run.", true); return; }
         const runBtn = document.getElementById("abe-run-btn");
         try {
             // First click: fetch the authoritative estimate (visible feedback
             // while it loads), then arm the button with the real call count.
             if (!runBtn || runBtn.dataset.armed !== "1") {
                 if (runBtn) { runBtn.disabled = true; runBtn.textContent = "Checking cost…"; }
-                _status("Checking run cost…");
+                _status("Checking the cost of this test run…");
                 let est;
                 try {
                     est = await _postJson(`${EVAL}/estimate`, { n_arms: st.testArms.length });
                 } finally {
-                    if (runBtn) { runBtn.disabled = false; runBtn.textContent = "Run…"; }
+                    if (runBtn) { runBtn.disabled = false; runBtn.textContent = "Start test run…"; }
                 }
                 if (!est.n_items) { _status("The saved test set is empty — save it first.", true); return; }
                 _armTwoClick(runBtn, `Confirm: ${est.n_calls} annotation calls?`);
                 _status(st.setDirty
-                    ? "Note: the run uses the last SAVED set — you have unsaved set edits. Click again to start."
-                    : "Click again to start the run.", st.setDirty);
+                    ? "Note: the test run uses the last SAVED test videos — you have unsaved edits. Click again to start."
+                    : "Click again to start the test run.", st.setDirty);
                 return;
             }
             // Second click (armed): lock the button through the whole start
             // request so a double-click can never dispatch two runs.
             _armTwoClick(runBtn, "");
             _setRunning(true);
-            _status("Starting run…");
+            _status("Starting test run…");
             const nameInput = document.getElementById("abe-run-name");
             const body = await _postJson(`${EVAL}/run`, {
                 arms_spec: _armsSpec(),
                 eval_set: st.evalSet.name || undefined,
                 name: (nameInput && nameInput.value.trim()) || undefined,
             });
-            _status(`Run ${body.run_id} started.`);
+            _status(`Test run ${body.run_id} started.`);
             _pollRun(body.run_id);
         } catch (e) {
             _setRunning(false);
@@ -1047,9 +1149,9 @@
                 _setRunning(false);
                 if (progress) progress.textContent = "";
                 if (entry.last_run_outcome === "Fail") {
-                    _status(`Run failed: ${entry.last_message || "see logs"}`, true);
+                    _status(`Test run failed: ${entry.last_message || "see logs"}`, true);
                 } else {
-                    _status(`Run ${runId} finished.`);
+                    _status(`Test run ${runId} finished.`);
                 }
                 await abeRefreshRuns();
                 const picker = document.getElementById("abe-run-picker");
@@ -1064,7 +1166,7 @@
     async function abeCancelRun(btn) {
         try {
             await _busy(btn, "Cancelling…", () => _postJson("/api/stop/ab_eval", {}));
-            _status("Cancel requested — the run stops after the in-flight items.");
+            _status("Cancel requested — the test run stops after the in-flight items.");
         } catch (e) {
             _status(`Cancel failed: ${e.message}`, true);
         }
@@ -1218,15 +1320,15 @@
                     display: flex; gap: 18px; flex-wrap: wrap;">
                 <span>Started ${_esc((manifest.started_at || "—").replace("T", " "))}
                     by ${_esc(manifest.started_by || "?")}</span>
-                <span>Test set <span class="font-mono" style="color: var(--color-text-primary);">${_esc(manifest.eval_set || "—")}</span></span>
+                <span>Test videos <span class="font-mono" style="color: var(--color-text-primary);">${_esc(manifest.eval_set || "—")}</span></span>
                 <span>${_esc(String(manifest.n_items ?? "?"))} videos</span>
             </div>
             ${manifest.error ? `<div class="text-xs" style="color: var(--color-danger); margin-top: 6px;">${_esc(manifest.error)}</div>` : ""}
             <div class="text-xxs" style="color: var(--color-text-muted); margin-top: 8px;
                     line-height: var(--leading-relaxed);">
-                Test runs make real annotation calls but are stored in isolation — they never enter the
-                machine-annotation archive or studies. Every score below is pairwise agreement across the
-                contracts, not a verdict on which contract is correct.
+                Test runs make real annotation calls, but their results are stored separately for
+                comparison only — they never enter your research datasets. Every score below is
+                pairwise agreement across the contracts, not a verdict on which contract is correct.
             </div>
         </div>`;
 
@@ -2029,6 +2131,16 @@
     // Candidate list can change from the form editor's save-as-candidate path.
     document.addEventListener("fyp:candidates-changed", function () {
         if (bootstrapped) loadCandidates();
+    });
+
+    // The active contract or backend changed (an activation here or on the
+    // Versions page, or a backend switch on the Backends page) — recompute the
+    // live version ids, the "active" badges, and the per-arm backend list.
+    document.addEventListener("fyp:contract-changed", function () {
+        if (bootstrapped) {
+            loadCandidates();
+            loadBackends();
+        }
     });
 
     window.abeOnCandidateFile = abeOnCandidateFile;

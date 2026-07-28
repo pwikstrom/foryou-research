@@ -91,6 +91,10 @@
         }
     }
 
+    // Snapshot of the last-loaded list, for the Prefer confirm modal (current
+    // preferred version + per-version annotated-video counts).
+    let lastLoad = { preferred: null, counts: null };
+
     function render(body) {
         // Most recent first; the synthetic legacy version (epoch created_at)
         // sinks to the bottom naturally.
@@ -98,37 +102,55 @@
             return String(b.created_at || "").localeCompare(String(a.created_at || ""));
         });
         const activeVersion = body.active;
+        // {version: n annotated videos}; null when the archive was unreadable —
+        // then show "—" instead of a misleading 0.
+        const counts = body.counts;
+        lastLoad = { preferred: body.preferred || null, counts: counts || null };
 
         const tbody = document.getElementById("avTableBody");
         if (!tbody) return;
 
         const cell = 'padding: 8px; border-bottom: 1px solid var(--color-border);';
         const mono = cell + ' font-family: var(--font-mono);';
+        const num = cell + ' text-align: right; font-variant-numeric: tabular-nums;';
 
-        // Per-row action buttons share one UX: a discreet action button on
-        // every applicable row; the row that already holds the state shows a
-        // colored, non-interactive button whose label states the fact.
-        function _preferBtn(v) {
-            if (v.annotation_version === LEGACY_VERSION) return "";
-            if (v.preferred) {
-                return '<button class="btn-save btn-compact btn-state btn-row-fixed">Preferred</button>';
+        function _countCell(version) {
+            if (counts == null) {
+                return '<td style="' + num + ' color: var(--color-text-muted);">—</td>';
             }
-            return '<button class="btn-primary btn-compact btn-row-fixed av-prefer" data-v="'
-                + _esc(v.annotation_version) + '">Prefer</button>';
+            const n = counts[version] || 0;
+            return '<td style="' + num + (n ? '' : ' color: var(--color-text-muted);') + '">'
+                + n.toLocaleString() + "</td>";
         }
 
-        function _activeBtn(v, isActive) {
-            if (v.annotation_version === LEGACY_VERSION) return "";
+        // One column per button kind, so the same button always sits in the
+        // same place: Details (View), Preferred (Prefer / ✓ Preferred), Active
+        // (Activate / ✓ Active). A row that already holds a state shows a
+        // green, non-interactive button stating the fact; a row the button
+        // does not apply to gets an empty cell.
+        function _preferCell(v) {
+            // The legacy version can be preferred too (its rows are in the
+            // archive like any other version's) — only Activate is impossible
+            // for it, because it has no contract snapshot.
+            if (v.preferred) {
+                return '<td style="' + cell + '"><button class="btn-compact btn-state btn-row-fixed">✓ Preferred</button></td>';
+            }
+            return '<td style="' + cell + '"><button class="btn-primary btn-compact btn-row-fixed av-prefer" data-v="'
+                + _esc(v.annotation_version) + '">Prefer</button></td>';
+        }
+
+        function _activeCell(v, isActive) {
+            if (v.annotation_version === LEGACY_VERSION) return '<td style="' + cell + '"></td>';
             if (isActive) {
-                return '<button class="btn-save btn-compact btn-state btn-row-fixed">Active</button>';
+                return '<td style="' + cell + '"><button class="btn-compact btn-state btn-row-fixed">✓ Active</button></td>';
             }
             if (!v.restorable) {
-                return '<button class="btn-discreet btn-compact btn-row-fixed meta-tooltip" disabled '
+                return '<td style="' + cell + '"><button class="btn-discreet btn-compact btn-row-fixed meta-tooltip" disabled '
                     + 'data-tooltip="Recorded before contract snapshots — its contract file '
-                    + 'was not saved, so it cannot be re-activated automatically.">Activate</button>';
+                    + 'was not saved, so it cannot be re-activated automatically.">Activate</button></td>';
             }
-            return '<button class="btn-primary btn-compact btn-row-fixed av-restore" data-v="'
-                + _esc(v.annotation_version) + '">Activate</button>';
+            return '<td style="' + cell + '"><button class="btn-primary btn-compact btn-row-fixed av-restore" data-v="'
+                + _esc(v.annotation_version) + '">Activate</button></td>';
         }
 
         // Pinned row for the active contract when it has no minted version yet
@@ -141,16 +163,16 @@
                 '<td style="' + mono + '">' + _esc(activeVersion) + "</td>" +
                 '<td style="' + cell + ' color: var(--color-text-muted);">Version for new annotations — none saved yet</td>' +
                 '<td style="' + cell + '"></td>' +
-                '<td style="' + cell + '">' +
-                    '<button class="btn-discreet btn-compact av-view" id="avViewActive">View</button> ' +
-                    '<button class="btn-save btn-compact btn-state btn-row-fixed">Active</button>' +
-                "</td>" +
+                _countCell(activeVersion) +
+                '<td style="' + cell + '"><button class="btn-discreet btn-compact av-view" id="avViewActive">View</button></td>' +
+                '<td style="' + cell + '"></td>' +
+                '<td style="' + cell + '"><button class="btn-compact btn-state btn-row-fixed">✓ Active</button></td>' +
                 "</tr>";
         }
 
         if (!versions.length && !activeRow) {
             tbody.innerHTML =
-                '<tr><td colspan="4" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">' +
+                '<tr><td colspan="7" class="text-sm" style="color: var(--color-text-muted); padding: 12px;">' +
                 "No versions recorded yet. Activating a contract (or running annotation) registers one." +
                 "</td></tr>";
             return;
@@ -162,11 +184,11 @@
                 '<td style="' + mono + '">' + _esc(v.annotation_version) + "</td>" +
                 '<td style="' + cell + '">' + _esc(v.label) + "</td>" +
                 '<td style="' + cell + '">' + _esc(v.created_at) + "</td>" +
-                '<td style="' + cell + ' white-space: nowrap;">' +
-                    '<button class="btn-discreet btn-compact av-view" data-v="' + _esc(v.annotation_version) + '">View</button> ' +
-                    _preferBtn(v) + " " +
-                    _activeBtn(v, isActive) +
-                "</td>" +
+                _countCell(v.annotation_version) +
+                '<td style="' + cell + '"><button class="btn-discreet btn-compact av-view" data-v="'
+                    + _esc(v.annotation_version) + '">View</button></td>' +
+                _preferCell(v) +
+                _activeCell(v, isActive) +
                 "</tr>";
         }).join("");
 
@@ -253,65 +275,85 @@
             const wantSwitch = !!(be.mismatch && be.can_switch_backend && be.target_available);
 
             // Dry-run the contract upload to get the honest impact report.
-            const payload = { text: rec.contract_text };
-            if (wantSwitch) payload.switch_backend = be.target;
-            const dres = await fetch(AC_ENDPOINT, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-            });
-            const dbody = await dres.json();
-            if (!dres.ok) {
-                throw new Error((dbody.errors || []).join("; ") || dbody.error || dres.statusText);
+            // When a backend switch is on offer, dry-run BOTH checkbox states
+            // so the modal can show the true outcome of either choice.
+            async function dryRun(withSwitch) {
+                const payload = { text: rec.contract_text };
+                if (withSwitch) payload.switch_backend = be.target;
+                const dres = await fetch(AC_ENDPOINT, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+                const dbody = await dres.json();
+                if (!dres.ok) {
+                    throw new Error((dbody.errors || []).join("; ") || dbody.error || dres.statusText);
+                }
+                return dbody.impact || {};
             }
-            const impact = dbody.impact || {};
-            const exact = impact.candidate_version === version;
+            const impactNoSwitch = await dryRun(false);
+            const impactSwitch = wantSwitch ? await dryRun(true) : null;
+
+            // One self-contained outcome statement per checkbox state: whether
+            // this is an exact re-activation or mints a new version, and which
+            // backend + model new annotations then run on.
+            function outcomeHtml(impact) {
+                const backendPart = "new annotations will run on backend <strong>"
+                    + _esc(impact.target_backend || "gemini") + "</strong>"
+                    + (impact.target_model
+                        ? ' · <span class="font-mono">' + _esc(impact.target_model) + "</span>" : "");
+                if (impact.candidate_version === version) {
+                    return '<div style="color: var(--color-success); margin-bottom: 10px;">'
+                        + '✓ This re-activates version <span class="font-mono">' + _esc(version)
+                        + "</span> exactly — " + backendPart + ", as recorded.</div>";
+                }
+                return '<div style="color: var(--color-warning); margin-bottom: 10px;">'
+                    + '⚠ This does not bring back <span class="font-mono">' + _esc(version)
+                    + "</span> exactly: its contract is re-applied, but under the current "
+                    + "model and settings that creates a new version <span class=\"font-mono\">"
+                    + _esc(impact.candidate_version) + "</span>, and " + backendPart + ".</div>";
+            }
 
             const rows = [];
-            if (exact) {
-                rows.push('<div style="color: var(--color-success); margin-bottom: 10px;">'
-                    + '✓ This re-activates version <span class="font-mono">' + _esc(version)
-                    + "</span> exactly — new annotations will be made with it again.</div>");
-            } else {
-                rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
-                    + '⚠ The model or settings have changed since <span class="font-mono">' + _esc(version)
-                    + '</span> was recorded — activating its contract now creates a new version '
-                    + '<span class="font-mono">' + _esc(impact.candidate_version)
-                    + "</span> based on it.</div>");
-            }
-            rows.push('<div style="margin-bottom: 10px;">New annotations will run on backend '
-                + "<strong>" + _esc(impact.target_backend || "gemini") + "</strong>"
-                + (impact.target_model
-                    ? ' · <span class="font-mono">' + _esc(impact.target_model) + "</span>" : "")
-                + ".</div>");
             if (wantSwitch) {
+                // Context → choice → outcome, with the outcome re-rendered
+                // whenever the checkbox changes so the two never disagree.
+                rows.push('<div style="margin-bottom: 10px;">This version was recorded under backend '
+                    + "<strong>" + _esc(be.target) + "</strong>; the active backend is currently "
+                    + "<strong>" + _esc(be.active) + "</strong>.</div>");
                 rows.push('<div style="margin-bottom: 10px;">'
                     + '<label class="text-sm" style="display: flex; gap: 8px; align-items: baseline; cursor: pointer;">'
                     + '<input type="checkbox" id="av-restore-switch" checked> '
-                    + "<span>Also switch the active annotation backend to <strong>" + _esc(be.target)
-                    + "</strong> (currently <strong>" + _esc(be.active)
-                    + "</strong>) — the version was recorded under it.</span></label></div>");
-            } else if (be.mismatch && !be.target_available) {
-                rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
-                    + "⚠ Recorded under backend <strong>" + _esc(be.target)
-                    + "</strong>, which is not available here ("
-                    + _esc(be.target_unavailable_reason || "unavailable")
-                    + ") — activation runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
-            } else if (be.mismatch && !be.can_switch_backend) {
-                rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
-                    + "⚠ Recorded under backend <strong>" + _esc(be.target)
-                    + "</strong>; switching backends requires the Backends admin permission — "
-                    + "activation runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
+                    + "<span>Switch the active annotation backend back to <strong>" + _esc(be.target)
+                    + "</strong> as part of the activation.</span></label></div>");
+                rows.push('<div id="av-restore-outcome">' + outcomeHtml(impactSwitch) + "</div>");
+            } else {
+                rows.push(outcomeHtml(impactNoSwitch));
+                if (be.mismatch && !be.target_available) {
+                    rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
+                        + "⚠ Recorded under backend <strong>" + _esc(be.target)
+                        + "</strong>, which is not available here ("
+                        + _esc(be.target_unavailable_reason || "unavailable")
+                        + ") — activation runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
+                } else if (be.mismatch && !be.can_switch_backend) {
+                    rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
+                        + "⚠ Recorded under backend <strong>" + _esc(be.target)
+                        + "</strong>; switching backends requires the Backends admin permission — "
+                        + "activation runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
+                }
             }
             rows.push('<div class="text-xs" style="color: var(--color-text-muted);">'
                 + "Studies keep using the preferred version — activating a version only "
                 + "affects how new annotations are produced.</div>");
 
+            acState.mode = "activate";
             acState.staged = {
                 text: rec.contract_text,
                 filename: version + " snapshot",
                 switchBackend: wantSwitch ? be.target : null,
             };
+            const modalTitle = document.getElementById("ac-modal-title");
+            if (modalTitle) modalTitle.textContent = "Activate this version";
             const modalBody = document.getElementById("ac-modal-body");
             const confirmBtn = document.getElementById("ac-confirm-btn");
             if (confirmBtn) {
@@ -319,6 +361,13 @@
                 confirmBtn.textContent = "Activate";
             }
             if (modalBody) modalBody.innerHTML = rows.join("");
+            const switchCb = document.getElementById("av-restore-switch");
+            if (switchCb) {
+                switchCb.addEventListener("change", function () {
+                    const out = document.getElementById("av-restore-outcome");
+                    if (out) out.innerHTML = outcomeHtml(switchCb.checked ? impactSwitch : impactNoSwitch);
+                });
+            }
             _acOpenModal();
             _status("");
         } catch (err) {
@@ -367,6 +416,39 @@
         banner.style.display = "flex";
     }
 
+    // While a study refresh is expected to clear the banner, poll the
+    // staleness endpoint until it does (or ~30 min pass) — without this the
+    // banner promised to clear "once the refresh completes" but only actually
+    // did so on a full page reload.
+    let stalePollTimer = null;
+
+    function _pollStalenessUntilClear() {
+        if (stalePollTimer) clearInterval(stalePollTimer);
+        let ticks = 0;
+        stalePollTimer = setInterval(async function () {
+            ticks++;
+            if (ticks > 120) {
+                clearInterval(stalePollTimer);
+                stalePollTimer = null;
+                return;
+            }
+            try {
+                const res = await fetch("/api/manage/refresh/staleness");
+                if (!res.ok) return;
+                const body = await res.json();
+                if (!(body.version_promotion || {}).stale) {
+                    clearInterval(stalePollTimer);
+                    stalePollTimer = null;
+                    renderStaleBanner(null);
+                    _status("Study refresh completed — study datasets now read the preferred version.");
+                }
+            } catch (err) { /* transient poll error — keep polling */ }
+        }, 15000);
+    }
+
+
+
+
     async function startStudyRefresh(btn) {
         btn.disabled = true;
         const prev = btn.textContent;
@@ -381,12 +463,14 @@
             });
             const body = await res.json().catch(function () { return {}; });
             if (res.status === 409 || (body.error || "").indexOf("already running") !== -1) {
-                _status("A study refresh is already running — the banner clears when it succeeds.");
+                _status("A study refresh is already running — this banner clears automatically when it succeeds.");
+                _pollStalenessUntilClear();
             } else if (!res.ok) {
                 throw new Error(body.error || res.statusText);
             } else {
-                _status("Study refresh started — the banner clears once it completes. "
-                    + "Track it under Data Management → Refresh Caches.");
+                _status("Study refresh started — this banner clears automatically when it completes. "
+                    + "You can follow its progress under Data Pipeline → Refresh Caches.");
+                _pollStalenessUntilClear();
             }
         } catch (err) {
             _status("Could not start the study refresh: " + err.message, true);
@@ -399,26 +483,62 @@
 
 
 
-    async function promote(version, btn) {
-        // Two-click confirm (native confirm() is blocked in embedded preview
-        // browsers): first click arms the button, second within 4s activates.
-        if (btn && btn.dataset.armed !== "1") {
-            btn.dataset.armed = "1";
-            btn.dataset.prevHtml = btn.innerHTML;
-            btn.innerHTML = "Prefer — sure?";
-            _status("Making " + version + " the preferred version — annotation datasets "
-                + "use it after a study refresh. Click again to confirm.");
-            setTimeout(function () {
-                if (btn.dataset.armed === "1") {
-                    btn.dataset.armed = "";
-                    btn.innerHTML = btn.dataset.prevHtml;
-                    _status("");
-                }
-            }, 4000);
-            return;
+    // Open the shared confirm modal with a plain-language account of what
+    // preferring this version means; the POST happens in _confirmPrefer once
+    // the admin confirms.
+    function promote(version) {
+        const current = lastLoad.preferred;
+        const counts = lastLoad.counts;
+        const isLegacy = version === LEGACY_VERSION;
+        const label = isLegacy
+            ? '<span class="font-mono">' + _esc(version) + "</span> (the pre-versioning annotations)"
+            : '<span class="font-mono">' + _esc(version) + "</span>";
+
+        const rows = [];
+        rows.push('<div style="margin-bottom: 10px;">The <strong>preferred</strong> version is the '
+            + "one analyses and study datasets read. This makes " + label
+            + " the preferred version"
+            + (current && current !== version
+                ? " — currently it is <span class=\"font-mono\">" + _esc(current) + "</span>"
+                : "")
+            + ".</div>");
+        rows.push('<div style="margin-bottom: 10px;">For every video annotated under several '
+            + "versions, its " + '<span class="font-mono">' + _esc(version) + "</span> annotation "
+            + "is then the one analyses use; videos without one fall back to their most recent "
+            + "annotation. Nothing is changed or deleted in the annotations themselves.</div>");
+        if (counts) {
+            const n = counts[version] || 0;
+            rows.push('<div style="margin-bottom: 10px;">' + n.toLocaleString()
+                + " video(s) currently have an annotation made with this version.</div>");
         }
-        if (btn) btn.dataset.armed = "";
-        _status("Applying…");
+        rows.push('<div class="text-xs" style="color: var(--color-text-muted);">'
+            + "When you confirm, the shared annotation dataset is rebuilt right away. "
+            + "Per-study datasets follow on their next study refresh — a banner above "
+            + "the table will offer to start one.</div>");
+
+        acState.mode = "prefer";
+        acState.promoteVersion = version;
+        acState.staged = null;
+        const title = document.getElementById("ac-modal-title");
+        if (title) title.textContent = "Make this version preferred";
+        const confirmBtn = document.getElementById("ac-confirm-btn");
+        if (confirmBtn) {
+            confirmBtn.style.display = "inline-block";
+            confirmBtn.textContent = "Prefer";
+        }
+        const modalBody = document.getElementById("ac-modal-body");
+        if (modalBody) modalBody.innerHTML = rows.join("");
+        _acOpenModal();
+    }
+
+
+
+
+    async function _confirmPrefer() {
+        const version = acState.promoteVersion;
+        if (!version) { _acCloseModal(); return; }
+        const confirmBtn = document.getElementById("ac-confirm-btn");
+        if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = "Applying…"; }
         try {
             const res = await fetch(LIST + "/promote", {
                 method: "POST",
@@ -427,11 +547,22 @@
             });
             const body = await res.json();
             if (!res.ok) throw new Error(body.error || res.statusText);
-            _status(version + " is now the preferred version (rows: " + (body.preferred_rows ?? "—") + "). " + (body.note || ""));
+            acState.promoteVersion = null;
+            _acCloseModal();
+            // preferred_rows counts the whole rebuilt dataset — including
+            // fallback rows and failed annotations — so it is larger than the
+            // table's "annotated videos" count; say so to avoid alarm.
+            const rows = body.preferred_rows != null ? body.preferred_rows.toLocaleString() : "—";
+            _status(version + " is now the preferred version. The shared annotation dataset was "
+                + "rebuilt with " + rows + " rows — each video's " + version + " annotation where "
+                + "one exists, otherwise its most recent. Refresh studies to apply it to study datasets.");
             load();
             loadStaleness();
         } catch (err) {
+            _acCloseModal();
             _status("Could not set the preferred version: " + err.message, true);
+        } finally {
+            if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = "Prefer"; }
         }
     }
 
@@ -500,6 +631,8 @@
     }
 
     async function _acConfirmUpload() {
+        // The shared modal serves both per-version actions — dispatch on mode.
+        if (acState.mode === "prefer") return _confirmPrefer();
         if (!acState.staged) { _acCloseModal(); return; }
         const confirmBtn = document.getElementById("ac-confirm-btn");
         if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = "Applying…"; }

@@ -132,6 +132,8 @@
     --btn-danger-text: var(--color-text-on-accent);
     --btn-save-bg: var(--color-save);
     --btn-save-text: var(--color-text-on-accent);
+    --btn-state-bg: var(--color-success);
+    --btn-state-text: var(--color-text-on-accent);
     --btn-discreet-bg: var(--gray-650);
     --btn-discreet-text: var(--color-text-primary);
     --btn-discreet-border: var(--gray-500);
@@ -301,6 +303,8 @@
     --btn-danger-text: var(--white);
     --btn-save-bg: var(--color-save);
     --btn-save-text: var(--white);
+    --btn-state-bg: var(--color-success);
+    --btn-state-text: var(--white);
     --btn-discreet-bg: #E9ECEF;
     --btn-discreet-text: #2B3137;
     --btn-discreet-border: #BFC5CC;
@@ -1193,13 +1197,17 @@ button {
     box-shadow: inset var(--shadow-sm);
 }
 
-/* Non-interactive "this row is the active one" state for row-action buttons
-   (Versions page: the row that is Preferred / Current). Pairs with a colored
-   button class (e.g. .btn-save) whose label states the fact. */
+/* Non-interactive "this row holds the state" button (Versions page: the row
+   that is Preferred / Active; Contracts page: the active contract). Filled
+   green so the current selection stands out clearly from the surrounding
+   action buttons; the label states the fact ("✓ Preferred" / "✓ Active"). */
 .btn-state {
     pointer-events: none;
     cursor: default;
-    box-shadow: inset var(--shadow-sm);
+    background: var(--btn-state-bg);
+    color: var(--btn-state-text);
+    font-weight: var(--weight-bold);
+    border: 1px solid transparent;
 }
 
 /* Row-action buttons whose label swaps with state ("Prefer" → "Preferred",
