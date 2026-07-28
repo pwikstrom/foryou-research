@@ -6,7 +6,7 @@ Covers the 2026-07-05 incident where YouTube's session rate-limit response
 classified as permanent ``removed``, and failed media downloads were silently
 saved as scrape-ok metadata-only rows and dequeued forever.
 
-Run: python tests/test_youtube_media_retry.py
+Run: python tests/unit/test_youtube_media_retry.py
 """
 
 import sys

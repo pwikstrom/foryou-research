@@ -4,8 +4,8 @@ Synthetic tests verify the windowing / session / lift logic against hand-compute
 expectations (no data dependency). The real-data smoke test runs the full
 pipeline on a cached study if one is available, and is skipped otherwise.
 
-Run standalone:  python tests/test_sequence_analysis.py
-Run via pytest:  pytest tests/test_sequence_analysis.py
+Run standalone:  python tests/unit/test_sequence_analysis.py
+Run via pytest:  pytest tests/unit/test_sequence_analysis.py
 """
 
 import os
