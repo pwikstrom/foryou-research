@@ -514,7 +514,13 @@
             if (!res.ok) throw new Error(body.error || res.statusText);
             acState.promoteVersion = null;
             _acCloseModal();
-            _status(version + " is now the preferred version (rows: " + (body.preferred_rows ?? "—") + "). " + (body.note || ""));
+            // preferred_rows counts the whole rebuilt dataset — including
+            // fallback rows and failed annotations — so it is larger than the
+            // table's "annotated videos" count; say so to avoid alarm.
+            const rows = body.preferred_rows != null ? body.preferred_rows.toLocaleString() : "—";
+            _status(version + " is now the preferred version. The shared annotation dataset was "
+                + "rebuilt with " + rows + " rows — each video's " + version + " annotation where "
+                + "one exists, otherwise its most recent. Refresh studies to apply it to study datasets.");
             load();
             loadStaleness();
         } catch (err) {
