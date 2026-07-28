@@ -196,7 +196,7 @@ async function loadExplorerV2Metadata() {
     const infoSpan = document.getElementById('explorer-v2-file-info');
     if (infoSpan) {
         if (baseData.source_file && baseData.source_file_modified) {
-            infoSpan.innerText = `Using file: ${baseData.source_file} - saved ${baseData.source_file_modified}`;
+            infoSpan.innerText = `Using file: ${baseData.source_file} - saved ${fypFmtDateTime(baseData.source_file_modified)}`;
         } else {
             infoSpan.innerText = "";
         }

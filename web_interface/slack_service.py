@@ -1,6 +1,6 @@
 import os
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -22,7 +22,8 @@ def get_slack_client():
 def get_recent_messages(limit=5):
     """
     Fetches recent messages from the configured Slack channel.
-    Returns a list of dicts: {'text': str, 'user': str, 'ts': str, 'date_str': str}
+    Returns a list of dicts: {'text': str, 'user': str, 'ts': str, 'ts_iso': str}
+    where ``ts_iso`` is the offset-aware instant the template renders.
     """
     global _message_cache
     
@@ -39,7 +40,7 @@ def get_recent_messages(limit=5):
             'text': 'Slack integration not configured. Please set SLACK_BOT_TOKEN and SLACK_CHANNEL_ID environment variables.',
             'user': 'System',
             'ts': str(time.time()),
-            'date_str': datetime.now().strftime('%Y-%m-%d %H:%M')
+            'ts_iso': datetime.now(UTC).isoformat(timespec='seconds')
         }]
 
     try:
@@ -51,7 +52,7 @@ def get_recent_messages(limit=5):
             # Skip subtypes like channel_join, etc., if needed. keeping simple for now.
             if 'text' in msg:
                 ts = float(msg.get('ts', 0))
-                date_str = datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M')
+                ts_iso = datetime.fromtimestamp(ts, tz=UTC).isoformat(timespec='seconds')
                 
                 # Try to get user info if needed, but 'user' ID is what we have. 
                 # resolving every user might be slow, so we can just use the ID or look it up if we cache users.
@@ -62,7 +63,7 @@ def get_recent_messages(limit=5):
                     'text': msg.get('text'),
                     'user': user_id, 
                     'ts': msg.get('ts'),
-                    'date_str': date_str
+                    'ts_iso': ts_iso
                 })
         
         # Update cache
@@ -76,5 +77,5 @@ def get_recent_messages(limit=5):
             'text': f"Error fetching messages: {e}",
             'user': 'System',
             'ts': str(time.time()),
-            'date_str': datetime.now().strftime('%Y-%m-%d %H:%M')
+            'ts_iso': datetime.now(UTC).isoformat(timespec='seconds')
         }]

@@ -183,7 +183,7 @@
             return "<tr>" +
                 '<td style="' + mono + '">' + _esc(v.annotation_version) + "</td>" +
                 '<td style="' + cell + '">' + _esc(v.label) + "</td>" +
-                '<td style="' + cell + '">' + _esc(v.created_at) + "</td>" +
+                '<td style="' + cell + '">' + _esc(fypFmtDateTime(v.created_at)) + "</td>" +
                 _countCell(v.annotation_version) +
                 '<td style="' + cell + '"><button class="btn-discreet btn-compact av-view" data-v="'
                     + _esc(v.annotation_version) + '">View</button></td>' +

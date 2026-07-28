@@ -379,12 +379,12 @@ window.timelines = {
                 pInfoSection.style.display = visibleInfoCount > 0 ? 'block' : 'none';
             }
 
-            const fmtDate = (ts) => {
-                if (!ts) return 'not provided';
-                const d = new Date(ts);
-                return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
-            };
-            document.getElementById('timelines-stat-collection-date').innerText = fmtDate(pe_collection.date);
+            // The donation date is a real instant (the upload's mtime); the
+            // first/last event bounds are participant wall-clock and must not
+            // be shifted into the viewer's timezone.
+            const fmtDonationDate = (ts) => fypFmtDate(ts, 'not provided');
+            const fmtEventDate = (ts) => fypWallDate(ts, 'not provided');
+            document.getElementById('timelines-stat-collection-date').innerText = fmtDonationDate(pe_collection.date);
 
             // Activity Stats
             const tz = pe_collection.inferred_tz_offset;
@@ -394,8 +394,8 @@ window.timelines = {
             document.getElementById('timelines-stat-total-events').innerText = (pe_collection.total_events || 0).toLocaleString();
             document.getElementById('timelines-stat-peak-segment').innerText = pe_collection.peak_day_segment || 'Unknown';
 
-            document.getElementById('timelines-stat-first-event').innerText = fmtDate(pe_collection.first_event_ts);
-            document.getElementById('timelines-stat-last-event').innerText = fmtDate(pe_collection.last_event_ts);
+            document.getElementById('timelines-stat-first-event').innerText = fmtEventDate(pe_collection.first_event_ts);
+            document.getElementById('timelines-stat-last-event').innerText = fmtEventDate(pe_collection.last_event_ts);
 
             // Store first event date for the 'exclude before first activity' filter
             this.firstActivityDate = pe_collection.first_event_ts ? pe_collection.first_event_ts.substring(0, 10) : null;

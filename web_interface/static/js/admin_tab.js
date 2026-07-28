@@ -683,7 +683,7 @@
                     let noteHtml = '';
                     const n = u.approval_notification;
                     if (n && n.sent_at) {
-                        const when = new Date(n.sent_at).toLocaleString();
+                        const when = fypFmtDateTime(n.sent_at);
                         const to = n.sent_to || 'an admin';
                         noteHtml = `<div class="text-xs" style="margin-top: 4px; color: var(--color-text-muted);">&#9993; Approval request emailed to <strong>${to}</strong> at ${when}</div>`;
                     }
@@ -712,7 +712,7 @@
         const sorted = _sortActiveUsersData(active);
 
         tableBody.innerHTML = sorted.map(user => {
-            const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : 'Never';
+            const lastLogin = fypFmtDateTime(user.last_login, 'Never');
             const safeUser = user.username.replace(/'/g, "\\'");
             const safeDisplayName = String(user.display_username || '')
                 .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -821,7 +821,7 @@
         if (!user) return;
 
         const stats = user.stats || { notes: 0, closed_tags: 0, open_tags: 0, unique_videos: 0, used_tags: [], user_notes: [] };
-        const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : 'Never';
+        const lastLogin = fypFmtDateTime(user.last_login, 'Never');
 
         overlay.dataset.username = username;
 
@@ -876,7 +876,7 @@
             return;
         }
         logList.innerHTML = entries.map(e => {
-            const ts = e.timestamp ? new Date(e.timestamp).toLocaleString() : '';
+            const ts = fypFmtDateTime(e.timestamp);
             const target = e.target ? ` <span style="color: var(--color-text-muted);">→</span> <span class="font-mono">${e.target}</span>` : '';
             let detailsStr = '';
             if (e.details && Object.keys(e.details).length > 0) {

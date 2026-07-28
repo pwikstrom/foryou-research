@@ -145,11 +145,11 @@ function renderCollectionSelector(container, selectedList) {
                 pActiveDays = itemInfo.personas.active_days ?? '';
                 pTotalEvents = itemInfo.personas.total_events ?? '';
                 if (itemInfo.personas.last_event_ts) {
-                    pLastEvent = String(itemInfo.personas.last_event_ts).split('T')[0];
+                    pLastEvent = fypWallDate(itemInfo.personas.last_event_ts);
                 }
             }
             if (itemInfo.other && itemInfo.other.ts_added_to_dataset) {
-                pAdded = String(itemInfo.other.ts_added_to_dataset).split('T')[0];
+                pAdded = fypFmtDate(itemInfo.other.ts_added_to_dataset);
             }
             searchString = `${item} ${pDisplayId} ${pTags} ${pEmail} ${pName} ${pTiktok} ${pAge} ${pCountry} ${pPostCode} ${pActiveDays} ${pTotalEvents} ${pLastEvent} ${pAdded}`;
         }
@@ -1298,18 +1298,10 @@ function _debouncedRefetchDailyChart(row) {
 }
 
 function _toIsoDate(v) {
-    if (v == null) return null;
-    // Plotly date axes return strings like "2026-04-20 00:00:00.0000" without a
-    // timezone marker. `new Date()` parses these as local time, so round-tripping
-    // through `.toISOString()` shifts the date back a day in positive-UTC zones.
-    // Extract YYYY-MM-DD directly from the string whenever possible.
-    if (typeof v === 'string') {
-        const m = v.match(/^(\d{4}-\d{2}-\d{2})/);
-        if (m) return m[1];
-    }
-    const d = new Date(v);
-    if (isNaN(d)) return null;
-    return d.toISOString().slice(0, 10);
+    // Plotly date axes return zone-less strings like "2026-04-20 00:00:00.0000";
+    // fypWallIsoDate() reads the calendar day straight out of those rather than
+    // round-tripping through UTC, which would shift the date back a day here.
+    return fypWallIsoDate(v);
 }
 
 function _renderDailyChart(row) {
@@ -1781,13 +1773,7 @@ loadIngestionSources();
 // --- Enrichment Stats & Logic ---
 
 function formatShortDate(isoStr) {
-    const d = new Date(isoStr);
-    if (isNaN(d)) return '';
-    const day = String(d.getDate()).padStart(2, '0');
-    const mon = d.toLocaleString('en-US', { month: 'short' });
-    const hrs = String(d.getHours()).padStart(2, '0');
-    const min = String(d.getMinutes()).padStart(2, '0');
-    return `${day}-${mon} ${hrs}:${min}`;
+    return fypFmtDateTimeShort(isoStr);
 }
 
 function renderConsolidateStatus(stats) {
@@ -1874,9 +1860,15 @@ function checkConsolidationNeeded(data) {
         return;
     }
 
-    const consolTs = new Date(lastConsolidation).getTime();
-    const scraperNewer = scraperSuccess && new Date(scraperSuccess).getTime() > consolTs;
-    const annotatorNewer = annotatorSuccess && new Date(annotatorSuccess).getTime() > consolTs;
+    // Parsed through the shared helper so a zone-less legacy value is read as
+    // UTC rather than as the viewer's local time, which would skew the compare.
+    const consolTs = fypParseInstant(lastConsolidation)?.getTime();
+    const isNewer = (ts) => {
+        const d = fypParseInstant(ts);
+        return !!(d && consolTs != null && d.getTime() > consolTs);
+    };
+    const scraperNewer = isNewer(scraperSuccess);
+    const annotatorNewer = isNewer(annotatorSuccess);
 
     if (scraperNewer || annotatorNewer) {
         const parts = [];
@@ -2097,13 +2089,7 @@ const _HEALTH_CHIP_META = {
 
 // Compact relative time for a chip tooltip ("just now", "5m ago", "3h ago").
 function _healthRelativeTime(iso) {
-    if (!iso) return '';
-    const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
-    if (!isFinite(seconds) || seconds < 0) return '';
-    if (seconds < 90) return 'just now';
-    if (seconds < 5400) return `${Math.round(seconds / 60)}m ago`;
-    if (seconds < 129600) return `${Math.round(seconds / 3600)}h ago`;
-    return `${Math.round(seconds / 86400)}d ago`;
+    return fypFmtRelative(iso);
 }
 
 // Paint one health pill from a { status, summary, checked_at } entry. The
@@ -3183,7 +3169,7 @@ function openStructureReviewModal(verdict) {
             </div>
             <div class="text-xs" style="color: var(--color-text-tertiary); margin-bottom: 16px;">
                 ${_escapeHtml([verdict.platform, verdict.source].filter(Boolean).join(' · '))}
-                · evaluated ${_escapeHtml((verdict.ts_evaluated || '').slice(0, 19))}
+                · evaluated ${_escapeHtml(fypFmtDateTime(verdict.ts_evaluated))}
                 ${statsSummary ? ' · ' + _escapeHtml(statsSummary) : ''}
             </div>
             ${section('Structure changes', structureFindings.length ? structureFindings.map(_structureFindingHtml).join('') : none)}
@@ -4220,9 +4206,7 @@ function renderIngestResultsPanel(data) {
             const skippedRowsHtml = skippedPreviously.map(r => {
                 const meta = _ingestOutcomeLabels[r.outcome] || { label: r.outcome, color: 'var(--color-text-tertiary)' };
                 const provenance = [r.platform, r.source].filter(Boolean).join(' · ');
-                const lastSeen = r.ts_last_seen
-                    ? new Date(r.ts_last_seen).toISOString().split('T')[0]
-                    : '';
+                const lastSeen = fypFmtDate(r.ts_last_seen);
                 const cidLine = r.collection_id
                     ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">collection: ${_escapeHtml(r.collection_id)}</div>`
                     : '';
@@ -4370,10 +4354,10 @@ function renderEditActivityTable(container) {
                 pActiveDays = itemInfo.personas.active_days ?? '';
                 pTotalEvents = itemInfo.personas.total_events ?? '';
                 if (itemInfo.personas.last_event_ts) {
-                    pLastEvent = String(itemInfo.personas.last_event_ts).split('T')[0];
+                    pLastEvent = fypWallDate(itemInfo.personas.last_event_ts);
                 }
                 if (itemInfo.personas.first_event_ts) {
-                    pFirstEvent = String(itemInfo.personas.first_event_ts).split('T')[0];
+                    pFirstEvent = fypWallDate(itemInfo.personas.first_event_ts);
                 }
                 const tz = itemInfo.personas.inferred_tz_offset;
                 if (tz !== null && tz !== undefined) {
@@ -4381,7 +4365,7 @@ function renderEditActivityTable(container) {
                 }
             }
             if (itemInfo.other && itemInfo.other.ts_added_to_dataset) {
-                pAdded = String(itemInfo.other.ts_added_to_dataset).split('T')[0];
+                pAdded = fypFmtDate(itemInfo.other.ts_added_to_dataset);
             }
             searchString = `${item} ${pDisplayId} ${pTags} ${pEmail} ${pName} ${pAge} ${pCountry} ${pPostCode} ${pTimezone} ${pActiveDays} ${pTotalEvents} ${pFirstEvent} ${pLastEvent} ${pAdded}`;
         }

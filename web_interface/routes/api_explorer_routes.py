@@ -1,7 +1,7 @@
 import os
 import platform
 import traceback
-from datetime import datetime
+from datetime import UTC, datetime
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
@@ -189,6 +189,27 @@ def _inject_collection_display_ids(metadata):
     return metadata
 
 
+def _stamp_source_file_modified(metadata: dict, study: str) -> None:
+    """Refresh ``source_file_modified`` from the parquet on every read.
+
+    The cached ``{study}_explorer_metadata.json`` can predate the switch to
+    offset-aware instants, and those older entries are zone-less strings written
+    in whatever timezone the machine that produced them ran in. Recomputing here
+    — it is a single stat call — means the browser only ever sees an unambiguous
+    instant, without waiting for a study refresh to rewrite the cache.
+    """
+    mtime = _get_recoded_mtime(study)
+    if mtime is None:
+        return
+    metadata['source_file_modified'] = datetime.fromtimestamp(
+        mtime, tz=UTC,
+    ).isoformat(timespec='seconds')
+
+
+
+
+
+
 def _finalize_base_metadata(metadata, study):
     """
     Apply the schema/display/collection enrichment that doesn't require the
@@ -197,6 +218,7 @@ def _finalize_base_metadata(metadata, study):
     invalidates the cache (signals the caller to regenerate).
     """
     metadata = load_schema_metadata(metadata)
+    _stamp_source_file_modified(metadata, study)
     _inject_collection_display_ids(metadata)
     metadata = _enforce_study_collections(metadata, study)
     if metadata is None:
@@ -227,8 +249,8 @@ def _build_full_metadata(df, col_types, study):
         the_recoded_file = f"{study}_recoded.parquet"
         if data_io.exists(storage_location="cache", filename=the_recoded_file):
             metadata['source_file'] = the_recoded_file
-            mtime = datetime.fromtimestamp(data_io.getmtime(storage_location="cache", filename=the_recoded_file))
-            metadata['source_file_modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
+            mtime = datetime.fromtimestamp(data_io.getmtime(storage_location="cache", filename=the_recoded_file), tz=UTC)
+            metadata['source_file_modified'] = mtime.isoformat(timespec='seconds')
         else:
             metadata['source_file'] = "Unknown"
             metadata['source_file_modified'] = ""
@@ -589,8 +611,8 @@ def api_explorer_metadata():
         the_recoded_file = f"{study}_recoded.parquet"
         if data_io.exists(storage_location="cache", filename=the_recoded_file):
             metadata['source_file'] = the_recoded_file
-            mtime = datetime.fromtimestamp(data_io.getmtime(storage_location="cache", filename=the_recoded_file))
-            metadata['source_file_modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
+            mtime = datetime.fromtimestamp(data_io.getmtime(storage_location="cache", filename=the_recoded_file), tz=UTC)
+            metadata['source_file_modified'] = mtime.isoformat(timespec='seconds')
         else:
              metadata['source_file'] = "Unknown"
              metadata['source_file_modified'] = ""

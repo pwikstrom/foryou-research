@@ -76,13 +76,7 @@ function _escapeAttr(text) {
 
 
 function _relativeTime(iso) {
-    if (!iso) return '';
-    const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
-    if (!isFinite(seconds) || seconds < 0) return '';
-    if (seconds < 90) return 'just now';
-    if (seconds < 5400) return `${Math.round(seconds / 60)}m ago`;
-    if (seconds < 129600) return `${Math.round(seconds / 3600)}h ago`;
-    return `${Math.round(seconds / 86400)}d ago`;
+    return fypFmtRelative(iso);
 }
 
 

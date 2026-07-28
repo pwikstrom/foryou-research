@@ -34,6 +34,16 @@ _PLATFORM_URL_TEMPLATES: dict[str, str] = {
 }
 
 
+# Which timezone the viewer's activity span is expressed in, per the timestamp
+# column it was computed from. The span is shown verbatim rather than converted,
+# so the header has to say which clock it belongs to.
+TS_COL_BASIS: dict[str, str] = {
+    "utc_timestamp": "UTC",
+    "local_timestamp": "participant local time",
+    "create_time": "UTC",
+}
+
+
 @viewer_bp.route('/api/video_analysis/ids', methods=['POST'])
 @login_required
 def api_viewer_ids():
@@ -70,6 +80,14 @@ def api_viewer_ids():
     if ts_col is not None:
         filtered_df = filtered_df.sort_values(by=ts_col, ascending=True)
 
+    # The header span is a separate choice from the sort key. Sorting is on UTC
+    # so rows from different participants interleave in true chronological
+    # order, but the span is shown on the participant's own clock to match the
+    # detail panel's "Activity timestamp" and the participant-local dates used
+    # by Explore and Timelines.
+    span_col = next((c for c in ("local_timestamp", "utc_timestamp", "create_time")
+                     if c in filtered_df.columns), None)
+
     id_col = 'item_id'
     if id_col not in filtered_df.columns:
         if 'video_id' in filtered_df.columns: id_col = 'video_id'
@@ -93,14 +111,18 @@ def api_viewer_ids():
     # chronological span shown in the viewer header). Only needed on the initial
     # chunk; pagination requests reuse the value already on the client.
     time_span = None
-    if offset == 0 and ts_col is not None and total_count > 0:
+    if offset == 0 and span_col is not None and total_count > 0:
         try:
-            first_ts = filtered_df[ts_col].min()
-            last_ts = filtered_df[ts_col].max()
+            first_ts = filtered_df[span_col].min()
+            last_ts = filtered_df[span_col].max()
             if pd.notna(first_ts) and pd.notna(last_ts):
+                # Sent as bare ISO so the client formats it like every other
+                # timestamp. ``basis`` names the timezone the span is expressed
+                # in, which depends on the column that was available.
                 time_span = {
-                    "first": pd.Timestamp(first_ts).strftime("%Y-%m-%d %H:%M"),
-                    "last": pd.Timestamp(last_ts).strftime("%Y-%m-%d %H:%M"),
+                    "first": pd.Timestamp(first_ts).isoformat(),
+                    "last": pd.Timestamp(last_ts).isoformat(),
+                    "basis": TS_COL_BASIS.get(span_col, span_col),
                 }
         except (ValueError, TypeError):
             time_span = None

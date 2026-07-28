@@ -252,7 +252,7 @@
 
         if (activeVersion && !builtinIsActive && !candidateIsActive) {
             const who = active.updated_by ? _esc(active.updated_by) : "";
-            const when = active.updated_at ? _esc(String(active.updated_at).replace("T", " ")) : "";
+            const when = active.updated_at ? _esc(fypFmtDateTime(active.updated_at)) : "";
             rows.push(`<tr>
                 <td style="${cell}"><span${muted}>active contract</span> ${_rowBadge("active", true)}
                     <div class="text-xxs" style="color: var(--color-text-muted); min-width: 220px;
@@ -304,7 +304,7 @@
                     ${isActive ? " " + _rowBadge("active", true) : ""}</td>
                 <td style="${cell}" class="font-mono text-xs">${_esc(m.version || "—")}</td>
                 <td style="${cell}">${_esc(m.n_fields ?? "—")}</td>
-                <td style="${cell}" class="text-xs">${_esc((m.created_at || "").replace("T", " "))}<br>
+                <td style="${cell}" class="text-xs">${_esc(fypFmtDateTime(m.created_at))}<br>
                     <span${muted}>${_esc(m.created_by || "")}</span></td>
                 <td style="${cell}">
                     <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 300px;">
@@ -1318,7 +1318,7 @@
             </div>
             <div class="text-xs" style="color: var(--color-text-muted); margin-top: 6px;
                     display: flex; gap: 18px; flex-wrap: wrap;">
-                <span>Started ${_esc((manifest.started_at || "—").replace("T", " "))}
+                <span>Started ${_esc(fypFmtDateTime(manifest.started_at, "—"))}
                     by ${_esc(manifest.started_by || "?")}</span>
                 <span>Test videos <span class="font-mono" style="color: var(--color-text-primary);">${_esc(manifest.eval_set || "—")}</span></span>
                 <span>${_esc(String(manifest.n_items ?? "?"))} videos</span>

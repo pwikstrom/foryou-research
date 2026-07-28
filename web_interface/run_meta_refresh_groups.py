@@ -1,5 +1,5 @@
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Add project root to sys.path
@@ -75,8 +75,8 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
                 the_recoded_file = f"{study_name}_recoded.parquet"
                 if data_io.exists(storage_location="cache", filename=the_recoded_file):
                     meta['source_file'] = the_recoded_file
-                    mtime = datetime.fromtimestamp(data_io.getmtime(storage_location="cache", filename=the_recoded_file))
-                    meta['source_file_modified'] = mtime.strftime('%Y-%m-%d %H:%M:%S')
+                    mtime = datetime.fromtimestamp(data_io.getmtime(storage_location="cache", filename=the_recoded_file), tz=UTC)
+                    meta['source_file_modified'] = mtime.isoformat(timespec='seconds')
                 else:
                     meta['source_file'] = "Unknown"
                     meta['source_file_modified'] = ""

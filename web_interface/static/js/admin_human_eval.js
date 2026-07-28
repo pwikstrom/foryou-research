@@ -309,7 +309,7 @@
         const results = (detail || {}).results;
         const nSubmitted = Object.values(status).filter(s => s.status === "submitted").length;
         const resultsLine = results
-            ? `<span class="text-xs" style="color: var(--color-text-muted);">Results computed ${_esc(results.computed_at)} — see the run's report under Annotation testing.</span>`
+            ? `<span class="text-xs" style="color: var(--color-text-muted);">Results computed ${_esc(fypFmtDateTime(results.computed_at))} — see the run's report under Annotation testing.</span>`
             : `<span class="text-xs" style="color: var(--color-text-muted);">${nSubmitted ? "" : "No results yet — waiting for submissions."}</span>`;
 
         return `<div style="border: 1px solid var(--color-border); border-radius: 6px;
@@ -319,7 +319,7 @@
                 ${_runName(t.run_id) ? `<span class="text-xs font-mono" style="color: var(--color-text-muted);">${_esc(t.run_id)}</span>` : ""}
                 <span class="text-xs" style="color: var(--color-text-muted);">
                     ${_esc(t.task_type)} · ${nItems} items · ${t.n_variables} variables ·
-                    created ${_esc(t.created_at || "")} by ${_esc(t.created_by || "")}
+                    created ${_esc(fypFmtDateTime(t.created_at))} by ${_esc(t.created_by || "")}
                 </span>
                 <span style="flex: 1;"></span>
                 <button class="btn-discreet btn-compact"

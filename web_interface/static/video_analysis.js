@@ -1,5 +1,14 @@
 // Video Viewer Logic
 
+// Detail-panel keys whose value is a date or a date-time, and so goes through
+// the shared formatter (datetime_format.js) instead of being printed raw.
+// Matches utc_timestamp, local_timestamp, scrape_ts, inference_ts, local_date, …
+const _TIMESTAMP_KEY_RE = /(^|_)(timestamp|ts|date)$|^create_time$/;
+
+function _isTimestampKey(key) {
+    return _TIMESTAMP_KEY_RE.test(String(key));
+}
+
 let viewerData = {
     metadata: null,
     filters: {},
@@ -876,7 +885,13 @@ function updateViewerDateRange(span) {
     const el = document.getElementById('viewer-date-range');
     if (!el) return;
     if (span && span.first && span.last) {
-        el.textContent = `${span.first} → ${span.last}`;
+        // Activity timestamps are research data, so the span is shown on its own
+        // clock rather than converted to the viewer's. `basis` says which clock.
+        el.textContent = `${fypWallDateTime(span.first)} → ${fypWallDateTime(span.last)}`;
+        const basis = span.basis || 'the source timestamp column';
+        el.setAttribute('data-tooltip',
+            `First and last activity timestamp in the current selection, in ${basis}. `
+            + 'Videos are sorted oldest to newest.');
     } else {
         el.textContent = "";
     }
@@ -1591,37 +1606,19 @@ function renderMetadata(item) {
             } else if (typeof val === 'number') {
                 if (key === 'item_id' || key === 'video_id') {
                     displayVal = String(val);
-                } else if (key.includes('_timestamp')) {
-                    // Try to parse timestamp
-                    try {
-                        let ts = val;
-                        // Heuristic: if ts > 1e11 (100 billion), likely ms (valid after 1973).
-                        // If < 1e11, likely seconds.
-                        // Current time ~1.7e9 (seconds) or 1.7e12 (ms).
-                        // So 1e11 is a safe divider.
-                        if (ts < 1e11) ts *= 1000;
-
-                        const date = new Date(ts);
-                        if (!isNaN(date.getTime())) {
-                            // Format dd/mm/yy hh:mm:ss
-                            const day = String(date.getDate()).padStart(2, '0');
-                            const month = String(date.getMonth() + 1).padStart(2, '0');
-                            const year = String(date.getFullYear()).slice(-2);
-                            const hours = String(date.getHours()).padStart(2, '0');
-                            const minutes = String(date.getMinutes()).padStart(2, '0');
-                            const seconds = String(date.getSeconds()).padStart(2, '0');
-                            displayVal = `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
-                        } else {
-                            displayVal = String(val);
-                        }
-                    } catch (e) {
-                        displayVal = String(val);
-                    }
+                } else if (_isTimestampKey(key)) {
+                    // An epoch number is anchored to UTC, so it is an instant.
+                    displayVal = fypFmtDateTime(val, String(val));
                 } else {
                     displayVal = val.toLocaleString();
                 }
             } else if (typeof val === 'object') {
                 displayVal = JSON.stringify(val);
+            } else if (typeof val === 'string' && _isTimestampKey(key)) {
+                // Offset-bearing values render in the viewer's timezone; the
+                // zone-less participant stamps (local_timestamp, local_date)
+                // render verbatim on the donor's own clock.
+                displayVal = fypFmtAuto(val, val);
             } else {
                 displayVal = String(val);
             }

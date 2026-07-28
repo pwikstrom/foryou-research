@@ -226,8 +226,9 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
                 explorer_meta["source_file"] = the_recoded_file
                 mtime = datetime.fromtimestamp(
                     data_io.getmtime(storage_location="cache", filename=the_recoded_file),
+                    tz=UTC,
                 )
-                explorer_meta["source_file_modified"] = mtime.strftime("%Y-%m-%d %H:%M:%S")
+                explorer_meta["source_file_modified"] = mtime.isoformat(timespec="seconds")
             else:
                 explorer_meta["source_file"] = "Unknown"
                 explorer_meta["source_file_modified"] = ""

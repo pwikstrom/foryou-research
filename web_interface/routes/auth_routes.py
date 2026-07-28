@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 from email_validator import EmailNotValidError, validate_email
@@ -49,7 +49,7 @@ def login():
                 else:
                     login_user(user_obj)
                     user_manager.update_last_login(user_obj.username)
-                    session['login_time'] = datetime.now().strftime('%Y-%m-%d %H:%M')
+                    session['login_time'] = datetime.now(timezone.utc).isoformat()
                     next_page = request.args.get('next')
                     return redirect(next_page or url_for('index'))
             else:

@@ -30,7 +30,7 @@ import os
 import random
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from glob import glob
 from json import loads as json_loads
 from os import remove
@@ -177,7 +177,13 @@ def _info_to_row(info: dict, item_id: str) -> pd.DataFrame:
     would break the queue/enrichment join.
     """
     try:
-        create_time = datetime.fromtimestamp(int(info.get('timestamp', 0)))
+        # The epoch is parsed as UTC and then made naive, matching the
+        # contract's timestamp[ns] dtype. A bare fromtimestamp() would return
+        # the *scraping machine's* local time, so the same video would get a
+        # different create_time on Cloud Run than on a local drain.
+        create_time = datetime.fromtimestamp(
+            int(info.get('timestamp', 0)), tz=timezone.utc,
+        ).replace(tzinfo=None)
     except (ValueError, TypeError, OSError):
         create_time = datetime(2000, 1, 1)
 
