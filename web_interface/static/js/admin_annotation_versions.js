@@ -268,55 +268,72 @@
             const wantSwitch = !!(be.mismatch && be.can_switch_backend && be.target_available);
 
             // Dry-run the contract upload to get the honest impact report.
-            const payload = { text: rec.contract_text };
-            if (wantSwitch) payload.switch_backend = be.target;
-            const dres = await fetch(AC_ENDPOINT, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-            });
-            const dbody = await dres.json();
-            if (!dres.ok) {
-                throw new Error((dbody.errors || []).join("; ") || dbody.error || dres.statusText);
+            // When a backend switch is on offer, dry-run BOTH checkbox states
+            // so the modal can show the true outcome of either choice.
+            async function dryRun(withSwitch) {
+                const payload = { text: rec.contract_text };
+                if (withSwitch) payload.switch_backend = be.target;
+                const dres = await fetch(AC_ENDPOINT, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+                const dbody = await dres.json();
+                if (!dres.ok) {
+                    throw new Error((dbody.errors || []).join("; ") || dbody.error || dres.statusText);
+                }
+                return dbody.impact || {};
             }
-            const impact = dbody.impact || {};
-            const exact = impact.candidate_version === version;
+            const impactNoSwitch = await dryRun(false);
+            const impactSwitch = wantSwitch ? await dryRun(true) : null;
+
+            // One self-contained outcome statement per checkbox state: whether
+            // this is an exact re-activation or mints a new version, and which
+            // backend + model new annotations then run on.
+            function outcomeHtml(impact) {
+                const backendPart = "new annotations will run on backend <strong>"
+                    + _esc(impact.target_backend || "gemini") + "</strong>"
+                    + (impact.target_model
+                        ? ' · <span class="font-mono">' + _esc(impact.target_model) + "</span>" : "");
+                if (impact.candidate_version === version) {
+                    return '<div style="color: var(--color-success); margin-bottom: 10px;">'
+                        + '✓ This re-activates version <span class="font-mono">' + _esc(version)
+                        + "</span> exactly — " + backendPart + ", as recorded.</div>";
+                }
+                return '<div style="color: var(--color-warning); margin-bottom: 10px;">'
+                    + '⚠ This does not bring back <span class="font-mono">' + _esc(version)
+                    + "</span> exactly: its contract is re-applied, but under the current "
+                    + "model and settings that creates a new version <span class=\"font-mono\">"
+                    + _esc(impact.candidate_version) + "</span>, and " + backendPart + ".</div>";
+            }
 
             const rows = [];
-            if (exact) {
-                rows.push('<div style="color: var(--color-success); margin-bottom: 10px;">'
-                    + '✓ This re-activates version <span class="font-mono">' + _esc(version)
-                    + "</span> exactly — new annotations will be made with it again.</div>");
-            } else {
-                rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
-                    + '⚠ The model or settings have changed since <span class="font-mono">' + _esc(version)
-                    + '</span> was recorded — activating its contract now creates a new version '
-                    + '<span class="font-mono">' + _esc(impact.candidate_version)
-                    + "</span> based on it.</div>");
-            }
-            rows.push('<div style="margin-bottom: 10px;">New annotations will run on backend '
-                + "<strong>" + _esc(impact.target_backend || "gemini") + "</strong>"
-                + (impact.target_model
-                    ? ' · <span class="font-mono">' + _esc(impact.target_model) + "</span>" : "")
-                + ".</div>");
             if (wantSwitch) {
+                // Context → choice → outcome, with the outcome re-rendered
+                // whenever the checkbox changes so the two never disagree.
+                rows.push('<div style="margin-bottom: 10px;">This version was recorded under backend '
+                    + "<strong>" + _esc(be.target) + "</strong>; the active backend is currently "
+                    + "<strong>" + _esc(be.active) + "</strong>.</div>");
                 rows.push('<div style="margin-bottom: 10px;">'
                     + '<label class="text-sm" style="display: flex; gap: 8px; align-items: baseline; cursor: pointer;">'
                     + '<input type="checkbox" id="av-restore-switch" checked> '
-                    + "<span>Also switch the active annotation backend to <strong>" + _esc(be.target)
-                    + "</strong> (currently <strong>" + _esc(be.active)
-                    + "</strong>) — the version was recorded under it.</span></label></div>");
-            } else if (be.mismatch && !be.target_available) {
-                rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
-                    + "⚠ Recorded under backend <strong>" + _esc(be.target)
-                    + "</strong>, which is not available here ("
-                    + _esc(be.target_unavailable_reason || "unavailable")
-                    + ") — activation runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
-            } else if (be.mismatch && !be.can_switch_backend) {
-                rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
-                    + "⚠ Recorded under backend <strong>" + _esc(be.target)
-                    + "</strong>; switching backends requires the Backends admin permission — "
-                    + "activation runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
+                    + "<span>Switch the active annotation backend back to <strong>" + _esc(be.target)
+                    + "</strong> as part of the activation.</span></label></div>");
+                rows.push('<div id="av-restore-outcome">' + outcomeHtml(impactSwitch) + "</div>");
+            } else {
+                rows.push(outcomeHtml(impactNoSwitch));
+                if (be.mismatch && !be.target_available) {
+                    rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
+                        + "⚠ Recorded under backend <strong>" + _esc(be.target)
+                        + "</strong>, which is not available here ("
+                        + _esc(be.target_unavailable_reason || "unavailable")
+                        + ") — activation runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
+                } else if (be.mismatch && !be.can_switch_backend) {
+                    rows.push('<div style="color: var(--color-warning); margin-bottom: 10px;">'
+                        + "⚠ Recorded under backend <strong>" + _esc(be.target)
+                        + "</strong>; switching backends requires the Backends admin permission — "
+                        + "activation runs on <strong>" + _esc(be.active) + "</strong> instead.</div>");
+                }
             }
             rows.push('<div class="text-xs" style="color: var(--color-text-muted);">'
                 + "Studies keep using the preferred version — activating a version only "
@@ -334,6 +351,13 @@
                 confirmBtn.textContent = "Activate";
             }
             if (modalBody) modalBody.innerHTML = rows.join("");
+            const switchCb = document.getElementById("av-restore-switch");
+            if (switchCb) {
+                switchCb.addEventListener("change", function () {
+                    const out = document.getElementById("av-restore-outcome");
+                    if (out) out.innerHTML = outcomeHtml(switchCb.checked ? impactSwitch : impactNoSwitch);
+                });
+            }
             _acOpenModal();
             _status("");
         } catch (err) {

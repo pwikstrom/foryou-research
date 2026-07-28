@@ -543,47 +543,62 @@
             const impact = body.impact || {};
             const be = body.backend || {};
             const offerSwitch = !!(be.mismatch && be.can_switch_backend && be.target_available);
+            // When a backend switch is on offer, also dry-run the no-switch
+            // outcome so the modal can show the truth for either checkbox state.
+            let impactNoSwitch = impact;
+            if (offerSwitch) {
+                try {
+                    const alt = await _postJson(`${CAND}/${encodeURIComponent(name)}/activate`, {});
+                    impactNoSwitch = alt.impact || impact;
+                } catch (e) { /* fall back to the switch impact */ }
+            }
             pendingActivate = { name, text: body.text, etag: body.current_etag,
                                 builtinDefault: !!body.builtin_default };
 
-            const rows = [];
-            if (impact.metadata_only) {
-                rows.push(`<div style="color: var(--color-success); margin-bottom: 10px;">`
-                    + `✓ Metadata-only change — <strong>no new annotation version</strong>. `
-                    + `Existing annotations stay valid.</div>`);
-            } else {
-                rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
-                    + `⚠ A new annotation version <span class="font-mono">${_esc(impact.candidate_version)}</span> `
-                    + `and become the <strong>active</strong> version (replacing `
-                    + `<span class="font-mono">${_esc(impact.active_version)}</span>). `
-                    + `Studies keep using the preferred version until you promote it under <em>Versions</em>.</div>`);
+            // One self-contained outcome statement per checkbox state: version
+            // consequence plus the backend + model new annotations run on.
+            function outcomeHtml(im) {
+                const backendPart = `new annotations will run on backend `
+                    + `<strong>${_esc(im.target_backend || "gemini")}</strong>`
+                    + (im.target_model ? ` · <span class="font-mono">${_esc(im.target_model)}</span>` : "");
+                if (im.metadata_only) {
+                    return `<div style="color: var(--color-success); margin-bottom: 10px;">`
+                        + `✓ Metadata-only change — <strong>no new annotation version</strong>; `
+                        + `existing annotations stay valid, and ${backendPart}.</div>`;
+                }
+                return `<div style="color: var(--color-warning); margin-bottom: 10px;">`
+                    + `⚠ A new annotation version <span class="font-mono">${_esc(im.candidate_version)}</span> `
+                    + `will be created and become the <strong>active</strong> version (replacing `
+                    + `<span class="font-mono">${_esc(im.active_version)}</span>), and ${backendPart}. `
+                    + `Studies keep using the preferred version until you promote it under <em>Versions</em>.</div>`;
             }
-            // Backend section: always say which backend+model the activated
-            // contract will run on; offer the switch when it differs from the
-            // tested one and the user may change backends.
-            const runBackend = offerSwitch ? be.target : be.active;
-            const runModel = offerSwitch ? be.target_model : be.active_model;
-            rows.push(`<div style="margin-bottom: 10px;">This contract will run on backend `
-                + `<strong>${_esc(runBackend || "gemini")}</strong>`
-                + (runModel ? ` · <span class="font-mono">${_esc(runModel)}</span>` : "")
-                + `.</div>`);
+
+            const rows = [];
             if (offerSwitch) {
+                // Context → choice → outcome, with the outcome re-rendered on
+                // checkbox change so the two never disagree.
+                rows.push(`<div style="margin-bottom: 10px;">This contract was tested on backend `
+                    + `<strong>${_esc(be.target)}</strong>; the active backend is currently `
+                    + `<strong>${_esc(be.active)}</strong>.</div>`);
                 rows.push(`<div style="margin-bottom: 10px;">`
                     + `<label class="text-sm" style="display: flex; gap: 8px; align-items: baseline; cursor: pointer;">`
                     + `<input type="checkbox" id="abe-switch-backend" checked> `
-                    + `<span>Also switch the active annotation backend to `
-                    + `<strong>${_esc(be.target)}</strong> (currently <strong>${_esc(be.active)}</strong>) — `
-                    + `this contract was tested on it.</span></label></div>`);
-            } else if (be.mismatch && !be.can_switch_backend) {
-                rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
-                    + `⚠ This contract was tested on <strong>${_esc(be.target)}</strong>, but switching `
-                    + `backends requires the Backends admin permission — after activation it will run on `
-                    + `<strong>${_esc(be.active)}</strong>.</div>`);
-            } else if (be.mismatch && !be.target_available) {
-                rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
-                    + `⚠ This contract was tested on <strong>${_esc(be.target)}</strong>, which is not `
-                    + `available here (${_esc(be.target_unavailable_reason || "unavailable")}) — after `
-                    + `activation it will run on <strong>${_esc(be.active)}</strong>.</div>`);
+                    + `<span>Switch the active annotation backend to `
+                    + `<strong>${_esc(be.target)}</strong> as part of the activation.</span></label></div>`);
+                rows.push(`<div id="abe-activate-outcome">${outcomeHtml(impact)}</div>`);
+            } else {
+                rows.push(outcomeHtml(impact));
+                if (be.mismatch && !be.can_switch_backend) {
+                    rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
+                        + `⚠ This contract was tested on <strong>${_esc(be.target)}</strong>, but switching `
+                        + `backends requires the Backends admin permission — after activation it will run on `
+                        + `<strong>${_esc(be.active)}</strong>.</div>`);
+                } else if (be.mismatch && !be.target_available) {
+                    rows.push(`<div style="color: var(--color-warning); margin-bottom: 10px;">`
+                        + `⚠ This contract was tested on <strong>${_esc(be.target)}</strong>, which is not `
+                        + `available here (${_esc(be.target_unavailable_reason || "unavailable")}) — after `
+                        + `activation it will run on <strong>${_esc(be.active)}</strong>.</div>`);
+                }
             }
             const detail = [];
             detail.push(`Prompt changed: <strong>${impact.prompt_changed ? "yes" : "no"}</strong>`);
@@ -606,6 +621,13 @@
                     <button onclick="abeConfirmActivate(this)" class="btn-save btn-compact">Activate contract</button>
                 </div>`;
             pendingActivate.switchBackend = offerSwitch ? be.target : null;
+            const switchCb = document.getElementById("abe-switch-backend");
+            if (switchCb) {
+                switchCb.addEventListener("change", () => {
+                    const out = document.getElementById("abe-activate-outcome");
+                    if (out) out.innerHTML = outcomeHtml(switchCb.checked ? impact : impactNoSwitch);
+                });
+            }
             if (modal) modal.style.display = "flex";
         } catch (e) {
             _statusContracts(`Activate failed: ${e.message}`, true);
