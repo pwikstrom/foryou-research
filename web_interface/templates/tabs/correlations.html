@@ -1,39 +1,37 @@
 <div id="correlations" class="tab-pane">
     <div class="control-bar">
-        <button id="correlations-sidebar-toggle" onclick="window.correlationsToggleSidebar()" class="meta-tooltip tooltip-below desktop-only-toggle" data-tooltip="Toggle filters panel"
-            style="background:none; border:none; cursor:pointer; padding:4px; margin-right:10px; display:flex; align-items:center; transition: background 0.15s; border-radius: 4px;">
+        <button id="correlations-sidebar-toggle" onclick="window.correlationsToggleSidebar()"
+            class="meta-tooltip tooltip-below desktop-only-toggle corr-sidebar-toggle" data-tooltip="Toggle filters panel">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--control-bar-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
                 <line x1="9" y1="3" x2="9" y2="21"></line>
             </svg>
         </button>
-        <button class="mobile-only mobile-drawer-trigger" data-drawer-target="#correlations-filter-panel"
-            style="margin-right: 10px;">Filters</button>
-        <span id="pca-status" style="color: var(--control-bar-info);"></span>
+        <button class="mobile-only mobile-drawer-trigger corr-drawer-trigger" data-drawer-target="#correlations-filter-panel">Filters</button>
+        <span id="pca-status" class="corr-status"></span>
     </div>
 
     <!-- Main Content -->
-    <div style="display: flex; height: calc(100vh - 180px); gap: 20px;">
+    <div class="corr-main">
 
         <!-- Filter Panel -->
-        <div id="correlations-filter-panel" class="panel" data-mobile-drawer="left" style="flex: 0 0 300px; display: flex; flex-direction: column; overflow: hidden;">
+        <div id="correlations-filter-panel" class="panel corr-filter-panel" data-mobile-drawer="left">
             <div class="header">
                 <h2>Filters</h2>
                 <button class="btn-save" onclick="resetPcaFilters()">Reset</button>
             </div>
-            <div id="pca-filters" style="flex: 1; overflow-y: auto; padding: 10px;">
+            <div id="pca-filters" class="corr-filter-list">
             </div>
         </div>
 
         <!-- Visualization Panel -->
-        <div class="panel" style="flex: 1; display: flex; flex-direction: column; padding: 0;">
+        <div class="panel corr-viz-panel">
 
             <!-- Plot Controls -->
-            <div
-                style="padding: 10px; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-bg-elevated); display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+            <div class="corr-controls">
 
                 <!-- View Toggle -->
-                <div style="border-right: 1px solid var(--color-border-strong); padding-right: 15px;">
+                <div class="corr-view-toggle">
                     <div class="toggle-group">
                         <button id="pca-view-scatter" class="toggle-option active" onclick="setPcaView('scatter')">Scatter</button>
                         <button id="pca-view-heatmap" class="toggle-option" onclick="setPcaView('heatmap')">Heatmap</button>
@@ -41,45 +39,42 @@
                 </div>
 
                 <!-- Scatter Controls -->
-                <div id="pca-scatter-controls" style="display: flex; gap: 15px; align-items: center;">
+                <div id="pca-scatter-controls" class="corr-scatter-controls">
                     <div>
-                        <label style="margin-right: 5px;">X Axis:</label>
-                        <select id="pca-x-select" class="dropdown" onchange="updatePcaPlot()"
-                            style="width: 180px;">
+                        <label class="corr-control-label">X Axis:</label>
+                        <select id="pca-x-select" class="dropdown corr-select" onchange="updatePcaPlot()">
                         </select>
                     </div>
                     <div>
-                        <label style="margin-right: 5px;">Y Axis:</label>
-                        <select id="pca-y-select" class="dropdown" onchange="updatePcaPlot()"
-                            style="width: 180px;">
+                        <label class="corr-control-label">Y Axis:</label>
+                        <select id="pca-y-select" class="dropdown corr-select" onchange="updatePcaPlot()">
                         </select>
                     </div>
                     <div>
-                        <label style="margin-right: 5px;">Colour by:</label>
-                        <select id="pca-color-select" class="dropdown" onchange="updatePcaPlot()"
-                            style="width: 150px;">
+                        <label class="corr-control-label">Colour by:</label>
+                        <select id="pca-color-select" class="dropdown corr-select-narrow" onchange="updatePcaPlot()">
                         </select>
                     </div>
                     <!-- Stats Toggle -->
-                    <div style="display: flex; align-items: center; gap: 5px;">
+                    <div class="corr-checkbox-group">
                         <input type="checkbox" id="pca-show-stats" onchange="updatePcaPlot()">
-                        <label for="pca-show-stats" class="font-normal" style="color: var(--color-text-secondary); cursor: pointer;">Stats</label>
+                        <label for="pca-show-stats" class="font-normal corr-checkbox-label">Stats</label>
                     </div>
                     <!-- Ellipses Toggle -->
-                    <div style="display: flex; align-items: center; gap: 5px;">
+                    <div class="corr-checkbox-group">
                         <input type="checkbox" id="pca-show-ellipses" onchange="updatePcaPlot()">
-                        <label for="pca-show-ellipses" class="font-normal" style="color: var(--color-text-secondary); cursor: pointer;">Ellipses</label>
+                        <label for="pca-show-ellipses" class="font-normal corr-checkbox-label">Ellipses</label>
                     </div>
                 </div>
 
                 <!-- Point Count (right-aligned) -->
-                <div style="margin-left: auto;">
-                    <span id="pca-point-count" class="text-sm" style="color: var(--control-bar-info);"></span>
+                <div class="corr-point-count">
+                    <span id="pca-point-count" class="text-sm corr-status"></span>
                 </div>
             </div>
 
             <!-- Plot Area -->
-            <div id="pca-plot" style="flex: 1; min-height: 0;"></div>
+            <div id="pca-plot" class="corr-plot"></div>
 
         </div>
 

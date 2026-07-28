@@ -13,50 +13,69 @@ from fyp.pca import calculate_scaled_pca_scores
 # --- Explorer State ---
 
 
-pca_df_cache = {}
+# In-process cache for the per-study PCA score tables. Mtime-keyed so a
+# pca_refresh worker rewriting the parquet in another process invalidates
+# the RAM copy automatically (same pattern as the sequence caches below).
+_pca_cache = LRUCache(maxsize=8)
+_pca_cache_lock = threading.Lock()
+
+
+def _pca_mtime(study_name):
+    """Return the mtime of a study's PCA parquet, or None if missing."""
+    try:
+        filename = f"{study_name}_PCA.parquet"
+        if not data_io.exists(storage_location="cache", filename=filename):
+            return None
+        return data_io.getmtime(storage_location="cache", filename=filename)
+    except Exception:
+        return None
+
 
 def get_pca_df(study_name):
+    """Return the ``{study}_PCA.parquet`` dataframe, computing it if absent.
 
+    Cached in-process keyed by the parquet's mtime, so a refresh worker
+    rewriting the artifact invalidates the RAM copy on the next request.
+    When the artifacts are missing entirely they are computed lazily (and
+    saved by ``calculate_scaled_pca_scores`` itself).
+    """
+    if not study_name:
+        return None
 
-    global pca_df_cache
-    if study_name in pca_df_cache:
-        # Check freshness? Simple version: just return.
-        return pca_df_cache[study_name]
+    pca_filename = f"{study_name}_PCA.parquet"
+    comp_inter_filename = f"{study_name}_comp_interpretations.json"
 
-    print("Loading PCA scores for study: ", study_name)
+    mtime = _pca_mtime(study_name)
+    has_interpretations = data_io.exists(storage_location="cache", filename=comp_inter_filename)
 
-    # Load file
-    if True:# try:
-        
-        pca_filename = f"{study_name}_PCA.parquet"
-        comp_inter_filename = f"{study_name}_comp_interpretations.json"
+    if mtime is not None and has_interpretations:
+        with _pca_cache_lock:
+            entry = _pca_cache.get(study_name)
+            if entry is not None and entry[0] == mtime:
+                return entry[1]
+        df = data_io.load_parquet(storage_location="cache", filename=pca_filename)
+        with _pca_cache_lock:
+            _pca_cache[study_name] = (mtime, df)
+        return df
 
-        if data_io.exists(storage_location="cache", filename=pca_filename) and data_io.exists(storage_location="cache", filename=comp_inter_filename):         
-            print("Loading PCA scores for study from cache: ", study_name)
-            events_pca_scores_scaled = data_io.load_parquet(
-                storage_location="cache",
-                filename=pca_filename,
-                )
+    print("Calculating PCA scores for study: ", study_name)
+    result = calculate_scaled_pca_scores(
+        study_name=study_name,
+        study_recoded_dataset=None,
+        minimum_group_size=10,
+        target_explained_variance=0.8,
+        drop_rare_globally_below=0.01,
+        save_to_cache=True,
+    )
+    df = result[0] if isinstance(result, tuple) else result
+    if df is None:
+        return None
 
-        else:
-            print("Calculating PCA scores for study: ", study_name)
-            events_pca_scores_scaled, _ = calculate_scaled_pca_scores(
-                study_name = study_name,
-                study_recoded_dataset = None,
-                minimum_group_size = 10,
-                target_explained_variance = 0.8,
-                drop_rare_globally_below = 0.01,
-            )
-            if events_pca_scores_scaled is None:
-                return None
-            data_io.save_parquet(
-                df=events_pca_scores_scaled,
-                storage_location="cache",
-                filename=pca_filename,
-            )
-
-        pca_df_cache[study_name] = events_pca_scores_scaled
-        return events_pca_scores_scaled
+    mtime = _pca_mtime(study_name)
+    if mtime is not None:
+        with _pca_cache_lock:
+            _pca_cache[study_name] = (mtime, df)
+    return df
 
 
 

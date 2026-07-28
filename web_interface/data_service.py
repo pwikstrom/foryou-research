@@ -8,13 +8,14 @@ identity is preserved by these re-exports — is importable from here.
 """
 
 from .services.analysis_data import (  # noqa: F401
+    _pca_cache,
+    _pca_cache_lock,
     _sequence_cache,
     _sequence_cache_lock,
     _sequence_mtime,
     get_pca_df,
     get_sequence_df,
     get_sequence_summary,
-    pca_df_cache,
 )
 from .services.study_data import (  # noqa: F401
     SECTION_ORDER,

@@ -128,19 +128,16 @@ function renderPcaControls(data) {
         // Carry over the existing user selections
         xSelect.value = prevX;
         ySelect.value = prevY;
-    } else {
-        // Otherwise, pick two random different components
-        if (data.numeric_cols.length > 0) {
-            let idx1 = Math.floor(Math.random() * data.numeric_cols.length);
-            xSelect.value = data.numeric_cols[idx1];
-
-            if (data.numeric_cols.length > 1) {
-                let idx2 = idx1;
-                while (idx2 === idx1) {
-                    idx2 = Math.floor(Math.random() * data.numeric_cols.length);
-                }
-                ySelect.value = data.numeric_cols[idx2];
-            }
+    } else if (data.numeric_cols.length > 0) {
+        // Deterministic default: the two components with the highest explained variance
+        const byVariance = [...data.numeric_cols].sort((a, b) => {
+            const va = parseFloat(inter[a]?.explained_variance_pct) || 0;
+            const vb = parseFloat(inter[b]?.explained_variance_pct) || 0;
+            return vb - va;
+        });
+        xSelect.value = byVariance[0];
+        if (byVariance.length > 1) {
+            ySelect.value = byVariance[1];
         }
     }
 
@@ -163,33 +160,40 @@ function renderPcaFilters(data) {
     const schemaMap = data.schema_map || {};
     const displayIds = data.display_ids || {};
 
+    const truncatedFactors = data.truncated_factors || [];
+
     data.factor_cols.forEach(col => {
         const wrapper = document.createElement('div');
-        wrapper.className = 'filter-group';
-        wrapper.style.marginBottom = '15px';
+        wrapper.className = 'filter-group corr-filter-group';
 
         const label = document.createElement('div');
         // Use display_name from schema_map if available
         label.innerText = (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
-        label.classList.add('font-bold');
-        label.style.marginBottom = '5px';
+        label.classList.add('font-bold', 'corr-filter-label');
         wrapper.appendChild(label);
+
+        // Factors with too many distinct values are not filterable — say so
+        // instead of rendering an empty checkbox list.
+        if (truncatedFactors.includes(col)) {
+            const note = document.createElement('div');
+            note.classList.add('text-xs', 'corr-filter-note');
+            note.innerText = 'Too many distinct values to filter';
+            wrapper.appendChild(note);
+            container.appendChild(wrapper);
+            return;
+        }
 
         const values = data.factor_values[col] || [];
 
         const listDiv = document.createElement('div');
-        listDiv.style.maxHeight = '150px';
-        listDiv.style.overflowY = 'auto';
-        listDiv.style.border = '1px solid var(--chart-grid)';
-        listDiv.style.padding = '5px';
-        listDiv.style.background = 'var(--color-bg-surface)';
+        listDiv.className = 'corr-filter-values';
 
         values.forEach(val => {
             const row = document.createElement('div');
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.value = val;
-            cb.style.marginRight = '5px';
+            cb.classList.add('corr-filter-checkbox');
 
             if (pcaData.filters[col] && pcaData.filters[col].includes(val)) {
                 cb.checked = true;
@@ -290,6 +294,8 @@ async function updatePcaPlot() {
 
         if (data.error) {
             console.error(data.error);
+            const statusEl = document.getElementById('pca-status');
+            if (statusEl) statusEl.innerText = `Error: ${data.error}`;
             return;
         }
 
@@ -413,51 +419,21 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
     const xTitle = xVariance ? `${xDisplayName} (${xVariance}% var.)` : xDisplayName;
     const yTitle = yVariance ? `${yDisplayName} (${yVariance}% var.)` : yDisplayName;
 
-    // Axis Configuration
+    // Axis Configuration — autoranged so no points are clipped
+    const axisTitleFont = { family: getCSSVar('--font-sans'), size: 16, color: getCSSVar('--chart-text') };
     const axisConfig = {
-        title: { text: '' }, // We use annotations for titles instead
         gridcolor: getCSSVar('--chart-grid'),
         zerolinecolor: getCSSVar('--chart-zeroline')
     };
 
-    axisConfig.range = [-4, 4];
-
     const layout = {
-        xaxis: { ...axisConfig },
-        yaxis: { ...axisConfig },
+        xaxis: { ...axisConfig, title: { text: xTitle, font: axisTitleFont } },
+        yaxis: { ...axisConfig, title: { text: yTitle, font: axisTitleFont } },
         hovermode: 'closest',
         paper_bgcolor: getCSSVar('--chart-bg'),
         plot_bgcolor: getCSSVar('--chart-bg'),
         font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') },
-        annotations: [
-            // X-Axis Title Annotation (Anchored at data coordinate 2,0)
-            {
-                xref: 'x',
-                yref: 'y',
-                x: 2.0,
-                y: 0.0,
-                yshift: -15, // Push slightly below the line
-                xanchor: 'center',
-                yanchor: 'top',
-                text: xTitle,
-                showarrow: false,
-                font: { family: getCSSVar('--font-sans'), size: 16, color: getCSSVar('--chart-text') }
-            },
-            // Y-Axis Title Annotation (Anchored at data coordinate 0,2)
-            {
-                xref: 'x',
-                yref: 'y',
-                x: 0.0,
-                y: 2.0,
-                xshift: -15, // Push slightly left of the line
-                xanchor: 'right',
-                yanchor: 'center',
-                text: yTitle,
-                showarrow: false,
-                font: { family: getCSSVar('--font-sans'), size: 16, color: getCSSVar('--chart-text') },
-                textangle: -90
-            }
-        ],
+        annotations: [],
         margin: { t: 60, r: 40, b: 70, l: 70 }
     };
 
@@ -536,7 +512,13 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
     if (showStats && dataPoints.length > 1) {
         const reg = calculateRegression(dataPoints);
         if (reg) {
-            const lineX = [-4, 4];
+            // Span the line over the observed x range only
+            let xMin = Infinity, xMax = -Infinity;
+            dataPoints.forEach(d => {
+                if (d.x < xMin) xMin = d.x;
+                if (d.x > xMax) xMax = d.x;
+            });
+            const lineX = [xMin, xMax];
             const lineY = lineX.map(x => reg.slope * x + reg.intercept);
 
             traces.push({
@@ -653,9 +635,12 @@ function renderCorrelationHeatmap(columns, matrix) {
         return (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
     });
 
-    // Build hover text with correlation values
+    // Build hover text with correlation values (null = undefined correlation)
     const hoverText = matrix.map((row, i) =>
-        row.map((val, j) => `${displayColumns[i]} × ${displayColumns[j]}<br>r = ${val.toFixed(3)}`)
+        row.map((val, j) => {
+            const rTxt = (val === null || val === undefined) ? 'undefined' : val.toFixed(3);
+            return `${displayColumns[i]} × ${displayColumns[j]}<br>r = ${rTxt}`;
+        })
     );
 
     const trace = {

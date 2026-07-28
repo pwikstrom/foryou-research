@@ -59,8 +59,10 @@ def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None)
                 verbose=False,
             )
 
-            if result is not None:
-                reporter.log(f"  Successfully refreshed PCA for {study_name} ({len(result)} rows)")
+            # calculate_scaled_pca_scores returns (scores_df, interpretations)
+            scores_df = result[0] if isinstance(result, tuple) else result
+            if scores_df is not None:
+                reporter.log(f"  Successfully refreshed PCA for {study_name} ({len(scores_df)} group rows)")
             else:
                 reporter.log(f"  Skipping {study_name}: PCA returned no data.")
 
