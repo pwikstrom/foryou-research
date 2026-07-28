@@ -44,8 +44,10 @@
         color: var(--color-danger);"></div>
 </div>
 
-<!-- "Activate" (re-activate a recorded version) confirmation modal, driven
-     by admin_annotation_versions.js makeActive → acConfirmUpload. -->
+<!-- Shared confirmation modal for the two per-version actions: "Activate"
+     (re-activate a recorded version) and "Prefer" (promote the version
+     analyses read). admin_annotation_versions.js sets the title, body and
+     confirm label per action; acConfirmUpload dispatches on the mode. -->
 <div id="ac-modal" class="modal" style="display: none; align-items: flex-start;
         justify-content: center; padding-top: 8vh;" onclick="acCloseModal()">
     <div class="modal-content" onclick="event.stopPropagation()"
@@ -53,7 +55,7 @@
         <span class="close" onclick="acCloseModal()"
             style="position: absolute; top: 12px; right: 16px; cursor: pointer;
                    font-size: var(--text-h3);">&times;</span>
-        <h3 style="margin: 0 0 12px 0; color: var(--color-text-heading);">Activate this version</h3>
+        <h3 id="ac-modal-title" style="margin: 0 0 12px 0; color: var(--color-text-heading);">Activate this version</h3>
         <div id="ac-modal-body" class="text-sm"></div>
         <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;
                 padding-top: 12px; border-top: 1px solid var(--color-border);">

@@ -91,6 +91,10 @@
         }
     }
 
+    // Snapshot of the last-loaded list, for the Prefer confirm modal (current
+    // preferred version + per-version annotated-video counts).
+    let lastLoad = { preferred: null, counts: null };
+
     function render(body) {
         // Most recent first; the synthetic legacy version (epoch created_at)
         // sinks to the bottom naturally.
@@ -101,6 +105,7 @@
         // {version: n annotated videos}; null when the archive was unreadable —
         // then show "—" instead of a misleading 0.
         const counts = body.counts;
+        lastLoad = { preferred: body.preferred || null, counts: counts || null };
 
         const tbody = document.getElementById("avTableBody");
         if (!tbody) return;
@@ -124,7 +129,9 @@
         // green, non-interactive button stating the fact; a row the button
         // does not apply to gets an empty cell.
         function _preferCell(v) {
-            if (v.annotation_version === LEGACY_VERSION) return '<td style="' + cell + '"></td>';
+            // The legacy version can be preferred too (its rows are in the
+            // archive like any other version's) — only Activate is impossible
+            // for it, because it has no contract snapshot.
             if (v.preferred) {
                 return '<td style="' + cell + '"><button class="btn-compact btn-state btn-row-fixed">✓ Preferred</button></td>';
             }
@@ -339,11 +346,14 @@
                 + "Studies keep using the preferred version — activating a version only "
                 + "affects how new annotations are produced.</div>");
 
+            acState.mode = "activate";
             acState.staged = {
                 text: rec.contract_text,
                 filename: version + " snapshot",
                 switchBackend: wantSwitch ? be.target : null,
             };
+            const modalTitle = document.getElementById("ac-modal-title");
+            if (modalTitle) modalTitle.textContent = "Activate this version";
             const modalBody = document.getElementById("ac-modal-body");
             const confirmBtn = document.getElementById("ac-confirm-btn");
             if (confirmBtn) {
@@ -438,26 +448,62 @@
 
 
 
-    async function promote(version, btn) {
-        // Two-click confirm (native confirm() is blocked in embedded preview
-        // browsers): first click arms the button, second within 4s activates.
-        if (btn && btn.dataset.armed !== "1") {
-            btn.dataset.armed = "1";
-            btn.dataset.prevHtml = btn.innerHTML;
-            btn.innerHTML = "Prefer — sure?";
-            _status("Making " + version + " the preferred version — annotation datasets "
-                + "use it after a study refresh. Click again to confirm.");
-            setTimeout(function () {
-                if (btn.dataset.armed === "1") {
-                    btn.dataset.armed = "";
-                    btn.innerHTML = btn.dataset.prevHtml;
-                    _status("");
-                }
-            }, 4000);
-            return;
+    // Open the shared confirm modal with a plain-language account of what
+    // preferring this version means; the POST happens in _confirmPrefer once
+    // the admin confirms.
+    function promote(version) {
+        const current = lastLoad.preferred;
+        const counts = lastLoad.counts;
+        const isLegacy = version === LEGACY_VERSION;
+        const label = isLegacy
+            ? '<span class="font-mono">' + _esc(version) + "</span> (the pre-versioning annotations)"
+            : '<span class="font-mono">' + _esc(version) + "</span>";
+
+        const rows = [];
+        rows.push('<div style="margin-bottom: 10px;">The <strong>preferred</strong> version is the '
+            + "one analyses and study datasets read. This makes " + label
+            + " the preferred version"
+            + (current && current !== version
+                ? " — currently it is <span class=\"font-mono\">" + _esc(current) + "</span>"
+                : "")
+            + ".</div>");
+        rows.push('<div style="margin-bottom: 10px;">For every video annotated under several '
+            + "versions, its " + '<span class="font-mono">' + _esc(version) + "</span> annotation "
+            + "is then the one analyses use; videos without one fall back to their most recent "
+            + "annotation. Nothing is changed or deleted in the annotations themselves.</div>");
+        if (counts) {
+            const n = counts[version] || 0;
+            rows.push('<div style="margin-bottom: 10px;">' + n.toLocaleString()
+                + " video(s) currently have an annotation made with this version.</div>");
         }
-        if (btn) btn.dataset.armed = "";
-        _status("Applying…");
+        rows.push('<div class="text-xs" style="color: var(--color-text-muted);">'
+            + "When you confirm, the shared annotation dataset is rebuilt right away. "
+            + "Per-study datasets follow on their next study refresh — a banner above "
+            + "the table will offer to start one.</div>");
+
+        acState.mode = "prefer";
+        acState.promoteVersion = version;
+        acState.staged = null;
+        const title = document.getElementById("ac-modal-title");
+        if (title) title.textContent = "Make this version preferred";
+        const confirmBtn = document.getElementById("ac-confirm-btn");
+        if (confirmBtn) {
+            confirmBtn.style.display = "inline-block";
+            confirmBtn.textContent = "Prefer";
+        }
+        const modalBody = document.getElementById("ac-modal-body");
+        if (modalBody) modalBody.innerHTML = rows.join("");
+        _acOpenModal();
+    }
+
+
+
+
+    async function _confirmPrefer() {
+        const version = acState.promoteVersion;
+        if (!version) { _acCloseModal(); return; }
+        const confirmBtn = document.getElementById("ac-confirm-btn");
+        if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = "Applying…"; }
         try {
             const res = await fetch(LIST + "/promote", {
                 method: "POST",
@@ -466,11 +512,16 @@
             });
             const body = await res.json();
             if (!res.ok) throw new Error(body.error || res.statusText);
+            acState.promoteVersion = null;
+            _acCloseModal();
             _status(version + " is now the preferred version (rows: " + (body.preferred_rows ?? "—") + "). " + (body.note || ""));
             load();
             loadStaleness();
         } catch (err) {
+            _acCloseModal();
             _status("Could not set the preferred version: " + err.message, true);
+        } finally {
+            if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = "Prefer"; }
         }
     }
 
@@ -539,6 +590,8 @@
     }
 
     async function _acConfirmUpload() {
+        // The shared modal serves both per-version actions — dispatch on mode.
+        if (acState.mode === "prefer") return _confirmPrefer();
         if (!acState.staged) { _acCloseModal(); return; }
         const confirmBtn = document.getElementById("ac-confirm-btn");
         if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = "Applying…"; }
