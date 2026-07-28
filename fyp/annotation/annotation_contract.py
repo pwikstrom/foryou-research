@@ -772,9 +772,8 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
 def validate_contract(contract: dict) -> list[str]:
     """Validate the annotation contract; return a list of error strings.
 
-    Mirrors the protective role of ``recode_variables.validate_var_schema`` for
-    the var_schema: it lets a frequent editor catch mistakes before they reach a
-    live Gemini call. An empty list means the contract is valid.
+    Protects the schema the same way each contract's validator does: it lets a
+    frequent editor catch mistakes before they reach a live Gemini call. An empty list means the contract is valid.
 
     Args:
         contract: the parsed contract dict.

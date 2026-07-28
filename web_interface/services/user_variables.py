@@ -173,9 +173,8 @@ def compose_effective_variables(global_list, prefs, all_order, available=None):
 
 
 def load_schema_metadata(metadata):
-    """Helper to load and inject schema metadata (priorities, descriptions, accepted_labels) from CSV."""
+    """Helper to load and inject schema metadata (priorities, descriptions, accepted_labels) from the synthesized var_schema."""
     try:
-        #var_schema_path = PROJECT_ROOT / "config" / "var_schema.csv"
         if "var_schema" in fyp_cf and not fyp_cf["var_schema"].empty:
             schema_df = fyp_cf["var_schema"].copy()
 

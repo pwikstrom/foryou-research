@@ -1,13 +1,12 @@
 """Characterization tests for the var_schema cell parsers.
 
-The ``parse_*`` helpers in ``fyp/recode_variables.py`` turn raw CSV cell text
-(authored by hand or via the admin Variable Schema tab) into the dicts / lists /
-callables that drive recoding.  They are deliberately strict — never ``eval`` —
-and fall back to safe defaults on bad input.  These tests pin that grammar so a
+The ``parse_*`` helpers in ``fyp/recode_variables.py`` turn raw schema cell text
+into the lists that drive annotation pre-flight checks.  They are deliberately
+strict — never ``eval`` — and fall back to safe defaults on bad input.  These tests pin that grammar so a
 refactor (or the schema-driven pipeline work) can't silently broaden or break
 what a schema cell is allowed to contain.
 
-Covers: parse_accepted_labels, parse_recode_func.
+Covers: parse_accepted_labels.
 
 (``mapper`` / ``ignore_strings`` no longer exist as schema cells — their recode
 normalization is derived from ``annotation_contract.toml``; see
@@ -47,27 +46,6 @@ def test_accepted_labels_legacy_bareword_list() -> None:
         "comedy",
         "animals",
     ]
-
-
-# ---------------------------------------------------------------------------
-# parse_recode_func
-# ---------------------------------------------------------------------------
-
-def test_recode_func_blank_to_none() -> None:
-    assert rv.parse_recode_func(None) is None
-    assert rv.parse_recode_func("") is None
-    assert rv.parse_recode_func(pd.NA) is None
-
-
-def test_recode_func_registered_resolves_to_callable() -> None:
-    func = rv.parse_recode_func("recode_stringified_list")
-    assert callable(func)
-    assert func is rv.recode_stringified_list
-
-
-def test_recode_func_unknown_is_none_not_error() -> None:
-    # Unknown names never raise and never eval — they no-op (with a warning).
-    assert rv.parse_recode_func("nonexistent_func") is None
 
 
 def _main() -> int:

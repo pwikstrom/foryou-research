@@ -216,7 +216,6 @@ SEMANTIC_COLUMNS = (
     "role",
     "scale",
     "accepted_labels",
-    "allow_scalar_fallback",
 )
 
 VAR_SCHEMA_HASH_VERSION = "v2"
@@ -405,36 +404,6 @@ def build_recode_plan(var_schema_indexed: pd.DataFrame) -> dict:
 
 
 
-def parse_recode_func(value):
-    """Resolve a ``recode_func`` cell to a callable, or None.
-
-    Strict registry lookup — never runs ``eval`` and never executes
-    arbitrary names.  Unknown / unparseable values become None and are
-    logged so the runtime keeps going (no recode applied) rather than
-    raising during pipeline import.
-    """
-    if value is None:
-        return None
-    try:
-        if pd.isna(value):
-            return None
-    except (TypeError, ValueError):
-        pass
-    s = str(value).strip()
-    if not s:
-        return None
-    registry = get_recode_func_registry()
-    func = registry.get(s)
-    if func is None:
-        logger.warning(
-            "var_schema: unknown recode_func %r — treating as no-op. "
-            "Add the function to fyp.recode_variables and to the allow-list "
-            "in get_recode_func_registry().",
-            s,
-        )
-        return None
-    return func
-
 
 
 def parse_accepted_labels(value):
@@ -477,113 +446,8 @@ def parse_accepted_labels(value):
 
 
 
-class VarSchemaError(dict):
-    """A single validation error.
-
-    Dict-like so the API layer can ``jsonify`` it directly; the fields
-    are stable: ``row``, ``variable_name``, ``column``, ``value``, ``message``.
-    """
-
-    def __init__(self, row: int, variable_name, column: str, value, message: str):
-        super().__init__(
-            row=int(row) if row is not None else None,
-            variable_name=None if variable_name is None else str(variable_name),
-            column=column,
-            value=None if value is None else str(value),
-            message=message,
-        )
 
 
-
-def _is_blank(value) -> bool:
-    if value is None:
-        return True
-    try:
-        if pd.isna(value):
-            return True
-    except (TypeError, ValueError):
-        pass
-    return str(value).strip() == ""
-
-
-
-def validate_var_schema(df: pd.DataFrame) -> list[VarSchemaError]:
-    """Return a list of structured errors describing schema rows that
-    would misbehave at runtime.  Empty list ⇒ schema is safe to save.
-
-    Checks (in row order):
-      * ``variable_name`` present and unique
-      * ``role`` ∈ ``VAR_SCHEMA_ROLES`` (blank allowed)
-      * ``scale`` ∈ ``VAR_SCHEMA_SCALES`` (blank allowed)
-      * ``accepted_labels`` is empty / JSON array / legacy bareword list
-      * ``web_filter_prio``, ``web_timeline_prio``, ``web_viz_prio``,
-        ``web_display_prio`` parse as integers when set
-    """
-    errors: list[VarSchemaError] = []
-    if df is None or df.empty:
-        return errors
-
-    if "variable_name" not in df.columns:
-        errors.append(VarSchemaError(0, None, "variable_name", None,
-                                     "variable_name column is missing"))
-        return errors
-
-    seen_names: dict[str, int] = {}
-    for idx, row in df.iterrows():
-        row_idx = int(idx) if isinstance(idx, (int, np.integer)) else 0
-        name_raw = row.get("variable_name")
-        if _is_blank(name_raw):
-            errors.append(VarSchemaError(row_idx, None, "variable_name", name_raw,
-                                         "variable_name is required"))
-            continue
-        name = str(name_raw).strip()
-        if name in seen_names:
-            errors.append(VarSchemaError(row_idx, name, "variable_name", name,
-                                         f"duplicate variable_name (first seen on row {seen_names[name]})"))
-        else:
-            seen_names[name] = row_idx
-
-        # role
-        role = row.get("role")
-        if not _is_blank(role) and str(role).strip() not in VAR_SCHEMA_ROLES:
-            errors.append(VarSchemaError(row_idx, name, "role", role,
-                                         f"unknown role; expected one of {sorted(VAR_SCHEMA_ROLES)} or blank"))
-
-        # scale
-        scale = row.get("scale")
-        if not _is_blank(scale) and str(scale).strip() not in VAR_SCHEMA_SCALES:
-            errors.append(VarSchemaError(row_idx, name, "scale", scale,
-                                         f"unknown scale; expected one of {sorted(VAR_SCHEMA_SCALES)} or blank"))
-
-        # accepted_labels
-        al = row.get("accepted_labels")
-        if not _is_blank(al):
-            s = str(al).strip()
-            ok = False
-            try:
-                parsed = json.loads(s)
-                ok = isinstance(parsed, list)
-            except json.JSONDecodeError:
-                pass
-            if not ok and s.startswith("[") and s.endswith("]"):
-                ok = True  # legacy bareword form
-            if not ok:
-                errors.append(VarSchemaError(row_idx, name, "accepted_labels", al,
-                                             "accepted_labels must be a JSON array or a legacy bareword list"))
-
-        # integer-priority columns
-        for col in ("web_filter_prio", "web_timeline_prio",
-                    "web_viz_prio", "web_display_prio"):
-            val = row.get(col)
-            if _is_blank(val):
-                continue
-            try:
-                int(str(val).strip())
-            except ValueError:
-                errors.append(VarSchemaError(row_idx, name, col, val,
-                                             f"{col} must be an integer when set"))
-
-    return errors
 
 
 
