@@ -807,7 +807,7 @@ class UserManager:
     def update_last_login(self, username):
         user = self.get_user(username)
         if user is not None:
-            user.last_login = datetime.datetime.now().isoformat()
+            user.last_login = datetime.datetime.now(datetime.timezone.utc).isoformat()
             self.save_user(username)
 
     def update_display_username(self, username, new_name):

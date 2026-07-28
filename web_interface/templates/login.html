@@ -45,7 +45,7 @@
             <div class="slack-message">
                 <strong>{{ msg.user }}:</strong>
                 <span>{{ msg.text }}</span>
-                <div class="timestamp">{{ msg.ts }}</div>
+                <div class="timestamp" data-fyp-instant="{{ msg.ts_iso }}"></div>
             </div>
             {% endfor %}
             {% else %}

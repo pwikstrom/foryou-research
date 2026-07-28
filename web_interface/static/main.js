@@ -395,10 +395,8 @@ async function _confirmDegradedHealth(name) {
     const label = entry.status === 'fail' ? 'Failing' : 'Warning';
     let checked = '';
     if (entry.checked_at) {
-        const mins = Math.round((Date.now() - new Date(entry.checked_at).getTime()) / 60000);
-        if (isFinite(mins) && mins >= 0) {
-            checked = mins < 90 ? ` (checked ${mins}m ago)` : ` (checked ${Math.round(mins / 60)}h ago)`;
-        }
+        const rel = fypFmtRelative(entry.checked_at);
+        if (rel) checked = ` (checked ${rel})`;
     }
     const detail = entry.summary ? `\n\n${entry.summary}` : '';
     return showAppConfirm(
@@ -1208,19 +1206,12 @@ function setStatus(name, data) {
     const lastRunEl = document.getElementById(`${name}-last-run`);
     if (lastRunEl) {
         if (status === 'running' && data.start_time) {
-            const startDate = new Date(data.start_time);
-            const sdd = String(startDate.getDate()).padStart(2, '0');
-            const smon = startDate.toLocaleString('en-US', { month: 'short' });
-            const hh = String(startDate.getHours()).padStart(2, '0');
-            const mi = String(startDate.getMinutes()).padStart(2, '0');
-            lastRunEl.innerText = `This run started: ${sdd}-${smon} ${hh}:${mi}`;
+            lastRunEl.innerText = `This run started: ${fypFmtDateTimeShort(data.start_time)}`;
+            lastRunEl.title = fypFmtDateTimeFull(data.start_time);
             lastRunEl.style.color = 'var(--color-success-light)';
         } else if (data.last_run_end_time) {
-            const endDate = new Date(data.last_run_end_time);
-            const dd = String(endDate.getDate()).padStart(2, '0');
-            const mon = endDate.toLocaleString('en-US', { month: 'short' });
-            const hh = String(endDate.getHours()).padStart(2, '0');
-            const mi = String(endDate.getMinutes()).padStart(2, '0');
+            const when = fypFmtDateTimeShort(data.last_run_end_time);
+            lastRunEl.title = fypFmtDateTimeFull(data.last_run_end_time);
 
             let durStr = '';
             if (data.last_run_duration != null) {
@@ -1239,9 +1230,10 @@ function setStatus(name, data) {
                 lastRunEl.style.color = 'var(--color-text-tertiary)';
             }
 
-            lastRunEl.innerText = `Last: ${dd}-${mon} ${hh}:${mi}${durStr}${outcomeStr}`;
+            lastRunEl.innerText = `Last: ${when}${durStr}${outcomeStr}`;
         } else {
             lastRunEl.innerText = '';
+            lastRunEl.title = '';
         }
     }
 
@@ -1306,9 +1298,8 @@ function setDiscreetStatus(name, data) {
             text.innerText = msg;
             text.title = data.last_message; // Full text on hover
         } else if (data.start_time) {
-            const start = new Date(data.start_time);
-            const now = new Date();
-            const diff = now - start;
+            const start = fypParseInstant(data.start_time);
+            const diff = start ? Date.now() - start.getTime() : 0;
             // Format duration HH:MM:SS
             const duration = new Date(diff).toISOString().substr(11, 8);
             text.innerText = duration;
@@ -1347,12 +1338,8 @@ function setDiscreetStatus(name, data) {
             }
 
         } else if (data.last_success) {
-            const sd = new Date(data.last_success);
-            const sdd = String(sd.getDate()).padStart(2, '0');
-            const smon = sd.toLocaleString('en-US', { month: 'short' });
-            const shh = String(sd.getHours()).padStart(2, '0');
-            const smi = String(sd.getMinutes()).padStart(2, '0');
-            text.innerText = `Last success: ${sdd}-${smon} ${shh}:${smi}`;
+            text.innerText = `Last success: ${fypFmtDateTimeShort(data.last_success)}`;
+            text.title = fypFmtDateTimeFull(data.last_success);
             text.style.color = 'var(--color-text-tertiary)';
         } else {
             text.innerText = "Last success: Never"; // Or empty

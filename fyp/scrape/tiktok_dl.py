@@ -8,7 +8,7 @@ that generate_data_row() produces so downstream code is unchanged.
 
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from glob import glob
 from os import remove
 from os.path import exists, join
@@ -199,7 +199,13 @@ def _info_to_row(info: dict) -> pd.DataFrame:
     """Convert yt-dlp info_dict to a single-row DataFrame matching the mypyktok schema."""
 
     try:
-        create_time = datetime.fromtimestamp(int(info.get('timestamp', 0)))
+        # The epoch is parsed as UTC and then made naive, matching the
+        # contract's timestamp[ns] dtype. A bare fromtimestamp() would return
+        # the *scraping machine's* local time, so the same video would get a
+        # different create_time on Cloud Run than on a local drain.
+        create_time = datetime.fromtimestamp(
+            int(info.get('timestamp', 0)), tz=timezone.utc,
+        ).replace(tzinfo=None)
     except (ValueError, TypeError, OSError):
         create_time = datetime(2000, 1, 1)
 

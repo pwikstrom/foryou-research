@@ -25,7 +25,7 @@ keywords before the removal keywords so it stays transient + throttled.
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from glob import glob
 from os import remove
 from os.path import exists, join
@@ -193,7 +193,9 @@ def _parse_create_time(info: dict) -> datetime:
     ts = info.get('timestamp')
     if ts:
         try:
-            return datetime.fromtimestamp(int(ts))
+            # Parsed as UTC then made naive so the value does not depend on
+            # the scraping machine's timezone. See the contract dtype.
+            return datetime.fromtimestamp(int(ts), tz=timezone.utc).replace(tzinfo=None)
         except (ValueError, TypeError, OSError):
             pass
     upload_date = info.get('upload_date')
