@@ -2575,6 +2575,130 @@ button.meta-tooltip:disabled {
 }
 
 
+/* ── Correlations tab layout ── */
+.corr-sidebar-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    margin-right: 10px;
+    display: flex;
+    align-items: center;
+}
+
+.corr-drawer-trigger {
+    margin-right: 10px;
+}
+
+.corr-status {
+    color: var(--control-bar-info);
+}
+
+.corr-main {
+    display: flex;
+    height: calc(100vh - 180px);
+    gap: 20px;
+}
+
+.corr-filter-panel {
+    flex: 0 0 300px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.corr-filter-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.corr-filter-group {
+    margin-bottom: 15px;
+}
+
+.corr-filter-label {
+    margin-bottom: 5px;
+}
+
+.corr-filter-note {
+    color: var(--color-text-tertiary);
+    font-style: italic;
+}
+
+.corr-filter-values {
+    max-height: 150px;
+    overflow-y: auto;
+    border: 1px solid var(--chart-grid);
+    padding: 5px;
+    background: var(--color-bg-surface);
+}
+
+.corr-filter-checkbox {
+    margin-right: 5px;
+}
+
+.corr-viz-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+.corr-controls {
+    padding: 10px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    background: var(--color-bg-elevated);
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.corr-view-toggle {
+    border-right: 1px solid var(--color-border-strong);
+    padding-right: 15px;
+}
+
+.corr-scatter-controls {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+.corr-control-label {
+    margin-right: 5px;
+}
+
+.corr-select {
+    width: 180px;
+}
+
+.corr-select-narrow {
+    width: 150px;
+}
+
+.corr-checkbox-group {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.corr-checkbox-label {
+    color: var(--color-text-secondary);
+    cursor: pointer;
+}
+
+.corr-point-count {
+    margin-left: auto;
+}
+
+.corr-plot {
+    flex: 1;
+    min-height: 0;
+}
+
+
 /* ── Correlations scatter drill-down affordance ── */
 #pca-plot .js-plotly-plot .scatterlayer .trace .points path,
 #pca-plot .scatterlayer .trace .points path {
@@ -2993,7 +3117,7 @@ button.meta-tooltip:disabled {
 
     /* Make container rows reflow so panel removal collapses to full-width content */
     #explore .container,
-    #correlations > div[style*="display: flex"],
+    #correlations .corr-main,
     #video_analysis .container {
         flex-direction: column !important;
         height: auto !important;

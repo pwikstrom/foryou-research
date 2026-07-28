@@ -1,22 +1,123 @@
+"""Correlations tab API: scatter + correlation-matrix views over PCA scores.
+
+Serves the precomputed group-level PCA artifacts (``{study}_PCA.parquet`` and
+``{study}_comp_interpretations.json``, written by the ``pca_refresh`` worker).
+Every endpoint is gated on the ``tab.correlations`` permission and on the
+user's study access (same gate as the other analysis tabs).
+"""
+
 import math
 import re
-import traceback
 
 import numpy as np
 import pandas as pd
 from flask import Blueprint, jsonify, request
-from flask_login import login_required
+from flask_login import current_user
 
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
+from fyp.logging_setup import get_logger
 from fyp.recode_variables import get_factors_and_features_from_var_schema
 
-from ..data_service import get_pca_df, load_display_id_map
+from ..data_service import get_accessible_studies, get_pca_df, load_display_id_map
+from ..permissions import permission_required
+
+logger = get_logger(__name__)
 
 correlations_bp = Blueprint('correlations_bp', __name__)
 
 
+# Minimum explained variance (%) for a PCA component to appear in the UI.
 PCA_MIN_VARIANCE_THRESHOLD = 5.0
+
+# Scatter responses are capped at this many points (deterministic sample).
+MAX_SCATTER_POINTS = 5000
+SCATTER_SAMPLE_SEED = 0
+
+# Factors with at least this many distinct values get no filter checkboxes;
+# they are reported in ``truncated_factors`` instead of silently dropped.
+FACTOR_VALUE_LIMIT = 500
+
+
+
+
+
+
+def _study_access_error(study):
+    """Return a 403 response tuple if the user cannot access ``study``, else None."""
+    username = getattr(current_user, "username", current_user.id)
+    role = getattr(current_user, "role", None)
+    is_admin_attr = getattr(current_user, "is_admin", False)
+    is_admin = is_admin_attr() if callable(is_admin_attr) else bool(is_admin_attr)
+    if study in get_accessible_studies(username, role, is_admin):
+        return None
+    return jsonify({"error": "Access denied to this study"}), 403
+
+
+
+
+
+
+def _format_week_value(value) -> str:
+    """Normalise a week label to zero-padded ``YYYY-WW``; pass other values through.
+
+    Accepts both ``2025-3`` and ``2025-W3`` style labels.
+    """
+    v_str = str(value)
+    parts = v_str.split('-')
+    if len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4:
+        week = parts[1]
+        if week.lower().startswith('w'):
+            week = week[1:]
+        if week.isdigit():
+            return f"{parts[0]}-{int(week):02d}"
+    return v_str
+
+
+
+
+
+
+def _apply_factor_filters(df: pd.DataFrame, filters: dict) -> pd.DataFrame:
+    """Return the rows of ``df`` matching the per-factor value lists in ``filters``.
+
+    Date-like columns are compared on their ``YYYY-MM-DD`` prefix and week
+    columns through :func:`_format_week_value`, mirroring how the values were
+    presented to the client in ``factor_values``.
+    """
+    mask = pd.Series(True, index=df.index)
+    for col, vals in filters.items():
+        if col not in df.columns:
+            continue
+        is_dt = pd.api.types.is_datetime64_any_dtype(df[col])
+        if is_dt or "date" in col.lower():
+            mask &= df[col].astype(str).str[:10].isin([str(v)[:10] for v in vals])
+        elif "week" in col.lower():
+            mask &= df[col].map(_format_week_value).isin([str(v) for v in vals])
+        else:
+            mask &= df[col].astype(str).isin(vals)
+    return df[mask].copy()
+
+
+
+
+
+
+def _load_interpretations(study: str) -> dict:
+    """Load ``{study}_comp_interpretations.json`` from cache, or {} if absent."""
+    try:
+        inter_path = f"{study}_comp_interpretations.json"
+        if data_io.exists(storage_location="cache", filename=inter_path):
+            loaded = data_io.load_json(storage_location="cache", filename=inter_path, verbose=False)
+            if loaded:
+                return loaded
+    except Exception as e:
+        logger.warning(f"Error loading interpretations for {study}: {e}")
+    return {}
+
+
+
+
 
 
 def _filter_pca_components_by_variance(numeric_cols, interpretations):
@@ -67,13 +168,21 @@ def _filter_pca_components_by_variance(numeric_cols, interpretations):
     return sorted(non_pca_cols + filtered_cols)
 
 
+
+
+
+
 @correlations_bp.route('/api/correlations/metadata', methods=['POST'])
-@login_required
+@permission_required('tab.correlations')
 def api_pca_metadata():
 
     data = request.json or {}
     study = data.get("study")
     if not study: return jsonify({"error": "No study"}), 400
+
+    denied = _study_access_error(study)
+    if denied is not None:
+        return denied
 
     df = get_pca_df(study)
     if df is None: return jsonify({"error": "PCA data not found"}), 404
@@ -86,8 +195,8 @@ def api_pca_metadata():
     factors, _ = get_factors_and_features_from_var_schema(some_events_df = df, verbose = False)
 
     if not factors:
-        traceback.print_exc()
-        raise Exception("No factors found in var_schema")
+        logger.error(f"No factors found in var_schema for study {study}")
+        return jsonify({"error": "No factors found in var_schema"}), 500
 
     # Exclude session_id from factors — not useful for filtering
     factors = [f for f in factors if f.lower() != 'session_id']
@@ -131,8 +240,10 @@ def api_pca_metadata():
     def natural_sort_key(s):
         return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
 
-    # Build factor_values with date handling
+    # Build factor_values with date handling. Factors with too many distinct
+    # values get no checkbox list; they are reported as truncated instead.
     factor_values = {}
+    truncated_factors = []
     for f in factors:
         is_dt = pd.api.types.is_datetime64_any_dtype(df[f])
         if is_dt or "date" in f.lower():
@@ -140,21 +251,16 @@ def api_pca_metadata():
         else:
             vals = df[f].dropna().unique().tolist()
 
-        if len(vals) < 500:
-            formatted_vals = []
-            for v in vals:
-                v_str = str(v)
-                if "week" in f.lower():
-                    parts = v_str.split('-')
-                    if len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].isdigit():
-                        v_str = f"{parts[0]}-{int(parts[1]):02d}"
-                    elif len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].lower().startswith('w'):
-                        week_num = parts[1][1:]
-                        if week_num.isdigit():
-                            v_str = f"{parts[0]}-{int(week_num):02d}"
-                formatted_vals.append(v_str)
+        if len(vals) >= FACTOR_VALUE_LIMIT:
+            truncated_factors.append(f)
+            continue
 
-            factor_values[f] = sorted(formatted_vals, key=natural_sort_key)
+        if "week" in f.lower():
+            formatted_vals = [_format_week_value(v) for v in vals]
+        else:
+            formatted_vals = [str(v) for v in vals]
+
+        factor_values[f] = sorted(formatted_vals, key=natural_sort_key)
 
     # Load display_ids for collection_id values
     display_ids = {}
@@ -165,16 +271,7 @@ def api_pca_metadata():
             if v in display_map:
                 display_ids[v] = display_map[v]
 
-    interpretations = {}
-    try:
-        inter_path = f"{study}_comp_interpretations.json"
-        if data_io.exists(storage_location="cache", filename=inter_path):
-            loaded_interps = data_io.load_json(storage_location="cache", filename=inter_path, verbose=False)
-            if loaded_interps:
-                interpretations = loaded_interps
-    except Exception as e:
-        traceback.print_exc()
-        print(f"Error loading interpretations: {e}")
+    interpretations = _load_interpretations(study)
 
     filtered_numeric_cols = _filter_pca_components_by_variance(numeric_cols, interpretations)
 
@@ -182,14 +279,19 @@ def api_pca_metadata():
         "numeric_cols": filtered_numeric_cols,
         "factor_cols": sorted(factors),
         "factor_values": factor_values,
+        "truncated_factors": truncated_factors,
         "interpretations": interpretations,
         "schema_map": schema_map,
         "display_ids": display_ids
     })
 
 
+
+
+
+
 @correlations_bp.route('/api/correlations/data', methods=['POST'])
-@login_required
+@permission_required('tab.correlations')
 def api_pca_data():
     data = request.json or {}
     study = data.get("study")
@@ -201,39 +303,22 @@ def api_pca_data():
     if not study or not x_col or not y_col:
         return jsonify({"error": "Missing params"}), 400
 
+    denied = _study_access_error(study)
+    if denied is not None:
+        return denied
+
     df = get_pca_df(study)
     if df is None: return jsonify({"error": "PCA data not found"}), 404
 
-    mask = pd.Series(True, index=df.index)
-    for col, vals in filters.items():
-        if col in df.columns:
-            is_dt = pd.api.types.is_datetime64_any_dtype(df[col])
-            if is_dt or "date" in col.lower():
-                mask &= df[col].astype(str).str[:10].isin([str(v)[:10] for v in vals])
-            elif "week" in col.lower():
-                def format_week(v_str):
-                    parts = str(v_str).split('-')
-                    if len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].isdigit():
-                        return f"{parts[0]}-{int(parts[1]):02d}"
-                    elif len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].lower().startswith('w'):
-                        week_num = parts[1][1:]
-                        if week_num.isdigit():
-                            return f"{parts[0]}-{int(week_num):02d}"
-                    return str(v_str)
-                formatted_col = df[col].apply(format_week)
-                mask &= formatted_col.astype(str).isin(vals)
-            else:
-                mask &= df[col].astype(str).isin(vals)
-
-    filtered_df = df[mask].copy()
+    filtered_df = _apply_factor_filters(df, filters)
 
     filtered_df = filtered_df.dropna(subset=[x_col, y_col])
 
     total_count = len(filtered_df)
 
-    MAX_POINTS = 5000
-    if len(filtered_df) > MAX_POINTS:
-        filtered_df = filtered_df.sample(MAX_POINTS)
+    # Deterministic sample so the same request always shows the same points
+    if len(filtered_df) > MAX_SCATTER_POINTS:
+        filtered_df = filtered_df.sample(MAX_SCATTER_POINTS, random_state=SCATTER_SAMPLE_SEED)
 
     # Get factor columns for richer hover tooltips
     factors, _ = get_factors_and_features_from_var_schema(some_events_df=df, verbose=False)
@@ -267,14 +352,7 @@ def api_pca_data():
         if "date" in col_name.lower() or isinstance(val, (pd.Timestamp, np.datetime64)):
             return str(val)[:10]
         if "week" in col_name.lower():
-            v_str = str(val)
-            parts = v_str.split('-')
-            if len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].isdigit():
-                return f"{parts[0]}-{int(parts[1]):02d}"
-            elif len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].lower().startswith('w'):
-                week_num = parts[1][1:]
-                if week_num.isdigit():
-                    return f"{parts[0]}-{int(week_num):02d}"
+            return _format_week_value(val)
         # Resolve display IDs
         if col_name == 'collection_id' and str(val) in display_map:
             return display_map[str(val)]
@@ -365,8 +443,12 @@ def api_pca_data():
     return jsonify({"data": result_data, "total_count": total_count})
 
 
+
+
+
+
 @correlations_bp.route('/api/correlations/correlation_matrix', methods=['POST'])
-@login_required
+@permission_required('tab.correlations')
 def api_pca_correlation_matrix():
     data = request.json or {}
     study = data.get("study")
@@ -375,32 +457,15 @@ def api_pca_correlation_matrix():
     if not study:
         return jsonify({"error": "No study"}), 400
 
+    denied = _study_access_error(study)
+    if denied is not None:
+        return denied
+
     df = get_pca_df(study)
     if df is None:
         return jsonify({"error": "PCA data not found"}), 404
 
-    # Apply filters
-    mask = pd.Series(True, index=df.index)
-    for col, vals in filters.items():
-        if col in df.columns:
-            is_dt = pd.api.types.is_datetime64_any_dtype(df[col])
-            if is_dt or "date" in col.lower():
-                mask &= df[col].astype(str).str[:10].isin([str(v)[:10] for v in vals])
-            elif "week" in col.lower():
-                def format_week(v_str):
-                    parts = str(v_str).split('-')
-                    if len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].isdigit():
-                        return f"{parts[0]}-{int(parts[1]):02d}"
-                    elif len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].lower().startswith('w'):
-                        week_num = parts[1][1:]
-                        if week_num.isdigit():
-                            return f"{parts[0]}-{int(week_num):02d}"
-                    return str(v_str)
-                formatted_col = df[col].apply(format_week)
-                mask &= formatted_col.astype(str).isin(vals)
-            else:
-                mask &= df[col].astype(str).isin(vals)
-    filtered_df = df[mask].copy()
+    filtered_df = _apply_factor_filters(df, filters)
 
     # Select only numeric columns for correlation (exclude unscaled '_raw' columns)
     numeric_df = filtered_df.select_dtypes(include=['number'])
@@ -414,16 +479,7 @@ def api_pca_correlation_matrix():
         return jsonify({"error": "Not enough numeric columns for correlation"}), 400
 
     # Apply variance threshold filtering
-    interpretations = {}
-    try:
-        inter_path = f"{study}_comp_interpretations.json"
-        if data_io.exists(storage_location="cache", filename=inter_path):
-            loaded_interps = data_io.load_json(storage_location="cache", filename=inter_path, verbose=False)
-            if loaded_interps:
-                interpretations = loaded_interps
-    except Exception as e:
-        traceback.print_exc()
-        print(f"Error loading interpretations for heatmap: {e}")
+    interpretations = _load_interpretations(study)
 
     filtered_cols = _filter_pca_components_by_variance(numeric_df.columns.tolist(), interpretations)
     numeric_df = numeric_df[filtered_cols]
@@ -434,11 +490,11 @@ def api_pca_correlation_matrix():
     # Compute Pearson correlations
     corr = numeric_df.corr()
 
-    # Replace NaN with 0 for serialization
-    corr = corr.fillna(0.0)
+    # Undefined correlations serialize as null (not a fake r = 0)
+    matrix = [[None if pd.isna(v) else float(v) for v in row] for row in corr.values]
 
     return jsonify({
         "columns": corr.columns.tolist(),
-        "matrix": corr.values.tolist(),
+        "matrix": matrix,
         "count": len(filtered_df)
     })
