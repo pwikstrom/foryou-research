@@ -31,9 +31,14 @@ NAIVE_NOW_ALLOWED = {
     "run_queue_annotator_batch.py",  # batch-id digits + a config-TZ log clock
 }
 
+# fyp/_archive/ is gitignored, locally-retained dead code — never imported and
+# never deployed, so it is not held to the shipped-code rule. It exists only in
+# a full checkout, which is why a worktree does not see it.
+SKIP_DIRS = {"__pycache__", "_archive"}
+
 
 def _py_files(root: Path) -> list[Path]:
-    return sorted(p for p in root.rglob("*.py") if "__pycache__" not in p.parts)
+    return sorted(p for p in root.rglob("*.py") if not SKIP_DIRS.intersection(p.parts))
 
 
 
