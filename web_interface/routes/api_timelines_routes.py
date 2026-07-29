@@ -256,17 +256,24 @@ def api_timeline_collections():
         final_valid_ids = [uid for uid in unique_ids if str(uid) in allowed_collection_ids]
 
         # Build a {collection_id -> active_days} lookup for the dropdown.
+        # Column-first access, one column at a time: selecting a scalar name and
+        # a tuple name together (``df[['collection_id', ('personas', ...)]]``)
+        # raises when the frame carries real MultiIndex columns, which is what
+        # the metadata parquet now loads as.
         active_days_map: dict[str, int | None] = {}
         if active_days_col is not None:
             try:
-                ad_df = filtered[[target_id_col, active_days_col]].dropna(subset=[target_id_col])
-                for _, row in ad_df.iterrows():
-                    cid = str(row[target_id_col])
-                    val = row[active_days_col]
-                    if pd.isna(val):
-                        active_days_map[cid] = None
-                    else:
-                        active_days_map[cid] = int(val)
+                ad_ids = filtered[target_id_col]
+                if isinstance(ad_ids, pd.DataFrame):
+                    ad_ids = ad_ids.iloc[:, 0]
+                ad_vals = filtered[active_days_col]
+                if isinstance(ad_vals, pd.DataFrame):
+                    ad_vals = ad_vals.iloc[:, 0]
+                for cid_raw, val in zip(ad_ids, ad_vals):
+                    if pd.isna(cid_raw):
+                        continue
+                    cid = str(cid_raw)
+                    active_days_map[cid] = None if pd.isna(val) else int(val)
             except Exception:
                 pass
 
