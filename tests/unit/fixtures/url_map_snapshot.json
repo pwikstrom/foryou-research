@@ -98,6 +98,13 @@
   ]
  ],
  [
+  "/api/correlations/group_stats",
+  "correlations_bp.api_correlations_group_stats",
+  [
+   "POST"
+  ]
+ ],
+ [
   "/api/correlations/metadata",
   "correlations_bp.api_pca_metadata",
   [

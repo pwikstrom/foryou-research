@@ -37,6 +37,7 @@ logger = get_logger(__name__)
 STAT_VIEWS = [
     {"key": "scatter", "label": "Scatter"},
     {"key": "heatmap", "label": "Heatmap"},
+    {"key": "group_stats", "label": "Group differences"},
 ]
 
 _CORR_DEFAULTS = {
@@ -45,6 +46,7 @@ _CORR_DEFAULTS = {
     "factor_value_limit": 500,
     "correlation_method": "pearson",
     "minimum_group_size": 10,
+    "permanova_permutations": 999,
 }
 
 # Coverage of the scatter's confidence ellipses: chi-square(2 df) quantile at
@@ -358,6 +360,89 @@ def pairwise_correlation_stats(numeric_df: pd.DataFrame, method: str):
 def _matrix_to_json(mat) -> list:
     """k×k float array -> nested lists with None for non-finite cells."""
     return [[None if not np.isfinite(v) else float(v) for v in row] for row in mat]
+
+
+
+
+
+
+def load_group_stats(study: str) -> dict | None:
+    """Load the worker-precomputed ``{study}_corr_stats.json``, or None."""
+    try:
+        filename = f"{study}_corr_stats.json"
+        if data_io.exists(storage_location="cache", filename=filename):
+            payload = data_io.load_json(storage_location="cache", filename=filename, verbose=False)
+            if isinstance(payload, dict):
+                return payload
+    except Exception as e:
+        logger.warning(f"Error loading group stats for {study}: {e}")
+    return None
+
+
+
+
+
+
+def load_reliability_map() -> dict:
+    """Load the worker-written per-variable reliability artifact, or {}."""
+    from fyp.analysis.reliability import RELIABILITY_FILENAME
+
+    try:
+        if data_io.exists(storage_location="cache", filename=RELIABILITY_FILENAME):
+            payload = data_io.load_json(storage_location="cache",
+                                        filename=RELIABILITY_FILENAME, verbose=False)
+            if isinstance(payload, dict):
+                return payload.get("variables", {}) or {}
+    except Exception as e:
+        logger.warning(f"Error loading reliability artifact: {e}")
+    return {}
+
+
+
+
+
+
+def _spearman_brown(item_reliability: float, k: int) -> float:
+    """Reliability of a k-item mean given item-level reliability."""
+    if item_reliability <= 0:
+        return 0.0
+    return (k * item_reliability) / (1.0 + (k - 1) * item_reliability)
+
+
+
+
+
+
+def column_reliability(columns, col_bases) -> dict:
+    """Per-column group-level reliability for the disattenuation toggle.
+
+    A derived column inherits its base variable's item-level estimate, then
+    Spearman–Brown at the configured minimum group size converts it to a
+    conservative group-mean reliability (real groups have >= that many
+    videos, so their true reliability is at least this).
+    """
+    variables = load_reliability_map()
+    if not variables:
+        return {}
+    k = max(1, int(corr_setting("minimum_group_size")))
+
+    out = {}
+    for col in columns:
+        base = col_bases.get(col, col)
+        est = variables.get(base)
+        if not est:
+            continue
+        item_r = float(est.get("reliability", 0))
+        if item_r <= 0:
+            continue
+        out[col] = {
+            "group_r": round(_spearman_brown(item_r, k), 4),
+            "item_r": round(item_r, 4),
+            "source": est.get("source"),
+            "n": est.get("n"),
+            "base": base,
+        }
+    return out
 
 
 
@@ -779,4 +864,8 @@ def build_matrix_payload(df: pd.DataFrame, filters: dict, study: str,
         "count": len(filtered_df),
         "method": method,
         "centered": centered,
+        # Per-column group-level reliability for the disattenuation toggle
+        # (empty until the pca_refresh worker has written the artifact)
+        "reliability": column_reliability(ordered_cols, col_bases),
+        "reliability_k": max(1, int(corr_setting("minimum_group_size"))),
     }, None

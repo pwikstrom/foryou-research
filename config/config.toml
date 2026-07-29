@@ -323,6 +323,10 @@ minimum_group_size = 10
 # component's plain-language interpretation ("More likely: ...").
 interpretation_cutoff = 0.2
 
+# Permutations for the per-variable-family PERMANOVA in the precomputed
+# "Group differences" stats (run by the pca_refresh worker).
+permanova_permutations = 999
+
 
 
 ##########################################################################################

@@ -81,6 +81,11 @@
                         <input type="checkbox" id="pca-mask-nonsig" onchange="rerenderHeatmapFromCache()">
                         <label for="pca-mask-nonsig" class="font-normal corr-checkbox-label">Hide non-significant</label>
                     </div>
+                    <div class="corr-checkbox-group meta-tooltip tooltip-below"
+                        data-tooltip="Correct correlations for annotation measurement error (Spearman disattenuation: r ÷ √(reliability × reliability)). Reliability comes from machine test-retest runs and human–machine agreement; cells without an estimate are blanked. Approximate — treat as an upper bound.">
+                        <input type="checkbox" id="pca-disattenuate" onchange="rerenderHeatmapFromCache()">
+                        <label for="pca-disattenuate" class="font-normal corr-checkbox-label">Correct for noise</label>
+                    </div>
                     <button id="pca-export-csv" class="btn-discreet" onclick="exportCorrelationCsv()">Download CSV</button>
                 </div>
 
