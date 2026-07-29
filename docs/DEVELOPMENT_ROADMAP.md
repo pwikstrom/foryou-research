@@ -4,6 +4,11 @@ _Drafted on return from holiday (2026-06-03). Companion to `POST_HOLIDAY_NOTES.m
 holds the deploy-verification checklist and engineering rough edges). This document is the
 strategic plan; that one is the operational backlog._
 
+> **2026-07-29:** Thrusts 1–2 are complete and much of Thrust 3 is paid down. The
+> current plan is the **[H2 2026 — Phase 2](#h2-2026--phase-2-consolidate-for-a-hosted-multi-user-audience-2026-07-29)**
+> section at the end of this document. The original three-thrust plan below is kept
+> (with ✅ annotations) because its reasoning stays useful.
+
 ---
 
 ## Context — why this plan exists
@@ -358,3 +363,136 @@ full multi-tenant rebuild now. Two streams:
    Stage A exploration tell us what's stable.
 3. **Where the methods/provenance note lives** (per-study sidecar vs. export-only) — decide when
    building export in Thrust 3.
+
+---
+
+# H2 2026 — Phase 2: consolidate for a hosted, multi-user audience (2026-07-29)
+
+_Drafted 2026-07-29, after Correlations Phases 0–3 deployed (prod == main == `199cf91`).
+Supersedes the three-thrust plan above as the active plan; the history and reasoning
+above stay authoritative for what shipped and why._
+
+## Strategic frame
+
+**Goal:** an intuitive, powerful, reliable, robust tool to ingest, scrape, annotate,
+and analyse sequenced user data from short-video platforms, for HASS researchers at
+all levels plus students doing assignments on recommender systems and cultural taste.
+
+**Three decisions taken 2026-07-29 that shape this phase:**
+
+| Decision | Choice |
+|---|---|
+| Delivery model | **Hosted instance** — invite researchers/students onto the Cloud Run deployment; self-install/JOSS is a medium-term capstone, not a near-term driver |
+| Audience weighting | **Researchers and students, equal weight** — teaching enablers are first-class plan items |
+| Posture | **Consolidate first** — reliability/self-serve (Thrust 3) finishes before new analysis lenses |
+
+## Short term (next ~6–8 weeks)
+
+### S1. Clear the operational backlog — make "reliable" true, not just built (weeks 1–2; admin ops, not code)
+
+Work the pending-ops list (`POST_HOLIDAY_NOTES.md` + the pending-ops memory hub) in
+dependency order: (1) the owed prod **PCA/Correlations refresh** (unlocks Group
+differences + the Correct-for-noise toggle); (2) **YouTube cookie re-export +
+residential-IP drain** (runbook in CLAUDE.md), the **IG re-queue** of historical
+`no_video` image posts, and the TikTok slideshow queue; (3) **annotate IG/YT items**
+and promote the resulting `av_` / the pending `sv_`; (4) one plain **Consolidate &
+Refresh** to clear every code-side trigger; (5) security/infra — `MAIL_PASSWORD` on
+the task runner, **rotate the `GEMINI_API_KEY`** (still in git history; also a
+public-release blocker), GCS bucket versioning, the `share_annotations` opt-in
+migration + hub redeploy.
+
+_Why first:_ every later item (reliability metrics, demos, onboarding) reads from
+artifacts these ops produce, and inviting users onto a stale pipeline undermines the
+"reliable, robust" goal directly.
+
+### S2. Hosted multi-user hardening (weeks 2–5; code)
+
+- **Cloud Tasks retry / dead-letter + failure audit trail** (queue is
+  `max-attempts=1` today) — the biggest remaining Thrust-3 robustness gap.
+- **Cost guardrails for invited users:** per-user/role quotas or approval gates on
+  expensive ops (annotation runs, re-scrapes, refreshes) — today an invited student
+  could trigger a four-figure Gemini bill. Build on `web_interface/permissions.py`
+  and the activity log.
+- **Permission sweep** of the remaining API surfaces (process start, queue builders,
+  exports) — the Correlations Phase-0 audit found tab endpoints readable by any
+  logged-in user; repeat that audit everywhere.
+- **UserManager lazy-loading** + remaining catalogued rough edges, pulled
+  opportunistically.
+
+### S3. First-session UX: onboarding + honest intake (weeks 3–6; code)
+
+- **Finish the messy-intake UX** (Thrust 2 step 4 remainder): per-file
+  parsed/dropped/malformed reporting for *accepted* uploads, alongside the
+  structure-sentinel review panel.
+- **Guided first-run** for a newly invited user (what a study is, what the tabs
+  answer, what to upload) — extend the public mini-site guide into the logged-in
+  Home tab rather than building a wizard.
+- **Per-study methods/provenance note** (Thrust 3B): auto-generated summary of
+  filters, sample sizes, annotation contract/model versions, refresh dates — the
+  inputs already exist in the registries and study metadata.
+
+### S4. Teaching enabler #1: demo study + safe role (weeks 5–8)
+
+- A **synthetic/consented demo dataset** ingested as a permanent sandbox study —
+  doubling as the JOSS reviewer demo path (one artifact, two uses).
+- A **read-only "student/explorer" role** on the existing role/permission system:
+  full analysis tabs on shared studies, no uploads, no expensive ops. With S2's
+  quotas this is the minimum to put a class in front of the tool.
+
+## Medium term (~2–6 months)
+
+### M1. Data export + reproducibility package
+
+Per-study export: recoded parquet/CSV + PCA/timeline/sequence/correlation artifacts
++ the S3 methods note as a bundled README. The remaining Thrust-3B core item and the
+single highest-leverage "powerful" feature for the audience.
+
+### M2. Reliability layer, completed
+
+- **Correlations Phase 4** extensions (per the approved 5-phase plan).
+- Decide — and if funded, execute — the **250k legacy re-annotation** (~$3–5k;
+  newer contract fields are null on legacy items), or explicitly scope studies to
+  post-contract data and surface that in the methods note.
+- **Arm the structure sentinel for IG/YT** once enough accepted files exist
+  (currently learn-only).
+
+### M3. Teaching enabler #2: assignment-ready workflows
+
+Cohort onboarding (bulk invite) plus 2–3 written **assignment templates** ("compare
+two collections' category profiles", "does engagement satiate within sessions?" —
+leaning on shipped findings) and guide pages. Deliberately lightweight — content and
+small UI affordances, not a "classroom mode" build.
+
+### M4. Public release / JOSS capstone
+
+The drafted package (branch `claude/scientific-publication-guide-af72d4`) becomes
+cheap to finish once S1 (key rotation), S4 (demo path), and S3 (provenance) land:
+fill placeholders, sanitization audit, merge, Zenodo + tag + submit. Positioning:
+credibility and citability for the hosted instance, not a pivot to self-install
+support.
+
+### M5. New analytical capability (gated behind M1–M2)
+
+First candidates by audience fit: **cross-platform comparative views** (the same
+participant/cohort across TikTok/IG/YT — multi-platform ingest exists, but no tab
+makes the comparison first-class) and **cross-study/cohort comparison** in
+Explore/Correlations. Sequence-lens extensions only when a concrete research
+question demands them (respect the recorded nulls: linger→feed is null, "feed
+diversification" was retracted).
+
+## Sequencing logic
+
+S1 before everything (artifacts + trust) → S2 before inviting anyone new (cost +
+access safety) → S3/S4 make "intuitive" real for both audiences and feed M3/M4 →
+M1 is the top researcher ask → M2 makes "powerful" defensible → M4 rides on S-phase
+byproducts → M5 last, per "consolidate first".
+
+## Verification approach
+
+- **S1:** each pending-ops item verified closed (artifacts present in GCS, queues
+  drained, versions promoted); pending-ops hub updated.
+- **S2:** induce a Cloud Task failure → confirm retry + dead-letter; attempt an
+  expensive op as a quota-limited test user → blocked; endpoint sweep documented in
+  `docs/` route inventory.
+- **S3/S4:** upload a deliberately malformed export → per-file report explains the
+  drops; log in as the student role → read-only surfaces only, demo study visible.
