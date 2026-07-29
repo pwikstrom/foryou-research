@@ -10,6 +10,103 @@ let _lastScatterArgs = null;
 let _lastHeatmapArgs = null;
 let _correlationsFilterVisible = true;
 
+// Renderer registry for the server-declared stat views (metadata.views).
+// A new view = one manifest entry server-side + one renderer here.
+const VIEW_RENDERERS = {
+    scatter: () => updatePcaPlot(),
+    heatmap: () => loadCorrelationHeatmap()
+};
+
+const DEFAULT_VIEWS = [
+    { key: 'scatter', label: 'Scatter' },
+    { key: 'heatmap', label: 'Heatmap' }
+];
+
+
+function refreshCurrentView() {
+    const render = VIEW_RENDERERS[pcaData.currentView];
+    if (render) render();
+}
+
+
+// --- Per-user variable preferences (shared "viz" surface) ---
+
+function getEffectiveVizBases() {
+    const md = pcaData.metadata;
+    if (!md || !window.VariablePrefs || !md.all_variables_order) return null;
+    const eff = VariablePrefs.effective('viz', md.all_variables_order, md.viz_priority || []);
+    return new Set(eff);
+}
+
+
+// Filter derived numeric columns by their base variable's effective viz
+// membership. Columns with no known base variable are always shown, and an
+// empty result falls back to the full list so the tab never goes blank.
+function filterColsByPrefs(cols) {
+    const md = pcaData.metadata;
+    if (!md) return cols;
+    const bases = md.numeric_col_bases || {};
+    const eff = getEffectiveVizBases();
+    if (!eff || eff.size === 0) return cols;
+    const out = cols.filter(c => {
+        const b = bases[c];
+        return !b || eff.has(b);
+    });
+    return out.length ? out : cols;
+}
+
+
+function getVisibleNumericCols() {
+    const md = pcaData.metadata;
+    if (!md) return [];
+    return filterColsByPrefs(md.numeric_cols || []);
+}
+
+
+function mountCorrelationsVizGear() {
+    if (!window.VariablePrefs) return;
+    if (document.getElementById('correlations-var-gear')) return;
+    const anchor = document.querySelector('#correlations .corr-view-toggle');
+    if (!anchor) return;
+
+    const gear = VariablePrefs.gearButton('viz', () => {
+        const md = pcaData.metadata;
+        if (!md || !md.all_variables_order) return;
+        const covered = new Set(Object.values(md.numeric_col_bases || {}));
+        VariablePrefs.openPanel({
+            surface: 'viz',
+            title: 'Customize variables',
+            allOrder: md.all_variables_order,
+            globalList: md.viz_priority || [],
+            schemaMap: md.schema_map || {},
+            sectionOrder: md.section_order || null,
+            coveredSet: covered.size ? covered : null,
+            onApply: () => {
+                renderPcaControls(pcaData.metadata);
+                refreshCurrentView();
+            }
+        });
+    });
+    gear.id = 'correlations-var-gear';
+    anchor.insertAdjacentElement('afterend', gear);
+}
+
+
+function renderViewToggle(views) {
+    const container = document.getElementById('pca-view-toggle');
+    if (!container) return;
+    container.innerHTML = '';
+    (views && views.length ? views : DEFAULT_VIEWS).forEach(v => {
+        if (!VIEW_RENDERERS[v.key]) return; // manifest entry without a renderer yet
+        const btn = document.createElement('button');
+        btn.className = 'toggle-option';
+        btn.id = `pca-view-${v.key}`;
+        btn.textContent = v.label;
+        btn.onclick = () => setPcaView(v.key);
+        container.appendChild(btn);
+    });
+}
+
 
 window.correlationsToggleSidebar = function () {
     _correlationsFilterVisible = !_correlationsFilterVisible;
@@ -72,10 +169,13 @@ async function loadPcaMetadata() {
         pcaData.metadata = data;
         document.getElementById('pca-status').innerText = "Ready";
 
+        renderViewToggle(data.views);
+        mountCorrelationsVizGear();
         renderPcaControls(data);
         renderPcaFilters(data);
 
         // Initial render based on current view (also applies active button styles)
+        if (!VIEW_RENDERERS[pcaData.currentView]) pcaData.currentView = 'scatter';
         setPcaView(pcaData.currentView);
 
     } catch (e) {
@@ -101,10 +201,13 @@ function renderPcaControls(data) {
     // Build display labels with explained variance for components
     const inter = data.interpretations || {};
 
-    // X/Y Axis: Numeric Columns with variance info
+    // X/Y Axis: Numeric Columns with variance info, filtered by the user's
+    // effective "viz" variable preferences (components inherit their base
+    // variable's membership).
     const schemaMap = data.schema_map || {};
+    const visibleCols = filterColsByPrefs(data.numeric_cols || []);
 
-    data.numeric_cols.forEach(col => {
+    visibleCols.forEach(col => {
         const variance = inter[col]?.explained_variance_pct;
         const displayName = (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
         const label = variance ? `${displayName} (${variance}%)` : displayName;
@@ -121,16 +224,16 @@ function renderPcaControls(data) {
     });
 
     // Check if the previous selections are still valid options in this new study
-    const hasPrevX = data.numeric_cols.includes(prevX);
-    const hasPrevY = data.numeric_cols.includes(prevY);
+    const hasPrevX = visibleCols.includes(prevX);
+    const hasPrevY = visibleCols.includes(prevY);
 
     if (hasPrevX && hasPrevY) {
         // Carry over the existing user selections
         xSelect.value = prevX;
         ySelect.value = prevY;
-    } else if (data.numeric_cols.length > 0) {
+    } else if (visibleCols.length > 0) {
         // Deterministic default: the two components with the highest explained variance
-        const byVariance = [...data.numeric_cols].sort((a, b) => {
+        const byVariance = [...visibleCols].sort((a, b) => {
             const va = parseFloat(inter[a]?.explained_variance_pct) || 0;
             const vb = parseFloat(inter[b]?.explained_variance_pct) || 0;
             return vb - va;
@@ -206,12 +309,7 @@ function renderPcaFilters(data) {
                 } else {
                     delete pcaData.filters[col];
                 }
-                // Refresh the current view
-                if (pcaData.currentView === 'scatter') {
-                    updatePcaPlot();
-                } else {
-                    loadCorrelationHeatmap();
-                }
+                refreshCurrentView();
             };
 
             const span = document.createElement('span');
@@ -237,33 +335,31 @@ function renderPcaFilters(data) {
 function resetPcaFilters() {
     pcaData.filters = {};
     renderPcaFilters(pcaData.metadata);
-    if (pcaData.currentView === 'scatter') {
-        updatePcaPlot();
-    } else {
-        loadCorrelationHeatmap();
-    }
+    refreshCurrentView();
 }
 
 
 // --- View Toggle ---
 
 function setPcaView(view) {
+    if (!VIEW_RENDERERS[view]) return;
     pcaData.currentView = view;
 
-    // Update button styles to highlight active selection
-    const scatterBtn = document.getElementById('pca-view-scatter');
-    const heatmapBtn = document.getElementById('pca-view-heatmap');
-    const scatterControls = document.getElementById('pca-scatter-controls');
-
-    scatterBtn.classList.toggle('active', view === 'scatter');
-    heatmapBtn.classList.toggle('active', view !== 'scatter');
-    if (view === 'scatter') {
-        scatterControls.style.display = 'flex';
-        updatePcaPlot();
-    } else {
-        scatterControls.style.display = 'none';
-        loadCorrelationHeatmap();
+    // Highlight the active view button (buttons come from the manifest)
+    const container = document.getElementById('pca-view-toggle');
+    if (container) {
+        [...container.children].forEach(btn => {
+            btn.classList.toggle('active', btn.id === `pca-view-${view}`);
+        });
     }
+
+    // The axis/colour dropdowns only apply to the scatter view
+    const scatterControls = document.getElementById('pca-scatter-controls');
+    if (scatterControls) {
+        scatterControls.style.display = (view === 'scatter') ? 'flex' : 'none';
+    }
+
+    refreshCurrentView();
 }
 
 
@@ -617,7 +713,7 @@ async function loadCorrelationHeatmap() {
             countEl.innerText = `${data.count.toLocaleString()} observations`;
         }
 
-        renderCorrelationHeatmap(data.columns, data.matrix);
+        renderCorrelationHeatmap(data.columns, data.matrix, data.method);
 
     } catch (e) {
         console.error(e);
@@ -626,9 +722,18 @@ async function loadCorrelationHeatmap() {
 }
 
 
-function renderCorrelationHeatmap(columns, matrix) {
-    _lastHeatmapArgs = { columns, matrix };
+function renderCorrelationHeatmap(columns, matrix, method) {
+    _lastHeatmapArgs = { columns, matrix, method };
     const schemaMap = pcaData.metadata?.schema_map || {};
+    const rLabel = (method === 'spearman') ? 'Spearman ρ' : 'Pearson r';
+
+    // Apply the user's effective viz preferences (same base-variable rule as
+    // the axis dropdowns) to the matrix rows/columns.
+    const visible = new Set(filterColsByPrefs(columns));
+    let keptIdx = columns.map((c, i) => i).filter(i => visible.has(columns[i]));
+    if (keptIdx.length < 2) keptIdx = columns.map((c, i) => i);
+    columns = keptIdx.map(i => columns[i]);
+    matrix = keptIdx.map(i => keptIdx.map(j => matrix[i][j]));
 
     // Map columns to display names
     const displayColumns = columns.map(col => {
@@ -636,10 +741,11 @@ function renderCorrelationHeatmap(columns, matrix) {
     });
 
     // Build hover text with correlation values (null = undefined correlation)
+    const rSymbol = (method === 'spearman') ? 'ρ' : 'r';
     const hoverText = matrix.map((row, i) =>
         row.map((val, j) => {
             const rTxt = (val === null || val === undefined) ? 'undefined' : val.toFixed(3);
-            return `${displayColumns[i]} × ${displayColumns[j]}<br>r = ${rTxt}`;
+            return `${displayColumns[i]} × ${displayColumns[j]}<br>${rSymbol} = ${rTxt}`;
         })
     );
 
@@ -660,7 +766,7 @@ function renderCorrelationHeatmap(columns, matrix) {
         text: hoverText,
         hoverinfo: 'text',
         colorbar: {
-            title: { text: 'Pearson r', font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') } },
+            title: { text: rLabel, font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') } },
             tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') },
             len: 0.8
         }
@@ -733,6 +839,17 @@ window.addEventListener('theme-changed', () => {
         renderPlotlyChart(_lastScatterArgs.dataPoints, _lastScatterArgs.xLabel,
                           _lastScatterArgs.yLabel, _lastScatterArgs.colorLabel);
     } else if (pcaData.currentView === 'heatmap' && _lastHeatmapArgs) {
-        renderCorrelationHeatmap(_lastHeatmapArgs.columns, _lastHeatmapArgs.matrix);
+        renderCorrelationHeatmap(_lastHeatmapArgs.columns, _lastHeatmapArgs.matrix,
+                                 _lastHeatmapArgs.method);
     }
+});
+
+// Re-apply when the shared "viz" prefs change (possibly edited on another
+// tab; detail.surface is null when every surface was reset at once)
+window.addEventListener('fyp:variable-prefs-changed', (e) => {
+    const surface = e.detail ? e.detail.surface : undefined;
+    if (surface !== 'viz' && surface !== null) return;
+    if (!pcaData.metadata) return;
+    renderPcaControls(pcaData.metadata);
+    refreshCurrentView();
 });

@@ -30,12 +30,10 @@
             <!-- Plot Controls -->
             <div class="corr-controls">
 
-                <!-- View Toggle -->
+                <!-- View toggle — buttons are built by correlations.js from the
+                     server's stat-view manifest (metadata.views) -->
                 <div class="corr-view-toggle">
-                    <div class="toggle-group">
-                        <button id="pca-view-scatter" class="toggle-option active" onclick="setPcaView('scatter')">Scatter</button>
-                        <button id="pca-view-heatmap" class="toggle-option" onclick="setPcaView('heatmap')">Heatmap</button>
-                    </div>
+                    <div class="toggle-group" id="pca-view-toggle"></div>
                 </div>
 
                 <!-- Scatter Controls -->

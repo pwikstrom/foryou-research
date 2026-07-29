@@ -295,6 +295,35 @@ gcs_media_prefix = "media"
 require_annotated_items = false
 
 
+##########################################################################################
+# correlations tab
+##########################################################################################
+[correlations]
+
+# Minimum explained variance (%) for a PCA component to be offered in the
+# Correlations UI (axis dropdowns and the heatmap). The highest-variance
+# component of each variable is always kept.
+min_variance_pct = 5.0
+
+# Scatter responses are capped at this many points (deterministic sample; the
+# heatmap always uses all rows).
+max_scatter_points = 5000
+
+# Factors with at least this many distinct values get no filter checkboxes on
+# the Correlations tab (reported to the UI as "too many values to filter").
+factor_value_limit = 500
+
+# Correlation method for the heatmap matrix: "pearson" or "spearman".
+correlation_method = "pearson"
+
+# Groups (collection-days) smaller than this are dropped before the PCA.
+minimum_group_size = 10
+
+# Absolute correlation a category needs with a component to appear in that
+# component's plain-language interpretation ("More likely: ...").
+interpretation_cutoff = 0.2
+
+
 
 ##########################################################################################
 ##########################################################################################
