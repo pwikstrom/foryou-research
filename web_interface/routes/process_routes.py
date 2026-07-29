@@ -6,6 +6,7 @@ from flask_login import current_user, login_required
 
 import fyp.data_io as data_io
 import web_interface.auth as auth
+from web_interface import activity_log
 from fyp.fyp_config import (
     CONSOLIDATE_ENRICHMENT_SCRIPT,
     EMBEDDINGS_REFRESH_SCRIPT,
@@ -91,10 +92,23 @@ def api_start(name):
         args.append(data["study_name"])
 
     if name in ["downloader", "annotator", "queue_annotator", "queue_annotator_batch", "embeddings_refresh"] or name.startswith("queue_scraper_"):
-        if data.get("batch_size") and str(data["batch_size"]).strip():
-             args.extend(["--batch-size", str(data["batch_size"])])
-        if data.get("max_batches") and str(data["max_batches"]).strip():
-             args.extend(["--max-batches", str(data["max_batches"])])
+        # batch_size / max_batches go straight into a worker argv — validate
+        # and bound them here rather than trusting the client blindly.
+        for key, flag, upper in (("batch_size", "--batch-size", 5000),
+                                 ("max_batches", "--max-batches", None)):
+            raw = data.get(key)
+            if raw is None or not str(raw).strip():
+                continue
+            try:
+                value = int(str(raw).strip())
+            except (TypeError, ValueError):
+                return jsonify({"status": "error",
+                                "message": f"{key} must be an integer"}), 400
+            if value < 1 or (upper is not None and value > upper):
+                bound = f"1-{upper}" if upper is not None else ">= 1"
+                return jsonify({"status": "error",
+                                "message": f"{key} must be {bound}"}), 400
+            args.extend([flag, str(value)])
 
     # Capture the launching user (their username is their email) so the async
     # batch annotator can email them at submit / batch / done milestones. Threaded
@@ -147,6 +161,13 @@ def api_start(name):
     
     success, msg = start_process(name, script_map[name], args, study_name=study_name)
     if success:
+        activity_log.record(
+            actor=getattr(current_user, "username", ""),
+            category=activity_log.CATEGORY_DATA_MANAGEMENT,
+            action="start_process",
+            target=name,
+            details={"args": args, "study_name": study_name},
+        )
         return jsonify({"status": "success", "message": msg})
     else:
         return jsonify({"status": "error", "message": msg}), 409
@@ -159,6 +180,13 @@ def api_stop(name):
         return jsonify({"error": "Unknown process"}), 400
     
     success, msg = stop_process(name)
+    if success:
+        activity_log.record(
+            actor=getattr(current_user, "username", ""),
+            category=activity_log.CATEGORY_DATA_MANAGEMENT,
+            action="stop_process",
+            target=name,
+        )
     return jsonify({"status": "success" if success else "error", "message": msg})
 
 

@@ -21,6 +21,11 @@
 # Backend-agnostic annotation settings.
 # Items longer than this (seconds) are never queued for annotation.
 max_duration_for_annotation = 300
+# Per-item token estimates for the pre-queue cost display (USD estimate =
+# items x tokens x the backend's `pricing`). Calibrate against the token
+# counts in recent Annotation-testing (ab_eval) run reports.
+est_input_tokens_per_annotation = 15000
+est_output_tokens_per_annotation = 1500
 
 
 # ── Gemini (default backend; Vertex AI or API-key mode) ─────────────────────

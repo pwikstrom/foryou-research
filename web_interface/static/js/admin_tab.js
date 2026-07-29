@@ -121,6 +121,19 @@
                 roleSelect.disabled = false;
             }
 
+            // General → Cost guardrail caps
+            const capFields = [
+                ['setting-queue-cap-annotation', 'queue_cap_annotation_items'],
+                ['setting-queue-cap-scrape', 'queue_cap_scrape_items'],
+            ];
+            capFields.forEach(([elId, key]) => {
+                const input = document.getElementById(elId);
+                if (!input) return;
+                input.value = (settings[key] !== undefined && settings[key] !== null)
+                    ? settings[key] : 0;
+                input.disabled = false;
+            });
+
             // New Users → "default role: X" label
             const defaultRoleLabel = document.getElementById('addUserDefaultRoleLabel');
             if (defaultRoleLabel) {
@@ -177,6 +190,43 @@
             if (status) status.textContent = `Failed — reverted (${e.message})`;
         } finally {
             select.disabled = false;
+        }
+    }
+
+    async function saveQueueCapSetting(input, key) {
+        const status = document.getElementById(`${input.id}-status`);
+        const previous = (window._adminSettings || {})[key] ?? 0;
+        const desired = parseInt(input.value, 10);
+
+        if (!Number.isInteger(desired) || desired < 0) {
+            input.value = previous;
+            if (status) status.textContent = 'Must be a non-negative integer';
+            return;
+        }
+
+        input.disabled = true;
+        if (status) status.textContent = 'Saving…';
+        try {
+            const response = await fetch('/api/admin/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ [key]: desired })
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'Save failed');
+            }
+            (window._adminSettings || (window._adminSettings = {}))[key] = desired;
+            if (status) {
+                status.textContent = 'Saved';
+                setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
+            }
+        } catch (e) {
+            console.error('saveQueueCapSetting:', e);
+            input.value = previous; // revert
+            if (status) status.textContent = `Failed — reverted (${e.message})`;
+        } finally {
+            input.disabled = false;
         }
     }
 

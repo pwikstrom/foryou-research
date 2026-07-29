@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 from flask import jsonify, request
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 import fyp.data_io as data_io
 import fyp.scrape_queues as scrape_queues
@@ -16,6 +16,7 @@ from fyp.organize_datasets import (
     create_study_recoded_dataset,
 )
 
+from ... import activity_log
 from ...process_manager import (
     load_process_stats,
     process_stats,
@@ -84,6 +85,91 @@ def _consolidate_blockers() -> list[str]:
     blocking = _workers_blocking_consolidate()
     blocking += [f"local drain ({p})" for p in sorted(_active_drain_leases())]
     return blocking
+
+
+
+
+
+
+def _log_dm(action: str, target: str = "", details: dict | None = None) -> None:
+    """Record a Data-Management activity-log entry for the current user."""
+    activity_log.record(
+        actor=getattr(current_user, "username", ""),
+        category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action=action,
+        target=target,
+        details=details,
+    )
+
+
+
+
+
+
+def _apply_queue_cap(items: list[str], queue_kind: str) -> tuple[list[str], dict]:
+    """Clamp a queue-build selection to the non-admin per-request cap.
+
+    Cost guardrail for invited users: the admin settings
+    ``queue_cap_annotation_items`` / ``queue_cap_scrape_items`` bound how many
+    items one queue-build request from a non-admin may add (0 = unlimited);
+    admins always bypass. Truncation is deterministic (sorted) so a repeated
+    request keeps selecting the same head slice.
+
+    Args:
+        items: The computed id selection.
+        queue_kind: ``"annotation"`` or ``"scrape"``.
+
+    Returns:
+        ``(possibly-truncated items, cap_info)`` where ``cap_info`` is the
+        ``{"capped", "cap", "requested"}`` dict merged into the JSON response.
+    """
+    from web_interface.admin_settings import get_queue_cap
+
+    requested = len(items)
+    cap = get_queue_cap(queue_kind)
+    is_admin_attr = getattr(current_user, "is_admin", False)
+    is_admin = is_admin_attr() if callable(is_admin_attr) else bool(is_admin_attr)
+    if is_admin or cap <= 0 or requested <= cap:
+        return items, {"capped": False, "cap": cap or None, "requested": requested}
+    return sorted(str(v) for v in items)[:cap], {
+        "capped": True, "cap": cap, "requested": requested}
+
+
+
+
+
+
+def _annotation_cost_estimate(n_items: int) -> dict | None:
+    """Rough spend estimate for annotating ``n_items`` with the active backend.
+
+    Uses the backend's ``pricing`` config (USD per 1M tokens) and the
+    ``[machine]`` per-item token estimates (calibrate them against real
+    ab_eval run costs). Returns None when the active backend has no pricing
+    (e.g. local backends) — the UI then shows the item count only.
+    """
+    from fyp.annotation.backends import variants
+    from fyp.fyp_config import fyp_cf
+    from web_interface.admin_settings import get_annotation_backend
+
+    try:
+        selection = get_annotation_backend()
+        pricing = variants.selection_pricing(selection)
+    except Exception:
+        return None
+    if not pricing:
+        return None
+
+    machine_cf = fyp_cf.get("machine", {})
+    est_in = float(machine_cf.get("est_input_tokens_per_annotation", 15000))
+    est_out = float(machine_cf.get("est_output_tokens_per_annotation", 1500))
+    cost = n_items * (est_in * float(pricing.get("input", 0))
+                      + est_out * float(pricing.get("output", 0))) / 1e6
+    return {
+        "backend": selection,
+        "est_cost_usd": round(cost, 2),
+        "est_input_tokens_per_item": est_in,
+        "est_output_tokens_per_item": est_out,
+    }
 
 
 
@@ -434,6 +520,7 @@ def empty_enrichment_queue(queue_type):
         else:
             return jsonify({"error": "Invalid queue type"}), 400
 
+        _log_dm("empty_queue", target=queue_type)
         return jsonify({"status": "success", "message": f"{queue_type.capitalize()} queue emptied."})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -565,6 +652,9 @@ def queue_voted_videos():
         new_scrape = list(set(new_scrape))
         new_annotate = list(set(new_annotate))
 
+        new_scrape, scrape_cap_info = _apply_queue_cap(new_scrape, "scrape")
+        new_annotate, annotate_cap_info = _apply_queue_cap(new_annotate, "annotation")
+
         # 4. Append to Queues (scrape queues are per-platform). Platforms
         # without a scrape-contract block have no worker to drain a queue, so
         # their items are skipped instead of stranded in an orphan file.
@@ -597,7 +687,9 @@ def queue_voted_videos():
             "status": "success",
             "added_to_scrape": len(new_scrape),
             "added_to_scrape_by_platform": added_to_scrape,
-            "added_to_annotate": len(new_annotate)
+            "added_to_annotate": len(new_annotate),
+            "scrape_capped": scrape_cap_info.get("capped", False),
+            "annotate_capped": annotate_cap_info.get("capped", False),
         })
 
     except Exception as e:
@@ -707,6 +799,8 @@ def calculate_to_scrape():
                       f"items without media to the queue(s).")
             unscraped_videos = list(set(unscraped_videos) | media_gap_videos)
 
+        unscraped_videos, cap_info = _apply_queue_cap(unscraped_videos, "scrape")
+
         # Append to the per-platform scrape queues. The study frame carries
         # source_platform per event row; an item never spans platforms.
         default_platform = scrape_queues.default_platform()
@@ -729,6 +823,22 @@ def calculate_to_scrape():
         # Platforms without a scrape-contract block have no worker to drain a
         # queue, so their items are skipped instead of stranded in an orphan file.
         scrapeable = set(scrape_queues.registered_platforms())
+
+        # Dry run: report what WOULD be queued per platform without appending.
+        if bool(data.get("dry_run", False)):
+            would_queue = {p: len(items) for p, items in by_platform.items()
+                           if p in scrapeable}
+            skipped = {p: len(items) for p, items in by_platform.items()
+                       if p not in scrapeable}
+            return jsonify({
+                "status": "success",
+                "dry_run": True,
+                "would_queue": sum(would_queue.values()),
+                "would_queue_by_platform": would_queue,
+                "skipped_unscrapeable_by_platform": skipped,
+                **cap_info,
+            })
+
         queue_len_by_platform: dict[str, int] = {}
         skipped_by_platform: dict[str, int] = {}
         for platform, items in by_platform.items():
@@ -738,11 +848,18 @@ def calculate_to_scrape():
                 continue
             queue_len_by_platform[platform] = scrape_queues.append_to_scrape_queue(platform, items)
 
+        _log_dm("build_scrape_queue", target=study_name,
+                details={"newly_queued": len(unscraped_videos),
+                         "retry_failed": retry_failed,
+                         "retry_missing_media": retry_missing_media,
+                         **cap_info})
+
         return jsonify({
             "status": "success",
             "videos_to_scrape": sum(queue_len_by_platform.values()),
             "videos_to_scrape_by_platform": queue_len_by_platform,
             "skipped_unscrapeable_by_platform": skipped_by_platform,
+            **cap_info,
         })
 
     except Exception as e:
@@ -934,6 +1051,20 @@ def calculate_to_annotate():
         # Ensure all values are plain Python strings (not PyArrow scalars)
         unannotated_videos = list({str(v) for v in unannotated_videos})
 
+        unannotated_videos, cap_info = _apply_queue_cap(unannotated_videos, "annotation")
+        cost = _annotation_cost_estimate(len(unannotated_videos))
+
+        # Dry run: report what WOULD be queued (count, cap, cost) without
+        # touching the queue — the UI uses it for its confirm step.
+        if bool(data.get("dry_run", False)):
+            return jsonify({
+                "status": "success",
+                "dry_run": True,
+                "would_queue": len(unannotated_videos),
+                "cost_estimate": cost,
+                **cap_info,
+            })
+
         # Append target payload to global annotate queue (atomic — never
         # clobbers ids claimed/pruned meanwhile by an annotation worker).
         current_queue = data_io.update_json(
@@ -946,10 +1077,15 @@ def calculate_to_annotate():
             default=[],
         )
 
+        _log_dm("build_annotation_queue", target=study_name,
+                details={"newly_queued": len(unannotated_videos), **cap_info})
+
         return jsonify({
             "status": "success",
             "videos_to_annotate": len(current_queue),
             "newly_queued": len(unannotated_videos),
+            "cost_estimate": cost,
+            **cap_info,
         })
 
     except Exception as e:
@@ -1036,6 +1172,21 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
         too_long_set = set(too_long.tolist())
         selected_ids = [v for v in selected_ids if v not in too_long_set]
 
+    selected_ids, cap_info = _apply_queue_cap(selected_ids, "annotation")
+    cost = _annotation_cost_estimate(len(selected_ids))
+
+    # Dry run: report the selection without touching the queue.
+    if bool(data.get("dry_run", False)):
+        return jsonify({
+            "status": "success",
+            "dry_run": True,
+            "would_queue": len(selected_ids),
+            "cost_estimate": cost,
+            "skipped_no_media": skipped_no_media,
+            "skipped_no_inference_ts": skipped_no_ts,
+            **cap_info,
+        })
+
     # Append to the global annotate queue (atomic — never clobbers ids
     # claimed/pruned meanwhile by an annotation worker).
     current_queue = data_io.update_json(
@@ -1048,6 +1199,9 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
         default=[],
     )
 
+    _log_dm("build_annotation_queue", target=f"reannotation:{selection_mode}",
+            details={"newly_queued": len(selected_ids), **cap_info})
+
     return jsonify({
         "status": "success",
         "videos_to_annotate": len(current_queue),
@@ -1055,6 +1209,8 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
         "newly_queued": len(selected_ids),
         "skipped_no_media": skipped_no_media,
         "skipped_no_inference_ts": skipped_no_ts,
+        "cost_estimate": cost,
+        **cap_info,
     })
 
 
@@ -1133,6 +1289,8 @@ def api_consolidate_enrichment():
         mem = processes.get("consolidate_enrichment", {}).get("data")
         if isinstance(mem, dict):
             mem["pipeline_plan"] = entry["pipeline_plan"]
+        _log_dm("consolidate_enrichment", target="force" if force else "normal",
+                details={"auto_refresh": auto_refresh})
         return jsonify({"status": "started", "message": msg})
     else:
         # Dispatch failed — don't leave a phantom plan marker behind.
