@@ -419,6 +419,48 @@ artifacts these ops produce, and inviting users onto a stale pipeline undermines
 - **UserManager lazy-loading** + remaining catalogued rough edges, pulled
   opportunistically.
 
+> **✅ Update (2026-07-29):** S2 is **shipped and deployed** — merged to main as
+> `98b3272` (four commits, one per phase), revisions `fyp-data-hub-00309-dmw` +
+> `fyp-task-runner-00213-gwd`, queue `fyp-background-tasks` moved to
+> `max-attempts=4` (60s–600s backoff) *after* both services went live.
+>
+> Two of the four bullets above were written from stale assumptions, and the
+> endpoint audit found worse than "readable by any logged-in user":
+>
+> - **Two genuinely unauthenticated exposures**, not just missing tab gates.
+>   `/api/video/<study>/<item_id>` had **no auth decorator at all** and ignored
+>   its `study` segment — with the hub public (`invoker-iam-disabled=true`),
+>   anyone who knew or guessed an `item_id` could download participant media.
+>   `/internal/run-task/<name>` was registered on the **public** hub, CSRF-exempt,
+>   gated only by an `Authorization: Bearer` *prefix* check (the OIDC token was
+>   never verified) — arbitrary task execution. It now registers only on the
+>   task-runner, where platform IAM restricts the invoker. Verified on prod:
+>   401 / 401 / 404-on-hub / 403-on-runner.
+> - **Permission + study-access gates** added to the four Explore endpoints,
+>   `/api/video_analysis/ids` and the three Timelines endpoints, via a shared
+>   `web_interface/routes/_access.py`. `/api/logs/<name>` is admin-only;
+>   `/api/status` redacts `task_args`/`last_run_study` from plain viewers.
+> - **UserManager lazy-loading was already done** (commit `b6ec1f0`,
+>   2026-07-06) — no work needed. Likewise `/api/start` was already
+>   admin-only, so the cost exposure was never "a student starts a worker": it
+>   was the **queue builders**, which built unbounded queues. Those now carry
+>   admin-configurable per-request caps (admins bypass), a dry-run + confirm
+>   step showing item count and estimated spend, and activity-log entries.
+> - **Retry is app-controlled, per task** — the queue could not simply be turned
+>   up, because the handler returned HTTP 200 even on failure. Only the 11
+>   verified-idempotent refreshes (`process_routes.QUEUE_RETRY_SAFE`) return 503
+>   and get retried; scrapers/annotators/consolidate/`collection_delete` stay
+>   single-attempt by design (queue-prune and batch-job claims make a blind
+>   retry mean double spend or a lost batch). `web_interface/task_failures.py`
+>   is the dead-letter record — Cloud Tasks HTTP queues have no native one —
+>   surfaced on Admin → System info with acknowledge actions.
+> - **Rough edges cleared:** `meta_refresh_groups` now honours `--studies` (it
+>   was refreshing every study on every pipeline run), `new_merge` releases its
+>   join inputs (~3× final-frame peak RSS), and the intermittent timelines
+>   MultiIndex failure from 2026-04-21 is fixed at the `data_io` layer.
+>   **DNF retriability is deliberately deferred to M2** — it needs a
+>   raw-results-layer change, not the cheap fix this phase was scoped for.
+
 ### S3. First-session UX: onboarding + honest intake (weeks 3–6; code)
 
 - **Finish the messy-intake UX** (Thrust 2 step 4 remainder): per-file
@@ -491,8 +533,15 @@ byproducts → M5 last, per "consolidate first".
 
 - **S1:** each pending-ops item verified closed (artifacts present in GCS, queues
   drained, versions promoted); pending-ops hub updated.
-- **S2:** induce a Cloud Task failure → confirm retry + dead-letter; attempt an
-  expensive op as a quota-limited test user → blocked; endpoint sweep documented in
-  `docs/` route inventory.
+- **S2:** ✅ done 2026-07-29. Endpoint sweep is covered by
+  `tests/unit/test_endpoint_gates.py` and re-verified against prod after deploy
+  (401 on the media/item endpoints, 404 for `/internal/run-task` on the hub,
+  403 on the task-runner); caps and the 503/200 retry matrix are covered by
+  `tests/unit/test_cost_guardrails.py` and `tests/unit/test_task_failures.py`.
+  `docs/routes.md` regenerated. **Still outstanding:** the retry + dead-letter
+  path has not yet fired on a *real* prod failure — the first genuine task
+  failure will exercise it and should appear on Admin → System info.
+  Note for future spot-checks: curling a gated POST returns 400 from CSRF
+  *before* the permission decorator runs, so test a GET endpoint instead.
 - **S3/S4:** upload a deliberately malformed export → per-file report explains the
   drops; log in as the student role → read-only surfaces only, demo study visible.
