@@ -231,13 +231,18 @@ def calc_entropy_and_dominance(
 def interpret_axes_with_categories(
     counts_df = None,
     feat = None,
-    top=5
+    top=5,
+    cutoff=None,
 ) -> dict:
     """
     counts_df: rows=groups, cols=categories, values=counts
     feat: DataFrame with columns cat_PC1..k, index=matching group labels
+    cutoff: minimum |correlation| for a category to be reported; None -> the
+        [correlations] config section (default 0.2)
     Returns dict {axis: [(category, corr), ...]}
     """
+    if cutoff is None:
+        cutoff = float(_cf().get("correlations", {}).get("interpretation_cutoff", 0.2))
 
     
     probs = counts_df.div(counts_df.sum(axis=1), axis=0).fillna(0.0)
@@ -282,13 +287,13 @@ def interpret_axes_with_categories(
         
         # Top Positive
         top_pos = corrs.sort_values(ascending=False).head(top).items()
-        top_pos = [(cat, cor) for cat, cor in top_pos if cor > 0.2 and cat not in [_cf()["labels"]["OTHER_THINGS"]]]
+        top_pos = [(cat, cor) for cat, cor in top_pos if cor > cutoff and cat not in [_cf()["labels"]["OTHER_THINGS"]]]
         top_pos_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_pos]) if top_pos else ""
         top_pos_cat = top_pos[0][0] if top_pos else None
 
         # Top Negative
         top_neg = corrs.sort_values(ascending=True).head(top).items()
-        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -0.2 and cat not in [_cf()["labels"]["OTHER_THINGS"]]]
+        top_neg = [(cat, cor) for cat, cor in top_neg if cor < -cutoff and cat not in [_cf()["labels"]["OTHER_THINGS"]]]
         top_neg_str = "More likely: " + " | ".join([f"{cat.replace('  and  ', ' & ')}" for cat, cor in top_neg]) if top_neg else ""
         top_neg_cat = top_neg[0][0] if top_neg else None
 
@@ -650,7 +655,7 @@ def transform_categories_to_components_and_diversity(
 def calculate_scaled_pca_scores(
     study_name = None,
     study_recoded_dataset = None,
-    minimum_group_size = 10,
+    minimum_group_size = None,
     target_explained_variance = 0.8,
     drop_rare_globally_below = 0.01,
     scale_it = True,
@@ -658,6 +663,11 @@ def calculate_scaled_pca_scores(
     save_to_cache = True,
     verbose = False,
     ):
+
+    # None -> the [correlations] config section (default 10), so every caller
+    # (refresh workers, on-demand web path) honours the same admin-set value.
+    if minimum_group_size is None:
+        minimum_group_size = int(_cf().get("correlations", {}).get("minimum_group_size", 10))
     
     logger.info(
         f"Starting Principal Component Analysis. Now: {_dt.datetime.now()}...")

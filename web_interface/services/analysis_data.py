@@ -59,10 +59,11 @@ def get_pca_df(study_name):
         return df
 
     print("Calculating PCA scores for study: ", study_name)
+    # minimum_group_size intentionally not passed: it resolves from the
+    # [correlations] config section inside calculate_scaled_pca_scores.
     result = calculate_scaled_pca_scores(
         study_name=study_name,
         study_recoded_dataset=None,
-        minimum_group_size=10,
         target_explained_variance=0.8,
         drop_rare_globally_below=0.01,
         save_to_cache=True,
