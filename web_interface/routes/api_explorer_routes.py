@@ -7,8 +7,10 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
 import fyp.data_io as data_io
+import web_interface.auth as auth
 from fyp.fyp_config import fyp_cf
 from fyp.scrape import scraper_alerts
+from web_interface import task_failures
 
 from .. import explorer_backend as explorer
 from ..data_service import (
@@ -874,11 +876,23 @@ def get_system_health():
 
     Includes the active per-platform scraper alerts (raised by the scrape
     worker on systematic failures such as a permanent-failure storm) so the
-    panel can flag "scraper needs revision" conditions alongside the checks.
+    panel can flag "scraper needs revision" conditions alongside the checks,
+    plus the recent background-task failure ledger (the dead-letter record for
+    the Cloud Tasks queue, which has no native dead-letter topic).
     """
     doc = system_health.get_health()
     doc["scraper_alerts"] = scraper_alerts.load_alerts()
+    doc["task_failures"] = task_failures.unacknowledged_dead()
     return jsonify(doc)
+
+
+@explorer_bp.route('/api/system-health/task-failures/ack', methods=['POST'])
+@auth.admin_required
+def ack_task_failures():
+    """Acknowledge one ledger entry (``{"id": ...}``) or all of them."""
+    data = request.json or {}
+    changed = task_failures.acknowledge(str(data.get("id") or ""))
+    return jsonify({"status": "success", "acknowledged": changed})
 
 
 @explorer_bp.route('/api/system-health/run', methods=['POST'])

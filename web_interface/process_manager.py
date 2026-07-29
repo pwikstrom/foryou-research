@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 import fyp.data_io as data_io
 from fyp.fyp_config import PROJECT_ROOT, PYTHON_EXEC
+from web_interface import task_failures
 from web_interface.task_status import (
     force_clear_status,
     is_cloud_run,
@@ -214,6 +215,19 @@ def monitor_process_completion(name, proc):
     })
     process_stats[name] = merged
     save_process_stats()
+
+    # Mirror the Cloud-Tasks failure ledger in subprocess mode so local dev
+    # shows the same audit trail (subprocess runs are never queue-retried, so
+    # every failure here is terminal).
+    if outcome == "Fail":
+        task_failures.record_failure(
+            task=name,
+            error=f"Worker exited with code {proc.returncode}",
+            status_key=name,
+            disposition=task_failures.DISPOSITION_DEAD,
+            task_args=completed_task_args,
+            phase="subprocess",
+        )
 
     # Update global state to stopped
     _clear_graceful_stop(name)

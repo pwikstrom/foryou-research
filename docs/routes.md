@@ -37,6 +37,7 @@ python scripts/gen_route_inventory.py
 | explorer_bp | `/api/studies/defined` | GET | `explorer_bp.api_get_study_defs` |
 | explorer_bp | `/api/system-health` | GET | `explorer_bp.get_system_health` |
 | explorer_bp | `/api/system-health/run` | POST | `explorer_bp.run_system_health` |
+| explorer_bp | `/api/system-health/task-failures/ack` | POST | `explorer_bp.ack_task_failures` |
 | explorer_bp | `/api/system-info` | GET | `explorer_bp.system_info` |
 | human_eval | `/api/human-eval/my-tasks` | GET | `human_eval.my_human_eval_tasks` |
 | human_eval | `/api/human-eval/tasks/<run_id>/<task_type>` | GET | `human_eval.get_coder_task` |
@@ -153,4 +154,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-142 routes total.
+143 routes total.

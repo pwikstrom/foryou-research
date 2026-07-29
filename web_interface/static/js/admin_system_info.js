@@ -138,11 +138,54 @@ function _renderScraperAlertBanners(alerts) {
 }
 
 
+// Recent unacknowledged background-task failures — the dead-letter record for
+// the Cloud Tasks queue (which has no native dead-letter topic). Each entry
+// can be acknowledged individually; acknowledging clears the health chip.
+function _renderTaskFailures(failures) {
+    if (!failures || !failures.length) return '';
+
+    const rows = failures.slice().reverse().map(f => {
+        const when = _relativeTime(f.ts) || f.ts || '';
+        const attempt = f.retry_count ? ` after ${f.retry_count + 1} attempts` : '';
+        const phase = f.phase && f.phase !== 'run' ? ` (${f.phase})` : '';
+        const label = `${f.task}${phase} failed${attempt}${when ? ' — ' + when : ''}`;
+        return `<div class="scraper-alert" style="display: flex; align-items: flex-start; gap: 8px;">
+            <span class="scraper-alert-text" style="flex: 1;"
+                data-tooltip="${_escapeAttr(f.error || 'No detail recorded')}">
+                ⚠ ${_escapeAttr(label)}</span>
+            <button class="btn-discreet text-xs"
+                onclick="acknowledgeTaskFailure('${_escapeAttr(f.id)}')">Acknowledge</button>
+        </div>`;
+    }).join('');
+
+    const ackAll = failures.length > 1
+        ? `<div style="text-align: right; margin-bottom: 8px;">
+               <button class="btn-discreet text-xs" onclick="acknowledgeTaskFailure('')">
+                   Acknowledge all (${failures.length})</button>
+           </div>`
+        : '';
+    return rows + ackAll;
+}
+
+
+function acknowledgeTaskFailure(entryId) {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    fetch('/api/system-health/task-failures/ack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ id: entryId || '' })
+    })
+        .then(() => loadSystemHealth())
+        .catch(err => console.error('Failed to acknowledge task failure:', err));
+}
+
+
 function _renderHealth(doc) {
     const container = document.getElementById('system-health-container');
     if (!container) return;
 
-    const alertBanners = _renderScraperAlertBanners(doc.scraper_alerts);
+    const alertBanners = _renderScraperAlertBanners(doc.scraper_alerts)
+        + _renderTaskFailures(doc.task_failures);
 
     const overallPill = _healthPill(doc.overall, doc.interrupted ? 'Previous run was interrupted' : '');
     const lastRun = _relativeTime(doc.finished_at);

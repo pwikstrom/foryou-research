@@ -6,7 +6,7 @@ from flask_login import current_user, login_required
 
 import fyp.data_io as data_io
 import web_interface.auth as auth
-from web_interface import activity_log
+from web_interface import activity_log, task_failures
 from fyp.fyp_config import (
     CONSOLIDATE_ENRICHMENT_SCRIPT,
     EMBEDDINGS_REFRESH_SCRIPT,
@@ -43,10 +43,51 @@ process_bp = Blueprint('process_bp', __name__)
 
 # A forked leaf (meta/pca/timelines) that has not reached a fresh "running" or
 # terminal state within this many seconds of the fan-out is treated as having
-# failed to start — e.g. a Cloud Run 429 dropped the task (queue max-attempts=1,
-# no retry). The grace must exceed a worst-case cold start so a merely-slow boot
-# is not flagged.
-FORK_START_GRACE_SECONDS = 150
+# failed to start — e.g. a Cloud Run 429 dropped the task. The grace must exceed
+# a worst-case cold start so a merely-slow boot is not flagged, AND the queue's
+# retry backoff: since 2026-07 the queue re-delivers a dropped task (min-backoff
+# 60s, doubling), so a leaf can legitimately boot several minutes late. Declaring
+# it failed earlier than that would write a "pipeline aborted" summary for a run
+# that then goes on to succeed.
+FORK_START_GRACE_SECONDS = 600
+
+
+# Tasks that are safe for the QUEUE to retry after a failed attempt: pure
+# recomputations that rewrite their artifacts from source data, so a partial
+# run leaves nothing to reconcile. Everything else deliberately stays
+# single-attempt — see the reasons below — and its failure goes straight to
+# the ledger instead:
+#   queue_scraper_* / queue_annotator  — the queue prune is the claim; a retry
+#       either re-scrapes/re-annotates (real money) or loses the batch, and
+#       circuit-breaker / permanent-storm aborts must never be retried.
+#   queue_annotator_batch              — a retried submit could submit (and
+#       pay for) the same Gemini batch job twice.
+#   consolidate_enrichment             — a retry would double-fire the
+#       downstream refresh pipeline.
+#   collection_delete                  — destructive and partially-applied.
+#   ingest_refresh                     — ledger-guarded but partial writes.
+#   embeddings_refresh                 — idempotent per shard, but a retry
+#       re-spends embedding credits.
+#   ab_eval                            — has its own 409 concurrency gate.
+QUEUE_RETRY_SAFE: set[str] = {
+    "recode_refresh_studies",
+    "meta_refresh_groups",
+    "pca_refresh",
+    "study_refresh",
+    "timelines_refresh",
+    "sequence_refresh",
+    "collection_metadata_refresh",
+    "video_map_refresh",
+    "retokenise_hashtags",
+    "benchmark_parquet_read",
+    "aio_fetch",
+}
+
+# Total attempts the app is willing to see for a retry-safe task. Must not
+# exceed the queue's own --max-attempts (see scripts/configure_task_queue.sh);
+# whichever is smaller wins, and the app-side bound is what stops a retry
+# storm if the queue is reconfigured upward.
+MAX_APP_RETRIES = 4
 
 @process_bp.route('/api/start/<name>', methods=['POST'])
 @auth.admin_required
@@ -472,8 +513,19 @@ def _get_status_key(name: str, task_args: dict) -> str:
     return name
 
 
-def _run_task_with_stats(name: str, task_args: dict) -> None:
+def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bool:
     """Execute a task function and update process_stats on completion.
+
+    Args:
+        name: registered task name.
+        task_args: the task's arguments.
+        retry_count: Cloud Tasks' ``X-CloudTasks-TaskRetryCount`` for this
+            attempt (0 on the first try).
+
+    Returns:
+        True when the task succeeded (or handed off to a chain link), False
+        when it failed. ``internal_run_task`` turns a False into an HTTP 503
+        for retry-safe tasks so Cloud Tasks retries them.
 
     Chain contract:
     - If the task function returns ``{"chain": True, "next_task_args": ...}``,
@@ -612,12 +664,20 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
                     reporter.log(f"Chained to next batch: {msg}")
                 else:
                     reporter.fail(f"Chain dispatch failed: {msg}")
+                    # A broken hand-off used to leave no stats row at all —
+                    # the ledger is the only durable trace of it.
+                    task_failures.record_failure(
+                        task=name, error=f"Chain dispatch failed: {msg}",
+                        status_key=status_key, retry_count=retry_count,
+                        disposition=task_failures.DISPOSITION_DEAD,
+                        task_args=task_args, phase="chain_dispatch",
+                    )
                 # Stop the heartbeat so it doesn't race with the next chain
                 # link's reporter writing to the same GCS status file.
                 reporter._stop_heartbeat()
                 # Return without writing completion stats — the chain
                 # continues (on success) or the failure is recorded above.
-                return
+                return success
         else:
             reporter.complete()
             outcome = "Success"
@@ -625,6 +685,18 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
         reporter.fail(f"{e}\n{traceback.format_exc()}")
         outcome = "Fail"
         chain_result = None
+        # Retry-safe tasks get another queue attempt until the app-side bound
+        # is reached; everything else is terminal on the first failure.
+        will_retry = (name in QUEUE_RETRY_SAFE
+                      and retry_count < MAX_APP_RETRIES - 1
+                      and not reporter.check_cancelled())
+        task_failures.record_failure(
+            task=name, error=f"{e}\n{traceback.format_exc()}",
+            status_key=status_key, retry_count=retry_count,
+            disposition=(task_failures.DISPOSITION_RETRYING if will_retry
+                         else task_failures.DISPOSITION_DEAD),
+            task_args=task_args, phase="run",
+        )
 
     # Update process_stats (same logic as monitor_process_completion)
     end_time = datetime.now(UTC)
@@ -755,6 +827,8 @@ def _run_task_with_stats(name: str, task_args: dict) -> None:
     # on the task-runner at terminal worker completion, makes it browser-independent.
     if name == "queue_annotator" or name.startswith("queue_scraper"):
         _maybe_autofire_armed_consolidate(name)
+
+    return outcome == "Success"
 
 
 def _maybe_autofire_armed_consolidate(just_finished: str) -> None:
@@ -942,6 +1016,12 @@ def _maybe_finish_forked_pipeline(leaves: list[str], fork_ts: str | None = None)
                 "dropped. The other steps ran; retry this one.",
                 error="Task was not initiated (HTTP 429 / no instance, no retry).",
             )
+            task_failures.record_failure(
+                task=leaf,
+                error="Task was not initiated (HTTP 429 / no instance, no retry).",
+                disposition=task_failures.DISPOSITION_DEAD,
+                phase="fork",
+            )
             failed.append(leaf)
             continue
 
@@ -1047,6 +1127,12 @@ def internal_run_task(name: str):
     if is_cloud_run() and not auth_header.startswith("Bearer "):
         return "Unauthorized", 401
 
+    # Cloud Tasks counts attempts for us; 0 on the first delivery.
+    try:
+        retry_count = int(request.headers.get("X-CloudTasks-TaskRetryCount", 0))
+    except (TypeError, ValueError):
+        retry_count = 0
+
     _ensure_task_functions_loaded()
     if name not in TASK_FUNCTIONS:
         return jsonify({"error": f"Unknown task: {name}"}), 404
@@ -1054,7 +1140,16 @@ def internal_run_task(name: str):
     task_args = request.json or {}
 
     # Run synchronously -- Cloud Tasks will wait for the response.
-    _run_task_with_stats(name, task_args)
+    ok = _run_task_with_stats(name, task_args, retry_count=retry_count)
 
-    return "OK", 200
+    if ok:
+        return "OK", 200
+
+    # A failure is only worth another delivery when the task is safe to re-run
+    # from scratch AND the app-side attempt bound is not yet reached. 503 asks
+    # Cloud Tasks to retry with backoff; 200 acks the failure as terminal (the
+    # ledger already holds the dead-letter record either way).
+    if name in QUEUE_RETRY_SAFE and retry_count < MAX_APP_RETRIES - 1:
+        return f"Task {name} failed; retry requested", 503
+    return "Task failed (terminal)", 200
 
