@@ -105,6 +105,13 @@
   ]
  ],
  [
+  "/api/correlations/status",
+  "correlations_bp.api_correlations_status",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/explore/filter",
   "explorer_bp.api_explorer_filter",
   [

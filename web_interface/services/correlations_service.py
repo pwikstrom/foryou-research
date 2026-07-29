@@ -12,11 +12,16 @@ import re
 
 import numpy as np
 import pandas as pd
+from scipy import stats as scipy_stats
+from statsmodels.stats.multitest import multipletests
 
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
 from fyp.logging_setup import get_logger
-from fyp.recode_variables import get_factors_and_features_from_var_schema
+from fyp.recode_variables import (
+    get_factors_and_features_from_var_schema,
+    get_grouping_factors_from_var_schema,
+)
 
 from .study_data import load_display_id_map
 from .user_variables import load_schema_metadata
@@ -39,7 +44,12 @@ _CORR_DEFAULTS = {
     "max_scatter_points": 5000,
     "factor_value_limit": 500,
     "correlation_method": "pearson",
+    "minimum_group_size": 10,
 }
+
+# Coverage of the scatter's confidence ellipses: chi-square(2 df) quantile at
+# 95%. Stated on the UI wherever the ellipses are drawn.
+ELLIPSE_COVERAGE = 0.95
 
 # Deterministic seed for the scatter point-cap sample.
 SCATTER_SAMPLE_SEED = 0
@@ -188,6 +198,203 @@ def filter_components_by_variance(numeric_cols, interpretations):
 
 
 
+def apply_within_collection_centering(df: pd.DataFrame, cols) -> tuple[pd.DataFrame, bool]:
+    """Subtract each collection's mean from ``cols`` (a fixed-effects move).
+
+    Removes between-collection composition, so remaining associations are
+    within-collection. Returns ``(df, applied)`` — a no-op when there is no
+    ``collection_id`` column or none of ``cols`` is present.
+    """
+    cols = [c for c in cols if c in df.columns]
+    if 'collection_id' not in df.columns or not cols:
+        return df, False
+    out = df.copy()
+    vals = out[cols].astype('float64')
+    group_keys = out['collection_id'].astype(str).values
+    means = vals.groupby(group_keys).transform('mean')
+    out[cols] = vals - means
+    return out, True
+
+
+
+
+
+
+def compute_regression_stats(x, y) -> dict | None:
+    """OLS regression readout for the scatter: slope, 95% CI, r, R², p, n.
+
+    Computed on the full filtered set (never the display sample). Returns
+    None when fewer than 3 paired observations or a degenerate x.
+    """
+    x = pd.to_numeric(pd.Series(list(x)), errors='coerce').astype('float64')
+    y = pd.to_numeric(pd.Series(list(y)), errors='coerce').astype('float64')
+    mask = x.notna() & y.notna()
+    x, y = x[mask].to_numpy(), y[mask].to_numpy()
+    n = len(x)
+    if n < 3 or float(np.std(x)) == 0.0:
+        return None
+    try:
+        res = scipy_stats.linregress(x, y)
+    except ValueError:
+        return None
+    if not np.isfinite(res.slope):
+        return None
+    t_crit = float(scipy_stats.t.ppf(0.975, n - 2))
+    return {
+        "slope": float(res.slope),
+        "intercept": float(res.intercept),
+        "stderr": float(res.stderr),
+        "ci_low": float(res.slope - t_crit * res.stderr),
+        "ci_high": float(res.slope + t_crit * res.stderr),
+        "r": float(res.rvalue),
+        "r2": float(res.rvalue ** 2),
+        "p": float(res.pvalue),
+        "n": int(n),
+    }
+
+
+
+
+
+
+def compute_group_ellipses(df: pd.DataFrame, x_col: str, y_col: str,
+                           color_col: str | None) -> list[dict]:
+    """Per-colour-group mean + covariance for true confidence ellipses.
+
+    Computed on the full filtered set. The frontend eigendecomposes the 2×2
+    covariance and scales the axes by chi²₂ at ``ELLIPSE_COVERAGE``. Groups
+    with fewer than 3 points are skipped.
+    """
+    if color_col and color_col in df.columns:
+        group_keys = df[color_col].astype(str)
+    else:
+        group_keys = pd.Series("Default", index=df.index)
+
+    out = []
+    for group, sub in df.groupby(group_keys.values):
+        x = pd.to_numeric(sub[x_col], errors='coerce').astype('float64')
+        y = pd.to_numeric(sub[y_col], errors='coerce').astype('float64')
+        mask = x.notna() & y.notna()
+        x, y = x[mask].to_numpy(), y[mask].to_numpy()
+        if len(x) < 3:
+            continue
+        cov = np.cov(x, y)
+        if not np.all(np.isfinite(cov)):
+            continue
+        out.append({
+            "group": str(group),
+            "n": int(len(x)),
+            "mean_x": float(np.mean(x)),
+            "mean_y": float(np.mean(y)),
+            "cov": [[float(cov[0, 0]), float(cov[0, 1])],
+                    [float(cov[1, 0]), float(cov[1, 1])]],
+        })
+    return out
+
+
+
+
+
+
+def pairwise_correlation_stats(numeric_df: pd.DataFrame, method: str):
+    """Pairwise-complete correlation matrix with n, p and BH-adjusted q.
+
+    Returns ``(r, p, q, n)`` as k×k numpy arrays (n int, others float with
+    NaN for undefined cells). q is Benjamini–Hochberg across the upper
+    triangle's finite p-values — one family per requested matrix.
+    """
+    cols = list(numeric_df.columns)
+    k = len(cols)
+    arr = numeric_df.astype('float64').to_numpy()
+
+    r = np.full((k, k), np.nan)
+    p = np.full((k, k), np.nan)
+    n = np.zeros((k, k), dtype=int)
+
+    for i in range(k):
+        for j in range(i, k):
+            xi, yj = arr[:, i], arr[:, j]
+            mask = ~np.isnan(xi) & ~np.isnan(yj)
+            nij = int(mask.sum())
+            n[i, j] = n[j, i] = nij
+            if i == j:
+                r[i, j] = 1.0
+                continue
+            if nij < 3:
+                continue
+            x, y = xi[mask], yj[mask]
+            if float(np.std(x)) == 0.0 or float(np.std(y)) == 0.0:
+                continue
+            try:
+                if method == "spearman":
+                    res = scipy_stats.spearmanr(x, y)
+                else:
+                    res = scipy_stats.pearsonr(x, y)
+                rij, pij = float(res[0]), float(res[1])
+            except Exception:
+                continue
+            if np.isfinite(rij):
+                r[i, j] = r[j, i] = rij
+            if np.isfinite(pij):
+                p[i, j] = p[j, i] = pij
+
+    # Benjamini–Hochberg across the unique pairs
+    q = np.full((k, k), np.nan)
+    upper = [(i, j) for i in range(k) for j in range(i + 1, k)]
+    finite_pairs = [(i, j) for i, j in upper if np.isfinite(p[i, j])]
+    if finite_pairs:
+        pvals = [p[i, j] for i, j in finite_pairs]
+        _, qvals, _, _ = multipletests(pvals, method="fdr_bh")
+        for (i, j), qv in zip(finite_pairs, qvals):
+            q[i, j] = q[j, i] = float(qv)
+
+    return r, p, q, n
+
+
+
+
+
+
+def _matrix_to_json(mat) -> list:
+    """k×k float array -> nested lists with None for non-finite cells."""
+    return [[None if not np.isfinite(v) else float(v) for v in row] for row in mat]
+
+
+
+
+
+
+def build_status_payload(study: str) -> dict:
+    """Freshness signal for the tab: is the PCA artifact behind the study data?
+
+    Compares the mtimes of ``{study}_recoded.parquet`` and ``{study}_PCA.parquet``
+    (both in the ``cache`` location). Informational only — the tab keeps
+    rendering; the frontend shows a banner when stale.
+    """
+    def _mtime(filename):
+        try:
+            if data_io.exists(storage_location="cache", filename=filename):
+                return data_io.getmtime(storage_location="cache", filename=filename)
+        except Exception:
+            pass
+        return None
+
+    pca_mtime = _mtime(f"{study}_PCA.parquet")
+    recoded_mtime = _mtime(f"{study}_recoded.parquet")
+    stale = bool(pca_mtime is not None and recoded_mtime is not None
+                 and recoded_mtime > pca_mtime + 1)
+    return {
+        "has_pca": pca_mtime is not None,
+        "pca_built_at": pca_mtime,
+        "recoded_updated_at": recoded_mtime,
+        "stale": stale,
+    }
+
+
+
+
+
+
 def _build_schema_map(numeric_cols) -> tuple[dict, dict]:
     """Display names for factors + derived columns, and each column's base variable.
 
@@ -311,6 +518,19 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
         if var in schema_map and isinstance(section, dict) and section.get("section"):
             schema_map[var].setdefault("section", section["section"])
 
+    # Unit-of-analysis banner inputs: each row of the PCA frame is one
+    # grouping-factor group (e.g. a collection-day), not a video.
+    grouping = get_grouping_factors_from_var_schema(verbose=False)
+    grouping_display = [
+        schema_map.get(g, {}).get("display_name", g) for g in grouping
+    ]
+    unit = {
+        "grouping_factors": grouping,
+        "grouping_display": grouping_display,
+        "n_groups": int(len(df)),
+        "min_group_size": int(corr_setting("minimum_group_size")),
+    }
+
     return {
         "numeric_cols": filtered_numeric_cols,
         "numeric_col_bases": {c: b for c, b in numeric_col_bases.items() if c in filtered_numeric_cols},
@@ -324,6 +544,9 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
         "all_variables_order": prefs_meta.get("all_variables_order", []),
         "section_order": prefs_meta.get("section_order", []),
         "views": STAT_VIEWS,
+        "default_method": correlation_method(),
+        "ellipse_coverage": ELLIPSE_COVERAGE,
+        "unit": unit,
     }
 
 
@@ -332,13 +555,29 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
 
 
 def build_scatter_payload(df: pd.DataFrame, filters: dict, x_col: str, y_col: str,
-                          color_col: str | None) -> dict:
-    """Build the /api/correlations/data response (filtered scatter points)."""
+                          color_col: str | None, center: bool = False) -> dict:
+    """Build the /api/correlations/data response (filtered scatter points).
+
+    ``center=True`` demeans the two axis columns within each collection
+    before anything else, so both the points and the statistics describe
+    within-collection variation.
+    """
     filtered_df = apply_factor_filters(df, filters)
 
     filtered_df = filtered_df.dropna(subset=[x_col, y_col])
 
+    centered = False
+    if center:
+        filtered_df, centered = apply_within_collection_centering(
+            filtered_df, [x_col, y_col] if x_col != y_col else [x_col])
+
     total_count = len(filtered_df)
+
+    # Regression readout + confidence-ellipse inputs are computed on the FULL
+    # filtered set — never on the capped display sample below.
+    color_for_groups = color_col if (color_col and color_col in filtered_df.columns) else None
+    regression_stats = compute_regression_stats(filtered_df[x_col], filtered_df[y_col])
+    group_ellipses = compute_group_ellipses(filtered_df, x_col, y_col, color_for_groups)
 
     # Deterministic sample so the same request always shows the same points
     max_points = int(corr_setting("max_scatter_points"))
@@ -465,20 +704,42 @@ def build_scatter_payload(df: pd.DataFrame, filters: dict, x_col: str, y_col: st
             "factors": factors_dict
         })
 
-    return {"data": result_data, "total_count": total_count}
+    return {
+        "data": result_data,
+        "total_count": total_count,
+        "stats": regression_stats,
+        "group_ellipses": group_ellipses,
+        "ellipse_coverage": ELLIPSE_COVERAGE,
+        "centered": centered,
+    }
 
 
 
 
 
 
-def build_matrix_payload(df: pd.DataFrame, filters: dict, study: str) -> tuple[dict | None, str | None]:
+def build_matrix_payload(df: pd.DataFrame, filters: dict, study: str,
+                         method: str | None = None,
+                         center: bool = False) -> tuple[dict | None, str | None]:
     """Build the /api/correlations/correlation_matrix response.
 
-    Returns ``(payload, None)`` on success or ``(None, error_message)`` when
-    too few usable numeric columns remain.
+    Pairwise-complete correlations with per-pair n, p and Benjamini–Hochberg
+    q. Columns are ordered by variable family (base schema variable) so the
+    heatmap can separate same-family blocks — cross-family cells compare
+    components from *different* per-variable PCA bases and are captioned as
+    such in the UI. Returns ``(payload, None)`` on success or
+    ``(None, error_message)`` when too few usable numeric columns remain.
     """
+    if method not in _VALID_CORRELATION_METHODS:
+        method = correlation_method()
+
     filtered_df = apply_factor_filters(df, filters)
+
+    centered = False
+    if center:
+        centerable = [c for c in filtered_df.select_dtypes(include=['number']).columns
+                      if not str(c).endswith('_raw')]
+        filtered_df, centered = apply_within_collection_centering(filtered_df, centerable)
 
     # Select only numeric columns for correlation (exclude unscaled '_raw' columns)
     numeric_df = filtered_df.select_dtypes(include=['number'])
@@ -500,15 +761,22 @@ def build_matrix_payload(df: pd.DataFrame, filters: dict, study: str) -> tuple[d
     if numeric_df.shape[1] < 2:
         return None, "Not enough numeric columns after variance filtering"
 
-    method = correlation_method()
-    corr = numeric_df.corr(method=method)
+    # Order columns by variable family so same-basis components sit together
+    _, col_bases = _build_schema_map(list(numeric_df.columns))
+    families = {c: col_bases.get(c, c) for c in numeric_df.columns}
+    ordered_cols = sorted(numeric_df.columns, key=lambda c: (families[c], str(c)))
+    numeric_df = numeric_df[ordered_cols]
 
-    # Undefined correlations serialize as null (not a fake r = 0)
-    matrix = [[None if pd.isna(v) else float(v) for v in row] for row in corr.values]
+    r, p, q, n = pairwise_correlation_stats(numeric_df, method)
 
     return {
-        "columns": corr.columns.tolist(),
-        "matrix": matrix,
+        "columns": ordered_cols,
+        "families": [families[c] for c in ordered_cols],
+        "matrix": _matrix_to_json(r),
+        "p_matrix": _matrix_to_json(p),
+        "q_matrix": _matrix_to_json(q),
+        "n_matrix": [[int(v) for v in row] for row in n],
         "count": len(filtered_df),
         "method": method,
+        "centered": centered,
     }, None

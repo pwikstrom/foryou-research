@@ -92,6 +92,78 @@ function mountCorrelationsVizGear() {
 }
 
 
+// --- Banners + plain-language captions (the HASS readability layer) ---
+
+function renderUnitBanner(unit) {
+    const el = document.getElementById('corr-unit-banner');
+    if (!el) return;
+    if (!unit || !unit.grouping_display || !unit.grouping_display.length) {
+        el.style.display = 'none';
+        return;
+    }
+    const grouping = unit.grouping_display.join(' × ');
+    el.textContent = `Each point/row is one ${grouping} group — the average of that group's annotated videos ` +
+        `(${(unit.n_groups || 0).toLocaleString()} groups, each with at least ${unit.min_group_size} videos). ` +
+        `All statistics on this tab describe these groups, not individual videos.`;
+    el.style.display = 'block';
+}
+
+
+async function loadCorrelationsStatus() {
+    const el = document.getElementById('corr-stale-banner');
+    if (!el || !pcaData.activeStudy) return;
+    el.style.display = 'none';
+    try {
+        const res = await fetch(`/api/correlations/status?study=${encodeURIComponent(pcaData.activeStudy)}`);
+        const s = await res.json();
+        if (s && s.stale) {
+            el.textContent = "The PCA scores for this study are older than its latest data, so the statistics " +
+                "below may not include recently added videos. An admin can rebuild them via " +
+                "Data Pipeline → Refresh Caches (PCA / Correlations).";
+            el.style.display = 'block';
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+
+function formatP(p) {
+    if (p === null || p === undefined || !isFinite(p)) return 'p n/a';
+    if (p < 0.001) return 'p < .001';
+    return 'p = ' + p.toFixed(3).replace(/^0/, '');
+}
+
+
+function describeStrength(r) {
+    const a = Math.abs(r);
+    if (a < 0.1) return 'negligible';
+    if (a < 0.3) return 'weak';
+    if (a < 0.5) return 'moderate';
+    return 'strong';
+}
+
+
+function setCaption(html) {
+    const el = document.getElementById('corr-caption');
+    if (!el) return;
+    if (!html) {
+        el.style.display = 'none';
+        el.innerHTML = '';
+        return;
+    }
+    el.innerHTML = html;
+    el.style.display = 'block';
+}
+
+
+function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.innerText = String(s);
+    return div.innerHTML;
+}
+
+
 function renderViewToggle(views) {
     const container = document.getElementById('pca-view-toggle');
     if (!container) return;
@@ -173,6 +245,12 @@ async function loadPcaMetadata() {
         mountCorrelationsVizGear();
         renderPcaControls(data);
         renderPcaFilters(data);
+        renderUnitBanner(data.unit);
+        loadCorrelationsStatus();
+
+        // Default heatmap method from the [correlations] config
+        const methodSel = document.getElementById('pca-method-select');
+        if (methodSel && data.default_method) methodSel.value = data.default_method;
 
         // Initial render based on current view (also applies active button styles)
         if (!VIEW_RENDERERS[pcaData.currentView]) pcaData.currentView = 'scatter';
@@ -353,11 +431,17 @@ function setPcaView(view) {
         });
     }
 
-    // The axis/colour dropdowns only apply to the scatter view
+    // The axis/colour dropdowns only apply to the scatter view; the method /
+    // significance controls only to the heatmap
     const scatterControls = document.getElementById('pca-scatter-controls');
     if (scatterControls) {
         scatterControls.style.display = (view === 'scatter') ? 'flex' : 'none';
     }
+    const heatmapControls = document.getElementById('pca-heatmap-controls');
+    if (heatmapControls) {
+        heatmapControls.style.display = (view === 'heatmap') ? 'flex' : 'none';
+    }
+    setCaption('');
 
     refreshCurrentView();
 }
@@ -383,7 +467,8 @@ async function updatePcaPlot() {
                 filters: pcaData.filters,
                 x_col: xCol,
                 y_col: yCol,
-                color_col: colorCol
+                color_col: colorCol,
+                center: !!document.getElementById('pca-center-toggle')?.checked
             })
         });
         const data = await res.json();
@@ -405,7 +490,7 @@ async function updatePcaPlot() {
                 : `${total.toLocaleString()} points`;
         }
 
-        renderPlotlyChart(data.data, xCol, yCol, colorCol);
+        renderPlotlyChart(data, xCol, yCol, colorCol);
 
     } catch (e) {
         console.error(e);
@@ -413,8 +498,12 @@ async function updatePcaPlot() {
 }
 
 
-function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
-    _lastScatterArgs = { dataPoints, xLabel, yLabel, colorLabel };
+function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
+    _lastScatterArgs = { payload, xLabel, yLabel, colorLabel };
+    const dataPoints = payload.data || [];
+    const serverStats = payload.stats || null;
+    const groupEllipses = payload.group_ellipses || [];
+    const isCentered = !!payload.centered;
     const colors = [
         '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
         '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
@@ -439,46 +528,53 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
     const groupsKeys = Object.keys(groups);
     let traces = [];
 
-    // Ellipses
+    // Confidence ellipses: true covariance-based ellipses at 95% coverage,
+    // computed server-side on the FULL filtered set (not the display sample).
     const showEllipses = document.getElementById('pca-show-ellipses')?.checked;
 
-    if (showEllipses) {
-        groupsKeys.forEach((g, i) => {
-            const groupData = groups[g];
-            if (groupData.x.length < 2) return;
+    if (showEllipses && groupEllipses.length) {
+        // chi-square quantile, 2 df, 95% coverage — matches ELLIPSE_COVERAGE
+        const CHI2_2DF_95 = 5.991464547;
 
-            const n = groupData.x.length;
-            const meanX = groupData.x.reduce((a, b) => a + b, 0) / n;
-            const meanY = groupData.y.reduce((a, b) => a + b, 0) / n;
+        groupEllipses.forEach(e => {
+            // Match the server's raw group value to the display-keyed traces
+            const gName = (colorLabel === 'collection_id' && displayIds[e.group])
+                ? displayIds[e.group] : e.group;
+            const gi = groupsKeys.indexOf(gName);
+            const color = colors[(gi >= 0 ? gi : 0) % colors.length];
 
-            const varX = groupData.x.reduce((a, b) => a + Math.pow(b - meanX, 2), 0) / (n - 1);
-            const varY = groupData.y.reduce((a, b) => a + Math.pow(b - meanY, 2), 0) / (n - 1);
+            // Closed-form eigendecomposition of the 2×2 covariance matrix
+            const a = e.cov[0][0], b = e.cov[0][1], c = e.cov[1][1];
+            const tr = a + c, det = a * c - b * b;
+            const disc = Math.sqrt(Math.max(0, (tr * tr) / 4 - det));
+            const l1 = tr / 2 + disc;
+            const l2 = Math.max(0, tr / 2 - disc);
+            const theta = (Math.abs(b) < 1e-12)
+                ? (a >= c ? 0 : Math.PI / 2)
+                : Math.atan2(l1 - a, b);
+            const r1 = Math.sqrt(Math.max(0, l1) * CHI2_2DF_95);
+            const r2 = Math.sqrt(l2 * CHI2_2DF_95);
 
-            const rx = Math.sqrt(varX) * 2;
-            const ry = Math.sqrt(varY) * 2;
-
-            const numPoints = 50;
-            let ellipseX = [];
-            let ellipseY = [];
+            const numPoints = 60;
+            const ellipseX = [], ellipseY = [];
             for (let j = 0; j <= numPoints; j++) {
-                const theta = (j / numPoints) * 2 * Math.PI;
-                ellipseX.push(meanX + rx * Math.cos(theta));
-                ellipseY.push(meanY + ry * Math.sin(theta));
+                const t = (j / numPoints) * 2 * Math.PI;
+                const ex = r1 * Math.cos(t), ey = r2 * Math.sin(t);
+                ellipseX.push(e.mean_x + ex * Math.cos(theta) - ey * Math.sin(theta));
+                ellipseY.push(e.mean_y + ex * Math.sin(theta) + ey * Math.cos(theta));
             }
-
-            const color = colors[i % colors.length];
 
             traces.push({
                 x: ellipseX,
                 y: ellipseY,
                 mode: 'lines',
-                name: `${g} (Ellipse)`,
+                name: `${gName} (95% ellipse, n=${e.n})`,
                 showlegend: false,
-                line: { width: 0 },
+                line: { width: 1, color: color },
                 fill: 'toself',
                 fillcolor: color,
-                opacity: 0.2,
-                hoverinfo: 'skip'
+                opacity: 0.15,
+                hoverinfo: 'name'
             });
         });
     }
@@ -603,19 +699,18 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
         }
     }
 
-    // Regression line
+    // Regression line + full readout (server-computed on all filtered groups)
     const showStats = document.getElementById('pca-show-stats')?.checked;
-    if (showStats && dataPoints.length > 1) {
-        const reg = calculateRegression(dataPoints);
-        if (reg) {
-            // Span the line over the observed x range only
-            let xMin = Infinity, xMax = -Infinity;
-            dataPoints.forEach(d => {
-                if (d.x < xMin) xMin = d.x;
-                if (d.x > xMax) xMax = d.x;
-            });
+    if (showStats && serverStats) {
+        // Span the line over the observed x range only
+        let xMin = Infinity, xMax = -Infinity;
+        dataPoints.forEach(d => {
+            if (d.x < xMin) xMin = d.x;
+            if (d.x > xMax) xMax = d.x;
+        });
+        if (isFinite(xMin) && isFinite(xMax)) {
             const lineX = [xMin, xMax];
-            const lineY = lineX.map(x => reg.slope * x + reg.intercept);
+            const lineY = lineX.map(x => serverStats.slope * x + serverStats.intercept);
 
             traces.push({
                 x: lineX,
@@ -626,21 +721,29 @@ function renderPlotlyChart(dataPoints, xLabel, yLabel, colorLabel) {
                 line: { color: getCSSVar('--chart-regression-line'), width: 2, dash: 'dash' },
                 hoverinfo: 'none'
             });
-
-            const sign = reg.intercept >= 0 ? '+' : '-';
-            layout.annotations.push({
-                xref: 'paper', yref: 'paper',
-                x: 0.02, y: 0.98,
-                xanchor: 'left', yanchor: 'top',
-                text: `R² = ${reg.r2.toFixed(2)}`,
-                showarrow: false,
-                font: { family: getCSSVar('--font-sans'), size: 12, color: getCSSVar('--white') },
-                bgcolor: getCSSVar('--chart-badge-bg'),
-                bordercolor: getCSSVar('--color-text-faint'), borderwidth: 1,
-                align: 'left'
-            });
         }
+
+        const s = serverStats;
+        const readout = [
+            `R² = ${s.r2.toFixed(2)}`,
+            `slope = ${s.slope.toFixed(2)} [${s.ci_low.toFixed(2)}, ${s.ci_high.toFixed(2)}]`,
+            formatP(s.p),
+            `n = ${s.n.toLocaleString()}`
+        ].join('   ');
+        layout.annotations.push({
+            xref: 'paper', yref: 'paper',
+            x: 0.02, y: 0.98,
+            xanchor: 'left', yanchor: 'top',
+            text: readout,
+            showarrow: false,
+            font: { family: getCSSVar('--font-sans'), size: 12, color: getCSSVar('--white') },
+            bgcolor: getCSSVar('--chart-badge-bg'),
+            bordercolor: getCSSVar('--color-text-faint'), borderwidth: 1,
+            align: 'left'
+        });
     }
+
+    renderScatterCaption(serverStats, xTitle, yTitle, isCentered, showStats);
 
     Plotly.newPlot('pca-plot', traces, layout, { responsive: true, displayModeBar: true });
 
@@ -698,7 +801,9 @@ async function loadCorrelationHeatmap() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 study: pcaData.activeStudy,
-                filters: pcaData.filters
+                filters: pcaData.filters,
+                method: document.getElementById('pca-method-select')?.value || undefined,
+                center: !!document.getElementById('pca-center-toggle')?.checked
             })
         });
         const data = await res.json();
@@ -713,7 +818,7 @@ async function loadCorrelationHeatmap() {
             countEl.innerText = `${data.count.toLocaleString()} observations`;
         }
 
-        renderCorrelationHeatmap(data.columns, data.matrix, data.method);
+        renderCorrelationHeatmap(data);
 
     } catch (e) {
         console.error(e);
@@ -722,35 +827,76 @@ async function loadCorrelationHeatmap() {
 }
 
 
-function renderCorrelationHeatmap(columns, matrix, method) {
-    _lastHeatmapArgs = { columns, matrix, method };
+function rerenderHeatmapFromCache() {
+    if (pcaData.currentView === 'heatmap' && _lastHeatmapArgs) {
+        renderCorrelationHeatmap(_lastHeatmapArgs);
+    }
+}
+
+
+function renderCorrelationHeatmap(payload) {
+    _lastHeatmapArgs = payload;
     const schemaMap = pcaData.metadata?.schema_map || {};
+    const method = payload.method;
     const rLabel = (method === 'spearman') ? 'Spearman ρ' : 'Pearson r';
+    const maskNonSig = !!document.getElementById('pca-mask-nonsig')?.checked;
 
     // Apply the user's effective viz preferences (same base-variable rule as
     // the axis dropdowns) to the matrix rows/columns.
-    const visible = new Set(filterColsByPrefs(columns));
-    let keptIdx = columns.map((c, i) => i).filter(i => visible.has(columns[i]));
-    if (keptIdx.length < 2) keptIdx = columns.map((c, i) => i);
-    columns = keptIdx.map(i => columns[i]);
-    matrix = keptIdx.map(i => keptIdx.map(j => matrix[i][j]));
+    const allCols = payload.columns;
+    const visible = new Set(filterColsByPrefs(allCols));
+    let keptIdx = allCols.map((c, i) => i).filter(i => visible.has(allCols[i]));
+    if (keptIdx.length < 2) keptIdx = allCols.map((c, i) => i);
+
+    const columns = keptIdx.map(i => allCols[i]);
+    const families = (payload.families || allCols).filter((f, i) => keptIdx.includes(i));
+    const pick = (mat) => (mat ? keptIdx.map(i => keptIdx.map(j => mat[i][j])) : null);
+    const rM = pick(payload.matrix);
+    const pM = pick(payload.p_matrix);
+    const qM = pick(payload.q_matrix);
+    const nM = pick(payload.n_matrix);
 
     // Map columns to display names
     const displayColumns = columns.map(col => {
         return (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
     });
 
-    // Build hover text with correlation values (null = undefined correlation)
+    // Optional significance masking: blank cells with q >= .05 (diagonal kept)
+    let maskedCount = 0;
+    const z = rM.map((row, i) => row.map((val, j) => {
+        if (i === j) return val;
+        if (maskNonSig) {
+            const q = qM?.[i]?.[j];
+            if (q === null || q === undefined || q >= 0.05) {
+                if (val !== null && val !== undefined) maskedCount++;
+                return null;
+            }
+        }
+        return val;
+    }));
+
+    // Hover: r with pairwise n, p and BH q (null = undefined correlation)
     const rSymbol = (method === 'spearman') ? 'ρ' : 'r';
-    const hoverText = matrix.map((row, i) =>
+    const hoverText = rM.map((row, i) =>
         row.map((val, j) => {
-            const rTxt = (val === null || val === undefined) ? 'undefined' : val.toFixed(3);
-            return `${displayColumns[i]} × ${displayColumns[j]}<br>${rSymbol} = ${rTxt}`;
+            const head = `${displayColumns[i]} × ${displayColumns[j]}`;
+            if (val === null || val === undefined) return `${head}<br>${rSymbol} undefined`;
+            const parts = [`${rSymbol} = ${val.toFixed(3)}`];
+            if (nM?.[i]?.[j] !== undefined) parts.push(`n = ${nM[i][j]}`);
+            if (i !== j && pM?.[i]?.[j] !== null && pM?.[i]?.[j] !== undefined) {
+                parts.push(formatP(pM[i][j]));
+                const q = qM?.[i]?.[j];
+                if (q !== null && q !== undefined) {
+                    parts.push('q = ' + q.toFixed(3).replace(/^0/, ''));
+                }
+            }
+            if (families[i] !== families[j]) parts.push('(different PCA bases)');
+            return `${head}<br>${parts.join(', ')}`;
         })
     );
 
     const trace = {
-        z: matrix,
+        z: z,
         x: displayColumns,
         y: displayColumns,
         type: 'heatmap',
@@ -772,6 +918,17 @@ function renderCorrelationHeatmap(columns, matrix, method) {
         }
     };
 
+    // Separator lines between variable families (columns arrive grouped)
+    const shapes = [];
+    for (let i = 1; i < families.length; i++) {
+        if (families[i] !== families[i - 1]) {
+            const pos = i - 0.5;
+            const line = { color: getCSSVar('--chart-zeroline'), width: 1 };
+            shapes.push({ type: 'line', xref: 'x', yref: 'paper', x0: pos, x1: pos, y0: 0, y1: 1, line });
+            shapes.push({ type: 'line', yref: 'y', xref: 'paper', y0: pos, y1: pos, x0: 0, x1: 1, line });
+        }
+    }
+
     const layout = {
         title: {
             text: 'Correlation Matrix',
@@ -790,57 +947,113 @@ function renderCorrelationHeatmap(columns, matrix, method) {
             tickfont: { family: getCSSVar('--font-sans'), size: 9 },
             gridcolor: getCSSVar('--chart-grid')
         },
+        shapes: shapes,
         margin: { t: 50, r: 80, b: 120, l: 120 }
     };
+
+    renderHeatmapCaption(payload, maskNonSig, maskedCount);
 
     Plotly.newPlot('pca-plot', [trace], layout, { responsive: true, displayModeBar: true });
 }
 
 
-// --- Regression Helper ---
-
-function calculateRegression(data) {
-    const n = data.length;
-    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0, sumYY = 0;
-
-    for (let i = 0; i < n; i++) {
-        const x = data[i].x;
-        const y = data[i].y;
-        sumX += x;
-        sumY += y;
-        sumXY += x * y;
-        sumXX += x * x;
-        sumYY += y * y;
+function renderHeatmapCaption(payload, maskNonSig, maskedCount) {
+    const methodName = payload.method === 'spearman' ? 'Spearman (rank-based)' : 'Pearson (linear)';
+    const parts = [];
+    parts.push(`${methodName} correlations across ${payload.count.toLocaleString()} groups; ` +
+        `each cell also reports its pairwise n, p, and a Benjamini–Hochberg adjusted q ` +
+        `(controls the share of false positives among all pairs tested).`);
+    if (maskNonSig) {
+        parts.push(`${maskedCount.toLocaleString()} non-significant cells (q ≥ .05) are blanked.`);
     }
-
-    const denominator = (n * sumXX - sumX * sumX);
-    if (denominator === 0) return null;
-
-    const slope = (n * sumXY - sumX * sumY) / denominator;
-    const intercept = (sumY - slope * sumX) / n;
-
-    const meanY = sumY / n;
-    let ssTot = 0, ssRes = 0;
-    for (let i = 0; i < n; i++) {
-        const y = data[i].y;
-        const yPred = slope * data[i].x + intercept;
-        ssTot += (y - meanY) * (y - meanY);
-        ssRes += (y - yPred) * (y - yPred);
+    if (payload.centered) {
+        parts.push('Values are centered within each collection (within-donor associations).');
     }
+    parts.push('<span class="text-xs">Thin separators group components of the same variable; ' +
+        'cells that cross a separator compare components from different per-variable PCA ' +
+        'spaces — read them as associations between summary dimensions, not shared axes.</span>');
+    setCaption(parts.join(' '));
+}
 
-    const r2 = ssTot === 0 ? 0 : 1 - (ssRes / ssTot);
 
-    return { slope, intercept, r2 };
+function exportCorrelationCsv() {
+    const payload = _lastHeatmapArgs;
+    if (!payload || !payload.columns) return;
+    const schemaMap = pcaData.metadata?.schema_map || {};
+    const dname = (c) => (schemaMap[c] && schemaMap[c].display_name) ? schemaMap[c].display_name : c;
+    const esc = (v) => {
+        const s = String(v === null || v === undefined ? '' : v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+
+    const rows = [["variable_a", "variable_b", "family_a", "family_b",
+                   "method", "r", "n", "p", "q", "centered"]];
+    const cols = payload.columns;
+    const fams = payload.families || cols;
+    for (let i = 0; i < cols.length; i++) {
+        for (let j = i + 1; j < cols.length; j++) {
+            rows.push([
+                dname(cols[i]), dname(cols[j]), fams[i], fams[j],
+                payload.method,
+                payload.matrix?.[i]?.[j],
+                payload.n_matrix?.[i]?.[j],
+                payload.p_matrix?.[i]?.[j],
+                payload.q_matrix?.[i]?.[j],
+                payload.centered ? 'yes' : 'no',
+            ]);
+        }
+    }
+    const csv = rows.map(r => r.map(esc).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const centeredTag = payload.centered ? '_centered' : '';
+    a.download = `${pcaData.activeStudy || 'study'}_correlations_${payload.method}${centeredTag}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+}
+
+
+// --- Scatter caption (plain-language summary of the server statistics) ---
+
+function renderScatterCaption(stats, xTitle, yTitle, isCentered, showStats) {
+    if (!showStats) {
+        setCaption('');
+        return;
+    }
+    if (!stats) {
+        setCaption('Too few groups to compute a regression readout for this selection.');
+        return;
+    }
+    const direction = stats.r >= 0 ? 'positive' : 'negative';
+    const strength = describeStrength(stats.r);
+    const rTxt = stats.r.toFixed(2).replace(/^(-?)0/, '$1');
+    const parts = [];
+    parts.push(`A ${strength} ${direction} association between ` +
+        `<b>${escapeHtml(xTitle)}</b> and <b>${escapeHtml(yTitle)}</b> ` +
+        `(r = ${rTxt}, ${formatP(stats.p)}, n = ${stats.n.toLocaleString()} groups).`);
+    if (isCentered) {
+        parts.push('Values are centered within each collection, so this describes ' +
+            'variation <i>within</i> donors’ feeds, not differences between donors.');
+    }
+    if (stats.n < 30) {
+        parts.push('<span class="corr-caption-warning">Small sample — fewer than 30 groups; ' +
+            'interpret with caution.</span>');
+    }
+    parts.push('<span class="text-xs">The line assumes a straight-line relationship — ' +
+        'check the scatter for curvature or outliers before relying on it.</span>');
+    setCaption(parts.join(' '));
 }
 
 window.addEventListener('theme-changed', () => {
     // Re-render charts (Plotly needs resolved color values, not CSS var())
     if (pcaData.currentView === 'scatter' && _lastScatterArgs) {
-        renderPlotlyChart(_lastScatterArgs.dataPoints, _lastScatterArgs.xLabel,
+        renderPlotlyChart(_lastScatterArgs.payload, _lastScatterArgs.xLabel,
                           _lastScatterArgs.yLabel, _lastScatterArgs.colorLabel);
     } else if (pcaData.currentView === 'heatmap' && _lastHeatmapArgs) {
-        renderCorrelationHeatmap(_lastHeatmapArgs.columns, _lastHeatmapArgs.matrix,
-                                 _lastHeatmapArgs.method);
+        renderCorrelationHeatmap(_lastHeatmapArgs);
     }
 });
 

@@ -93,7 +93,8 @@ def api_pca_data():
     if x_col not in df.columns or y_col not in df.columns:
         return jsonify({"error": "Unknown axis column"}), 400
 
-    payload = correlations_service.build_scatter_payload(df, filters, x_col, y_col, color_col)
+    payload = correlations_service.build_scatter_payload(
+        df, filters, x_col, y_col, color_col, center=bool(data.get("center")))
     return jsonify(payload)
 
 
@@ -119,8 +120,33 @@ def api_pca_correlation_matrix():
     if df is None:
         return jsonify({"error": "PCA data not found"}), 404
 
-    payload, error = correlations_service.build_matrix_payload(df, filters, study)
+    payload, error = correlations_service.build_matrix_payload(
+        df, filters, study,
+        method=data.get("method"),
+        center=bool(data.get("center")))
     if payload is None:
         return jsonify({"error": error}), 400
 
     return jsonify(payload)
+
+
+
+
+
+
+@correlations_bp.route('/api/correlations/status', methods=['GET'])
+@permission_required('tab.correlations')
+def api_correlations_status():
+    """Lightweight freshness signal: is the PCA artifact behind the study data?
+
+    Informational only (drives a banner); the tab keeps rendering regardless.
+    """
+    study = (request.args.get('study') or '').strip()
+    if not study:
+        return jsonify({"error": "No study"}), 400
+
+    denied = _study_access_error(study)
+    if denied is not None:
+        return denied
+
+    return jsonify(correlations_service.build_status_payload(study))
