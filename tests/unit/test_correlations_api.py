@@ -71,6 +71,8 @@ def test_unauthenticated_is_rejected(client):
     for endpoint in _ENDPOINTS:
         res = client.post(endpoint, json={"study": "any"})
         assert res.status_code in (302, 401), endpoint
+    res = client.get("/api/correlations/status?study=any")
+    assert res.status_code in (302, 401)
 
 
 
@@ -83,6 +85,8 @@ def test_requires_tab_permission(client, monkeypatch):
     for endpoint in _ENDPOINTS:
         res = client.post(endpoint, json={"study": "any", "x_col": "a", "y_col": "b"})
         assert res.status_code == 403, endpoint
+    res = client.get("/api/correlations/status?study=any")
+    assert res.status_code == 403
 
 
 
@@ -98,6 +102,8 @@ def test_inaccessible_study_is_403(client, monkeypatch):
     for endpoint in _ENDPOINTS:
         res = client.post(endpoint, json={"study": "secret", "x_col": "a", "y_col": "b"})
         assert res.status_code == 403, endpoint
+    res = client.get("/api/correlations/status?study=secret")
+    assert res.status_code == 403
 
 
 
@@ -306,3 +312,248 @@ def test_pca_cache_invalidates_on_mtime_change(monkeypatch):
 
     with analysis_data._pca_cache_lock:
         analysis_data._pca_cache.clear()
+
+
+
+
+
+def test_pairwise_stats_match_scipy():
+    """Golden values: r/p per pair against scipy, q against manual BH."""
+    import numpy as np
+    from scipy import stats as sps
+
+    from web_interface.services.correlations_service import pairwise_correlation_stats
+
+    rng = np.random.RandomState(7)
+    df = pd.DataFrame({
+        "a": rng.normal(size=40),
+        "b": rng.normal(size=40),
+    })
+    df["c"] = df["a"] * 0.8 + rng.normal(scale=0.5, size=40)
+    df.loc[df.index[:5], "b"] = float("nan")  # pairwise-n differs per pair
+
+    for method in ("pearson", "spearman"):
+        r, p, q, n = pairwise_correlation_stats(df, method)
+        cols = list(df.columns)
+        pairs = [(0, 1), (0, 2), (1, 2)]
+        raw_p = {}
+        for i, j in pairs:
+            x = df[cols[i]]
+            y = df[cols[j]]
+            mask = x.notna() & y.notna()
+            assert n[i][j] == int(mask.sum())
+            fn = sps.spearmanr if method == "spearman" else sps.pearsonr
+            expect = fn(x[mask], y[mask])
+            assert r[i][j] == pytest.approx(float(expect[0]), abs=1e-12)
+            assert p[i][j] == pytest.approx(float(expect[1]), abs=1e-12)
+            raw_p[(i, j)] = float(expect[1])
+
+        # Manual Benjamini-Hochberg over the three pairs
+        ordered = sorted(raw_p.items(), key=lambda kv: kv[1])
+        m = len(ordered)
+        bh = {}
+        prev = 1.0
+        for rank_idx in range(m - 1, -1, -1):
+            key, pval = ordered[rank_idx]
+            val = min(prev, pval * m / (rank_idx + 1))
+            bh[key] = val
+            prev = val
+        for (i, j), qv in bh.items():
+            assert q[i][j] == pytest.approx(qv, abs=1e-12)
+
+    # Diagonal: r=1, n=full column count
+    r, p, q, n = pairwise_correlation_stats(df, "pearson")
+    assert r[0][0] == 1.0 and n[0][0] == 40
+
+
+
+
+
+
+def test_regression_stats_match_scipy():
+    import numpy as np
+    from scipy import stats as sps
+
+    from web_interface.services.correlations_service import compute_regression_stats
+
+    rng = np.random.RandomState(3)
+    x = rng.normal(size=50)
+    y = 2.0 * x + rng.normal(scale=0.7, size=50)
+
+    stats = compute_regression_stats(x, y)
+    ref = sps.linregress(x, y)
+    t_crit = sps.t.ppf(0.975, 48)
+
+    assert stats["n"] == 50
+    assert stats["slope"] == pytest.approx(ref.slope)
+    assert stats["intercept"] == pytest.approx(ref.intercept)
+    assert stats["r"] == pytest.approx(ref.rvalue)
+    assert stats["r2"] == pytest.approx(ref.rvalue ** 2)
+    assert stats["p"] == pytest.approx(ref.pvalue)
+    assert stats["ci_low"] == pytest.approx(ref.slope - t_crit * ref.stderr)
+    assert stats["ci_high"] == pytest.approx(ref.slope + t_crit * ref.stderr)
+
+    # Degenerate inputs return None instead of nonsense
+    assert compute_regression_stats([1.0, 1.0, 1.0], [1.0, 2.0, 3.0]) is None
+    assert compute_regression_stats([1.0, 2.0], [1.0, 2.0]) is None
+
+
+
+
+
+
+def test_group_ellipses_match_numpy_cov():
+    import numpy as np
+
+    from web_interface.services.correlations_service import compute_group_ellipses
+
+    rng = np.random.RandomState(11)
+    df = pd.DataFrame({
+        "x": rng.normal(size=30),
+        "y": rng.normal(size=30),
+        "grp": ["a"] * 20 + ["b"] * 10,
+    })
+
+    ellipses = {e["group"]: e for e in compute_group_ellipses(df, "x", "y", "grp")}
+    assert set(ellipses) == {"a", "b"}
+    sub = df[df["grp"] == "a"]
+    cov = np.cov(sub["x"], sub["y"])
+    assert ellipses["a"]["n"] == 20
+    assert ellipses["a"]["mean_x"] == pytest.approx(float(sub["x"].mean()))
+    assert ellipses["a"]["cov"][0][1] == pytest.approx(float(cov[0, 1]))
+
+    # No colour column -> a single "Default" group over everything
+    all_e = compute_group_ellipses(df, "x", "y", None)
+    assert [e["group"] for e in all_e] == ["Default"]
+    assert all_e[0]["n"] == 30
+
+    # Tiny groups (n < 3) are skipped
+    tiny = df.head(2).assign(grp="t")
+    assert compute_group_ellipses(tiny, "x", "y", "grp") == []
+
+
+
+
+
+
+def test_within_collection_centering():
+    from web_interface.services.correlations_service import apply_within_collection_centering
+
+    df = pd.DataFrame({
+        "collection_id": ["a", "a", "b", "b"],
+        "v": [1.0, 3.0, 10.0, 30.0],
+    })
+    out, applied = apply_within_collection_centering(df, ["v"])
+    assert applied
+    means = out.groupby("collection_id")["v"].mean()
+    assert means["a"] == pytest.approx(0.0)
+    assert means["b"] == pytest.approx(0.0)
+    # Within-collection differences survive
+    assert out["v"].tolist() == [-1.0, 1.0, -10.0, 10.0]
+
+    # No collection_id column -> untouched no-op
+    df2 = pd.DataFrame({"v": [1.0, 2.0]})
+    out2, applied2 = apply_within_collection_centering(df2, ["v"])
+    assert not applied2
+    assert out2 is df2
+
+
+
+
+
+
+def test_matrix_payload_v2_fields(client, monkeypatch):
+    """families ordering, n/p/q matrices, method override and centering flag."""
+    from web_interface.routes import api_correlations_routes as routes
+    from web_interface.services import correlations_service
+
+    _grant_permissions(monkeypatch, ["tab.correlations"])
+    monkeypatch.setattr(routes, "get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr(correlations_service, "load_interpretations", lambda study: {})
+
+    rng_vals = [0.1, 0.9, 0.4, 0.7, 0.2, 0.8]
+    df = pd.DataFrame({
+        "a": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        "b": [2.0, 4.1, 5.9, 8.2, 9.9, 12.1],
+        "c": rng_vals,
+        "collection_id": ["x", "x", "x", "y", "y", "y"],
+    })
+    monkeypatch.setattr(routes, "get_pca_df", lambda study: df)
+
+    _login(client, _TEST_VIEWER)
+    res = client.post("/api/correlations/correlation_matrix",
+                      json={"study": "mystudy", "method": "spearman", "center": True})
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert payload["method"] == "spearman"
+    assert payload["centered"] is True
+    k = len(payload["columns"])
+    assert len(payload["families"]) == k
+    for key in ("matrix", "p_matrix", "q_matrix", "n_matrix"):
+        assert len(payload[key]) == k and len(payload[key][0]) == k
+    # Diagonal is r=1 with the column's own n
+    i = payload["columns"].index("a")
+    assert payload["matrix"][i][i] == pytest.approx(1.0)
+    assert payload["n_matrix"][i][i] == 6
+    # An invalid method degrades to the configured default
+    res = client.post("/api/correlations/correlation_matrix",
+                      json={"study": "mystudy", "method": "nonsense"})
+    assert res.get_json()["method"] in ("pearson", "spearman")
+
+
+
+
+
+
+def test_status_payload_staleness(monkeypatch):
+    import fyp.data_io as data_io
+
+    from web_interface.services.correlations_service import build_status_payload
+
+    mtimes = {"s_PCA.parquet": 100.0, "s_recoded.parquet": 50.0}
+    monkeypatch.setattr(data_io, "exists",
+                        lambda storage_location, filename, **kw: filename in mtimes)
+    monkeypatch.setattr(data_io, "getmtime",
+                        lambda storage_location, filename, **kw: mtimes[filename])
+
+    fresh = build_status_payload("s")
+    assert fresh["has_pca"] and not fresh["stale"]
+
+    mtimes["s_recoded.parquet"] = 200.0
+    assert build_status_payload("s")["stale"]
+
+    del mtimes["s_PCA.parquet"]
+    missing = build_status_payload("s")
+    assert not missing["has_pca"] and not missing["stale"]
+
+
+
+
+
+
+def test_scatter_payload_stats_and_ellipses(client, monkeypatch):
+    from web_interface.routes import api_correlations_routes as routes
+
+    _grant_permissions(monkeypatch, ["tab.correlations"])
+    monkeypatch.setattr(routes, "get_accessible_studies", lambda *a, **k: ["mystudy"])
+
+    df = pd.DataFrame({
+        "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        "y": [1.1, 2.2, 2.9, 4.2, 4.8, 6.1],
+        "collection_id": ["a", "a", "a", "b", "b", "b"],
+    })
+    monkeypatch.setattr(routes, "get_pca_df", lambda study: df)
+
+    _login(client, _TEST_VIEWER)
+    res = client.post("/api/correlations/data", json={
+        "study": "mystudy", "x_col": "x", "y_col": "y", "color_col": "collection_id"})
+    assert res.status_code == 200
+    payload = res.get_json()
+    stats = payload["stats"]
+    assert stats["n"] == 6
+    assert stats["ci_low"] < stats["slope"] < stats["ci_high"]
+    assert 0 <= stats["p"] <= 1
+    groups = {e["group"] for e in payload["group_ellipses"]}
+    assert groups == {"a", "b"}
+    assert payload["centered"] is False
+    assert payload["ellipse_coverage"] == pytest.approx(0.95)

@@ -54,15 +54,41 @@
                         </select>
                     </div>
                     <!-- Stats Toggle -->
-                    <div class="corr-checkbox-group">
+                    <div class="corr-checkbox-group meta-tooltip tooltip-below"
+                        data-tooltip="Ordinary least squares line with slope, 95% confidence interval, r, R², p and n — computed on all filtered groups, not just the plotted sample.">
                         <input type="checkbox" id="pca-show-stats" onchange="updatePcaPlot()">
-                        <label for="pca-show-stats" class="font-normal corr-checkbox-label">Stats</label>
+                        <label for="pca-show-stats" class="font-normal corr-checkbox-label">Regression</label>
                     </div>
                     <!-- Ellipses Toggle -->
-                    <div class="corr-checkbox-group">
+                    <div class="corr-checkbox-group meta-tooltip tooltip-below"
+                        data-tooltip="95%-coverage confidence ellipses per colour group, built from each group's covariance (orientation reflects the x–y correlation within the group).">
                         <input type="checkbox" id="pca-show-ellipses" onchange="updatePcaPlot()">
                         <label for="pca-show-ellipses" class="font-normal corr-checkbox-label">Ellipses</label>
                     </div>
+                </div>
+
+                <!-- Heatmap Controls -->
+                <div id="pca-heatmap-controls" class="corr-scatter-controls" style="display: none;">
+                    <div>
+                        <label class="corr-control-label">Method:</label>
+                        <select id="pca-method-select" class="dropdown corr-select-narrow" onchange="loadCorrelationHeatmap()">
+                            <option value="pearson">Pearson</option>
+                            <option value="spearman">Spearman</option>
+                        </select>
+                    </div>
+                    <div class="corr-checkbox-group meta-tooltip tooltip-below"
+                        data-tooltip="Blank out cells whose association is not statistically reliable after correcting for the number of pairs tested (Benjamini–Hochberg q ≥ .05).">
+                        <input type="checkbox" id="pca-mask-nonsig" onchange="rerenderHeatmapFromCache()">
+                        <label for="pca-mask-nonsig" class="font-normal corr-checkbox-label">Hide non-significant</label>
+                    </div>
+                    <button id="pca-export-csv" class="btn-discreet" onclick="exportCorrelationCsv()">Download CSV</button>
+                </div>
+
+                <!-- Centering Toggle (applies to both views) -->
+                <div class="corr-checkbox-group meta-tooltip tooltip-below"
+                    data-tooltip="Subtract each collection's own average first, so associations reflect variation within a donor's feed rather than differences between donors.">
+                    <input type="checkbox" id="pca-center-toggle" onchange="refreshCurrentView()">
+                    <label for="pca-center-toggle" class="font-normal corr-checkbox-label">Within-collection</label>
                 </div>
 
                 <!-- Point Count (right-aligned) -->
@@ -71,8 +97,15 @@
                 </div>
             </div>
 
+            <!-- Unit-of-analysis + freshness banners -->
+            <div id="corr-unit-banner" class="corr-banner" style="display: none;"></div>
+            <div id="corr-stale-banner" class="corr-banner corr-banner-warn" style="display: none;"></div>
+
             <!-- Plot Area -->
             <div id="pca-plot" class="corr-plot"></div>
+
+            <!-- Plain-language caption -->
+            <div id="corr-caption" class="corr-caption" style="display: none;"></div>
 
         </div>
 
