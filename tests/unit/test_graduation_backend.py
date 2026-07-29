@@ -68,6 +68,13 @@ def client(monkeypatch):
     from web_interface.auth import ROLE_ADMIN, User
     from web_interface.fyp_data_hub import app
 
+    # These tests exercise the runtime-contract upload flow (save → refresh →
+    # eager mint), which the FYP_BAKED_CONTRACTS_ONLY override — set globally
+    # on CI — deliberately disables. Clear it for the duration of the test so
+    # the minted version snapshots the uploaded text, not the baked contract.
+    monkeypatch.delenv("FYP_BAKED_CONTRACTS_ONLY", raising=False)
+    ac.refresh_runtime_contract()
+
     orig_get_user = security.user_manager.get_user
 
     def _fake_get(uid):
