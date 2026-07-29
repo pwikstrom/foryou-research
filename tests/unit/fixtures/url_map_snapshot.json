@@ -854,6 +854,13 @@
   ]
  ],
  [
+  "/api/system-health/task-failures/ack",
+  "explorer_bp.ack_task_failures",
+  [
+   "POST"
+  ]
+ ],
+ [
   "/api/system-info",
   "explorer_bp.system_info",
   [

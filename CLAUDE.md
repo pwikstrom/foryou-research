@@ -266,7 +266,7 @@ The app runs on **Google Cloud Run** as two services sharing the same Docker ima
 
 **GCP Configuration:**
 - Project: `<gcp-project>`, Region: `australia-southeast1`
-- Cloud Tasks queue: `fyp-background-tasks` (max-attempts=1)
+- Cloud Tasks queue: `fyp-background-tasks` (max-attempts=4 with backoff; configure via `scripts/configure_task_queue.sh`). Retry is **app-controlled**: only the idempotent refreshes in `process_routes.QUEUE_RETRY_SAFE` return 503 (→ retried); every other task returns 200 on failure and is terminal. All failures land in the `cache/task_failures.json` ledger (`web_interface/task_failures.py`) — the dead-letter record, surfaced on Admin → System info.
 - Service account: `<project-number>-compute@developer.gserviceaccount.com`
 - Base image: `australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-base:latest`
 - App image: `australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-app:latest`

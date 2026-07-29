@@ -170,6 +170,20 @@ def test_no_candidates_when_impact_empty():
     _check("test_no_candidates_when_impact_empty", ok)
 
 
+def test_meta_refresh_scoped_to_affected_studies():
+    # meta_refresh_groups used to refresh EVERY study on every pipeline run,
+    # even though the impact names exactly which studies changed.
+    impact = {
+        "affected_study_names": ["study_a", "study_b"],
+        "affected_collection_ids": [],
+        "new_annotation_item_count": 0,
+    }
+    pipe = _build_downstream_pipeline(impact)
+    meta = next((p for p in pipe if p["task"] == "meta_refresh_groups"), None)
+    ok = meta is not None and meta["task_args"] == {"studies": "study_a,study_b"}
+    _check("test_meta_refresh_scoped_to_affected_studies", ok, str(meta))
+
+
 
 # -------- Fork chain --------
 

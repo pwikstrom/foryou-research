@@ -20,8 +20,9 @@ Phases (carried in ``task_args['phase']``, self-chained like queue_annotator):
 
 Claim/restore safety: claimed items are removed from the queue only after a
 successful submit, and restored if the job fails or an item comes back
-unprocessed. If a poll chain is orphaned (e.g. a task dies under the queue's
-max-attempts=1), the claimed-but-unannotated items are re-discovered by the next
+unprocessed. If a poll chain is orphaned (this worker is deliberately excluded
+from ``process_routes.QUEUE_RETRY_SAFE`` — a retried submit could pay for the
+same batch job twice), the claimed-but-unannotated items are re-discovered by the next
 ``calculate_to_annotate`` (they remain scraped-but-not-annotated).
 
 LIVE SPIKE (run before any bulk use — needs GCS media + batch access; cannot run

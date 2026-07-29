@@ -27,7 +27,9 @@ python scripts/gen_route_inventory.py
 | auth_bp | `/signup` | GET,POST | `auth_bp.signup` |
 | correlations_bp | `/api/correlations/correlation_matrix` | POST | `correlations_bp.api_pca_correlation_matrix` |
 | correlations_bp | `/api/correlations/data` | POST | `correlations_bp.api_pca_data` |
+| correlations_bp | `/api/correlations/group_stats` | POST | `correlations_bp.api_correlations_group_stats` |
 | correlations_bp | `/api/correlations/metadata` | POST | `correlations_bp.api_pca_metadata` |
+| correlations_bp | `/api/correlations/status` | GET | `correlations_bp.api_correlations_status` |
 | explorer_bp | `/api/explore/filter` | POST | `explorer_bp.api_explorer_filter` |
 | explorer_bp | `/api/explore/metadata` | GET | `explorer_bp.api_explorer_metadata` |
 | explorer_bp | `/api/explore/metadata/base` | GET | `explorer_bp.api_explorer_metadata_base` |
@@ -35,6 +37,7 @@ python scripts/gen_route_inventory.py
 | explorer_bp | `/api/studies/defined` | GET | `explorer_bp.api_get_study_defs` |
 | explorer_bp | `/api/system-health` | GET | `explorer_bp.get_system_health` |
 | explorer_bp | `/api/system-health/run` | POST | `explorer_bp.run_system_health` |
+| explorer_bp | `/api/system-health/task-failures/ack` | POST | `explorer_bp.ack_task_failures` |
 | explorer_bp | `/api/system-info` | GET | `explorer_bp.system_info` |
 | human_eval | `/api/human-eval/my-tasks` | GET | `human_eval.my_human_eval_tasks` |
 | human_eval | `/api/human-eval/tasks/<run_id>/<task_type>` | GET | `human_eval.get_coder_task` |
@@ -80,10 +83,18 @@ python scripts/gen_route_inventory.py
 | management_bp | `/api/manage/annotation-versions` | GET | `management_bp.list_annotation_versions` |
 | management_bp | `/api/manage/annotation-versions/<version>` | GET | `management_bp.get_annotation_version` |
 | management_bp | `/api/manage/annotation-versions/promote` | POST | `management_bp.promote_annotation_version` |
+| management_bp | `/api/manage/annotation/backends` | GET | `management_bp.get_annotation_backends` |
 | management_bp | `/api/manage/collection/save_annotation` | POST | `management_bp.save_collection_annotation` |
 | management_bp | `/api/manage/collections` | GET | `management_bp.list_collections` |
 | management_bp | `/api/manage/collections/affected_studies` | GET | `management_bp.affected_studies_for_collection` |
 | management_bp | `/api/manage/collections/delete` | POST | `management_bp.delete_collection` |
+| management_bp | `/api/manage/data-contracts/<kind>` | GET | `management_bp.get_data_contract` |
+| management_bp | `/api/manage/data-contracts/<kind>/download` | GET | `management_bp.download_data_contract` |
+| management_bp | `/api/manage/data-contracts/<kind>/raw` | GET | `management_bp.get_data_contract_raw` |
+| management_bp | `/api/manage/data-contracts/<kind>/versions` | GET | `management_bp.list_data_contract_versions` |
+| management_bp | `/api/manage/data-contracts/<kind>/versions/<version>` | GET | `management_bp.get_data_contract_version` |
+| management_bp | `/api/manage/embedding/backends` | GET | `management_bp.get_embedding_backends` |
+| management_bp | `/api/manage/enrichment/annotation_versions` | GET | `management_bp.enrichment_annotation_versions` |
 | management_bp | `/api/manage/enrichment/calculate_to_annotate` | POST | `management_bp.calculate_to_annotate` |
 | management_bp | `/api/manage/enrichment/calculate_to_scrape` | POST | `management_bp.calculate_to_scrape` |
 | management_bp | `/api/manage/enrichment/consolidate` | POST | `management_bp.api_consolidate_enrichment` |
@@ -91,6 +102,7 @@ python scripts/gen_route_inventory.py
 | management_bp | `/api/manage/enrichment/empty_queue/<queue_type>` | POST | `management_bp.empty_enrichment_queue` |
 | management_bp | `/api/manage/enrichment/queue_voted` | POST | `management_bp.queue_voted_videos` |
 | management_bp | `/api/manage/enrichment/refresh-downstream` | POST | `management_bp.api_refresh_downstream` |
+| management_bp | `/api/manage/enrichment/scraper_alert/dismiss` | POST | `management_bp.dismiss_scraper_alert` |
 | management_bp | `/api/manage/enrichment/stats` | GET | `management_bp.get_enrichment_stats` |
 | management_bp | `/api/manage/ingestion/clear_pending` | POST | `management_bp.clear_pending_uploads` |
 | management_bp | `/api/manage/ingestion/fetch_aio` | POST | `management_bp.fetch_aio_data` |
@@ -142,4 +154,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-131 routes total.
+143 routes total.

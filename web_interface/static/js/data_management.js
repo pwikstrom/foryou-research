@@ -2296,7 +2296,43 @@ function scrapeTargetEls() {
     return Array.from(document.querySelectorAll('[id^="enrich_scrape_targets_"]'));
 }
 
-function queueVideosForScraping(btnElement) {
+// Ask the server what a queue build WOULD do, then confirm with the user.
+// Returns true when the caller should proceed with the real request.
+// A dry-run failure is not fatal — we fall through to the normal request
+// rather than blocking the user on an estimate.
+async function confirmQueueBuild(endpoint, payload, noun) {
+    let est;
+    try {
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            body: JSON.stringify({ ...payload, dry_run: true })
+        });
+        est = await res.json();
+    } catch (err) {
+        console.error('Queue dry-run failed:', err);
+        return true;
+    }
+    if (!est || est.status !== 'success' || est.would_queue === undefined) return true;
+
+    if (est.would_queue === 0) {
+        showAppAlert(`Nothing to queue — no ${noun} matched the current selection.`);
+        return false;
+    }
+
+    const lines = [`Queue ${est.would_queue.toLocaleString()} ${noun}?`];
+    if (est.cost_estimate && est.cost_estimate.est_cost_usd) {
+        lines.push(`Estimated cost: ~$${est.cost_estimate.est_cost_usd.toLocaleString()} `
+            + `(${est.cost_estimate.backend}).`);
+    }
+    if (est.capped) {
+        lines.push(`${est.requested.toLocaleString()} matched, but a per-request cap `
+            + `of ${est.cap.toLocaleString()} applies to your account.`);
+    }
+    return showAppConfirm(lines.join('\n'));
+}
+
+async function queueVideosForScraping(btnElement) {
     const studyName = document.getElementById('enrichment-study-select').value;
     const scrapeTargets = scrapeTargetEls();
 
@@ -2309,6 +2345,14 @@ function queueVideosForScraping(btnElement) {
     const retryFailed = !!(retryEl && retryEl.checked);
     const retryMediaEl = document.getElementById('retry-missing-media');
     const retryMissingMedia = !!(retryMediaEl && retryMediaEl.checked);
+
+    const scrapePayload = {
+        study_name: studyName,
+        retry_failed: retryFailed,
+        retry_missing_media: retryMissingMedia,
+    };
+    if (!(await confirmQueueBuild('/api/manage/enrichment/calculate_to_scrape',
+        scrapePayload, 'video(s) for scraping'))) return;
 
     // UI Loading state
     const originalText = btnElement.textContent;
@@ -2323,7 +2367,7 @@ function queueVideosForScraping(btnElement) {
     fetch('/api/manage/enrichment/calculate_to_scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify({ study_name: studyName, retry_failed: retryFailed, retry_missing_media: retryMissingMedia })
+        body: JSON.stringify(scrapePayload)
     })
         .then(res => res.json())
         .then(scrapeData => {
@@ -2411,7 +2455,7 @@ function loadAnnotationVersionOptions(force = false) {
         .catch(err => console.error("Error loading annotation versions:", err));
 }
 
-function queueVideosForAnnotation(btnElement) {
+async function queueVideosForAnnotation(btnElement) {
     const mode = _annotationSelectionMode();
     const studySelect = document.getElementById('annotation-study-select');
     const studyName = studySelect ? studySelect.value : '';
@@ -2447,6 +2491,9 @@ function queueVideosForAnnotation(btnElement) {
         }
     }
 
+    if (!(await confirmQueueBuild('/api/manage/enrichment/calculate_to_annotate',
+        payload, 'video(s) for annotation'))) return;
+
     // UI Loading state
     const originalText = btnElement.textContent;
     btnElement.textContent = "Queueing...";
@@ -2478,6 +2525,7 @@ function queueVideosForAnnotation(btnElement) {
                     if (annotateData.selected !== undefined) parts.push(`${annotateData.selected.toLocaleString()} matched the selection`);
                     if (annotateData.skipped_no_media) parts.push(`${annotateData.skipped_no_media.toLocaleString()} skipped (media not downloaded)`);
                     if (annotateData.skipped_no_inference_ts) parts.push(`${annotateData.skipped_no_inference_ts.toLocaleString()} skipped (no stored annotation timestamp — run the inference_ts backfill to include them)`);
+                    if (annotateData.capped) parts.push(`capped at ${annotateData.cap.toLocaleString()} of ${annotateData.requested.toLocaleString()} matched`);
                     resultEl.textContent = parts.join(' · ');
                     resultEl.style.display = '';
                 }

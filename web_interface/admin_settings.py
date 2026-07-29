@@ -26,6 +26,11 @@ DEFAULTS: dict = {
     "default_new_user_role": "viewer",
     ANNOTATION_BACKEND_KEY: "gemini",
     EMBEDDING_BACKEND_KEY: "gemini",
+    # Cost guardrails: the most items a single queue-build request from a
+    # NON-admin user may add to the annotation / scrape queues (0 = unlimited).
+    # Admins always bypass. Server-side clamp — the UI shows when it applied.
+    "queue_cap_annotation_items": 5000,
+    "queue_cap_scrape_items": 10000,
 }
 
 
@@ -37,6 +42,8 @@ SETTING_TYPES: dict = {
     "default_new_user_role": str,
     ANNOTATION_BACKEND_KEY: str,
     EMBEDDING_BACKEND_KEY: str,
+    "queue_cap_annotation_items": int,
+    "queue_cap_scrape_items": int,
 }
 
 
@@ -66,7 +73,31 @@ def validate_setting_value(key: str, value) -> str | None:
         from fyp.analysis.embedding_backends import BACKEND_IDS
         if value not in BACKEND_IDS:
             return f"Unknown embedding backend: {value!r} (known: {list(BACKEND_IDS)})"
+    elif key in ("queue_cap_annotation_items", "queue_cap_scrape_items"):
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            return f"{key} must be a non-negative integer (0 = unlimited)"
     return None
+
+
+
+
+
+
+def get_queue_cap(queue_kind: str) -> int:
+    """Return the non-admin per-request queue-build cap for a queue kind.
+
+    Args:
+        queue_kind: ``"annotation"`` or ``"scrape"``.
+
+    Returns:
+        The cap as an int; 0 means unlimited.
+    """
+    key = f"queue_cap_{queue_kind}_items"
+    try:
+        value = int(get_setting(key) or 0)
+    except (TypeError, ValueError):
+        value = int(DEFAULTS.get(key, 0))
+    return max(0, value)
 
 
 

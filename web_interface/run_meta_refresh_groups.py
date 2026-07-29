@@ -11,7 +11,14 @@ from web_interface.task_status import TaskStatusReporter
 
 
 def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None = None) -> None:
-    """Refresh explorer (group comparisons) metadata for all studies."""
+    """Refresh explorer (group comparisons) metadata.
+
+    Args:
+        reporter: status reporter.
+        task_args: optional ``{"studies": "a,b"}`` to limit the refresh to
+            those studies (mirrors ``run_pca_refresh`` /
+            ``run_recode_refresh_studies``). Defaults to every study.
+    """
     import fyp.data_io as data_io
     from fyp.fyp_config import fyp_cf
     from fyp.studies import init_study_defs
@@ -23,13 +30,25 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
         make_serializable,
     )
 
+    task_args = task_args or {}
     reporter.log("Starting Group Comparisons (Explorer) Metadata Refresh...")
 
     # Init studies
     init_study_defs()
     studies = fyp_cf.get('study_defs', {})
 
+    # Filter to targeted studies if specified — the consolidate pipeline knows
+    # which studies its changes touched, so a full sweep is wasted work.
+    target_studies_str = task_args.get("studies")
+    if target_studies_str:
+        target_names = [s.strip() for s in target_studies_str.split(',')]
+        studies = {k: v for k, v in studies.items() if k in target_names}
+        reporter.log(f"Targeted refresh for {len(studies)} study/studies: {', '.join(studies.keys())}")
+
     total = len(studies)
+    if not total:
+        reporter.log("No studies found to refresh.")
+        return
     for i, (study_name, config) in enumerate(studies.items()):
         if reporter.check_cancelled():
             reporter.log("Cancelled by user.")
@@ -105,6 +124,18 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
 if __name__ == "__main__":
     from web_interface.worker_runner import run_worker
 
-    # run_meta_refresh_groups never reads task_args; the default empty dict
-    # passed by run_worker is equivalent to the old no-kwarg call.
-    run_worker(run_meta_refresh_groups, "meta_refresh_groups")
+    def _make_task_args(args) -> dict:
+        task_args = {}
+        if args.studies:
+            task_args["studies"] = args.studies
+        return task_args
+
+    run_worker(
+        run_meta_refresh_groups,
+        "meta_refresh_groups",
+        arg_specs=[
+            (('--studies',), {'type': str, 'default': None,
+                              'help': 'Comma-separated study names to refresh (default: all)'}),
+        ],
+        make_task_args=_make_task_args,
+    )

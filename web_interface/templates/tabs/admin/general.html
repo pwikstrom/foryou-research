@@ -30,3 +30,34 @@
             style="color: var(--color-text-muted); margin-left: 4px;"></span>
     </div>
 </section>
+
+<!-- Cost guardrails -->
+<section style="margin-bottom: 28px;">
+    <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Cost guardrails</h3>
+    <p class="text-xs" style="margin: 0 0 12px 0; color: var(--color-text-muted);">
+        The most items one queue-build request from a non-admin user may add.
+        0 means unlimited. Admins are never capped.
+    </p>
+
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+        <label for="setting-queue-cap-annotation" class="text-sm" style="color: var(--color-text-primary); min-width: 220px;">
+            Annotation queue cap (items)
+        </label>
+        <input type="number" min="0" step="100" id="setting-queue-cap-annotation"
+            onchange="saveQueueCapSetting(this, 'queue_cap_annotation_items')" disabled
+            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary); width: 120px;" />
+        <span id="setting-queue-cap-annotation-status" class="text-xs"
+            style="color: var(--color-text-muted); margin-left: 4px;"></span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 8px;">
+        <label for="setting-queue-cap-scrape" class="text-sm" style="color: var(--color-text-primary); min-width: 220px;">
+            Scrape queue cap (items)
+        </label>
+        <input type="number" min="0" step="100" id="setting-queue-cap-scrape"
+            onchange="saveQueueCapSetting(this, 'queue_cap_scrape_items')" disabled
+            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary); width: 120px;" />
+        <span id="setting-queue-cap-scrape-status" class="text-xs"
+            style="color: var(--color-text-muted); margin-left: 4px;"></span>
+    </div>
+</section>

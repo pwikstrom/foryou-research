@@ -383,9 +383,47 @@ def _run_all_checks(trigger: str) -> None:
     except Exception as e:
         doc["checks"]["embedding"] = {"status": "fail", "message": "Embedding backend check crashed",
                                       "detail": repr(e), "duration_s": None, "checked_at": _now_iso()}
+    try:
+        doc["checks"]["background_tasks"] = _check_task_failures()
+    except Exception as e:
+        doc["checks"]["background_tasks"] = {
+            "status": "fail", "message": "Task-failure check crashed",
+            "detail": repr(e), "duration_s": None, "checked_at": _now_iso()}
     doc["overall"] = _overall(doc["checks"])
     doc["finished_at"] = _now_iso()
     _persist(doc)
+
+
+
+
+
+
+def _check_task_failures() -> dict:
+    """Flag recent unacknowledged background-task failures (the dead letters).
+
+    Cloud Tasks HTTP queues have no dead-letter topic, so a terminal task
+    failure is only visible through this ledger. Anything unacknowledged in
+    the last 48 h is a condition an admin should look at.
+    """
+    from web_interface import task_failures
+
+    dead = task_failures.unacknowledged_dead()
+    checked_at = _now_iso()
+    if not dead:
+        return {"status": "ok", "message": "No unacknowledged task failures",
+                "detail": None, "duration_s": None, "checked_at": checked_at}
+
+    by_task: dict[str, int] = {}
+    for entry in dead:
+        by_task[entry.get("task", "unknown")] = by_task.get(entry.get("task", "unknown"), 0) + 1
+    summary = ", ".join(f"{task} x{count}" for task, count in sorted(by_task.items()))
+    return {
+        "status": "fail",
+        "message": f"{len(dead)} unacknowledged task failure(s) in the last 48 h",
+        "detail": summary,
+        "duration_s": None,
+        "checked_at": checked_at,
+    }
 
 
 

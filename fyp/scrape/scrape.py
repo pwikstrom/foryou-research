@@ -109,8 +109,9 @@ def _permanent_storm_threshold() -> int:
 # downloads, drains in-flight work, saves what completed, and defers the rest
 # back to the queue (see the memory safety valve in download_video_threads).
 # Last-line insurance against any unexpected memory spike: without it the
-# container is OOM-killed mid-drain and the whole batch is lost under the
-# queue's max-attempts=1. (The historical spike source — moviepy slideshow
+# container is OOM-killed mid-drain and the whole batch is lost — the scrapers
+# are deliberately single-attempt (not in process_routes.QUEUE_RETRY_SAFE), so
+# nothing re-delivers it. (The historical spike source — moviepy slideshow
 # assembly at native photo resolution — is bounded at the root by
 # SLIDESHOW_MAX_DIMENSION in make_slideshow.)
 def _memory_stop_fraction() -> float:
@@ -1146,7 +1147,8 @@ def download_video_threads(
         # during a slow download and would miss a spike). Logs the curve for
         # diagnostics and, past MEMORY_STOP_FRACTION, trips the safety valve so
         # not-yet-started workers defer their items instead of OOM-killing the
-        # container mid-drain (which loses the whole batch under max-attempts=1).
+        # container mid-drain (which loses the whole batch — the scrapers are
+        # single-attempt by design, so nothing re-delivers it).
         mem_watch_stop = threading.Event()
         _mem_progress = {"done": 0}
 

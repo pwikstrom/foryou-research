@@ -1628,6 +1628,24 @@ def new_merge(
             logger.warning("WARNING: source_platform missing on one side of the activity/enrichment join — falling back to item_id only")
         shebang = fast_join(activity_data, enriched_data, on=join_key, how='left')
 
+    # Release the join inputs before the calculated-column work. Peak RSS on the
+    # big merge was ~3x the final frame because the sources stayed alive in
+    # `all_datasets` (the caller's dict) while the result was being built, so
+    # dropping the local names alone frees nothing — the dict entries have to go
+    # too. The collections entry is swapped for an empty frame that keeps
+    # `.attrs`: `create_study_recoded_dataset` reads its `sampling_report` after
+    # this function returns.
+    _collections_key = _collections_label()
+    _collections_src = all_datasets.get(_collections_key)
+    if _collections_src is not None and hasattr(_collections_src, 'attrs'):
+        _preserved = pd.DataFrame()
+        _preserved.attrs = dict(_collections_src.attrs)
+        all_datasets[_collections_key] = _preserved
+    for _key in (_scrapes_label(), _machine_annotations_label()):
+        if _key in all_datasets:
+            all_datasets[_key] = None
+    del activity_data, enriched_data, _collections_src
+
     # Calculated + enrichment-status columns run for BOTH branches so a study
     # with no scrape/annotation enrichment yet (e.g. a freshly ingested platform
     # before its scraper exists) still carries the columns the explore /

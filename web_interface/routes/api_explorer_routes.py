@@ -7,8 +7,10 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
 import fyp.data_io as data_io
+import web_interface.auth as auth
 from fyp.fyp_config import fyp_cf
 from fyp.scrape import scraper_alerts
+from web_interface import task_failures
 
 from .. import explorer_backend as explorer
 from ..data_service import (
@@ -26,6 +28,7 @@ from ..data_service import (
 from ..permissions import permission_required
 from ..security import user_manager
 from ..services import system_health
+from ._access import study_access_error
 
 explorer_bp = Blueprint('explorer_bp', __name__)
 
@@ -332,7 +335,7 @@ def _compute_dynamic_overlay(df, col_types):
 
 
 @explorer_bp.route('/api/explore/metadata/base', methods=['GET'])
-@login_required
+@permission_required('tab.explore', 'tab.video_analysis')
 def api_explorer_metadata_base():
     """
     Fast path: returns the static filter shape (column types, value lists,
@@ -341,10 +344,17 @@ def api_explorer_metadata_base():
 
     Falls back to the cold path (loads the DF, computes metadata, saves under
     the canonical filename) when the JSON is missing or invalidated.
+
+    Serves both the Explore and Video Analysis tabs (either permission grants
+    access).
     """
     study = request.args.get('study')
     if not study:
         return jsonify({"error": "No study specified"}), 400
+
+    denied = study_access_error(study)
+    if denied is not None:
+        return denied
 
     canonical_filename = f"{study}_explorer_metadata.json"
 
@@ -407,17 +417,24 @@ def api_explorer_metadata_base():
 
 
 @explorer_bp.route('/api/explore/metadata/overlay', methods=['GET'])
-@login_required
+@permission_required('tab.explore', 'tab.video_analysis')
 def api_explorer_metadata_overlay():
     """
     Per-user dynamic metadata: User Tags, Has Annotation, Machine Annotations.
     Loads the DataFrame and enriches it with the current user's tags (plus
     shared annotations from peers), then returns just the overlay dict.
     The frontend merges this into the base metadata once it arrives.
+
+    Serves both the Explore and Video Analysis tabs (either permission grants
+    access).
     """
     study = request.args.get('study')
     if not study:
         return jsonify({"error": "No study specified"}), 400
+
+    denied = study_access_error(study)
+    if denied is not None:
+        return denied
 
     context = request.args.get('context', 'explorer')
 
@@ -446,12 +463,16 @@ def api_explorer_metadata_overlay():
 
 
 @explorer_bp.route('/api/explore/metadata', methods=['GET'])
-@login_required
+@permission_required('tab.explore', 'tab.video_analysis')
 def api_explorer_metadata():
 
     study = request.args.get('study')
     if not study:
         return jsonify({"error": "No study specified"}), 400
+
+    denied = study_access_error(study)
+    if denied is not None:
+        return denied
 
     context = request.args.get('context', 'explorer')
 
@@ -718,13 +739,17 @@ def api_explorer_metadata():
 
 
 @explorer_bp.route('/api/explore/filter', methods=['POST'])
-@login_required
+@permission_required('tab.explore')
 def api_explorer_filter():
     data = request.json or {}
     study = data.get("study")
 
     if not study:
          return jsonify({"error": "No study specified"}), 400
+
+    denied = study_access_error(study)
+    if denied is not None:
+        return denied
 
     df, col_types = get_explorer_data(study, context="explorer")
     if df is None:
@@ -851,11 +876,23 @@ def get_system_health():
 
     Includes the active per-platform scraper alerts (raised by the scrape
     worker on systematic failures such as a permanent-failure storm) so the
-    panel can flag "scraper needs revision" conditions alongside the checks.
+    panel can flag "scraper needs revision" conditions alongside the checks,
+    plus the recent background-task failure ledger (the dead-letter record for
+    the Cloud Tasks queue, which has no native dead-letter topic).
     """
     doc = system_health.get_health()
     doc["scraper_alerts"] = scraper_alerts.load_alerts()
+    doc["task_failures"] = task_failures.unacknowledged_dead()
     return jsonify(doc)
+
+
+@explorer_bp.route('/api/system-health/task-failures/ack', methods=['POST'])
+@auth.admin_required
+def ack_task_failures():
+    """Acknowledge one ledger entry (``{"id": ...}``) or all of them."""
+    data = request.json or {}
+    changed = task_failures.acknowledge(str(data.get("id") or ""))
+    return jsonify({"status": "success", "acknowledged": changed})
 
 
 @explorer_bp.route('/api/system-health/run', methods=['POST'])

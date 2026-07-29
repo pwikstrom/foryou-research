@@ -174,7 +174,7 @@ def _build_downstream_pipeline(impact: dict | None) -> list[dict]:
         })
         candidates.append({
             "task": "meta_refresh_groups",
-            "task_args": {},  # meta_refresh_groups refreshes all studies
+            "task_args": {"studies": study_csv} if study_csv else {},
         })
         candidates.append({
             "task": "pca_refresh",

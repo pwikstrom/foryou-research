@@ -1181,8 +1181,11 @@ def _repair_stringified_multiindex(df: pd.DataFrame) -> pd.DataFrame:
     loaded as flat strings "('participants', 'email')".  This function detects
     that situation and parses them back to real tuples.
 
-    Uses a plain Index (not MultiIndex) so that plain string columns like
-    'collection_id' remain directly accessible via df['collection_id'].
+    When every column parses to a tuple the result is a real ``MultiIndex``;
+    when tuples and plain strings are mixed it stays a flat Index so scalar
+    columns like 'collection_id' remain accessible via ``df['collection_id']``.
+    Callers that set an index should do so *before* calling this, which is what
+    puts the frame in the all-tuples case.
 
     If no columns look like stringified tuples the DataFrame is returned
     unchanged.
@@ -1217,7 +1220,17 @@ def _repair_stringified_multiindex(df: pd.DataFrame) -> pd.DataFrame:
     if not any_parsed:
         return df
 
-    df.columns = pd.Index(new_cols)
+    # When EVERY column is a tuple, build the MultiIndex explicitly. Left to
+    # pandas, ``pd.Index(list_of_tuples)`` auto-promotes to a MultiIndex only
+    # sometimes (2.2.x): the flat outcome made ``df.loc[row, ('personas',
+    # 'active_days')]`` read the tuple as a list-of-labels and raise — an
+    # intermittent timelines-refresh failure from identical stored bytes.
+    # A mix of tuples and plain strings must stay a flat Index so scalar
+    # columns like 'collection_id' remain directly accessible.
+    if all(isinstance(c, tuple) for c in new_cols):
+        df.columns = pd.MultiIndex.from_tuples(new_cols)
+    else:
+        df.columns = pd.Index(new_cols, tupleize_cols=False)
     return df
 
 
@@ -1526,10 +1539,13 @@ def load_parquet_selective(
 
     df = tbl.to_pandas(types_mapper=pd.ArrowDtype)
 
-    df = _repair_stringified_multiindex(df)
-
+    # Set the index BEFORE repairing tuple column names: with the scalar id
+    # column out of the way the remaining columns are all tuples, so the repair
+    # can build a real MultiIndex instead of an ambiguous mixed flat Index.
     if set_index is not None and set_index in df.columns:
         df = df.set_index(set_index)
+
+    df = _repair_stringified_multiindex(df)
 
     _io_log(
         op="load_parquet_selective",
