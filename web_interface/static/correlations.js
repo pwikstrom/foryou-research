@@ -14,7 +14,8 @@ let _correlationsFilterVisible = true;
 // A new view = one manifest entry server-side + one renderer here.
 const VIEW_RENDERERS = {
     scatter: () => updatePcaPlot(),
-    heatmap: () => loadCorrelationHeatmap()
+    heatmap: () => loadCorrelationHeatmap(),
+    group_stats: () => loadGroupStats()
 };
 
 const DEFAULT_VIEWS = [
@@ -861,9 +862,27 @@ function renderCorrelationHeatmap(payload) {
         return (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
     });
 
+    // Optional Spearman disattenuation: r ÷ √(rel_i × rel_j), clipped to ±1.
+    // Cells without a reliability estimate for BOTH columns are blanked so
+    // corrected and uncorrected values are never mixed in one picture.
+    const reliability = payload.reliability || {};
+    const disattenuate = !!document.getElementById('pca-disattenuate')?.checked
+        && Object.keys(reliability).length > 0;
+    const relOf = (i) => reliability[columns[i]]?.group_r;
+    let noRelCount = 0;
+    const correctedM = disattenuate ? rM.map((row, i) => row.map((val, j) => {
+        if (i === j) return val;
+        if (val === null || val === undefined) return null;
+        const ri = relOf(i), rj = relOf(j);
+        if (!ri || !rj) { noRelCount++; return null; }
+        const corrected = val / Math.sqrt(ri * rj);
+        return Math.max(-1, Math.min(1, corrected));
+    })) : null;
+    const shownM = correctedM || rM;
+
     // Optional significance masking: blank cells with q >= .05 (diagonal kept)
     let maskedCount = 0;
-    const z = rM.map((row, i) => row.map((val, j) => {
+    const z = shownM.map((row, i) => row.map((val, j) => {
         if (i === j) return val;
         if (maskNonSig) {
             const q = qM?.[i]?.[j];
@@ -882,6 +901,14 @@ function renderCorrelationHeatmap(payload) {
             const head = `${displayColumns[i]} × ${displayColumns[j]}`;
             if (val === null || val === undefined) return `${head}<br>${rSymbol} undefined`;
             const parts = [`${rSymbol} = ${val.toFixed(3)}`];
+            if (disattenuate && correctedM) {
+                const corr = correctedM[i][j];
+                if (i !== j) {
+                    parts.push(corr === null
+                        ? 'corrected: no reliability estimate'
+                        : `corrected ${rSymbol} = ${corr.toFixed(3)}`);
+                }
+            }
             if (nM?.[i]?.[j] !== undefined) parts.push(`n = ${nM[i][j]}`);
             if (i !== j && pM?.[i]?.[j] !== null && pM?.[i]?.[j] !== undefined) {
                 parts.push(formatP(pM[i][j]));
@@ -889,6 +916,10 @@ function renderCorrelationHeatmap(payload) {
                 if (q !== null && q !== undefined) {
                     parts.push('q = ' + q.toFixed(3).replace(/^0/, ''));
                 }
+            }
+            if (disattenuate && reliability[columns[i]] && i === j) {
+                const rel = reliability[columns[i]];
+                parts.push(`reliability ≈ ${rel.group_r} (${rel.source})`);
             }
             if (families[i] !== families[j]) parts.push('(different PCA bases)');
             return `${head}<br>${parts.join(', ')}`;
@@ -951,20 +982,29 @@ function renderCorrelationHeatmap(payload) {
         margin: { t: 50, r: 80, b: 120, l: 120 }
     };
 
-    renderHeatmapCaption(payload, maskNonSig, maskedCount);
+    renderHeatmapCaption(payload, maskNonSig, maskedCount, disattenuate, noRelCount);
 
     Plotly.newPlot('pca-plot', [trace], layout, { responsive: true, displayModeBar: true });
 }
 
 
-function renderHeatmapCaption(payload, maskNonSig, maskedCount) {
+function renderHeatmapCaption(payload, maskNonSig, maskedCount, disattenuate, noRelCount) {
     const methodName = payload.method === 'spearman' ? 'Spearman (rank-based)' : 'Pearson (linear)';
     const parts = [];
     parts.push(`${methodName} correlations across ${payload.count.toLocaleString()} groups; ` +
         `each cell also reports its pairwise n, p, and a Benjamini–Hochberg adjusted q ` +
         `(controls the share of false positives among all pairs tested).`);
+    if (disattenuate) {
+        const sources = [...new Set(Object.values(payload.reliability || {})
+            .map(r => r.source).filter(Boolean))];
+        parts.push(`Colours show correlations corrected for annotation noise ` +
+            `(Spearman disattenuation; reliability from ${sources.join(' and ') || 'saved estimates'}, ` +
+            `scaled to groups of ≥${payload.reliability_k || '?'} videos).` +
+            (noRelCount ? ` ${noRelCount.toLocaleString()} cells lack a reliability estimate and are blanked.` : '') +
+            ' <span class="corr-caption-warning">Corrected values are approximate upper bounds.</span>');
+    }
     if (maskNonSig) {
-        parts.push(`${maskedCount.toLocaleString()} non-significant cells (q ≥ .05) are blanked.`);
+        parts.push(`${maskedCount.toLocaleString()} non-significant cells (q ≥ .05, of the observed r) are blanked.`);
     }
     if (payload.centered) {
         parts.push('Values are centered within each collection (within-donor associations).');
@@ -986,19 +1026,31 @@ function exportCorrelationCsv() {
         return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
 
+    const reliability = payload.reliability || {};
     const rows = [["variable_a", "variable_b", "family_a", "family_b",
-                   "method", "r", "n", "p", "q", "centered"]];
+                   "method", "r", "n", "p", "q", "r_disattenuated",
+                   "reliability_a", "reliability_b", "centered"]];
     const cols = payload.columns;
     const fams = payload.families || cols;
     for (let i = 0; i < cols.length; i++) {
         for (let j = i + 1; j < cols.length; j++) {
+            const r = payload.matrix?.[i]?.[j];
+            const ra = reliability[cols[i]]?.group_r;
+            const rb = reliability[cols[j]]?.group_r;
+            let corrected = null;
+            if (r !== null && r !== undefined && ra && rb) {
+                corrected = Math.max(-1, Math.min(1, r / Math.sqrt(ra * rb))).toFixed(4);
+            }
             rows.push([
                 dname(cols[i]), dname(cols[j]), fams[i], fams[j],
                 payload.method,
-                payload.matrix?.[i]?.[j],
+                r,
                 payload.n_matrix?.[i]?.[j],
                 payload.p_matrix?.[i]?.[j],
                 payload.q_matrix?.[i]?.[j],
+                corrected,
+                ra ?? null,
+                rb ?? null,
                 payload.centered ? 'yes' : 'no',
             ]);
         }
@@ -1013,6 +1065,144 @@ function exportCorrelationCsv() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
+}
+
+
+// --- Group differences view (worker-precomputed ANOVA/KW + PERMANOVA) ---
+
+async function loadGroupStats() {
+    if (!pcaData.activeStudy) return;
+    const plotDiv = document.getElementById('pca-plot');
+    const countEl = document.getElementById('pca-point-count');
+    if (countEl) countEl.innerText = 'Loading group statistics...';
+
+    try {
+        const res = await fetch('/api/correlations/group_stats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ study: pcaData.activeStudy })
+        });
+        const data = await res.json();
+
+        if (typeof Plotly !== 'undefined' && plotDiv) Plotly.purge(plotDiv);
+
+        if (data.error) {
+            plotDiv.innerHTML = `<div class="corr-table-wrap"><p>${escapeHtml(data.error)}.` +
+                (data.hint ? ` ${escapeHtml(data.hint)}` : '') + `</p></div>`;
+            if (countEl) countEl.innerText = '';
+            setCaption('');
+            return;
+        }
+
+        if (countEl) countEl.innerText = `${(data.n_groups || 0).toLocaleString()} groups`;
+        renderGroupStats(data);
+
+    } catch (e) {
+        console.error(e);
+        if (countEl) countEl.innerText = 'Error loading group statistics';
+    }
+}
+
+
+function renderGroupStats(data) {
+    const plotDiv = document.getElementById('pca-plot');
+    const schemaMap = pcaData.metadata?.schema_map || {};
+    const dname = (c) => (schemaMap[c] && schemaMap[c].display_name) ? schemaMap[c].display_name : c;
+    const fmtP = (p) => (p === null || p === undefined) ? '—' : formatP(p).replace(/^p /, '');
+    const fmtN = (v, d) => (v === null || v === undefined) ? '—' : Number(v).toFixed(d);
+
+    const anova = [...(data.anova || [])].sort((a, b) => (b.eta2 || 0) - (a.eta2 || 0));
+    const perma = [...(data.permanova || [])].sort((a, b) => (a.q ?? 1) - (b.q ?? 1));
+
+    const generated = data.generated_at
+        ? new Date(data.generated_at * 1000).toLocaleString() : 'unknown time';
+
+    let html = `<div class="corr-table-wrap">`;
+    html += `<p class="text-xs">Precomputed for the whole study (${generated}) — ` +
+        `the filter panel, centering and variable preferences do <b>not</b> apply here. ` +
+        `q-values are Benjamini–Hochberg adjusted across each table.</p>`;
+
+    html += `<h3 class="text-h3">Which factors move single components? (one-way ANOVA)</h3>`;
+    if (!anova.length) {
+        html += `<p>No testable factor × component pairs in this study.</p>`;
+    } else {
+        html += `<table class="collection-table"><thead><tr>` +
+            `<th>Factor</th><th>Component</th><th>η²</th><th>Effect</th><th>ω²</th>` +
+            `<th>F</th><th>p</th><th>q</th><th>KW q</th><th>n</th><th>Levels</th>` +
+            `</tr></thead><tbody>`;
+        anova.forEach(row => {
+            const sig = row.q !== null && row.q !== undefined && row.q < 0.05;
+            html += `<tr${sig ? ' class="font-bold"' : ''}>` +
+                `<td>${escapeHtml(dname(row.factor))}</td>` +
+                `<td>${escapeHtml(dname(row.component))}</td>` +
+                `<td>${fmtN(row.eta2, 3)}</td>` +
+                `<td>${escapeHtml(row.magnitude || '—')}</td>` +
+                `<td>${fmtN(row.omega2, 3)}</td>` +
+                `<td>${fmtN(row.F, 1)}</td>` +
+                `<td>${fmtP(row.p)}</td>` +
+                `<td>${fmtP(row.q)}</td>` +
+                `<td>${fmtP(row.kw_q)}</td>` +
+                `<td>${row.n}</td><td>${row.levels}</td></tr>`;
+        });
+        html += `</tbody></table>`;
+    }
+
+    html += `<h3 class="text-h3">Do whole variable profiles differ by factor? (PERMANOVA)</h3>`;
+    if (!perma.length) {
+        html += `<p>No testable family × factor pairs in this study.</p>`;
+    } else {
+        html += `<table class="collection-table"><thead><tr>` +
+            `<th>Variable family</th><th>Factor</th><th>pseudo-F</th><th>p</th><th>q</th>` +
+            `<th>n</th><th>Levels</th><th>Components</th><th>Permutations</th>` +
+            `</tr></thead><tbody>`;
+        perma.forEach(row => {
+            const sig = row.q !== null && row.q !== undefined && row.q < 0.05;
+            html += `<tr${sig ? ' class="font-bold"' : ''}>` +
+                `<td>${escapeHtml(dname(row.family))}</td>` +
+                `<td>${escapeHtml(dname(row.factor))}</td>` +
+                `<td>${fmtN(row.pseudo_F, 2)}</td>` +
+                `<td>${fmtP(row.p)}</td>` +
+                `<td>${fmtP(row.q)}</td>` +
+                `<td>${row.n}</td><td>${row.levels}</td>` +
+                `<td>${row.n_components}</td><td>${row.permutations}</td></tr>`;
+        });
+        html += `</tbody></table>`;
+    }
+    html += `</div>`;
+
+    plotDiv.innerHTML = html;
+    renderGroupStatsCaption(anova, perma, schemaMap);
+}
+
+
+function renderGroupStatsCaption(anova, perma, schemaMap) {
+    const dname = (c) => (schemaMap[c] && schemaMap[c].display_name) ? schemaMap[c].display_name : c;
+    const parts = [];
+    const sigAnova = anova.filter(r => r.q !== null && r.q !== undefined && r.q < 0.05);
+    if (anova.length) {
+        parts.push(`${sigAnova.length} of ${anova.length} factor × component tests are ` +
+            `significant after correction (q < .05).`);
+        const top = sigAnova[0] || anova[0];
+        if (top && top.eta2 !== null && top.eta2 !== undefined) {
+            parts.push(`Largest effect: <b>${escapeHtml(dname(top.factor))}</b> explains ` +
+                `${(top.eta2 * 100).toFixed(0)}% of the variation in ` +
+                `<b>${escapeHtml(dname(top.component))}</b> (a ${top.magnitude} effect, ` +
+                `${formatP(top.q)} after correction).`);
+        }
+    }
+    const sigPerma = perma.filter(r => r.q !== null && r.q !== undefined && r.q < 0.05);
+    if (sigPerma.length) {
+        const fams = [...new Set(sigPerma.map(r => `${dname(r.family)} (by ${dname(r.factor)})`))].slice(0, 4);
+        parts.push(`Whole-profile differences (PERMANOVA): ${fams.map(escapeHtml).join('; ')}` +
+            `${sigPerma.length > 4 ? ' and more' : ''}.`);
+    } else if (perma.length) {
+        parts.push('No variable family shows a significant whole-profile difference after correction.');
+    }
+    parts.push('<span class="text-xs">η² = share of a component\'s variance explained by the factor ' +
+        '(.01 small, .06 medium, .14 large). KW q = rank-based Kruskal–Wallis check — trust it ' +
+        'over the ANOVA q when groups are small or skewed. PERMANOVA compares each variable\'s ' +
+        'whole component profile, never mixing different variables\' PCA bases.</span>');
+    setCaption(parts.join(' '));
 }
 
 

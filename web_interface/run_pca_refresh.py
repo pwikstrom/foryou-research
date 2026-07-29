@@ -12,6 +12,9 @@ from web_interface.task_status import TaskStatusReporter
 
 def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None) -> None:
     """Refresh PCA / Correlations data for studies."""
+    import fyp.data_io as data_io
+    from fyp.analysis.reliability import RELIABILITY_FILENAME, estimate_annotation_reliability
+    from fyp.analysis.stats import compute_group_stats_artifact
     from fyp.fyp_config import fyp_cf
     from fyp.pca import calculate_scaled_pca_scores
     from fyp.studies import init_study_defs
@@ -19,6 +22,17 @@ def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None)
     task_args = task_args or {}
     reporter.log("Starting PCA / Correlations Refresh...")
     _t_run_start = time.perf_counter()
+
+    # Per-variable annotation reliability (feeds the disattenuation toggle).
+    # Study-independent, so computed once per run; failure never blocks PCA.
+    try:
+        reliability = estimate_annotation_reliability()
+        data_io.save_json(data=reliability, storage_location="cache",
+                          filename=RELIABILITY_FILENAME)
+        reporter.log(f"Saved reliability estimates for "
+                     f"{len(reliability.get('variables', {}))} variables.")
+    except Exception as e:
+        reporter.log(f"Reliability estimation failed (continuing): {e}")
 
     # Init studies
     init_study_defs()
@@ -63,6 +77,18 @@ def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None)
             scores_df = result[0] if isinstance(result, tuple) else result
             if scores_df is not None:
                 reporter.log(f"  Successfully refreshed PCA for {study_name} ({len(scores_df)} group rows)")
+
+                # Group-differences artifact (ANOVA/KW sweep + PERMANOVA).
+                # Failure never blocks the PCA refresh itself.
+                try:
+                    stats_payload = compute_group_stats_artifact(scores_df, study_name)
+                    data_io.save_json(data=stats_payload, storage_location="cache",
+                                      filename=f"{study_name}_corr_stats.json")
+                    reporter.log(f"  Saved group stats for {study_name} "
+                                 f"({len(stats_payload['anova'])} ANOVA, "
+                                 f"{len(stats_payload['permanova'])} PERMANOVA tests)")
+                except Exception as e:
+                    reporter.log(f"  Group-stats computation failed for {study_name} (continuing): {e}")
             else:
                 reporter.log(f"  Skipping {study_name}: PCA returned no data.")
 

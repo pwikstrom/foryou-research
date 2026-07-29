@@ -265,7 +265,7 @@ def test_metadata_payload_prefs_and_views(monkeypatch):
     })
 
     payload = cs.build_metadata_payload(df, "mystudy")
-    assert [v["key"] for v in payload["views"]] == ["scatter", "heatmap"]
+    assert [v["key"] for v in payload["views"]] == ["scatter", "heatmap", "group_stats"]
     assert payload["viz_priority"] == ["advertising"]
     assert payload["all_variables_order"] == ["advertising", "aigc"]
     # The derived component maps back to its base schema variable (real
@@ -557,3 +557,65 @@ def test_scatter_payload_stats_and_ellipses(client, monkeypatch):
     assert groups == {"a", "b"}
     assert payload["centered"] is False
     assert payload["ellipse_coverage"] == pytest.approx(0.95)
+
+
+
+
+
+def test_group_stats_endpoint(client, monkeypatch):
+    from web_interface.routes import api_correlations_routes as routes
+    from web_interface.services import correlations_service
+
+    _grant_permissions(monkeypatch, ["tab.correlations"])
+    monkeypatch.setattr(routes, "get_accessible_studies", lambda *a, **k: ["mystudy"])
+    _login(client, _TEST_VIEWER)
+
+    # Missing artifact -> 404 with a hint
+    monkeypatch.setattr(correlations_service, "load_group_stats", lambda study: None)
+    res = client.post("/api/correlations/group_stats", json={"study": "mystudy"})
+    assert res.status_code == 404
+    assert "hint" in res.get_json()
+
+    # Present artifact is served verbatim
+    artifact = {"version": 1, "study": "mystudy", "n_groups": 12,
+                "anova": [], "permanova": []}
+    monkeypatch.setattr(correlations_service, "load_group_stats", lambda study: artifact)
+    res = client.post("/api/correlations/group_stats", json={"study": "mystudy"})
+    assert res.status_code == 200
+    assert res.get_json()["n_groups"] == 12
+
+    # Access control mirrors the other endpoints
+    monkeypatch.setattr(routes, "get_accessible_studies", lambda *a, **k: [])
+    res = client.post("/api/correlations/group_stats", json={"study": "mystudy"})
+    assert res.status_code == 403
+
+
+
+
+
+
+def test_matrix_payload_includes_reliability(client, monkeypatch):
+    from web_interface.routes import api_correlations_routes as routes
+    from web_interface.services import correlations_service as cs
+
+    _grant_permissions(monkeypatch, ["tab.correlations"])
+    monkeypatch.setattr(routes, "get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr(cs, "load_interpretations", lambda study: {})
+    monkeypatch.setattr(cs, "load_reliability_map", lambda: {
+        "a": {"reliability": 0.6, "n": 40, "source": "machine test-retest"},
+    })
+
+    df = pd.DataFrame({
+        "a": [1.0, 2.0, 3.0, 4.0],
+        "b": [2.0, 4.0, 5.5, 8.5],
+    })
+    monkeypatch.setattr(routes, "get_pca_df", lambda study: df)
+
+    _login(client, _TEST_VIEWER)
+    res = client.post("/api/correlations/correlation_matrix", json={"study": "mystudy"})
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert "a" in payload["reliability"]
+    assert payload["reliability"]["a"]["item_r"] == pytest.approx(0.6)
+    assert payload["reliability"]["a"]["group_r"] > 0.6  # Spearman-Brown boost
+    assert payload["reliability_k"] >= 1

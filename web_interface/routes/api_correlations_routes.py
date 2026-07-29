@@ -134,6 +134,38 @@ def api_pca_correlation_matrix():
 
 
 
+@correlations_bp.route('/api/correlations/group_stats', methods=['POST'])
+@permission_required('tab.correlations')
+def api_correlations_group_stats():
+    """Serve the worker-precomputed group-differences artifact for a study.
+
+    The ANOVA/Kruskal–Wallis sweep + per-family PERMANOVA are computed by the
+    ``pca_refresh`` worker over the whole study (filters do not apply) and
+    stored as ``{study}_corr_stats.json``.
+    """
+    data = request.json or {}
+    study = data.get("study")
+    if not study:
+        return jsonify({"error": "No study"}), 400
+
+    denied = _study_access_error(study)
+    if denied is not None:
+        return denied
+
+    payload = correlations_service.load_group_stats(study)
+    if payload is None:
+        return jsonify({
+            "error": "Group statistics not computed yet for this study",
+            "hint": "Run Data Pipeline → Refresh Caches (PCA / Correlations), then reload.",
+        }), 404
+
+    return jsonify(payload)
+
+
+
+
+
+
 @correlations_bp.route('/api/correlations/status', methods=['GET'])
 @permission_required('tab.correlations')
 def api_correlations_status():
