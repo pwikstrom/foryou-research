@@ -209,11 +209,17 @@ def create_app():
     app.config["WTF_CSRF_TIME_LIMIT"] = None
     csrf.init_app(app)
 
-    # The Cloud Tasks internal blueprint is the only route the task-runner serves,
-    # so it is always registered. Authenticated via OIDC token → exempt from CSRF.
-    from .routes.process_routes import internal_bp
-    app.register_blueprint(internal_bp)
-    csrf.exempt(internal_bp)
+    # The Cloud Tasks internal blueprint is the only route the task-runner
+    # serves. On Cloud Run it is registered ONLY on the task-runner: dispatches
+    # always target CLOUD_RUN_SERVICE_URL (the task-runner), and the task-runner
+    # is the one service whose platform IAM restricts invocation to the Cloud
+    # Tasks service account — the public data-hub must not expose a task
+    # execution endpoint. Locally (no K_SERVICE) it stays registered for parity.
+    # Exempt from CSRF: authenticated by Cloud Run's IAM invoker check.
+    if _IS_TASK_RUNNER or not os.environ.get("K_SERVICE"):
+        from .routes.process_routes import internal_bp
+        app.register_blueprint(internal_bp)
+        csrf.exempt(internal_bp)
 
     if not _IS_TASK_RUNNER:
         _register_web_ui(app)

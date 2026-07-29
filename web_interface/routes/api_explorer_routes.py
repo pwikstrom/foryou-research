@@ -26,6 +26,7 @@ from ..data_service import (
 from ..permissions import permission_required
 from ..security import user_manager
 from ..services import system_health
+from ._access import study_access_error
 
 explorer_bp = Blueprint('explorer_bp', __name__)
 
@@ -332,7 +333,7 @@ def _compute_dynamic_overlay(df, col_types):
 
 
 @explorer_bp.route('/api/explore/metadata/base', methods=['GET'])
-@login_required
+@permission_required('tab.explore', 'tab.video_analysis')
 def api_explorer_metadata_base():
     """
     Fast path: returns the static filter shape (column types, value lists,
@@ -341,10 +342,17 @@ def api_explorer_metadata_base():
 
     Falls back to the cold path (loads the DF, computes metadata, saves under
     the canonical filename) when the JSON is missing or invalidated.
+
+    Serves both the Explore and Video Analysis tabs (either permission grants
+    access).
     """
     study = request.args.get('study')
     if not study:
         return jsonify({"error": "No study specified"}), 400
+
+    denied = study_access_error(study)
+    if denied is not None:
+        return denied
 
     canonical_filename = f"{study}_explorer_metadata.json"
 
@@ -407,17 +415,24 @@ def api_explorer_metadata_base():
 
 
 @explorer_bp.route('/api/explore/metadata/overlay', methods=['GET'])
-@login_required
+@permission_required('tab.explore', 'tab.video_analysis')
 def api_explorer_metadata_overlay():
     """
     Per-user dynamic metadata: User Tags, Has Annotation, Machine Annotations.
     Loads the DataFrame and enriches it with the current user's tags (plus
     shared annotations from peers), then returns just the overlay dict.
     The frontend merges this into the base metadata once it arrives.
+
+    Serves both the Explore and Video Analysis tabs (either permission grants
+    access).
     """
     study = request.args.get('study')
     if not study:
         return jsonify({"error": "No study specified"}), 400
+
+    denied = study_access_error(study)
+    if denied is not None:
+        return denied
 
     context = request.args.get('context', 'explorer')
 
@@ -446,12 +461,16 @@ def api_explorer_metadata_overlay():
 
 
 @explorer_bp.route('/api/explore/metadata', methods=['GET'])
-@login_required
+@permission_required('tab.explore', 'tab.video_analysis')
 def api_explorer_metadata():
 
     study = request.args.get('study')
     if not study:
         return jsonify({"error": "No study specified"}), 400
+
+    denied = study_access_error(study)
+    if denied is not None:
+        return denied
 
     context = request.args.get('context', 'explorer')
 
@@ -718,13 +737,17 @@ def api_explorer_metadata():
 
 
 @explorer_bp.route('/api/explore/filter', methods=['POST'])
-@login_required
+@permission_required('tab.explore')
 def api_explorer_filter():
     data = request.json or {}
     study = data.get("study")
 
     if not study:
          return jsonify({"error": "No study specified"}), 400
+
+    denied = study_access_error(study)
+    if denied is not None:
+        return denied
 
     df, col_types = get_explorer_data(study, context="explorer")
     if df is None:

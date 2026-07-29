@@ -19,6 +19,7 @@ from fyp.fyp_config import (
     VIDEO_MAP_REFRESH_SCRIPT,
 )
 
+from ..permissions import user_has_permission
 from ..process_manager import (
     CLOUD_TASK_ELIGIBLE,
     SCRAPER_PROCESS_NAMES,
@@ -171,6 +172,28 @@ def api_stop_graceful(name):
     return jsonify({"status": "success" if success else "error", "message": msg})
 
 
+def _redact_status_for_viewer(status_data: dict) -> dict:
+    """Strip operational detail from the status payload for plain viewers.
+
+    The header badge needs run states for every logged-in user, but
+    ``task_args`` and ``last_run_study`` leak study names outside the caller's
+    access set — only users holding a Data Management permission (or admins)
+    see them.
+    """
+    is_admin_attr = getattr(current_user, "is_admin", False)
+    is_admin = is_admin_attr() if callable(is_admin_attr) else bool(is_admin_attr)
+    if is_admin or user_has_permission(current_user, 'tab.data_management'):
+        return status_data
+    for entry in status_data.values():
+        entry.pop("task_args", None)
+        entry.pop("last_run_study", None)
+    return status_data
+
+
+
+
+
+
 @process_bp.route('/api/status', methods=['GET'])
 @login_required
 def api_status():
@@ -267,7 +290,7 @@ def api_status():
             "last_run_study": stats_entry.get("last_run_study"),
             "task_args": p_data.get("data", {}).get("task_args", {}),
         }
-    return jsonify(status_data)
+    return jsonify(_redact_status_for_viewer(status_data))
 
 
 @process_bp.route('/api/status/study_refresh/<study_name>', methods=['GET'])
@@ -327,7 +350,7 @@ def api_clear_logs(name):
 
 
 @process_bp.route('/api/logs/<name>', methods=['GET'])
-@login_required
+@auth.admin_required
 def api_logs(name):
     if name not in processes:
         return jsonify({"error": "Unknown process"}), 400

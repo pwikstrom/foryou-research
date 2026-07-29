@@ -2,7 +2,7 @@ import traceback
 
 import pandas as pd
 from flask import Blueprint, jsonify, request
-from flask_login import current_user, login_required
+from flask_login import current_user
 
 import fyp.data_io as data_io
 from fyp.organize_datasets import COLLECTIONS_LABEL
@@ -14,13 +14,15 @@ from ..data_service import (
     get_timeline_data,
     make_serializable,
 )
+from ..permissions import permission_required
 from ..security import user_manager
+from ._access import collection_access_error
 
 timelines_bp = Blueprint('timelines_bp', __name__)
 
 
 @timelines_bp.route('/api/timelines/vote_annotation', methods=['POST'])
-@login_required
+@permission_required('tab.timelines')
 def api_save_annotation_vote():
     data = request.json or {}
     collection_id = data.get("collection_id")
@@ -28,6 +30,10 @@ def api_save_annotation_vote():
 
     if not collection_id or not period:
         return jsonify({"error": "Missing required collection_id or period"}), 400
+
+    denied = collection_access_error(collection_id)
+    if denied is not None:
+        return denied
 
     username = current_user.username
     print(f"[VOTES] Saving machine annotation vote for {username} on collection {collection_id} for period {period}")
@@ -42,7 +48,7 @@ def api_save_annotation_vote():
 
 
 @timelines_bp.route('/api/timelines/data', methods=['POST'])
-@login_required
+@permission_required('tab.timelines')
 def api_timeline_data():
     data = request.json or {}
     study = data.get("study")
@@ -121,7 +127,7 @@ def api_timeline_data():
 
 
 @timelines_bp.route('/api/timelines/collections', methods=['POST'])
-@login_required
+@permission_required('tab.timelines')
 def api_timeline_collections():
     """
     Returns list of collections ({collection_id, ...}) that the current user

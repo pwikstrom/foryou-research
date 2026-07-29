@@ -1,4 +1,6 @@
 import os
+import threading
+import time
 
 import numpy as np
 import pandas as pd
@@ -7,6 +9,7 @@ from flask_login import current_user, login_required
 
 import fyp.data_io as data_io
 import fyp.media_paths as media_paths
+from fyp.annotation import human_eval
 from fyp.fyp_config import fyp_cf
 from fyp.ingest import ForYouBaseCollection
 
@@ -18,7 +21,9 @@ from ..data_service import (
     load_display_id_map,
     load_shared_tags,
 )
+from ..permissions import permission_required, user_has_permission
 from ..security import user_manager
+from ._access import study_access_error
 
 viewer_bp = Blueprint('viewer_bp', __name__)
 
@@ -45,13 +50,17 @@ TS_COL_BASIS: dict[str, str] = {
 
 
 @viewer_bp.route('/api/video_analysis/ids', methods=['POST'])
-@login_required
+@permission_required('tab.video_analysis')
 def api_viewer_ids():
     data = request.json or {}
     study = data.get("study")
 
     if not study:
          return jsonify({"error": "No study specified"}), 400
+
+    denied = study_access_error(study)
+    if denied is not None:
+        return denied
 
     df, col_types = get_explorer_data(study, context="viewer")
     if df is None:
@@ -359,7 +368,12 @@ def api_save_vote():
 
 
 @viewer_bp.route('/api/video_analysis/item/<study>/<item_id>', methods=['GET', 'POST'])
+@permission_required('tab.video_analysis')
 def api_viewer_item(study, item_id):
+    denied = study_access_error(study)
+    if denied is not None:
+        return denied
+
     df, col_types = get_explorer_data(study, context="viewer")
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
@@ -442,8 +456,114 @@ def api_viewer_item(study, item_id):
 
 
 
+# Membership check for the media stream: (study, mtime) -> frozenset of item
+# ids. The study DataFrame itself is RAM-cached, but an astype(str) scan per
+# HTTP Range request would still be O(rows) — the id set makes each chunk
+# request a set lookup. Keyed on the recoded parquet's cache mtime so a study
+# refresh invalidates the set together with the DataFrame cache.
+_STUDY_ID_SET_CACHE: dict[str, tuple[object, frozenset]] = {}
+_study_id_set_lock = threading.Lock()
+
+
+
+
+
+
+def _study_item_ids(study: str) -> frozenset | None:
+    """Return the set of item ids visible in ``study``, or None if unknown."""
+    from ..services.study_data import _get_recoded_mtime
+
+    mtime = _get_recoded_mtime(study)
+    with _study_id_set_lock:
+        entry = _STUDY_ID_SET_CACHE.get(study)
+        if entry is not None and entry[0] == mtime:
+            return entry[1]
+
+    df, _ = get_explorer_data(study, context="viewer")
+    if df is None:
+        return None
+    id_col = 'item_id' if 'item_id' in df.columns else (
+        'video_id' if 'video_id' in df.columns else None)
+    if id_col is None:
+        return None
+    ids = frozenset(df[id_col].astype(str))
+    with _study_id_set_lock:
+        _STUDY_ID_SET_CACHE[study] = (mtime, ids)
+    return ids
+
+
+
+
+
+
+# Eval-stream access: username -> (expiry_monotonic, frozenset of item ids the
+# user may stream via the "eval" pseudo-study). Short TTL — task invitations
+# change rarely, but Range requests arrive in bursts.
+_EVAL_ACCESS_CACHE: dict[str, tuple[float, frozenset]] = {}
+_EVAL_ACCESS_TTL_S = 60.0
+
+
+
+
+
+
+def _eval_stream_allowed(item_id: str) -> bool:
+    """May the current user stream ``item_id`` via the ``eval`` pseudo-study?
+
+    Admin/ab-eval/human-eval permission holders may stream any eval item;
+    invited coders may stream items belonging to their coding tasks.
+    """
+    if (user_has_permission(current_user, 'tab.admin.ab_eval')
+            or user_has_permission(current_user, 'tab.admin.human_eval')):
+        return True
+
+    username = current_user.username
+    with _study_id_set_lock:
+        entry = _EVAL_ACCESS_CACHE.get(username)
+        if entry is not None and entry[0] > time.monotonic():
+            return str(item_id) in entry[1]
+
+    allowed: set[str] = set()
+    for index_entry in human_eval.tasks_for_user(username):
+        task = human_eval.load_task(index_entry.get("run_id"),
+                                    index_entry.get("task_type"))
+        if task:
+            allowed.update(str(i) for i in task.get("item_ids", []))
+    ids = frozenset(allowed)
+    with _study_id_set_lock:
+        _EVAL_ACCESS_CACHE[username] = (time.monotonic() + _EVAL_ACCESS_TTL_S, ids)
+    return str(item_id) in ids
+
+
+
+
+
+
 @viewer_bp.route('/api/video/<study>/<item_id>', methods=['GET'])
+@login_required
 def api_video_stream(study, item_id):
+    # Two callers share this endpoint: the Video Analysis tab streams items of
+    # a real study, and the annotation-testing / human-coding pages stream
+    # eval-set items under the "eval" pseudo-study (coders typically hold no
+    # analysis-tab permissions, so the eval branch has its own gate).
+    if study == "eval":
+        if not _eval_stream_allowed(item_id):
+            return jsonify({"error": "Access denied"}), 403
+    else:
+        if not user_has_permission(current_user, 'tab.video_analysis'):
+            return jsonify({"error": "Access denied"}), 403
+
+        denied = study_access_error(study)
+        if denied is not None:
+            return denied
+
+        # The study segment used to be decorative; it now scopes the stream —
+        # the item must actually appear in the (accessible) study being viewed.
+        known_ids = _study_item_ids(study)
+        if known_ids is None:
+            return jsonify({"error": "Dataset not found"}), 404
+        if str(item_id) not in known_ids:
+            return jsonify({"error": "Item not found in this study"}), 404
 
     use_gcs = fyp_cf.get('data_io', {}).get('use_gcs_for_media', True)
     chunk_size = 4096 * 16
