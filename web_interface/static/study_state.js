@@ -38,7 +38,7 @@ function _populateStudySelect(select, studies, current) {
         opt.value = '';
         opt.disabled = true;
         opt.selected = true;
-        opt.textContent = 'No studies available';
+        opt.textContent = 'No studies shared with you yet';
         select.appendChild(opt);
         return;
     }
@@ -215,8 +215,14 @@ async function loadStudiesGlobal(options = {}) {
 
         _populateStudySelect(select, studies, chosen);
 
+        // Keep the select visible even with zero studies: its disabled
+        // placeholder ("No studies shared with you yet") is the honest empty
+        // state — silently hiding it left new users a bare header and no clue.
         if (select) {
-            select.style.display = studies.length > 0 ? '' : 'none';
+            select.style.display = '';
+            select.title = studies.length > 0
+                ? ''
+                : 'Ask the researcher who invited you to share a study with you.';
         }
 
         if (!preserveCurrent) {

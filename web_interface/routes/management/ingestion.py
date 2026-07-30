@@ -307,6 +307,37 @@ def refresh_ingestion_collection():
 
 
 
+@management_bp.route('/api/manage/ingestion/ledger', methods=['GET'])
+@permission_required('tab.data_management.ingestion')
+@login_required
+def get_ingestion_ledger():
+    """The persistent per-file ingestion ledger (newest first).
+
+    This is what lets the UI show the per-file intake report — rows read,
+    rows kept, drop-reason breakdown — for PAST runs, not just the live one.
+    Optional ``?platform=`` filter. Entries written before the drop-stats
+    extension lack ``processed_rows``/``deduped_rows``/``dropped``; the UI
+    renders those as em-dashes.
+    """
+    platform = (request.args.get("platform") or "").strip() or None
+
+    main_collection = get_main_collection(verbose=False)
+    files = (main_collection.ledger or {}).get("files", {}) or {}
+
+    entries = []
+    for filename, record in files.items():
+        if platform and (record or {}).get("platform") != platform:
+            continue
+        entry = dict(record or {})
+        entry["filename"] = filename
+        entries.append(entry)
+    entries.sort(key=lambda e: str(e.get("ts_last_seen") or ""), reverse=True)
+
+    return jsonify({"files": entries, "count": len(entries)})
+
+
+
+
 @management_bp.route('/api/manage/ingestion/ledger/unskip', methods=['POST'])
 @permission_required('tab.data_management.ingestion')
 @login_required
@@ -329,6 +360,12 @@ def unskip_ingestion_ledger_entry():
         })
 
     main_collection.save_ledger()
+    activity_log.record(
+        actor=_actor(),
+        category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action="ingestion.ledger_unskip",
+        target=filename,
+    )
     return jsonify({
         "status": "success",
         "message": f"'{filename}' removed from the ledger. It will be rescanned on the next ingestion run.",
@@ -496,6 +533,12 @@ def clear_pending_uploads():
         })
         total_removed += len(removed_here)
 
+    activity_log.record(
+        actor=_actor(),
+        category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action="ingestion.clear_pending",
+        details={"total_removed": total_removed, "failures": len(failures)},
+    )
     return jsonify({
         "status": "success",
         "total_removed": total_removed,

@@ -175,6 +175,13 @@ async function saveUserSettings(newSettings) {
     }
 }
 
+// Home-tab getting-started panel: hide now, persist the one-shot dismissal.
+async function dismissGettingStarted() {
+    const panel = document.getElementById('getting-started-panel');
+    if (panel) panel.style.display = 'none';
+    await saveUserSettings({ getting_started_dismissed: true });
+}
+
 // --- Tag Management ---
 async function loadAndRenderUserTags() {
     const container = document.getElementById('settings-tags-container');

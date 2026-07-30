@@ -46,6 +46,7 @@ def _build_per_file_summary(
     existing_raw_files: set[str],
     quarantined: dict[str, dict] | None = None,
     load_failed: dict[str, dict] | None = None,
+    file_stats: dict[str, dict] | None = None,
 ) -> list[dict]:
     """For each new raw_file, produce a row describing what happened.
 
@@ -64,6 +65,7 @@ def _build_per_file_summary(
     """
     quarantined = quarantined or {}
     load_failed = load_failed or {}
+    file_stats = file_stats or {}
     final_df = main_collection.data
     candidate_files = set(raw_counts) | discarded_at_load | set(quarantined) | set(load_failed)
     summary: list[dict] = []
@@ -72,8 +74,12 @@ def _build_per_file_summary(
         info = raw_counts.get(rf) or processed_counts.get(rf) or {}
         platform = info.get("platform")
         source = info.get("source")
-        raw_rows = raw_counts.get(rf, {}).get("rows", 0)
+        stats = file_stats.get(rf) or {}
+        # The load-loop count is authoritative (raw_counts is derived from the
+        # surviving frame, so a too-small file's rows are otherwise lost).
+        raw_rows = raw_counts.get(rf, {}).get("rows", 0) or int(stats.get("raw_rows") or 0)
         processed_rows = processed_counts.get(rf, {}).get("rows", 0)
+        dropped = stats.get("dropped") or {}
 
         if rf in load_failed:
             fail = load_failed[rf]
@@ -88,6 +94,7 @@ def _build_per_file_summary(
                 "canonical_collection_id": None,
                 "merged_with_siblings": [],
                 "deduped_rows": 0,
+                "dropped": {},
                 "notes": fail.get("error"),
             })
             continue
@@ -105,6 +112,7 @@ def _build_per_file_summary(
                 "canonical_collection_id": None,
                 "merged_with_siblings": [],
                 "deduped_rows": 0,
+                "dropped": dropped,
                 "notes": findings_digest(verdict.get("findings") or []),
             })
             continue
@@ -121,6 +129,7 @@ def _build_per_file_summary(
                 "canonical_collection_id": None,
                 "merged_with_siblings": [],
                 "deduped_rows": 0,
+                "dropped": dropped,
             })
             continue
 
@@ -156,6 +165,7 @@ def _build_per_file_summary(
             "canonical_collection_id": canonical_cid,
             "merged_with_siblings": siblings,
             "deduped_rows": max(processed_rows - final_rows, 0),
+            "dropped": dropped,
         })
 
     return summary
@@ -275,6 +285,12 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         f"(+{rows_after - rows_before:,}) ({_t_migrate:.1f}s)"
     )
 
+    # Per-file intake stats captured by the base-class load/process loop:
+    # true raw row counts (incl. too-small discards) + drop-reason breakdowns.
+    file_stats: dict[str, dict] = {}
+    for sub in main_collection.collections:
+        file_stats.update(getattr(sub, "file_stats_this_run", {}) or {})
+
     per_file_summary = _build_per_file_summary(
         main_collection,
         raw_counts=raw_counts,
@@ -283,6 +299,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         existing_raw_files=existing_raw_files,
         quarantined=quarantined_files,
         load_failed=load_failed_files,
+        file_stats=file_stats,
     )
 
     # Record the active activity-contract version once per ingest run (idempotent,

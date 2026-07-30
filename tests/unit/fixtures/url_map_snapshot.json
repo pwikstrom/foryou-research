@@ -623,6 +623,13 @@
   ]
  ],
  [
+  "/api/manage/ingestion/ledger",
+  "management_bp.get_ingestion_ledger",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/manage/ingestion/ledger/unskip",
   "management_bp.unskip_ingestion_ledger_entry",
   [
@@ -830,6 +837,13 @@
   "process_bp.api_stop_graceful",
   [
    "POST"
+  ]
+ ],
+ [
+  "/api/studies/<study>/methods",
+  "explorer_bp.api_study_methods",
+  [
+   "GET"
   ]
  ],
  [

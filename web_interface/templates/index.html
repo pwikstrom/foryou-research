@@ -124,6 +124,9 @@
     <div class="modal-content" onclick="event.stopPropagation()">
         <span class="close-button" onclick="closeHelpModal(event)">&times;</span>
         <div id="helpText" class="help-text"></div>
+        <p class="text-sm" style="margin-top: 14px; color: var(--color-text-muted);">
+            New here? Read the <a href="{{ url_for('public_bp.guide') }}">full guide</a> for a walkthrough.
+        </p>
     </div>
 </div>
 
@@ -201,15 +204,15 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='main.js') }}?v=6"></script>
+<script src="{{ url_for('static', filename='main.js') }}?v=7"></script>
 <script src="{{ url_for('static', filename='js/variable_prefs.js') }}"></script>
-<script src="{{ url_for('static', filename='study_state.js') }}"></script>
-<script src="{{ url_for('static', filename='explore.js') }}?v=9"></script>
+<script src="{{ url_for('static', filename='study_state.js') }}?v=2"></script>
+<script src="{{ url_for('static', filename='explore.js') }}?v=10"></script>
 <script src="{{ url_for('static', filename='video_analysis.js') }}?v=8"></script>
 <script src="{{ url_for('static', filename='correlations.js') }}"></script>
 <script src="{{ url_for('static', filename='semantic_space.js') }}?v=2"></script>
 <script src="{{ url_for('static', filename='timelines.js') }}?v=3"></script>
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
-<script src="{{ url_for('static', filename='js/data_management.js') }}?v=5"></script>
+<script src="{{ url_for('static', filename='js/data_management.js') }}?v=6"></script>
 {% endif %}
 {% endblock %}

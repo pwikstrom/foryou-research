@@ -47,6 +47,32 @@ def api_get_study_defs():
     return jsonify(studies)
 
 
+@explorer_bp.route('/api/studies/<study>/methods', methods=['GET'])
+@permission_required('tab.explore', 'tab.video_analysis')
+def api_study_methods(study):
+    """The study's methods/provenance note (written at refresh time).
+
+    Informational: describes how the dataset was built — filters, counts,
+    annotation/scrape/activity versions, embedding model, refresh dates.
+    """
+    from ..services import methods_note as methods_note_service
+
+    denied = study_access_error(study)
+    if denied is not None:
+        return denied
+
+    note = methods_note_service.read_methods_note(study)
+    if note is None:
+        return jsonify({
+            "error": "No methods note exists for this study yet",
+            "hint": "Refresh the study (or run the data pipeline) to generate it.",
+        }), 404
+
+    payload = dict(note)
+    payload["staleness"] = methods_note_service.note_staleness(study, note)
+    return jsonify(payload)
+
+
 def _enforce_study_collections(metadata, study, verbose=False):
     """
     Ensures that the metadata only contains Donation IDs that are strictly part of the study.

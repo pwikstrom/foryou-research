@@ -34,6 +34,7 @@ python scripts/gen_route_inventory.py
 | explorer_bp | `/api/explore/metadata` | GET | `explorer_bp.api_explorer_metadata` |
 | explorer_bp | `/api/explore/metadata/base` | GET | `explorer_bp.api_explorer_metadata_base` |
 | explorer_bp | `/api/explore/metadata/overlay` | GET | `explorer_bp.api_explorer_metadata_overlay` |
+| explorer_bp | `/api/studies/<study>/methods` | GET | `explorer_bp.api_study_methods` |
 | explorer_bp | `/api/studies/defined` | GET | `explorer_bp.api_get_study_defs` |
 | explorer_bp | `/api/system-health` | GET | `explorer_bp.get_system_health` |
 | explorer_bp | `/api/system-health/run` | POST | `explorer_bp.run_system_health` |
@@ -106,6 +107,7 @@ python scripts/gen_route_inventory.py
 | management_bp | `/api/manage/enrichment/stats` | GET | `management_bp.get_enrichment_stats` |
 | management_bp | `/api/manage/ingestion/clear_pending` | POST | `management_bp.clear_pending_uploads` |
 | management_bp | `/api/manage/ingestion/fetch_aio` | POST | `management_bp.fetch_aio_data` |
+| management_bp | `/api/manage/ingestion/ledger` | GET | `management_bp.get_ingestion_ledger` |
 | management_bp | `/api/manage/ingestion/ledger/unskip` | POST | `management_bp.unskip_ingestion_ledger_entry` |
 | management_bp | `/api/manage/ingestion/metadata` | GET | `management_bp.get_ingestion_metadata` |
 | management_bp | `/api/manage/ingestion/refresh` | POST | `management_bp.refresh_ingestion_collection` |
@@ -154,4 +156,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-143 routes total.
+145 routes total.

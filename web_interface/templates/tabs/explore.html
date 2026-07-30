@@ -11,6 +11,8 @@
         <button id="explorer-v2-mobile-filters-1" class="mobile-only mobile-drawer-trigger" data-drawer-target="#explorer-v2-slice1-panel"
             style="margin-right: 10px;">Filters</button>
         <span id="explorer-v2-file-info" style="display:none;"></span>
+        <button id="explorer-v2-methods-btn" class="btn-discreet text-xs meta-tooltip tooltip-below" style="display:none;"
+            data-tooltip="How this study's dataset was built" onclick="openStudyMethodsModal()">Methods</button>
         <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
             <button id="explorer-v2-mobile-filters-2" class="mobile-only mobile-drawer-trigger" data-drawer-target="#explorer-v2-slice2-panel"
                 style="display: none;">Filters 2</button>
@@ -99,5 +101,13 @@
             </div>
         </div>
 
+    </div>
+
+    <!-- Study Methods modal: plain-language provenance note for the active study -->
+    <div id="study-methods-modal" class="modal" onclick="closeStudyMethodsModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <span class="close-button" onclick="closeStudyMethodsModal()">&times;</span>
+            <div id="study-methods-content" class="help-text"></div>
+        </div>
     </div>
 </div>

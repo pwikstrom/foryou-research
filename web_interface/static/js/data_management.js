@@ -464,8 +464,21 @@ function renderStudiesTable() {
         // Rows inside the My Studies tab are read-only — they list studies but
         // do not open the edit modal. The DM "Define Studies" sub-page keeps
         // the click-to-edit behaviour.
-        const allowEdit = !tbody.closest('#my_studies');
+        const allowEdit = !tbody.closest('#my-stuff-page-studies');
         tbody.innerHTML = '';
+        if (allStudies.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 10;
+            td.className = 'text-sm';
+            td.style.cssText = 'padding: 16px; text-align: center; color: var(--color-text-muted);';
+            td.textContent = allowEdit
+                ? 'No studies defined yet — use "New Study" to create one.'
+                : 'No studies listed here yet. Studies shared with you appear in the study picker in the header; ask the researcher who invited you if you expected one.';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+            return;
+        }
         allStudies.forEach((study, index) => {
             tbody.appendChild(buildRow(study, index, allowEdit));
         });
@@ -3095,6 +3108,7 @@ function loadIngestionSources() {
         })
         .catch(err => console.error("Error loading ingestion sources:", err));
     loadStructureWarnings();
+    loadIngestionHistory();
 }
 
 function loadStructureWarnings() {
@@ -4054,6 +4068,41 @@ const _ingestOutcomeLabels = {
     load_failed: { label: 'Failed to read — will retry next refresh', color: 'var(--color-danger)' },
 };
 
+// Plain-language labels for the per-file drop-reason breakdown captured by
+// the ingest load loop (ledger key: dropped = {reason: count}).
+const _ingestDropReasonLabels = {
+    not_parseable: (n) => `${n.toLocaleString()} row${n === 1 ? '' : 's'} couldn't be interpreted (unreadable timestamp or missing video reference)`,
+    missing_required: (n) => `${n.toLocaleString()} row${n === 1 ? '' : 's'} ${n === 1 ? 'was' : 'were'} missing essential information and ${n === 1 ? 'was' : 'were'} excluded`,
+};
+
+function _ingestDropLines(r) {
+    const lines = [];
+    const dropped = r.dropped || {};
+    Object.keys(dropped).forEach(reason => {
+        const n = Number(dropped[reason]) || 0;
+        if (n <= 0) return;
+        const fmt = _ingestDropReasonLabels[reason];
+        lines.push(fmt ? fmt(n) : `${n.toLocaleString()} rows dropped (${reason})`);
+    });
+    if ((r.deduped_rows ?? 0) > 0) {
+        lines.push(`${r.deduped_rows.toLocaleString()} row${r.deduped_rows === 1 ? '' : 's'} duplicated activity already in the archive`);
+    }
+    return lines;
+}
+
+function _ingestDroppedCellHtml(r) {
+    // Entries written before the drop-stats extension have no `dropped` key —
+    // render an em-dash rather than implying "nothing was dropped".
+    if (r.dropped === undefined && r.deduped_rows === undefined) {
+        return '<span style="color: var(--color-text-tertiary);">—</span>';
+    }
+    const lines = _ingestDropLines(r);
+    if (lines.length === 0) return '<span style="color: var(--color-text-tertiary);">0</span>';
+    return lines
+        .map(l => `<div class="text-xxs" style="color: var(--color-text-tertiary); white-space: normal;">${_escapeHtml(l)}</div>`)
+        .join('');
+}
+
 function _formatSiblings(siblings) {
     if (!siblings || siblings.length === 0) return '';
     if (siblings.length === 1) return siblings[0];
@@ -4165,9 +4214,6 @@ function renderIngestResultsPanel(data) {
         const rowsHtml = perFile.map(r => {
             const meta = _ingestOutcomeLabels[r.outcome] || { label: r.outcome, color: 'var(--color-text-secondary)' };
             const provenance = [r.platform, r.source].filter(Boolean).join(' · ');
-            const dedupedNote = r.deduped_rows > 0
-                ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${r.deduped_rows.toLocaleString()} deduped</div>`
-                : '';
             const cidLine = r.canonical_collection_id
                 ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">collection: ${_escapeHtml(r.canonical_collection_id)}</div>`
                 : '';
@@ -4191,16 +4237,14 @@ function renderIngestResultsPanel(data) {
                     </td>
                     <td style="${numStyle}">${(r.raw_rows ?? 0).toLocaleString()}</td>
                     <td style="${numStyle}">${(r.processed_rows ?? 0).toLocaleString()}</td>
-                    <td style="${numStyle}">
-                        ${(r.final_rows ?? 0).toLocaleString()}
-                        ${dedupedNote}
-                    </td>
+                    <td style="${numStyle}">${(r.final_rows ?? 0).toLocaleString()}</td>
+                    <td style="${tdStyle} max-width: 260px;">${_ingestDroppedCellHtml(r)}</td>
                 </tr>
             `;
         }).join('');
 
         wrap.innerHTML = `
-            <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 720px;">
+            <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 860px;">
                 <thead>
                     <tr>
                         <th style="${thStyle}">File</th>
@@ -4208,6 +4252,7 @@ function renderIngestResultsPanel(data) {
                         <th style="${thStyle} text-align: right;">Raw rows</th>
                         <th style="${thStyle} text-align: right;">Processed</th>
                         <th style="${thStyle} text-align: right;">Rows kept</th>
+                        <th style="${thStyle}">Rows left out — why</th>
                     </tr>
                 </thead>
                 <tbody>${rowsHtml}</tbody>
@@ -4258,6 +4303,8 @@ function renderIngestResultsPanel(data) {
                 const cidLine = r.collection_id
                     ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">collection: ${_escapeHtml(r.collection_id)}</div>`
                     : '';
+                const rawRows = (r.raw_rows ?? null) !== null && r.raw_rows > 0
+                    ? r.raw_rows.toLocaleString() : '—';
                 return `
                     <tr>
                         <td style="${tdStyle}">
@@ -4268,6 +4315,7 @@ function renderIngestResultsPanel(data) {
                             <div class="text-sm">${meta.label}</div>
                             ${cidLine}
                         </td>
+                        <td style="${tdStyle} text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text-tertiary);">${rawRows}</td>
                         <td style="${tdStyle} text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text-tertiary);">${lastSeen}</td>
                         <td style="${tdStyle} text-align: right;">
                             <button type="button" class="action-btn" style="padding: 4px 10px;" onclick="unskipIngestionFile(this, '${_escapeHtml(r.filename).replace(/'/g, "\\'")}')">Un-skip</button>
@@ -4276,11 +4324,12 @@ function renderIngestResultsPanel(data) {
                 `;
             }).join('');
             skippedTableEl.innerHTML = `
-                <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 620px;">
+                <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 680px;">
                     <thead>
                         <tr>
                             <th style="${thStyle}">File</th>
                             <th style="${thStyle}">Recorded outcome</th>
+                            <th style="${thStyle} text-align: right;">Rows read</th>
                             <th style="${thStyle} text-align: right;">Last seen</th>
                             <th style="${thStyle} text-align: right;">Action</th>
                         </tr>
@@ -4292,6 +4341,75 @@ function renderIngestResultsPanel(data) {
         }
     }
 
+    panel.style.display = 'block';
+}
+
+// --- Ingestion history (the persistent ledger) ---
+// Unlike the "Last run results" panel above (live task-status data, gone on
+// page reload), this renders from the ingestion ledger on disk, so the
+// per-file intake report survives across sessions.
+
+function loadIngestionHistory() {
+    if (!document.getElementById('ingestion-history-panel')) return;
+    fetch('/api/manage/ingestion/ledger')
+        .then(res => res.json())
+        .then(data => renderIngestionHistory(Array.isArray(data.files) ? data.files : []))
+        .catch(err => console.error('Error loading ingestion history:', err));
+}
+
+function renderIngestionHistory(entries) {
+    const panel = document.getElementById('ingestion-history-panel');
+    const countEl = document.getElementById('ingestion-history-count');
+    const wrap = document.getElementById('ingestion-history-wrap');
+    if (!panel || !wrap) return;
+
+    if (!entries.length) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    const thStyle = 'padding: 6px 8px; text-align: left; border-bottom: 2px solid var(--color-border-strong); font-weight: var(--weight-semibold);';
+    const tdStyle = 'padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top;';
+    const numStyle = tdStyle + ' text-align: right; font-variant-numeric: tabular-nums;';
+
+    const rowsHtml = entries.map(r => {
+        const meta = _ingestOutcomeLabels[r.outcome] || { label: r.outcome, color: 'var(--color-text-secondary)' };
+        const provenance = [r.platform, r.source].filter(Boolean).join(' · ');
+        const numOrDash = (v) => (v === undefined || v === null) ? '—' : Number(v).toLocaleString();
+        return `
+            <tr>
+                <td style="${tdStyle}">
+                    <div class="text-sm" style="word-break: break-all;">${_escapeHtml(r.filename)}</div>
+                    ${provenance ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${_escapeHtml(provenance)}</div>` : ''}
+                </td>
+                <td style="${tdStyle} color: ${meta.color};">
+                    <div class="text-sm">${meta.label}</div>
+                    ${r.collection_id ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">collection: ${_escapeHtml(r.collection_id)}</div>` : ''}
+                </td>
+                <td style="${numStyle}">${numOrDash(r.raw_rows)}</td>
+                <td style="${numStyle}">${numOrDash(r.kept_rows)}</td>
+                <td style="${tdStyle} max-width: 280px;">${_ingestDroppedCellHtml(r)}</td>
+                <td style="${tdStyle} text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text-tertiary);">${fypFmtDate(r.ts_last_seen)}</td>
+            </tr>
+        `;
+    }).join('');
+
+    if (countEl) countEl.textContent = `(${entries.length})`;
+    wrap.innerHTML = `
+        <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 860px;">
+            <thead>
+                <tr>
+                    <th style="${thStyle}">File</th>
+                    <th style="${thStyle}">Outcome</th>
+                    <th style="${thStyle} text-align: right;">Rows read</th>
+                    <th style="${thStyle} text-align: right;">Rows kept</th>
+                    <th style="${thStyle}">Rows left out — why</th>
+                    <th style="${thStyle} text-align: right;">Last processed</th>
+                </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+        </table>
+    `;
     panel.style.display = 'block';
 }
 

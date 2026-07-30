@@ -6,6 +6,80 @@
        tab bar and the username/role/logout header stay in place. The shared
        partial hides its prospect-facing "researcher" CTAs when authenticated. #}
     <div class="public-main">
+
+        {# Getting-started panel for new users: what a study is, which tab
+           answers which question (only the tabs this user can see), and what
+           to do when no study has been shared yet. One-shot dismissible via
+           the per-user settings store. #}
+        {% if not user.settings.get('getting_started_dismissed') %}
+        <section id="getting-started-panel" class="landing-section" style="margin-top: 30px; position: relative;">
+            <button class="close-button" style="position: absolute; top: 0; right: 0;"
+                onclick="dismissGettingStarted()" aria-label="Dismiss getting started"
+                title="Dismiss (you can find the same content under Guide)">&times;</button>
+
+            <h2 class="text-h2 font-semibold landing-section-title">Getting started</h2>
+            <p class="prose landing-section-intro">
+                Everything here revolves around a <strong>study</strong> — a set of participant
+                data (which collections, which platforms, which dates) that a researcher defines
+                and shares. Pick your active study from the dropdown in the header; every analysis
+                tab works against it.
+            </p>
+
+            <div class="guide-tab-list">
+                {% if user.can_access('tab.explore') %}
+                <div class="guide-tab-item">
+                    <h3>Explore</h3>
+                    <p>Browse and filter what participants watched, and compare two slices of the data side by side.</p>
+                </div>
+                {% endif %}
+                {% if user.can_access('tab.timelines') %}
+                <div class="guide-tab-item">
+                    <h3>Timelines</h3>
+                    <p>Follow one participant's feed day by day and spot rising, falling or spiking categories.</p>
+                </div>
+                {% endif %}
+                {% if user.can_access('tab.video_analysis') %}
+                <div class="guide-tab-item">
+                    <h3>Video Analysis</h3>
+                    <p>Watch individual videos, inspect their AI labels, and add your own tags and notes.</p>
+                </div>
+                {% endif %}
+                {% if user.can_access('tab.correlations') %}
+                <div class="guide-tab-item">
+                    <h3>Correlations</h3>
+                    <p>Chart relationships between numeric measures across groups of participants.</p>
+                </div>
+                {% endif %}
+                {% if user.can_access('tab.semantic_space') %}
+                <div class="guide-tab-item">
+                    <h3>Semantic Space</h3>
+                    <p>A map of every annotated video by meaning — explore the corpus's micro-genres.</p>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="note-callout" style="margin-top: 20px;">
+                <p>
+                    <strong>Nothing in the study picker yet?</strong> That's normal for a new
+                    account — ask the person who invited you to share a study with you. Nothing
+                    is broken.
+                </p>
+            </div>
+
+            {% if user.can_access('tab.data_management.ingestion') %}
+            <p class="prose" style="margin-top: 16px;">
+                <strong>Have participant data to add?</strong> Upload export files under
+                Data Management&nbsp;→&nbsp;Ingest Collections; once ingested, they can be included in a study.
+            </p>
+            {% endif %}
+
+            <p class="prose" style="margin-top: 16px;">
+                For a longer walkthrough, read the <a href="{{ url_for('public_bp.guide') }}">full guide</a>.
+                The <strong>?</strong> button in the top right always explains the tab you're on.
+            </p>
+        </section>
+        {% endif %}
+
         {% include 'public/_landing_content.html' %}
 
         <!-- Signed-in housekeeping notes (not shown on the public landing page) -->

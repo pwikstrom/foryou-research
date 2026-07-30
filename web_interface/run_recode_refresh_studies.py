@@ -17,6 +17,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
     from fyp.fyp_config import fyp_cf
     from fyp.organize_datasets import create_study_recoded_dataset
     from fyp.studies import init_study_defs, save_study_defs
+    from web_interface.services.methods_note import write_methods_note
     from web_interface.services.stats_service import compute_study_dataset_stats
 
     task_args = task_args or {}
@@ -100,6 +101,19 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
                 studies[study_name]['stats'] = compute_study_dataset_stats(
                     df_study, df_status, selected)
                 studies[study_name]['last_updated'] = datetime.now(UTC).isoformat()
+
+                # Methods/provenance note — written on every refresh, even a
+                # short-circuit, so it tracks registry moves (e.g. a newly
+                # preferred annotation version) that don't rebuild the parquet.
+                write_methods_note(
+                    study_name=study_name,
+                    study_config=studies[study_name],
+                    df_study=df_study,
+                    df_status=df_status,
+                    stats=studies[study_name]['stats'],
+                    refresh_action=refresh_action,
+                    refresh_trigger="pipeline",
+                )
 
         except Exception as e:
             reporter.log(f"Error processing {study_name}: {e}")

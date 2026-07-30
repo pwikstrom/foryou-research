@@ -59,3 +59,18 @@
         </details>
     </div>
 </div>
+
+<div id="ingestion-history-panel" style="margin-top: 24px; display: none;">
+    <details>
+        <summary class="text-sm font-semibold" style="cursor: pointer; color: var(--color-text-secondary); user-select: none;">
+            Ingestion history — every file ever processed
+            <span id="ingestion-history-count" class="text-xxs" style="color: var(--color-text-tertiary); font-weight: var(--weight-normal); margin-left: 6px;"></span>
+        </summary>
+        <div class="text-xxs" style="color: var(--color-text-tertiary); margin: 8px 0 4px 0;">
+            The permanent record of what happened to each uploaded file: rows we could read, rows
+            kept, and why any rows were left out. Dropped rows are excluded from analysis; the
+            uploaded files themselves are never modified.
+        </div>
+        <div id="ingestion-history-wrap" style="overflow-x: auto;"></div>
+    </details>
+</div>

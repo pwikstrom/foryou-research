@@ -599,6 +599,13 @@ class ForYouBaseCollection(ABC):
         # They stay pending (retried next refresh); tracked so the refresh
         # summary can tell the user why a file was not ingested.
         self.load_failed_this_run: dict[str, str] = {}
+        # Per-file intake stats for this run:
+        # {filename: {"raw_rows": int, "dropped": {reason: count}}}.
+        # raw_rows is recorded for every file load_single_raw returned —
+        # including files later discarded for too few rows, so the ledger can
+        # report the true count instead of 0. Drop reasons are accumulated by
+        # process()/_standardize() via _record_file_drops().
+        self.file_stats_this_run: dict[str, dict] = {}
 
 
     def clear(self):
@@ -803,6 +810,7 @@ class ForYouBaseCollection(ABC):
             raise ValueError("No raw path has been set for this collection.")
 
         self.load_failed_this_run = {}
+        self.file_stats_this_run = {}
 
         MANIFEST_FILENAME = "ingestion_manifest.json"
 
@@ -848,6 +856,8 @@ class ForYouBaseCollection(ABC):
                 )
                 self.load_failed_this_run[fn] = str(exc)
                 continue
+
+            self.file_stats_this_run[fn] = {"raw_rows": int(len(one_df)), "dropped": {}}
 
             if len(one_df) > 0:
                 mtime = data_io.getmtime(storage_location=self.raw_path, filename = fn)
@@ -907,6 +917,26 @@ class ForYouBaseCollection(ABC):
     @abstractmethod
     def load_single_raw(self, filename: str) -> pd.DataFrame:
         """Subclasses must implement this logic."""
+
+
+
+
+    def _record_file_drops(self, counts, reason: str) -> None:
+        """Accumulate per-file dropped-row counts under a reason key.
+
+        Args:
+            counts: A ``{raw_file: n_dropped}`` mapping (or a pandas Series
+                indexed by raw_file). Zero/negative entries are ignored.
+            reason: The drop-reason key (e.g. ``"not_parseable"``,
+                ``"missing_required"``).
+        """
+        for fn, n in dict(counts).items():
+            n = int(n)
+            if n <= 0:
+                continue
+            entry = self.file_stats_this_run.setdefault(str(fn), {"raw_rows": None, "dropped": {}})
+            dropped = entry.setdefault("dropped", {})
+            dropped[reason] = dropped.get(reason, 0) + n
 
 
 
@@ -1004,7 +1034,22 @@ class ForYouBaseCollection(ABC):
         if self.verbose:
             logger.info(f"Processing {len(self.data):,} raw rows for platform/data_source '{self.source_platform}_{self.data_source}'...")
 
+        # Per-file row counts before/after the platform's process_single pass:
+        # the difference is rows the platform could not turn into activities
+        # (unreadable timestamp, missing item reference, ...). Counted here —
+        # generically, per raw_file — because each platform drops these rows
+        # inside its own process_single.
+        _before = {str(k): int(v) for k, v in self.data.groupby("raw_file").size().items()}
+
         self.data = self.data.groupby("raw_file", group_keys=False)[self.data.columns].apply(self.process_single)
+
+        _after: dict[str, int] = {}
+        if "raw_file" in self.data.columns and len(self.data) > 0:
+            _after = {str(k): int(v) for k, v in self.data.groupby("raw_file").size().items()}
+        self._record_file_drops(
+            {fn: n - _after.get(fn, 0) for fn, n in _before.items()},
+            "not_parseable",
+        )
 
         # Platform-specific extras (the additional_columns analogue) come from the
         # activity contract, keyed on this collection's platform. Merged over any
@@ -1311,6 +1356,10 @@ class ForYouBaseCollection(ABC):
                     f"Activity ingest: hard-dropping {n_bad:,} row(s) with a null "
                     f"required-core field ({', '.join(core)})."
                 )
+                if "raw_file" in df.columns:
+                    self._record_file_drops(
+                        df.loc[invalid].groupby("raw_file").size(), "missing_required"
+                    )
                 df = df[~invalid].copy()
 
         # Stamp per-row activity-contract provenance. This is a derived field, so it
@@ -1440,7 +1489,10 @@ class ForYouCollection(ForYouBaseCollection):
             files[fn] = {
                 "outcome": entry.get("outcome"),
                 "raw_rows": int(entry.get("raw_rows") or 0),
+                "processed_rows": int(entry.get("processed_rows") or 0),
                 "kept_rows": int(entry.get("final_rows") or 0),
+                "deduped_rows": int(entry.get("deduped_rows") or 0),
+                "dropped": entry.get("dropped") or {},
                 "collection_id": entry.get("canonical_collection_id"),
                 "merged_with_siblings": entry.get("merged_with_siblings") or [],
                 "platform": entry.get("platform"),

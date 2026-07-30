@@ -114,6 +114,22 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     reporter.log(f"Stats: {stats}")
     _t_stats = time.perf_counter() - _t_phase
 
+    # Methods/provenance note — written on every refresh, including
+    # short-circuits: the preferred annotation version can move in the registry
+    # without triggering a rebuild, and the note must track it.
+    from web_interface.services.methods_note import write_methods_note
+
+    if write_methods_note(
+        study_name=study_name,
+        study_config=studies[study_name],
+        df_study=df_recoded,
+        df_status=df_status,
+        stats=stats,
+        refresh_action=refresh_action or "full_rebuild",
+        refresh_trigger="study_save",
+    ) is not None:
+        reporter.log("Methods note written.")
+
     if reporter.check_cancelled():
         reporter.log("Cancelled by user.")
         return
