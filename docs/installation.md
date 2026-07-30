@@ -457,10 +457,18 @@ With a fresh install every tab is empty. To load data:
 
 1. Log in as admin → **Data Management** → **Ingestion**, and upload a
    data-donation zip (TikTok/Instagram DDP export, or a Google Takeout for
-   YouTube watch history), then run an ingest refresh.
+   YouTube watch history), then run an ingest refresh. The results table
+   shows, per file, how many rows were read and kept and — in plain
+   language — why any rows were left out; the same report persists in the
+   "Ingestion history" panel on that page.
 2. On the **Enrichment** panel, queue and run the scraper for the platform
    (`queue_scraper_<platform>`), then **Consolidate & Refresh**.
 3. If Gemini is configured, queue annotation the same way.
+
+Once a study is defined and refreshed, its **Methods** button on the Explore
+tab shows the auto-generated provenance note (filters, counts, annotation
+versions, refresh dates). New non-admin users get a "Getting started" panel
+on the Home tab keyed to their permissions, plus the public `/guide` pages.
 
 Workers run as local subprocesses started from the Data Management tab, or
 manually:

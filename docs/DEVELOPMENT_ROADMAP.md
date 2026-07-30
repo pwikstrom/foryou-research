@@ -473,6 +473,44 @@ artifacts these ops produce, and inviting users onto a stale pipeline undermines
   filters, sample sizes, annotation contract/model versions, refresh dates — the
   inputs already exist in the registries and study metadata.
 
+> **✅ Update (2026-07-30):** S3 is **shipped and deployed** — main `690f49e`,
+> revisions `fyp-data-hub-00310-xsz` + `fyp-task-runner-00214-ksf`. As with S2,
+> the verification pass found the bullets partly stale — several building blocks
+> already existed and the work was largely *surfacing* them:
+>
+> - **Messy-intake UX:** per-file `raw_rows`/`kept_rows` already lived in the
+>   ingestion ledger and a per-file results table already rendered — but only
+>   from the live poll of one run (gone on reload), with no ledger read
+>   endpoint, no drop *reasons*, and `raw_rows=0` recorded for too-small files.
+>   Now: the base ingest loop counts per-file drops generically
+>   (`not_parseable` around `process_single` — NOT in
+>   `_finalize_activity_frame`, which TikTok bypasses — and
+>   `missing_required` in the `_standardize` hard-drop gate), the ledger
+>   carries `processed_rows`/`deduped_rows`/`dropped`, and the Ingestion page
+>   gains `GET /api/manage/ingestion/ledger` + a persistent "Ingestion history"
+>   panel with plain-language drop labels. Pre-DataFrame record skips (IG/YT
+>   parser level) are deliberately uncounted in v1 — copy says "rows we could
+>   read".
+> - **Guided first-run:** a dismissible, permission-keyed "Getting started"
+>   panel on the Home tab (dismissal via the user-settings merge); `/guide`
+>   reachable again when logged in (it wasn't — every link was
+>   anonymous-gated); honest zero-study empty states (the study picker was
+>   silently *hidden*, Explore showed "Loading filters..." forever, My Studies
+>   rendered a bare header). Bonus fix: a stale `#my_studies` selector let
+>   non-admins open the *editable* study modal from My Studies.
+> - **Methods note — open question 3 decided: sidecar** (`{study}_methods.json`
+>   in `cache`), built by `web_interface/services/methods_note.py` and written
+>   by BOTH refresh workers on **every** refresh *including short-circuits* —
+>   a preferred-version promotion must reach the note without a rebuild.
+>   Surfaced via `GET /api/studies/<study>/methods` + a "Methods" modal on
+>   Explore (plain language + JSON download); the schema carries `*_label`
+>   plain-language siblings so the M1 export README is a templating job.
+> - **Deferred:** the `USER_ACCESS` empty-means-all (analysis tabs) vs
+>   empty-means-none (My Studies) inconsistency needs a product decision on
+>   default sharing — honest messaging shipped instead.
+> - **Post-deploy:** methods notes generate on the next study/pipeline refresh;
+>   run one Recode & Refresh to backfill all studies.
+
 ### S4. Teaching enabler #1: demo study + safe role (weeks 5–8)
 
 - A **synthetic/consented demo dataset** ingested as a permanent sandbox study —
@@ -543,5 +581,13 @@ byproducts → M5 last, per "consolidate first".
   failure will exercise it and should appear on Admin → System info.
   Note for future spot-checks: curling a gated POST returns 400 from CSRF
   *before* the permission decorator runs, so test a GET endpoint instead.
-- **S3/S4:** upload a deliberately malformed export → per-file report explains the
-  drops; log in as the student role → read-only surfaces only, demo study visible.
+- **S3:** ✅ shipped 2026-07-30 (main `690f49e`). Covered by
+  `tests/unit/test_methods_note.py`, `test_home_getting_started.py`,
+  `test_ingest_drop_stats.py`, `test_build_per_file_summary.py`,
+  `test_ingestion_ledger_endpoint.py`; url-map snapshot + `docs/routes.md`
+  regenerated (2 new routes). Prod spot-checks: `/guide` 200 anonymously, the
+  two new endpoints 401 unauthenticated. **Still outstanding:** one Recode &
+  Refresh run to generate methods notes for existing studies, the
+  malformed-export end-to-end check on real prod data, and a fresh-viewer
+  manual walkthrough of the Home panel + empty states.
+- **S4:** log in as the student role → read-only surfaces only, demo study visible.

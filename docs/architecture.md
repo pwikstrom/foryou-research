@@ -99,7 +99,13 @@ zero orchestration edits:
 Supporting safety nets: the **structure sentinel**
 (`fyp/structure_sentinel.py`) learns each platform's export structure and
 quarantines silently-drifted uploads for admin review instead of ingesting
-them; parse failures leave files pending for retry rather than discarding.
+them; parse failures leave files pending for retry rather than discarding;
+and the **ingestion ledger** records every file's per-run outcome with row
+counts and a drop-reason breakdown, surfaced as a permanent per-file intake
+report in the UI. On the analysis side, every study refresh writes a
+**methods/provenance note** (`{study}_methods.json`) summarising filters,
+counts, and the contract/model versions behind the data — see
+[pipeline.md](pipeline.md).
 
 ## The web layer
 

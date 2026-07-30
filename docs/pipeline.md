@@ -31,6 +31,15 @@ Notable behaviors:
   export structure and per-file sanity stats; a drifted upload is quarantined
   for admin review (Data Management → Ingestion) instead of silently
   mis-ingested. Parse failures stay pending and are retried next refresh.
+- **Per-file intake report**: the load loop records each file's true raw row
+  count (including too-small discards) and a per-file drop-reason breakdown —
+  rows that couldn't be interpreted (`not_parseable`), rows missing
+  required-core fields (`missing_required`), rows deduplicated against the
+  archive. Persisted in the ingestion ledger (`ingestion_ledger.json`) and
+  surfaced on Data Management → Ingestion: the live "Last run results" table
+  plus a permanent "Ingestion history" panel
+  (`GET /api/manage/ingestion/ledger`) with plain-language labels, so an
+  uploader can always see why rows didn't land.
 - **Donor timezone**: uploads can carry an authoritative IANA zone / fixed
   offset per file, validated at upload time.
 
@@ -95,6 +104,17 @@ profiling (`session_profile.py`), sequence windowing/modelling
 niche detection + 2D map (`embeddings.py`, `niche_detection.py`,
 `video_map.py`; embeddings are backend-dispatched too — Gemini default,
 hosted or local Qwen alternatives, model-scoped shard store).
+
+Every study refresh also writes a **methods/provenance note**
+(`{study}_methods.json`, built by `web_interface/services/methods_note.py`):
+a plain-language, export-ready record of the study's filters, sample sizes,
+the annotation/scrape/activity contract versions present in the rows, the
+embedding model behind any niche columns, and refresh dates. Both refresh
+workers write it on every refresh — including short-circuited ones, so a
+newly *preferred* annotation version reaches the note without a rebuild.
+Surfaced as the "Methods" panel on the Explore tab
+(`GET /api/studies/<study>/methods`); it becomes the bundled README in the
+planned per-study export.
 
 Refresh dependencies (each a background job, chained from the UI):
 

@@ -25,7 +25,8 @@ blueprints from `web_interface/routes/`:
 Shared backend helpers live next to the app: the `services/` package
 (study data + cache — note the double-checked locking in `StudyCache` —
 timelines, analysis data, per-user variables, worker status, preview
-cache; `data_service.py` remains as a re-exporting facade),
+cache, and the per-study methods/provenance note builder `methods_note.py`;
+`data_service.py` remains as a re-exporting facade),
 `explorer_backend.py`, `process_manager.py`, `task_status.py`,
 `worker_runner.py` (shared CLI entrypoint for the 19 workers),
 `admin_settings.py`, `activity_log.py`.
@@ -74,7 +75,11 @@ Rules" for the full rules.
 
 Per-user variable preferences (which variables show on each surface) are
 composed client-side by `static/js/variable_prefs.js` as
-`(global ∪ include) − exclude` deltas stored in the user's settings.
+`(global ∪ include) − exclude` deltas stored in the user's settings. The
+same free-form settings merge (`POST /api/user/settings`) backs other
+per-user UI state, e.g. the Home tab's dismissible "Getting started" panel
+(`getting_started_dismissed`) — the permission-keyed first-run surface for
+newly invited users, which also links into the public `/guide` pages.
 
 ## Conventions & known warts
 

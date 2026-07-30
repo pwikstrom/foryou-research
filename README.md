@@ -8,6 +8,12 @@ and local backends), runs statistical analysis
 (PCA, ANOVA, PERMANOVA, sequence and timeline analysis), and presents
 findings through a Flask web dashboard with role-based access control.
 
+Transparency is built in: ingestion produces a per-file intake report
+(rows read, rows kept, plain-language drop reasons), and every study carries
+an auto-generated **methods/provenance note** — filters, sample sizes, and
+the exact annotation/contract versions behind the data — surfaced in the
+dashboard and exportable as JSON.
+
 Built for academic research on feed personalization; the core is
 platform-agnostic (adding a platform is one ingestion class and one scraper
 class — see [docs/pipeline.md](docs/pipeline.md)).

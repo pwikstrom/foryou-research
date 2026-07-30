@@ -100,7 +100,9 @@ fyp_main_v02/
 │   │   └── derived_contract.py  # Loads/validates config/derived_contract.toml; owns var_schema metadata for merge-derived columns
 │   ├── ingest/                  # Package (replaced the old fyp/ingest.py module); __init__ re-exports the old API and
 │   │   │                        #   imports all platform modules EAGERLY (class definition registers upload locations)
-│   │   ├── base.py              # ForYouBaseCollection ABC + ForYouCollection; parse_donor_timezone(); registered_raw_locations()
+│   │   ├── base.py              # ForYouBaseCollection ABC + ForYouCollection; parse_donor_timezone(); registered_raw_locations();
+│   │   │                        #   per-file intake stats (file_stats_this_run: true raw counts + not_parseable/missing_required
+│   │   │                        #   drop reasons) persisted via the ingestion ledger (processed_rows/deduped_rows/dropped)
 │   │   ├── tiktok.py            # TikTokDDPCollection / TikTokAIOCollection / TikTokZeeschuimerCollection
 │   │   ├── instagram.py         # InstagramDDPCollection
 │   │   └── youtube.py           # YouTubeDDPCollection
@@ -177,10 +179,13 @@ fyp_main_v02/
 │   ├── run_ab_eval.py           # Prompt A/B eval run (Cloud Task)
 │   ├── run_retokenise_hashtags.py     # Retroactive hashtag-stoplist cleanup (Cloud Task)
 │   ├── services/                # Backend logic extracted from routes: study_data, timeline_service,
-│   │                            #   analysis_data, user_variables, stats_service, preview_cache, worker_status
+│   │                            #   analysis_data, user_variables, stats_service, preview_cache, worker_status,
+│   │                            #   methods_note (per-study methods/provenance note — {study}_methods.json in
+│   │                            #   "cache", written by BOTH study-refresh workers on every refresh incl.
+│   │                            #   short-circuit; uses the active-vs-preferred vocabulary)
 │   ├── routes/                  # Flask Blueprints
 │   │   ├── auth_routes.py       #   Login, signup, settings
-│   │   ├── api_explorer_routes.py       #   Studies + Explore API + system-info
+│   │   ├── api_explorer_routes.py       #   Studies + Explore API + system-info + per-study methods note
 │   │   ├── api_viewer_routes.py         #   Video Analysis + media streaming API
 │   │   ├── api_timelines_routes.py      #   Timelines API
 │   │   ├── api_correlations_routes.py   #   Correlations API
