@@ -103,7 +103,7 @@ fyp_main_v02/
 │   │   ├── base.py              # ForYouBaseCollection ABC + ForYouCollection; parse_donor_timezone(); registered_raw_locations();
 │   │   │                        #   per-file intake stats (file_stats_this_run: true raw counts + not_parseable/missing_required
 │   │   │                        #   drop reasons) persisted via the ingestion ledger (processed_rows/deduped_rows/dropped)
-│   │   ├── tiktok.py            # TikTokDDPCollection / TikTokAIOCollection / TikTokZeeschuimerCollection
+│   │   ├── tiktok.py            # TikTokDDPCollection / TikTokAIOCollection / TikTokZeeschuimerCollection / TikTokDemoCollection (synthetic demo, data_source="demo")
 │   │   ├── instagram.py         # InstagramDDPCollection
 │   │   └── youtube.py           # YouTubeDDPCollection
 │   ├── scrape/                  # Package (replaced the old fyp/scrape.py module); __init__ re-exports the old API
@@ -232,7 +232,7 @@ fyp_main_v02/
 │       └── css/                 # (empty — styles in style.css)
 ├── tests/                       # pytest suite: unit/ + golden/ (annotation safety net) + bench/ + debug/ + conftest.py
 ├── tmp/                         # Temporary test/debug data
-├── scripts/                     # verify.sh gate, gen_route_inventory.py, migrations, adhoc/ one-offs
+├── scripts/                     # verify.sh gate, gen_route_inventory.py, generate_demo_dataset.py (seeded synthetic demo study data), migrations, adhoc/ one-offs
 ├── docs/                        # Human-oriented docs (architecture, configuration, pipeline, web layer, routes)
 ├── Dockerfile
 ├── pyproject.toml               # Packaging ([project] fyp-pipeline) + ruff + pytest config

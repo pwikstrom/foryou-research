@@ -97,7 +97,7 @@ def test_inaccessible_study_is_403(client, monkeypatch):
     from web_interface.routes import api_correlations_routes as routes
 
     _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr(routes, "get_accessible_studies", lambda *a, **k: ["other_study"])
+    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["other_study"])
     _login(client, _TEST_VIEWER)
     for endpoint in _ENDPOINTS:
         res = client.post(endpoint, json={"study": "secret", "x_col": "a", "y_col": "b"})
@@ -114,7 +114,7 @@ def test_accessible_study_without_pca_is_404(client, monkeypatch):
     from web_interface.routes import api_correlations_routes as routes
 
     _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr(routes, "get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"])
     monkeypatch.setattr(routes, "get_pca_df", lambda study: None)
     _login(client, _TEST_VIEWER)
     for endpoint in _ENDPOINTS:
@@ -161,7 +161,7 @@ def test_correlation_matrix_nulls_not_zero(client, monkeypatch):
     from web_interface.services import correlations_service
 
     _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr(routes, "get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"])
 
     # c and d never overlap, so their pairwise correlation is undefined
     df = pd.DataFrame({
@@ -468,7 +468,7 @@ def test_matrix_payload_v2_fields(client, monkeypatch):
     from web_interface.services import correlations_service
 
     _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr(routes, "get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"])
     monkeypatch.setattr(correlations_service, "load_interpretations", lambda study: {})
 
     rng_vals = [0.1, 0.9, 0.4, 0.7, 0.2, 0.8]
@@ -535,7 +535,7 @@ def test_scatter_payload_stats_and_ellipses(client, monkeypatch):
     from web_interface.routes import api_correlations_routes as routes
 
     _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr(routes, "get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"])
 
     df = pd.DataFrame({
         "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
@@ -567,7 +567,7 @@ def test_group_stats_endpoint(client, monkeypatch):
     from web_interface.services import correlations_service
 
     _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr(routes, "get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"])
     _login(client, _TEST_VIEWER)
 
     # Missing artifact -> 404 with a hint
@@ -585,7 +585,7 @@ def test_group_stats_endpoint(client, monkeypatch):
     assert res.get_json()["n_groups"] == 12
 
     # Access control mirrors the other endpoints
-    monkeypatch.setattr(routes, "get_accessible_studies", lambda *a, **k: [])
+    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: [])
     res = client.post("/api/correlations/group_stats", json={"study": "mystudy"})
     assert res.status_code == 403
 
@@ -599,7 +599,7 @@ def test_matrix_payload_includes_reliability(client, monkeypatch):
     from web_interface.services import correlations_service as cs
 
     _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr(routes, "get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"])
     monkeypatch.setattr(cs, "load_interpretations", lambda study: {})
     monkeypatch.setattr(cs, "load_reliability_map", lambda: {
         "a": {"reliability": 0.6, "n": 40, "source": "machine test-retest"},

@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # --- Role Definitions ---
 ROLE_ADMIN = "admin"
 ROLE_VIEWER = "viewer"
+ROLE_STUDENT = "student"
 
 # JSON files that live in the user-store directory but are NOT individual user
 # records. The roster loader and the default-admin check must ignore these —
@@ -115,9 +116,12 @@ class RoleManager:
             PERMISSION_KEY_IMPLIED_GRANTS,
             PERMISSION_KEY_RENAMES,
             PERMISSION_KEYS_GRANT_ALL,
+            PERMISSION_MIGRATION_SKIP_ROLES,
         )
         changed = False
         for name, entry in self.roles.items():
+            if name in PERMISSION_MIGRATION_SKIP_ROLES:
+                continue
             perms = entry.get("permissions", [])
             if "*" in perms:
                 continue
@@ -160,14 +164,24 @@ class RoleManager:
         return migrated
 
     def _ensure_defaults(self):
-        """Make sure the built-in admin and viewer roles exist with sensible defaults."""
-        from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+        """Make sure the built-in admin, viewer and student roles exist.
+
+        Note a deleted built-in role is recreated with its default permission
+        set at the next boot — deletion is a reset, not a removal.
+        """
+        from web_interface.permissions import (
+            DEFAULT_NON_ADMIN_PERMISSIONS,
+            STUDENT_PERMISSIONS,
+        )
         changed = False
         if ROLE_ADMIN not in self.roles:
             self.roles[ROLE_ADMIN] = {"permissions": ["*"]}
             changed = True
         if ROLE_VIEWER not in self.roles:
             self.roles[ROLE_VIEWER] = {"permissions": list(DEFAULT_NON_ADMIN_PERMISSIONS)}
+            changed = True
+        if ROLE_STUDENT not in self.roles:
+            self.roles[ROLE_STUDENT] = {"permissions": list(STUDENT_PERMISSIONS)}
             changed = True
         if changed:
             self.save_roles()

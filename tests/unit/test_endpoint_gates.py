@@ -230,6 +230,79 @@ def test_status_full_for_dm_permission_holders(client, monkeypatch):
 
 
 
+def test_personal_write_surface_requires_permission(client, monkeypatch):
+    """S4: the formerly login-only write endpoints now need a permission key."""
+    _grant_permissions(monkeypatch, [])
+    _login(client, _TEST_VIEWER)
+
+    assert client.get("/api/studies/defined").status_code == 403
+    assert client.post("/api/video_analysis/tags/save", json={}).status_code == 403
+    assert client.delete("/api/video_analysis/tags/sometag").status_code == 403
+    assert client.post("/api/video_analysis/vote", json={"item_id": "1"}).status_code == 403
+
+
+
+
+def test_personal_write_surface_passes_with_permission(client, monkeypatch):
+    _grant_permissions(monkeypatch, [
+        "tab.explore", "tab.my_stuff.video_tags", "feature.annotation_votes"])
+    _login(client, _TEST_VIEWER)
+
+    assert client.get("/api/studies/defined").status_code == 200
+    # Passes the gate; fails input validation before any write happens.
+    res = client.post("/api/video_analysis/tags/save", json={})
+    assert res.status_code == 400
+    res = client.post("/api/video_analysis/vote", json={})
+    assert res.status_code == 400
+
+
+
+
+def test_timelines_vote_requires_votes_key(client, monkeypatch):
+    """tab.timelines alone no longer suffices for vote_annotation (AND gate)."""
+    from web_interface import security
+    from web_interface.routes import _access
+
+    _grant_permissions(monkeypatch, ["tab.timelines"])
+    _login(client, _TEST_VIEWER)
+    res = client.post("/api/timelines/vote_annotation",
+                      json={"collection_id": "c1", "period": "p"})
+    assert res.status_code == 403
+
+    _grant_permissions(monkeypatch, ["tab.timelines", "feature.annotation_votes"])
+    monkeypatch.setattr(_access, "get_study_collections",
+                        lambda study: [{"collection_id": "c1"}])
+    monkeypatch.setattr(_access, "get_accessible_studies", lambda *a, **k: ["s1"])
+    monkeypatch.setattr(security.user_manager, "register_annotation_vote",
+                        lambda *a, **k: (True, "ok"))
+    res = client.post("/api/timelines/vote_annotation",
+                      json={"collection_id": "c1", "period": "p"})
+    assert res.status_code == 200
+
+
+
+
+def test_user_settings_key_whitelist(client, monkeypatch):
+    from web_interface import security
+
+    _grant_permissions(monkeypatch, [])
+    _login(client, _TEST_VIEWER)
+    monkeypatch.setattr(security.user_manager, "update_user_settings",
+                        lambda *a, **k: (True, "ok"))
+
+    res = client.post("/api/user/settings", json={"arbitrary_key": {"x": 1}})
+    assert res.status_code == 400
+    assert b"unknown settings keys" in res.data.lower()
+
+    res = client.post("/api/user/settings", json={"video_autostart": True})
+    assert res.status_code == 200
+
+    res = client.post("/api/user/settings", json=["not", "a", "dict"])
+    assert res.status_code == 400
+
+
+
+
 def test_internal_bp_only_on_task_runner(monkeypatch):
     """On Cloud Run, /internal/run-task exists only on the task-runner."""
     import web_interface.fyp_data_hub as hub

@@ -34,6 +34,7 @@ import pyarrow as pa
 
 import fyp.data_io as data_io
 from fyp.analysis.embedding_backends import active_backend_name, get_backend
+from fyp.core.utils import DEMO_ITEM_ID_PREFIX
 from fyp.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -278,7 +279,12 @@ def annotated_ok_item_ids() -> list[str]:
     if df is None or "item_id" not in df.columns or "annotated_ok" not in df.columns:
         return []
     ok = df[df["annotated_ok"] == True]
-    return ok["item_id"].astype("string").tolist()
+    ids = ok["item_id"].astype("string")
+    # Synthetic demo items never enter the embedding store: the semantic map
+    # and niche clustering are corpus-global, and fabricated captions would
+    # perturb the real corpus's structure.
+    ids = ids[~ids.str.startswith(DEMO_ITEM_ID_PREFIX, na=False)]
+    return ids.tolist()
 
 
 

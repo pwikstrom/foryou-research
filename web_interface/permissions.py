@@ -53,6 +53,7 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.admin.scrapers",                   "label": "Admin — Scrapers"},
     {"key": "tab.admin.general",                    "label": "Admin — Site Settings"},
     {"key": "tab.admin.system_info",                "label": "Admin — System Information"},
+    {"key": "feature.annotation_votes",             "label": "Voting — annotation demand signals"},
 ]
 
 
@@ -83,6 +84,33 @@ DEFAULT_NON_ADMIN_PERMISSIONS: list[str] = [
 ]
 
 
+# Permission set for the built-in read-only "student" role: the analysis tabs
+# plus the personal My-stuff pages. Deliberately excluded: tab.semantic_space
+# (the embedding map is corpus-global, so any holder sees the *real* corpus,
+# not just shared studies — grant per-installation if that is acceptable),
+# every tab.data_management.* / tab.admin.* key, and feature.annotation_votes
+# (votes are demand signals feeding the paid annotation queue).
+STUDENT_PERMISSIONS: list[str] = [
+    "tab.explore",
+    "tab.timelines",
+    "tab.video_analysis",
+    "tab.correlations",
+    "tab.my_stuff.my_studies",
+    "tab.my_stuff.tasks",
+    "tab.my_stuff.preferences",
+    "tab.my_stuff.video_tags",
+    "tab.my_stuff.profile",
+]
+
+
+# Roles the boot-time roles.json migration must never touch. The grant-all
+# list below is re-applied on every boot, which would silently hand the
+# student role the voting key each restart even after an admin removed it.
+# Skipping the role entirely is safe because migrations only append keys —
+# admin matrix edits to a skipped role therefore persist.
+PERMISSION_MIGRATION_SKIP_ROLES: set[str] = {"student"}
+
+
 # Boot-time roles.json migration data (see RoleManager._migrate_permission_keys):
 # renamed keys map old→new; the grant-all list is added to every non-"*" role
 # because those pages were previously ungated (Settings, Coding) for all users.
@@ -94,6 +122,11 @@ PERMISSION_KEYS_GRANT_ALL: list[str] = [
     "tab.my_stuff.preferences",
     "tab.my_stuff.video_tags",
     "tab.my_stuff.profile",
+    # 2026-07 (S4): the vote endpoints used to be ungated for any logged-in
+    # user; existing roles keep voting, the student role (skip-listed) does not.
+    # Note: grant-all keys are re-appended every boot, so they cannot be
+    # durably revoked from a non-skipped role via the admin matrix.
+    "feature.annotation_votes",
 ]
 
 # Implied grants for the 2026-07 Admin-tab restructure: pages that used to live

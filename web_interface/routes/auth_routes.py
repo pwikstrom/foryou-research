@@ -608,6 +608,20 @@ def api_irrelevant_words_apply():
     return jsonify({"status": "error", "message": msg}), 409
 
 
+# The closed set of user-settings keys the POST endpoint accepts. The store
+# itself is schemaless, so this whitelist is the only guard against arbitrary
+# unbounded keys landing in a user record.
+USER_SETTINGS_KEYS = frozenset({
+    "variable_prefs",
+    "share_annotations",
+    "video_autostart",
+    "getting_started_dismissed",
+    "big_dots",
+    "timelines_include_empty_dates",
+    "timelines_include_pre_activity",
+})
+
+
 @auth_bp.route('/api/user/settings', methods=['GET', 'POST'])
 @login_required
 def api_user_settings():
@@ -620,7 +634,12 @@ def api_user_settings():
     
     elif request.method == 'POST':
         settings = request.json
-        if isinstance(settings, dict) and 'variable_prefs' in settings:
+        if not isinstance(settings, dict):
+            return jsonify({"error": "Settings must be a JSON object"}), 400
+        unknown = sorted(set(settings) - USER_SETTINGS_KEYS)
+        if unknown:
+            return jsonify({"error": f"Unknown settings keys: {', '.join(unknown)}"}), 400
+        if 'variable_prefs' in settings:
             err = _validate_variable_prefs(settings['variable_prefs'])
             if err:
                 return jsonify({"error": err}), 400

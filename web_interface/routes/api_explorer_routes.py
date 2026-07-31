@@ -35,6 +35,8 @@ explorer_bp = Blueprint('explorer_bp', __name__)
 
 @explorer_bp.route('/api/studies/defined', methods=['GET'])
 @login_required
+@permission_required('tab.explore', 'tab.timelines', 'tab.video_analysis',
+                     'tab.correlations', 'tab.semantic_space')
 def api_get_study_defs():
     detail = request.args.get('detail', 'false').lower() == 'true'
 

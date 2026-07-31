@@ -452,3 +452,24 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
 
 
 
+
+
+
+
+class TikTokDemoCollection(TikTokDDPCollection):
+    """Synthetic demonstration donations in the TikTok DDP JSON format.
+
+    Same parser as TikTokDDPCollection, but a separate ``data_source`` so the
+    demo material stays fully isolated from real DDP uploads: its own raw
+    upload location (``demo_raw``), its own structure-sentinel baseline key
+    (``tiktok_demo`` — the armed ``tiktok_ddp`` baseline never learns
+    synthetic fingerprints), and its own collection ids. Demo files are
+    produced by ``scripts/generate_demo_dataset.py``.
+    """
+
+    raw_path = "demo_raw"
+
+    def __init__(self, collection_id: str = None, verbose: bool = False):
+        super().__init__(collection_id, verbose)
+        self.data_source = "demo"
+        self.raw_path = "demo_raw"

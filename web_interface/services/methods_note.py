@@ -33,8 +33,17 @@ from fyp.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 NOTE_LOCATION = "cache"
+
+# Provenance statement stamped into the notes of studies whose definition
+# carries a truthy SYNTHETIC key (the S4 demo study).
+SYNTHETIC_LABEL = (
+    "Synthetic demonstration data: every donor, video, engagement event and "
+    "annotation in this study is computer-generated for training purposes. "
+    "No real platform data or human participants are represented — findings "
+    "describe the generator, not the world."
+)
 
 # Plain-language labels for the SAMPLE_FRAME study setting.
 _SAMPLE_FRAME_LABELS = {
@@ -284,6 +293,10 @@ def build_methods_note(
         "study": {
             "name": study_name,
             "last_updated": study_config.get("last_updated"),
+        },
+        "data_provenance": {
+            "synthetic": bool(study_config.get("SYNTHETIC")),
+            "synthetic_label": SYNTHETIC_LABEL if study_config.get("SYNTHETIC") else None,
         },
         "selection": selection,
         "counts": counts,

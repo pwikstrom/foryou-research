@@ -71,6 +71,8 @@ def test_umbrella_keys_imply_split_out_pages():
 
 
 def test_migration_is_idempotent_and_skips_wildcard():
+    from web_interface.permissions import STUDENT_PERMISSIONS
+
     already = {
         "custom": {"permissions": [
             "tab.admin.general", "tab.admin.backends", "tab.admin.stoplist",
@@ -78,14 +80,17 @@ def test_migration_is_idempotent_and_skips_wildcard():
             # migration path saves and muddies the idempotency assertion.
             "tab.my_stuff.tasks", "tab.my_stuff.preferences",
             "tab.my_stuff.video_tags", "tab.my_stuff.profile",
+            "feature.annotation_votes",
         ]},
         "admin": {"permissions": ["*"]},
-        # _ensure_defaults adds a missing viewer role (and saves) — include it
-        # so the only possible save is the migration under test.
+        # _ensure_defaults adds missing built-in roles (and saves) — include
+        # them all so the only possible save is the migration under test.
         "viewer": {"permissions": [
             "tab.my_stuff.tasks", "tab.my_stuff.preferences",
             "tab.my_stuff.video_tags", "tab.my_stuff.profile",
+            "feature.annotation_votes",
         ]},
+        "student": {"permissions": list(STUDENT_PERMISSIONS)},
     }
     rm, stub = _make_role_manager(already)
     assert stub.saved is None, "no-op migration must not save"
@@ -112,10 +117,52 @@ def test_enrichment_key_implies_scrape_and_annotation():
 
 
 
+def test_votes_key_granted_to_existing_roles_but_not_student():
+    # S4: the vote endpoints used to be ungated for any logged-in user, so
+    # every existing role gains feature.annotation_votes via GRANT_ALL — but
+    # the student role is skip-listed and must stay vote-less.
+    rm, stub = _make_role_manager({
+        "viewer": {"permissions": ["tab.explore"]},
+        "student": {"permissions": ["tab.explore"]},
+        "admin": {"permissions": ["*"]},
+    })
+    assert "feature.annotation_votes" in rm.roles["viewer"]["permissions"]
+    assert "feature.annotation_votes" not in rm.roles["student"]["permissions"]
+    # Skip-listed roles are untouched entirely (no GRANT_ALL keys at all).
+    assert rm.roles["student"]["permissions"] == ["tab.explore"]
+    assert stub.saved is not None
+    print("PASS: votes key granted to existing roles, student skipped")
+
+
+
+
+def test_ensure_defaults_seeds_student_role():
+    from web_interface.permissions import STUDENT_PERMISSIONS
+
+    rm, stub = _make_role_manager({
+        "admin": {"permissions": ["*"]},
+        "viewer": {"permissions": ["tab.explore", "feature.annotation_votes",
+                                   "tab.my_stuff.tasks", "tab.my_stuff.preferences",
+                                   "tab.my_stuff.video_tags", "tab.my_stuff.profile"]},
+    })
+    assert rm.roles["student"]["permissions"] == list(STUDENT_PERMISSIONS)
+    # The student set is genuinely restricted.
+    assert "tab.semantic_space" not in rm.roles["student"]["permissions"]
+    assert "feature.annotation_votes" not in rm.roles["student"]["permissions"]
+    assert not any(p.startswith("tab.data_management") or p.startswith("tab.admin")
+                   for p in rm.roles["student"]["permissions"])
+    assert stub.saved is not None
+    print("PASS: _ensure_defaults seeds the student role")
+
+
+
+
 def run():
     test_umbrella_keys_imply_split_out_pages()
     test_migration_is_idempotent_and_skips_wildcard()
     test_enrichment_key_implies_scrape_and_annotation()
+    test_votes_key_granted_to_existing_roles_but_not_student()
+    test_ensure_defaults_seeds_student_role()
 
 
 

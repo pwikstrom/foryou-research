@@ -89,7 +89,9 @@ def list_studies():
         else:
             user_access = config.get("USER_ACCESS", [])
             if isinstance(user_access, list) and (
-                current_user.role in user_access or 'all' in user_access
+                current_user.role in user_access
+                or current_user.username in user_access
+                or 'all' in user_access
             ):
                 studies_list.append(config)
 
@@ -157,6 +159,17 @@ def save_study():
                 details={"changed": ["USER_ACCESS"]},
             )
             return jsonify({"status": "success", "study": studies[study_name]})
+
+    # A study must explicitly enumerate its collections: an empty list would
+    # silently select EVERY collection at recode time (organize_datasets only
+    # appends the collection_id filter when the list is non-empty), which is
+    # how a study could sweep in e.g. the synthetic demo collections.
+    effective_collections = data.get(
+        'SELECTED_COLLECTIONS',
+        studies.get(study_name, {}).get('SELECTED_COLLECTIONS'),
+    )
+    if not isinstance(effective_collections, list) or not effective_collections:
+        return jsonify({"error": "A study must explicitly list its collections"}), 400
 
     # Update config
     if study_name not in studies:

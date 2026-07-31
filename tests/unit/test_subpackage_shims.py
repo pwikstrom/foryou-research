@@ -122,6 +122,7 @@ EXPECTED_RAW_LOCATIONS = (
     "ddp_raw",
     "aio_raw",
     "zeeschuimer_raw",
+    "demo_raw",  # S4: TikTokDemoCollection (end of the tiktok module)
     "instagram_raw",
     "youtube_raw",
 )

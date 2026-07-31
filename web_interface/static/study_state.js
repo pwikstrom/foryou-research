@@ -209,7 +209,10 @@ async function loadStudiesGlobal(options = {}) {
             if (stored && studies.includes(stored)) {
                 chosen = stored;
             } else if (studies.length > 0) {
-                chosen = studies[0];
+                // Prefer the first non-synthetic study: the demo study must
+                // never hijack a researcher's default, but stays the natural
+                // (only) pick for accounts that see nothing else.
+                chosen = studies.find(s => !(statsMap[s] || {}).synthetic) || studies[0];
             }
         }
 
