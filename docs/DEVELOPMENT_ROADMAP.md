@@ -519,8 +519,12 @@ artifacts these ops produce, and inviting users onto a stale pipeline undermines
   full analysis tabs on shared studies, no uploads, no expensive ops. With S2's
   quotas this is the minimum to put a class in front of the tool.
 
-> **✅ Update (2026-07-30):** S4 is **shipped** (branch `claude/dreamy-einstein-3e5aaa`
-> merged to main). As with S2/S3, verification reshaped the bullets:
+> **✅ Update (2026-07-31):** S4 is **shipped and deployed** — merged to main as
+> `6b59a7c` (commit `a07b576`), revisions `fyp-data-hub-00311-htj` +
+> `fyp-task-runner-00215-ldt`; boot migrations verified in the prod logs
+> (roles.json gained the votes key + the student role; the USER_ACCESS
+> backfill found nothing to do — every prod study already carried an explicit
+> list). As with S2/S3, verification reshaped the bullets:
 >
 > - **Built-in `student` role** seeded at boot beside admin/viewer: the four
 >   analysis tabs + personal My-stuff pages. Deliberately excluded:
