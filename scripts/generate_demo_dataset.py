@@ -594,6 +594,7 @@ def write_to_store(result: dict, tz: str = "Australia/Brisbane") -> None:
     refresh + Consolidate & Refresh from the UI.
     """
     import fyp.data_io as data_io
+    import fyp.ingest  # noqa: F401 — class definition registers the demo_raw location
     from fyp.annotation import annotation_versioning
     from fyp.scrape.platform_scraper import get_scraper
     from fyp.scrape.scrape import _canonicalize_recode_save
