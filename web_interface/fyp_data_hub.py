@@ -227,6 +227,37 @@ def create_app():
     return app
 
 
+
+
+def _migrate_study_access_defaults():
+    """Backfill explicit USER_ACCESS grants after the empty-means-none flip.
+
+    Runs only in processes that actually SERVE the web UI (the Cloud Run hub
+    and the local dev server) — never on a plain import (tests, scripts) and
+    never on the task-runner. It writes ``studies.json``, so an import-time
+    call could clobber real definitions with whatever a test happened to have
+    monkeypatched into the config. Grants the role names that exist at
+    migration time, excluding admin (bypasses access checks) and the
+    restricted roles (student) whose exclusion is the point of the flip.
+    Idempotent; a storage failure is logged and never blocks boot.
+    """
+    from .auth import ROLE_ADMIN, role_manager
+    from .permissions import PERMISSION_MIGRATION_SKIP_ROLES
+
+    try:
+        from fyp.studies import migrate_user_access_defaults
+
+        grant_roles = [
+            name for name in role_manager.get_roles()
+            if name != ROLE_ADMIN and name not in PERMISSION_MIGRATION_SKIP_ROLES
+        ]
+        migrated = migrate_user_access_defaults(grant_roles)
+        if migrated:
+            print(f"USER_ACCESS migration: backfilled {migrated} studies.", flush=True)
+    except Exception as e:
+        print(f"USER_ACCESS migration failed (will retry next boot): {e}", flush=True)
+
+
 app = create_app()
 
 
@@ -238,6 +269,7 @@ app = create_app()
 if not _IS_TASK_RUNNER and os.environ.get("K_SERVICE"):
     from .services import system_health
     system_health.maybe_start_boot_check()
+    _migrate_study_access_defaults()
 
 
 def _debug_enabled(value: str | None) -> bool:
@@ -264,5 +296,6 @@ if __name__ == '__main__':
         # debug there is no reloader and this process is the server.
         from web_interface.services import system_health
         system_health.maybe_start_boot_check()
+        _migrate_study_access_defaults()
     port = int(os.environ.get("PORT", 5002))
     app.run(host='0.0.0.0', port=port, debug=debug)

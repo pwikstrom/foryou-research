@@ -115,6 +115,10 @@ def _apply_queue_cap(items: list[str], queue_kind: str) -> tuple[list[str], dict
     admins always bypass. Truncation is deterministic (sorted) so a repeated
     request keeps selecting the same head slice.
 
+    Also drops synthetic demo items (``DEMO_ITEM_ID_PREFIX`` ids) from every
+    queue build: they have no real media to scrape, and a real annotation run
+    would DNF and supersede the fabricated demo annotations.
+
     Args:
         items: The computed id selection.
         queue_kind: ``"annotation"`` or ``"scrape"``.
@@ -123,8 +127,10 @@ def _apply_queue_cap(items: list[str], queue_kind: str) -> tuple[list[str], dict
         ``(possibly-truncated items, cap_info)`` where ``cap_info`` is the
         ``{"capped", "cap", "requested"}`` dict merged into the JSON response.
     """
+    from fyp.core.utils import DEMO_ITEM_ID_PREFIX
     from web_interface.admin_settings import get_queue_cap
 
+    items = [v for v in items if not str(v).startswith(DEMO_ITEM_ID_PREFIX)]
     requested = len(items)
     cap = get_queue_cap(queue_kind)
     is_admin_attr = getattr(current_user, "is_admin", False)

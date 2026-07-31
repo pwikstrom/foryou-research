@@ -79,10 +79,12 @@
                             onclick="window.timelines.viewInVideoAnalysis()">
                             View videos
                         </button>
+                        {% if user.can_access('feature.annotation_votes') %}
                         <button id="timeline-vote-btn" class="btn-discreet" style="font-size: var(--text-xs); display: none;"
                             onclick="window.timelines.voteMachineAnnotation()">
                             Vote to annotate
                         </button>
+                        {% endif %}
                     </div>
                 </div>
                 <div id="timeline-stats-content" style="max-height: 60vh; overflow-y: auto;">

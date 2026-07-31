@@ -85,8 +85,16 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
             else:
                 user_access = study_config.get('USER_ACCESS')
 
-                # 2. Missing or Empty => Default Allow
-                if not user_access or not isinstance(user_access, list) or 'all' in user_access or role in user_access or username in user_access:
+                # 2. Access requires an explicit grant: 'all', the user's role,
+                #    or their username. Missing/empty/malformed => deny — a
+                #    study is shared with nobody until someone shares it.
+                #    (Pre-S4 the default was allow; the boot-time
+                #    migrate_user_access_defaults() wrote explicit grants into
+                #    every study that relied on that.)
+                if isinstance(user_access, list) and (
+                        'all' in user_access
+                        or role in user_access
+                        or username in user_access):
                     has_access = True
                 else:
                     has_access = False
@@ -122,6 +130,9 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
                         and f"timeline_{cid_clean}_day.parquet" in cache_files
                         for cid in selected
                     )
+                    # Synthetic demo studies are flagged so the study picker
+                    # never auto-selects them over a real study.
+                    stats['synthetic'] = bool(study_config.get('SYNTHETIC'))
                     accessible_studies.append({"name": study_name, "stats": stats})
                 else:
                     accessible_studies.append(study_name)

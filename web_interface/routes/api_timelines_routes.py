@@ -23,6 +23,7 @@ timelines_bp = Blueprint('timelines_bp', __name__)
 
 @timelines_bp.route('/api/timelines/vote_annotation', methods=['POST'])
 @permission_required('tab.timelines')
+@permission_required('feature.annotation_votes')
 def api_save_annotation_vote():
     data = request.json or {}
     collection_id = data.get("collection_id")

@@ -20,6 +20,13 @@ logger = get_logger(__name__)
 DEFAULT_PROBE_HOST = "connectivitycheck.gstatic.com"
 
 
+# Every synthetic demo item id is 19 digits starting with this prefix —
+# unambiguous versus real TikTok snowflake ids (which encode a timestamp and
+# start ~6-7). Consumers use it to keep demo material out of corpus-global
+# artifacts (e.g. the embedding store feeding the semantic map).
+DEMO_ITEM_ID_PREFIX = "9900"
+
+
 # check internet connectivity
 def online_ok(url=DEFAULT_PROBE_HOST,
                         timeout=3):

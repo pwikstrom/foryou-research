@@ -519,6 +519,53 @@ artifacts these ops produce, and inviting users onto a stale pipeline undermines
   full analysis tabs on shared studies, no uploads, no expensive ops. With S2's
   quotas this is the minimum to put a class in front of the tool.
 
+> **✅ Update (2026-07-30):** S4 is **shipped** (branch `claude/dreamy-einstein-3e5aaa`
+> merged to main). As with S2/S3, verification reshaped the bullets:
+>
+> - **Built-in `student` role** seeded at boot beside admin/viewer: the four
+>   analysis tabs + personal My-stuff pages. Deliberately excluded:
+>   `tab.semantic_space` (the embedding map is corpus-global — any holder sees
+>   the *real* corpus, grant per-installation if acceptable) and the new
+>   `feature.annotation_votes` key. Three write endpoints turned out to be
+>   reachable with **zero** permissions (video tags save/delete, video vote,
+>   plus `/api/user/settings` accepting arbitrary keys) — all now gated;
+>   both vote endpoints sit behind `feature.annotation_votes` (grant-alled to
+>   existing roles at boot, skip-listed for student per the product decision
+>   that students don't feed the annotation demand signal).
+> - **The deferred USER_ACCESS decision landed as a global flip**: empty/missing
+>   means shared-with-nobody on every surface (it meant "everyone" on the
+>   analysis tabs and "nobody" on My Studies). A boot-time migration
+>   (`fyp.studies.migrate_user_access_defaults`, hub/local-server only — never
+>   plain imports) backfilled a snapshot of existing role names into every
+>   unshared study, so nobody lost access while future roles start excluded.
+>   My Studies also now honours per-username grants, Correlations shares the
+>   `_access.py` helper, and `save_study` rejects empty `SELECTED_COLLECTIONS`
+>   server-side (an empty list silently selected EVERY collection at recode).
+> - **Demo dataset is TikTok-only synthetic** (IG/YT export shapes deferred to
+>   M4): `scripts/generate_demo_dataset.py` deterministically emits 5 donor
+>   personas × 45 days over ~790 items in 7 niches with planted group
+>   differences, plus a contract-conformant scrape parquet (real `sv_`) and
+>   raw structured-annotation JSON (real `av_`) consumed by the genuine
+>   refine/consolidate/recode/PCA pipeline. Note TikTok DDP ingests `.json`,
+>   not zips — the roadmap's "export zips" assumption was stale.
+> - **Isolation is layered**: a `TikTokDemoCollection` (`data_source="demo"`)
+>   keeps the armed `tiktok_ddp` structure-sentinel baseline unpolluted; all
+>   demo item ids start `9900…` (`utils.DEMO_ITEM_ID_PREFIX`), which excludes
+>   them from the embeddings/semantic-map backlog and from every queue build
+>   (`_apply_queue_cap`); demo scrape rows carry `video_downloaded=False` so a
+>   real annotation run can never DNF-clobber the fabricated annotations; and
+>   studies exclude demo collections by construction (explicit id lists).
+> - **Honest provenance everywhere**: methods-note schema v2 adds a
+>   `data_provenance` block driven by a `SYNTHETIC: true` study-def key, the
+>   Explore methods modal shows a synthetic banner, Home/`/guide` copy names
+>   "Demo study (synthetic data)", and the study picker auto-selects the first
+>   *non*-synthetic study so the demo never hijacks a researcher's default.
+> - **Post-deploy ops owed:** run the generator `--write` against prod, upload
+>   the donor JSONs via DM → Ingest, Consolidate & Refresh + collection-metadata
+>   refresh, create the demo study (`SYNTHETIC: true`, access "all", sampling
+>   off), verify with a throwaway student account, and optionally set
+>   `default_new_user_role = student`.
+
 ## Medium term (~2–6 months)
 
 ### M1. Data export + reproducibility package
@@ -590,4 +637,11 @@ byproducts → M5 last, per "consolidate first".
   Refresh run to generate methods notes for existing studies, the
   malformed-export end-to-end check on real prod data, and a fresh-viewer
   manual walkthrough of the Home panel + empty states.
-- **S4:** log in as the student role → read-only surfaces only, demo study visible.
+- **S4:** ✅ code shipped 2026-07-30. Covered by `tests/unit/test_study_access.py`,
+  `test_demo_generator.py` (determinism, contract conformance, dedup-safety,
+  PCA floor, real ingest parse), and extensions to `test_endpoint_gates.py` /
+  `test_role_permission_migration.py` / `test_cost_guardrails.py` /
+  `test_methods_note.py`; no route changes so the url-map snapshot is
+  untouched. **Still outstanding:** the prod data ops (generator run, ingest,
+  demo-study creation) and the manual student-account walkthrough — log in as
+  the student role → read-only surfaces only, demo study visible.

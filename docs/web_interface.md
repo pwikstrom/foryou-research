@@ -40,6 +40,18 @@ globally enabled (Flask-WTF); only the OIDC-authenticated internal task
 blueprint is exempt. `WTF_CSRF_TIME_LIMIT = None` is deliberate (long-open
 research sessions).
 
+Three built-in roles are seeded at boot: `admin` (`"*"`), `viewer` (the
+analysis tabs + personal My-stuff pages), and the read-only `student` (S4:
+same minus Semantic Space and minus `feature.annotation_votes` — the key
+gating both vote endpoints; the boot migration grant-alls it to existing
+roles but skip-lists `student`). Per-study sharing is the study definition's
+`USER_ACCESS` list (role names / usernames / `'all'`); since S4 an
+empty/missing list means **shared with nobody** on every surface, and a
+boot-time migration (`fyp.studies.migrate_user_access_defaults`, serving
+processes only) backfilled explicit grants into pre-flip studies.
+`POST /api/user/settings` accepts only the whitelisted
+`USER_SETTINGS_KEYS`.
+
 ## Background workers
 
 Each `run_<name>.py` script is dual-mode:

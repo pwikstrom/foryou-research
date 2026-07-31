@@ -9,32 +9,17 @@ thin auth + request-parsing layer.
 """
 
 from flask import Blueprint, jsonify, request
-from flask_login import current_user
 
 from fyp.logging_setup import get_logger
 
-from ..data_service import get_accessible_studies, get_pca_df
+from ..data_service import get_pca_df
 from ..permissions import permission_required
 from ..services import correlations_service
+from ._access import study_access_error as _study_access_error
 
 logger = get_logger(__name__)
 
 correlations_bp = Blueprint('correlations_bp', __name__)
-
-
-
-
-
-
-def _study_access_error(study):
-    """Return a 403 response tuple if the user cannot access ``study``, else None."""
-    username = getattr(current_user, "username", current_user.id)
-    role = getattr(current_user, "role", None)
-    is_admin_attr = getattr(current_user, "is_admin", False)
-    is_admin = is_admin_attr() if callable(is_admin_attr) else bool(is_admin_attr)
-    if study in get_accessible_studies(username, role, is_admin):
-        return None
-    return jsonify({"error": "Access denied to this study"}), 403
 
 
 

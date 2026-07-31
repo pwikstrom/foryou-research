@@ -35,6 +35,7 @@ from fyp.ingest.base import (
 from fyp.ingest.tiktok import (
     TikTokAIOCollection,
     TikTokDDPCollection,
+    TikTokDemoCollection,
     TikTokZeeschuimerCollection,
 )
 from fyp.ingest.instagram import InstagramDDPCollection
