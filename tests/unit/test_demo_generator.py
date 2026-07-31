@@ -8,17 +8,12 @@ floor, and produce scrape/annotation artifacts the real pipeline accepts.
 
 import itertools
 import json
-import sys
 from collections import Counter
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts"))
-
-import generate_demo_dataset as gen  # noqa: E402
-
-from fyp.core.utils import DEMO_ITEM_ID_PREFIX  # noqa: E402
+import fyp.ingest.demo_dataset as gen
+from fyp.core.utils import DEMO_ITEM_ID_PREFIX
 
 
 @pytest.fixture(scope="module")
@@ -149,6 +144,54 @@ def test_demo_collection_ingests_donor_file(result, monkeypatch):
     dwell = plays["play_duration"].dropna()
     assert len(dwell) > 0
     assert (dwell >= 0).all() and (dwell <= 600).all()
+
+
+def test_cli_wrapper_imports_package_module():
+    """scripts/generate_demo_dataset.py must stay a thin wrapper over the
+    package module (the worker and the CLI share one implementation)."""
+    import sys
+    from pathlib import Path
+
+    scripts_dir = str(Path(__file__).resolve().parent.parent.parent / "scripts")
+    sys.path.insert(0, scripts_dir)
+    try:
+        import generate_demo_dataset as cli
+    finally:
+        sys.path.remove(scripts_dir)
+    assert cli.generate is gen.generate
+    assert cli.write_to_store is gen.write_to_store
+
+
+def test_demo_dataset_worker_registered():
+    from web_interface import process_manager
+    from web_interface.routes import process_routes
+
+    assert "demo_dataset" in process_manager.processes
+    assert "demo_dataset" in process_manager.CLOUD_TASK_ELIGIBLE
+    assert "demo_dataset" in process_routes.QUEUE_RETRY_SAFE
+    process_routes._ensure_task_functions_loaded()
+    assert "demo_dataset" in process_routes.TASK_FUNCTIONS
+
+
+def test_worker_runs_with_stub_reporter(monkeypatch):
+    from web_interface.run_demo_dataset import run_demo_dataset
+    import fyp.ingest.demo_dataset as demo_mod
+
+    written = {}
+    monkeypatch.setattr(demo_mod, "write_to_store", lambda result: written.update(n=len(result["items"])))
+    monkeypatch.setattr(demo_mod, "ensure_demo_study", lambda ids, days, as_of: True)
+
+    class _Reporter:
+        def update_progress(self, pct, msg): pass
+        def log(self, msg): pass
+        def complete(self, data=None): written.update(complete=True)
+        def fail(self, err): raise AssertionError(err)
+
+    summary = run_demo_dataset(_Reporter(), {"donors": 2, "days": 6, "seed": 7})
+    assert summary["donor_files"] == 2
+    assert summary["study_created"] is True
+    assert written["n"] == summary["items"]
+    assert written["complete"] is True
 
 
 def test_embeddings_backlog_excludes_demo_items(monkeypatch):

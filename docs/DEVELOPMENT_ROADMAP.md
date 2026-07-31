@@ -564,10 +564,12 @@ artifacts these ops produce, and inviting users onto a stale pipeline undermines
 >   Explore methods modal shows a synthetic banner, Home/`/guide` copy names
 >   "Demo study (synthetic data)", and the study picker auto-selects the first
 >   *non*-synthetic study so the demo never hijacks a researcher's default.
-> - **Post-deploy ops owed:** run the generator `--write` against prod, upload
->   the donor JSONs via DM → Ingest, Consolidate & Refresh + collection-metadata
->   refresh, create the demo study (`SYNTHETIC: true`, access "all", sampling
->   off), verify with a throwaway student account, and optionally set
+> - **Post-deploy ops owed (one-click since the `demo_dataset` worker landed):**
+>   Admin → DM → Ingestion → "Generate demo dataset" (installs donor files +
+>   enrichment + the study definition on the task-runner; also available as
+>   `scripts/generate_demo_dataset.py --write`), then Process New Collections,
+>   then Consolidate & Refresh (+ collection-metadata refresh). Verify with a
+>   throwaway student account and optionally set
 >   `default_new_user_role = student`.
 
 ## Medium term (~2–6 months)
