@@ -3414,6 +3414,20 @@ function showToast(message, level = 'success', duration = 5000) {
     }, duration);
 }
 
+async function startDemoDataset() {
+    const ok = await showAppConfirm(
+        'Generate the synthetic demo dataset?\n\n' +
+        'This installs 5 synthetic donor files (as pending "TikTok demo" uploads), a ' +
+        'fabricated scrape batch and annotations, and creates the "Demo study ' +
+        '(synthetic data)" definition if it does not exist. Deterministic and safe to ' +
+        're-run — a repeat overwrites the same artifacts.\n\n' +
+        'Afterwards, run Process New Collections here, then Consolidate & Refresh.',
+        { title: 'Generate demo dataset', okLabel: 'Generate' }
+    );
+    if (!ok) return;
+    startProcess('demo_dataset');
+}
+
 async function clearPendingUploads(btn) {
     const ok = await showAppConfirm(
         'Cancel all pending uploads?\n\n' +
