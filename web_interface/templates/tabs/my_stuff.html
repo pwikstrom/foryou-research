@@ -173,9 +173,18 @@
 
             <div class="setting-group" style="margin-bottom: 12px;">
                 <p class="text-sm" style="color: var(--color-text-muted); margin-bottom: 8px;">
-                    Your personal variable selections for filters, visualizations, the video detail panel
-                    and timelines (set via the ⚙ buttons on each tab).
+                    Your personal variable selections for each surface. Changes apply across all studies.
                     <span id="variable-prefs-status" class="font-semibold"></span>
+                </p>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">
+                    <button class="btn-discreet text-sm" onclick="openVariablePrefsPanel('filter')">Filters&hellip;</button>
+                    <button class="btn-discreet text-sm" onclick="openVariablePrefsPanel('viz')">Visualized variables&hellip;</button>
+                    <button class="btn-discreet text-sm" onclick="openVariablePrefsPanel('display')">Video detail panel&hellip;</button>
+                    <button class="btn-discreet text-sm" onclick="openVariablePrefsPanel('timeline')">Timelines&hellip;</button>
+                </div>
+                <p class="text-xs" style="color: var(--color-text-muted); margin-bottom: 8px;">
+                    Filters cover Explore and Video Analysis; visualized variables cover Explore's
+                    distribution charts and Correlations.
                 </p>
                 <button class="btn-discreet text-sm" onclick="resetVariablePrefs()">Reset all to defaults</button>
             </div>

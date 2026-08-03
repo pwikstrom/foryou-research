@@ -67,33 +67,8 @@ function getVisibleNumericCols() {
 }
 
 
-function mountCorrelationsVizGear() {
-    if (!window.VariablePrefs) return;
-    if (document.getElementById('correlations-var-gear')) return;
-    const anchor = document.querySelector('#correlations .corr-view-toggle');
-    if (!anchor) return;
-
-    const gear = VariablePrefs.gearButton('viz', () => {
-        const md = pcaData.metadata;
-        if (!md || !md.all_variables_order) return;
-        const covered = new Set(Object.values(md.numeric_col_bases || {}));
-        VariablePrefs.openPanel({
-            surface: 'viz',
-            title: 'Customize variables',
-            allOrder: md.all_variables_order,
-            globalList: md.viz_priority || [],
-            schemaMap: md.schema_map || {},
-            sectionOrder: md.section_order || null,
-            coveredSet: covered.size ? covered : null,
-            onApply: () => {
-                renderPcaControls(pcaData.metadata);
-                refreshCurrentView();
-            }
-        });
-    });
-    gear.id = 'correlations-var-gear';
-    anchor.insertAdjacentElement('afterend', gear);
-}
+// (The per-tab viz gear moved to My Stuff -> Preferences; the
+// 'fyp:variable-prefs-changed' listener below keeps this tab in sync.)
 
 
 // --- Banners + plain-language captions (the HASS readability layer) ---
@@ -247,7 +222,6 @@ async function loadPcaMetadata() {
         document.getElementById('pca-status').innerText = "Ready";
 
         renderViewToggle(data.views);
-        mountCorrelationsVizGear();
         renderPcaControls(data);
         renderPcaFilters(data);
         renderUnitBanner(data.unit);

@@ -110,6 +110,51 @@
         renderVariablePrefsStatus();
     }
 
+    // The "Customize variables" panels live here now (the per-tab gear buttons
+    // are gone). The catalog behind them — canonical variable order, global
+    // per-surface ON lists, schema map — is study-independent, fetched once.
+    let _varCatalog = null;
+
+    async function _getVarCatalog() {
+        if (_varCatalog) return _varCatalog;
+        const resp = await fetch('/api/user/variable-catalog');
+        if (!resp.ok) throw new Error('Failed to load variable catalog');
+        _varCatalog = await resp.json();
+        return _varCatalog;
+    }
+
+    const _VAR_SURFACES = {
+        filter: { globalKey: 'filter_priority', title: 'Customize filter variables' },
+        viz: { globalKey: 'viz_priority', title: 'Customize visualized variables' },
+        display: { globalKey: 'display_priority', title: 'Customize detail-panel fields' },
+        timeline: { globalKey: 'timeline_priority', title: 'Customize timeline variables' },
+    };
+
+    async function openVariablePrefsPanel(surface) {
+        if (!window.VariablePrefs) return;
+        const spec = _VAR_SURFACES[surface];
+        if (!spec) return;
+        let catalog;
+        try {
+            catalog = await _getVarCatalog();
+        } catch (e) {
+            console.error('Variable catalog unavailable', e);
+            return;
+        }
+        VariablePrefs.openPanel({
+            surface: surface,
+            title: spec.title,
+            allOrder: catalog.all_variables_order || [],
+            globalList: catalog[spec.globalKey] || [],
+            schemaMap: catalog.schema_map || {},
+            sectionOrder: catalog.section_order || null,
+            // Mounted tabs refresh themselves via the prefs-changed event that
+            // VariablePrefs.save() broadcasts; here only the status line needs
+            // an explicit update.
+            onApply: renderVariablePrefsStatus,
+        });
+    }
+
     function autoSaveSettings() {
         const s = {
             video_autostart: document.getElementById('setting-video-autostart').checked,

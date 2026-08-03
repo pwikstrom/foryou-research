@@ -654,6 +654,32 @@ def api_user_settings():
 
 
 
+@auth_bp.route('/api/user/variable-catalog', methods=['GET'])
+@login_required
+def api_user_variable_catalog():
+    """Study-independent variable catalog for the My Stuff preference panels.
+
+    Everything the "Customize variables" panels need — the canonical variable
+    order, the four global per-surface ON lists, and the schema map with
+    sections/display names — comes from the synthesized var_schema, so it is
+    the same for every study. The tabs used to supply this from their loaded
+    study metadata; My Stuff has no study loaded, hence this endpoint.
+    """
+    from ..data_service import load_schema_metadata, make_serializable
+
+    meta = load_schema_metadata({})
+    catalog = {
+        "all_variables_order": meta.get("all_variables_order") or [],
+        "filter_priority": meta.get("filter_priority") or [],
+        "viz_priority": meta.get("viz_priority") or [],
+        "display_priority": meta.get("display_priority") or [],
+        "timeline_priority": meta.get("timeline_priority") or [],
+        "section_order": meta.get("section_order") or [],
+        "schema_map": meta.get("schema_map") or {},
+    }
+    return jsonify(make_serializable(catalog))
+
+
 @auth_bp.route('/api/user/profile', methods=['GET', 'POST'])
 @permission_required('tab.my_stuff.profile')
 def api_user_profile():

@@ -28,6 +28,7 @@ from ..data_service import (
 from ..permissions import permission_required
 from ..security import user_manager
 from ..services import system_health
+from ..services.user_variables import compose_effective_variables
 from ._access import study_access_error
 
 explorer_bp = Blueprint('explorer_bp', __name__)
@@ -778,6 +779,43 @@ def api_explorer_metadata():
     return jsonify(make_serializable(metadata))
 
 
+# Dynamic per-user columns are kept in the stats payload whenever present:
+# they are not schema variables, so they can never appear in the viz prefs,
+# and the frontend renders them through their own prepend lists.
+_DYNAMIC_STATS_COLUMNS = ("User Tags", "Has Annotation", "Machine Annotations")
+
+
+def _viz_stats_col_types(col_types, user_settings):
+    """Narrow ``col_types`` to the columns whose stats the user will see.
+
+    ``get_current_stats`` is the whole cost of a filter change — dominated by
+    columns the frontend then never renders. The rendered set is the user's
+    effective viz list (global ``viz_priority`` composed with their stored
+    ``variable_prefs.viz`` deltas), which lives server-side in the user
+    settings, so it is composed here the same way Timelines composes its
+    variable list. Falls back to the full mapping when the schema yields no
+    viz list (fresh install / missing var_schema) — in that case the frontend
+    renders every stats key, so every key must be computed.
+
+    Args:
+        col_types: Full column -> classified-type mapping for the frame.
+        user_settings: The current user's settings dict (may be None).
+
+    Returns:
+        Filtered col_types mapping, in the original iteration order.
+    """
+    schema_meta = load_schema_metadata({})
+    global_viz = schema_meta.get('viz_priority') or []
+    all_order = schema_meta.get('all_variables_order') or []
+    if not global_viz:
+        return col_types
+
+    prefs = ((user_settings or {}).get('variable_prefs') or {}).get('viz') or {}
+    effective = compose_effective_variables(global_viz, prefs, all_order)
+    keep = set(effective) | set(_DYNAMIC_STATS_COLUMNS)
+    return {k: v for k, v in col_types.items() if k in keep}
+
+
 @explorer_bp.route('/api/explore/filter', methods=['POST'])
 @permission_required('tab.explore')
 def api_explorer_filter():
@@ -817,6 +855,11 @@ def api_explorer_filter():
 
     result = {}
 
+    # Stats are only computed for the columns this user's Explore actually
+    # renders (their effective viz set + dynamic columns) — the dominant cost
+    # of this endpoint used to be stats for ~90 columns the frontend dropped.
+    stats_col_types = _viz_stats_col_types(col_types, current_user.settings)
+
     # --- SLICE 1 ---
     if trigger_slice is None or trigger_slice == 1:
         # Check if filters are empty and we have cached stats
@@ -835,7 +878,8 @@ def api_explorer_filter():
 
         else:
             filtered_df = explorer.filter_dataframe(df, col_types, filters, search_query)
-            res1 = explorer.get_current_stats(filtered_df, col_types, number_meta=cached_metadata)
+            res1 = explorer.get_current_stats(
+                filtered_df, stats_col_types, number_meta=cached_metadata)
             result['stats'] = res1['stats']
             result['count'] = res1['count']
 
@@ -864,7 +908,8 @@ def api_explorer_filter():
                  result['count2'] = len(df)
             else:
                 filtered_df2 = explorer.filter_dataframe(df, col_types, filters2, search_query2)
-                res2 = explorer.get_current_stats(filtered_df2, col_types, number_meta=cached_metadata)
+                res2 = explorer.get_current_stats(
+                    filtered_df2, stats_col_types, number_meta=cached_metadata)
 
                 result['stats2'] = res2['stats']
                 result['count2'] = res2['count']
