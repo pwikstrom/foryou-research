@@ -816,6 +816,38 @@ def _viz_stats_col_types(col_types, user_settings):
     return {k: v for k, v in col_types.items() if k in keep}
 
 
+def _filter_request_columns(data, user_settings):
+    """Column projection for one /api/explore/filter request, or None for all.
+
+    filter_dataframe's boolean mask materialises every column it is handed —
+    on a full-width multi-million-row study that is a multi-GB copy per
+    request, dwarfing the stats compute itself. The endpoint only reads the
+    user's effective viz set (what get_current_stats runs over), the columns
+    the active filters touch, and the enrichment sources — so project to
+    those. A free-text search sweeps every category/long_text/list column and
+    falls back to the full width.
+    """
+    if data.get("search_query") or data.get("search_query2"):
+        return None
+
+    schema_meta = load_schema_metadata({})
+    global_viz = schema_meta.get('viz_priority') or []
+    if not global_viz:
+        return None
+    prefs = ((user_settings or {}).get('variable_prefs') or {}).get('viz') or {}
+    effective = compose_effective_variables(
+        global_viz, prefs, schema_meta.get('all_variables_order') or [])
+
+    # Enrichment sources for the dynamic columns, plus the filter keys — a
+    # filter whose column is missing from the frame is silently skipped by
+    # filter_dataframe, so leaving one out would corrupt counts, not error.
+    wanted = set(effective) | {"item_id", "annotated_ok", "annotation_version"}
+    for fdict in (data.get("filters"), data.get("filters2")):
+        for col in (fdict or {}):
+            wanted.add("collection_id" if col == "Collection Tags" else col)
+    return tuple(wanted)
+
+
 @explorer_bp.route('/api/explore/filter', methods=['POST'])
 @permission_required('tab.explore')
 def api_explorer_filter():
@@ -829,7 +861,10 @@ def api_explorer_filter():
     if denied is not None:
         return denied
 
-    df, col_types = get_explorer_data(study, context="explorer")
+    df, col_types = get_explorer_data(
+        study, context="explorer",
+        columns=_filter_request_columns(data, current_user.settings),
+    )
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
 
