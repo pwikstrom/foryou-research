@@ -44,6 +44,36 @@ TS_COL_BASIS: dict[str, str] = {
 }
 
 
+# Columns this endpoint reads no matter what the request asks for: the id and
+# dedup keys, the timestamp candidates it sorts and spans on, the two columns
+# behind extra_data_indices, and what enrich_with_user_tags derives its dynamic
+# columns from.
+_IDS_BASE_COLUMNS = (
+    "item_id", "video_id",
+    "utc_timestamp", "local_timestamp", "create_time",
+    "extra_data", "play_duration",
+    "annotated_ok", "annotation_version",
+)
+
+
+def _ids_columns(filters, search_query):
+    """Columns ``api_viewer_ids`` needs for this request, or None for all.
+
+    Returns None when a free-text search is active: search sweeps every
+    category/long_text/list column in the frame, so projecting would silently
+    narrow what the query matches. Otherwise the set is fully determined by the
+    active filters, and projecting keeps the per-request copy of a
+    multi-million-row study small.
+    """
+    if search_query:
+        return None
+    wanted = list(_IDS_BASE_COLUMNS)
+    for col in (filters or {}):
+        # 'Collection Tags' is a virtual filter resolved against collection_id.
+        wanted.append("collection_id" if col == "Collection Tags" else col)
+    return tuple(dict.fromkeys(wanted))
+
+
 @viewer_bp.route('/api/video_analysis/ids', methods=['POST'])
 @permission_required('tab.video_analysis')
 def api_viewer_ids():
@@ -57,7 +87,12 @@ def api_viewer_ids():
     if denied is not None:
         return denied
 
-    df, col_types = get_explorer_data(study, context="viewer")
+    filters = data.get("filters", {})
+    search_query = data.get("search_query")
+
+    df, col_types = get_explorer_data(
+        study, context="viewer", columns=_ids_columns(filters, search_query),
+    )
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404
 
@@ -67,9 +102,6 @@ def api_viewer_ids():
 
     """df = df[df.scraped_ok].copy()
     print(f"    Filtered to {len(df):,} scraped events")"""
-
-    filters = data.get("filters", {})
-    search_query = data.get("search_query")
 
     # Pagination Optional Params
     offset = data.get("offset", 0)
@@ -496,7 +528,9 @@ def _study_item_ids(study: str) -> frozenset | None:
         if entry is not None and entry[0] == mtime:
             return entry[1]
 
-    df, _ = get_explorer_data(study, context="viewer")
+    df, _ = get_explorer_data(
+        study, context="viewer", columns=("item_id", "video_id"),
+    )
     if df is None:
         return None
     id_col = 'item_id' if 'item_id' in df.columns else (

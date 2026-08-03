@@ -80,9 +80,16 @@ def viewer(client, monkeypatch):
     # in production (the category branch of filter_dataframe is dtype-gated).
     from web_interface import explorer_backend
 
-    def _data(study, context=None):
+    def _data(study, context=None, columns=None):
         df = _frame()
-        return df, explorer_backend.classify_columns(df)
+        col_types = explorer_backend.classify_columns(df)
+        # Honour the projection the route asks for, so these tests also cover
+        # the route requesting every column it goes on to read.
+        if columns is not None:
+            keep = [c for c in columns if c in df.columns]
+            df = df[keep]
+            col_types = {k: v for k, v in col_types.items() if k in keep}
+        return df, col_types
 
     monkeypatch.setattr(routes, "get_explorer_data", _data)
     monkeypatch.setattr(routes, "enrich_with_user_tags", lambda df, ct, user: (df, ct))
