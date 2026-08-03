@@ -248,32 +248,53 @@ def _enrichment_status(raw_df, require_annotated):
 
 
 # Columns the context filter itself reads. A projected request keeps these on
-# top of whatever the caller asked for, so the returned frame is never filtered
-# on a column it no longer carries.
+# top of whatever the caller asked for, so callers that gate on the enrichment
+# flags still find them.
 _CONTEXT_FILTER_COLUMNS = ("annotated_ok", "scraped_ok", "activity_type", "item_id")
 
 
-def get_explorer_data(study, context=None, columns=None, verbose=False):
-    """Return the study frame filtered for ``context``, plus its column types.
+def _apply_context_filter(raw_df, verbose=False):
+    """Reduce a freshly-loaded study frame to the rows the web layer exposes.
 
-    The raw frame is cached once and shared, but each caller gets its own copy
-    of the filtered rows. On a multi-million-row study that copy is several GB,
-    so a caller that reads only a handful of columns should name them in
-    ``columns``: the projection happens before the copy, and only the named
-    columns are duplicated.
+    Explore and Video Analysis show the same rows — enrichment-complete
+    play/observe events with an item id — so the filter runs once at load time
+    and the result is what gets cached. Returns (filtered frame, status dict).
+    """
+    # annotated_ok / scraped_ok only exist once the corresponding enrichment
+    # data has been merged in. Without it (fresh app) the columns may be
+    # missing — treat as all-False so nothing leaks through.
+    # When require_annotated_items is False we still require scraped_ok so that
+    # the Video Analysis viewer always has a media file to play and Explore has
+    # populated scrape metadata. Items not yet scraped are excluded either way.
+    require_annotated = fyp_cf.get("viz", {}).get("require_annotated_items", True)
+    status = _enrichment_status(raw_df, require_annotated)
+    flag = "annotated_ok" if require_annotated else "scraped_ok"
 
-    Args:
-        study: Study name.
-        context: ``"explorer"`` or ``"viewer"`` — both apply the same
-            enrichment + play/observe row filter.
-        columns: Optional column projection. ``_CONTEXT_FILTER_COLUMNS`` are
-            added automatically, and the returned ``col_types`` is narrowed to
-            match. ``None`` (the default) returns every column.
-        verbose: When True, print cache hits and load progress.
+    if flag in raw_df.columns:
+        enrichment_mask = raw_df[flag].fillna(False)
+    else:
+        enrichment_mask = pd.Series(False, index=raw_df.index)
 
-    Returns:
-        Tuple of (filtered DataFrame, column-type mapping), or (None, None)
-        when the study has no recoded dataset.
+    filtered = raw_df[
+        enrichment_mask
+        & (raw_df['activity_type'].isin(['play', 'observe']))
+        & (raw_df['item_id'].notna())
+    ]
+    if verbose:
+        print(f"    Context filter: {len(raw_df):,} -> {len(filtered):,} rows")
+    return filtered, status
+
+
+def _cached_study_frame(study, verbose=False):
+    """Return the cached context-filtered frame for ``study``, loading it once.
+
+    The cache holds the filtered frame rather than the raw one: the filter is
+    identical for every context, so caching it post-filter means requests never
+    have to materialise their own copy of it. The raw frame is released as soon
+    as the filter has run.
+
+    Returns (frame, col_types, status), or (None, None, None) when the study
+    has no recoded dataset.
     """
     # Capture parquet mtime up front so a worker rewriting the file in another
     # process invalidates this Flask process's RAM cache automatically on the
@@ -282,110 +303,142 @@ def get_explorer_data(study, context=None, columns=None, verbose=False):
 
     # Check cache (First Check)
     cached = study_cache.get(study, current_mtime=current_mtime)
-
-    # Store raw data in cache, filter on retrieval
-    raw_df = None
-    raw_col_types = None
-
     if cached:
         if verbose:
             print(f"    Study {study} found in RAM cache. Accessing {len(cached['df']):,} rows")
-        raw_df = cached['df']
-        raw_col_types = cached['col_types']
+        return cached['df'], cached['col_types'], cached['status']
+
+    # Double-Checked Locking
+    if not hasattr(study_cache, 'loading_lock'):
+         study_cache.loading_lock = threading.Lock()
+
+    with study_cache.loading_lock:
+        # Check cache again (Second Check)
+        cached = study_cache.get(study, current_mtime=current_mtime)
+        if cached:
+            if verbose:
+                print(f"    Study {study} found in RAM cache (after lock). Accessing {len(cached['df']):,} rows")
+            return cached['df'], cached['col_types'], cached['status']
+
+        if verbose:
+            print(f"    Loading study {study} from disk (with lock)...")
+        # Resolve path
+        raw_df, col_types = explorer.load_data(study, verbose=False)
+
+        if raw_df is None:
+            if verbose:
+                print("The requested recoded study dataset was not found")
+            return None, None, None
+
+        filtered_df, status = _apply_context_filter(raw_df, verbose=verbose)
+        # Drop the last reference to the unfiltered frame so it is freed before
+        # this function returns — on a multi-million-row study it is the larger
+        # of the two and nothing downstream needs it.
+        del raw_df
+
+        # Re-read the mtime *after* loading so the cache entry is
+        # tagged with the version we actually have in memory.
+        cache_item = {
+            "df": filtered_df,
+            "col_types": col_types,
+            "status": status,
+            "mtime": _get_recoded_mtime(study),
+        }
+        study_cache.put(study, cache_item)
+        return filtered_df, col_types, status
+
+
+def get_explorer_data(study, context=None, columns=None, verbose=False):
+    """Return the rows the web layer exposes for ``study``, plus column types.
+
+    The returned frame is a **read-only column view** of the cached frame, not
+    a copy: selecting columns from a pyarrow-backed frame shares the underlying
+    arrays. Callers must not write to it in place. The two that need to mutate
+    (``enrich_with_user_tags``, ``explorer.filter_dataframe``) take their own
+    shallow copy first, so adding, replacing or dropping columns is safe.
+
+    Args:
+        study: Study name.
+        context: Retained for call-site clarity. Explore and Video Analysis see
+            the same rows, so this no longer changes the result.
+        columns: Optional column projection. ``_CONTEXT_FILTER_COLUMNS`` are
+            added automatically, and the returned ``col_types`` is narrowed to
+            match. ``None`` (the default) returns every column. The projection
+            is free in itself; it pays off in the per-row work downstream
+            (sorts, dedups, stats) that would otherwise span every column.
+        verbose: When True, print cache hits and load progress.
+
+    Returns:
+        Tuple of (frame, column-type mapping), or (None, None) when the study
+        has no recoded dataset.
+    """
+    df, col_types, status = _cached_study_frame(study, verbose=verbose)
+    if df is None:
+        return None, None
+
+    if columns is not None:
+        keep = [c for c in dict.fromkeys([*columns, *_CONTEXT_FILTER_COLUMNS])
+                if c in df.columns]
+        out_col_types = {k: v for k, v in col_types.items() if k in keep}
     else:
-        # Double-Checked Locking
-        if not hasattr(study_cache, 'loading_lock'):
-             study_cache.loading_lock = threading.Lock()
+        keep = list(df.columns)
+        out_col_types = col_types.copy()
 
-        with study_cache.loading_lock:
-            # Check cache again (Second Check)
-            cached = study_cache.get(study, current_mtime=current_mtime)
-            if cached:
-                if verbose:
-                    print(f"    Study {study} found in RAM cache (after lock). Accessing {len(cached['df']):,} rows")
-                raw_df = cached['df']
-                raw_col_types = cached['col_types']
-            else:
-                if verbose:
-                    print(f"    Loading study {study} from disk (with lock)...")
-                # Resolve path
-                raw_df, raw_col_types = explorer.load_data(study, verbose=False)
+    # Always go through the column selection, even for the full width: it costs
+    # nothing and hands back a distinct DataFrame object, so the attrs stamp
+    # below and any column add/drop downstream cannot reach the cache entry.
+    view = df[keep]
 
-                if raw_df is None:
-                    if verbose:
-                        print("The requested recoded study dataset was not found")
-                    return None, None
+    # Stash the dataset status on the DataFrame so routes can surface a
+    # clear message when an empty result is caused by missing enrichment
+    # columns (i.e. the recoded parquet predates the current pipeline).
+    try:
+        view.attrs['fyp_dataset_status'] = status
+    except Exception:
+        pass
 
-                # Re-read the mtime *after* loading so the cache entry is
-                # tagged with the version we actually have in memory.
-                cache_item = {
-                    "df": raw_df,
-                    "col_types": raw_col_types,
-                    "mtime": _get_recoded_mtime(study),
-                }
-                study_cache.put(study, cache_item)
+    return view, out_col_types
 
-    # Apply Context Filtering on a COPY
-    if raw_df is not None:
-        # annotated_ok / scraped_ok only exist once the corresponding enrichment
-        # data has been merged in. Without it (fresh app) the columns may be
-        # missing — treat as all-False so nothing leaks through.
-        # When require_annotated_items is False we still require scraped_ok so that
-        # the Video Analysis viewer always has a media file to play and Explore has
-        # populated scrape metadata. Items not yet scraped are excluded either way.
-        require_annotated = fyp_cf.get("viz", {}).get("require_annotated_items", True)
-        status = _enrichment_status(raw_df, require_annotated)
 
-        if require_annotated:
-            if "annotated_ok" in raw_df.columns:
-                enrichment_mask = raw_df["annotated_ok"].fillna(False)
-            else:
-                enrichment_mask = pd.Series(False, index=raw_df.index)
-        else:
-            if "scraped_ok" in raw_df.columns:
-                enrichment_mask = raw_df["scraped_ok"].fillna(False)
-            else:
-                enrichment_mask = pd.Series(False, index=raw_df.index)
+def get_explorer_rows(study, item_id=None, row_index=None, verbose=False):
+    """Return just the rows for one item, without touching the other millions.
 
-        # Project before copying. ``raw_df[keep]`` shares the cached column data
-        # rather than duplicating it, so the copy below only materialises the
-        # columns this caller actually reads.
-        if columns is not None:
-            keep = [c for c in dict.fromkeys([*columns, *_CONTEXT_FILTER_COLUMNS])
-                    if c in raw_df.columns]
-            source_df = raw_df[keep]
-            out_col_types = {k: v for k, v in raw_col_types.items() if k in keep}
-        else:
-            source_df = raw_df
-            out_col_types = raw_col_types.copy()
+    The Video Analysis detail panel needs one row and every column. Routing that
+    through :func:`get_explorer_data` and narrowing afterwards used to be
+    harmless, but on a multi-million-row study the intermediate frame is
+    gigabytes — per opened video, twice over, since the viewer prefetches
+    neighbours. Selecting the rows against the cached frame first keeps the cost
+    proportional to what is actually returned.
 
-        if context in ("viewer", "explorer"):
-            # Boolean-mask selection already materialises an independent frame,
-            # so no .copy() on top: that would duplicate the whole selection a
-            # second time. Callers never write to this frame directly — both
-            # enrich_with_user_tags and filter_dataframe take their own copy
-            # first — so the cached frame stays safe.
-            filtered_df = source_df[
-                enrichment_mask
-                & (raw_df['activity_type'].isin(['play', 'observe']))
-                & (raw_df['item_id'].notna())
-            ]
-        else:
-            # No mask ran, so this would otherwise hand out the cached frame
-            # itself. Copy is required here. Should never happen though...
-            filtered_df = source_df.copy()
+    ``row_index`` (the frame index the client was handed with its id chunk)
+    wins when it is present and still valid, because duplicate ``item_id``
+    values are legitimate — the same video watched twice. Falls back to matching
+    on ``item_id``.
 
-        # Stash the dataset status on the DataFrame so routes can surface a
-        # clear message when an empty result is caused by missing enrichment
-        # columns (i.e. the recoded parquet predates the current pipeline).
-        try:
-            filtered_df.attrs['fyp_dataset_status'] = status
-        except Exception:
-            pass
+    Returns (frame, col_types); the frame is empty when nothing matches, and
+    (None, None) when the study has no recoded dataset.
+    """
+    df, col_types, status = _cached_study_frame(study, verbose=verbose)
+    if df is None:
+        return None, None
 
-        return filtered_df, out_col_types
+    id_col = 'item_id' if 'item_id' in df.columns else (
+        'video_id' if 'video_id' in df.columns else None)
 
-    return None, None
+    if row_index is not None and row_index in df.index:
+        rows = df.loc[[row_index]]
+    elif id_col is not None:
+        rows = df[df[id_col].astype(str) == str(item_id)]
+    else:
+        rows = df.iloc[0:0]
+
+    rows = rows.copy()
+    try:
+        rows.attrs['fyp_dataset_status'] = status
+    except Exception:
+        pass
+
+    return rows, col_types.copy()
 
 
 

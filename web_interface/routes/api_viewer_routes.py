@@ -17,6 +17,7 @@ from .. import explorer_backend as explorer
 from ..data_service import (
     enrich_with_user_tags,
     get_explorer_data,
+    get_explorer_rows,
     invalidate_user_json_cache,
     load_display_id_map,
     load_shared_tags,
@@ -423,26 +424,19 @@ def api_viewer_item(study, item_id):
     if denied is not None:
         return denied
 
-    df, col_types = get_explorer_data(study, context="viewer")
-    if df is None:
-        return jsonify({"error": "Dataset not found"}), 404
-
-    id_col = 'item_id'
-    if id_col not in df.columns:
-        if 'video_id' in df.columns: id_col = 'video_id'
-        else: return jsonify({"error": "ID column missing"}), 500
-
-    # Try to use the exact row index first (resolves duplicate item_id ambiguity)
+    # The exact row index resolves duplicate item_id ambiguity (the same video
+    # watched twice is two legitimate rows).
+    data = {}
     row_idx = None
     if request.method == 'POST':
         data = request.json or {}
         row_idx = data.get("row_idx")
 
-    if row_idx is not None and row_idx in df.index:
-        df = df.loc[[row_idx]]
-    else:
-        # Fallback: filter by item_id (may return multiple rows for duplicate events)
-        df = df[df[id_col].astype(str) == str(item_id)]
+    # Row selection happens against the cached frame, so this never materialises
+    # the whole study to return one row.
+    df, col_types = get_explorer_rows(study, item_id=item_id, row_index=row_idx)
+    if df is None:
+        return jsonify({"error": "Dataset not found"}), 404
 
     if df.empty:
         return jsonify({"error": "Item not found in current context"}), 404
