@@ -288,7 +288,11 @@ def get_metadata(df, column_types, verbose=False):
 
 def filter_dataframe(df, column_types, filters, search_query=None):
 
-    filtered_df = df.copy()
+    # Shallow copy: every narrowing step below rebinds ``filtered_df`` to a
+    # fresh boolean-mask selection, so the caller's frame is never mutated. A
+    # deep copy here would duplicate the whole study frame before any row has
+    # been dropped (several GB on all_collections).
+    filtered_df = df.copy(deep=False)
 
     for col, criteria in filters.items():
         # Handle virtual Collection Tags filter

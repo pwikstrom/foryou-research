@@ -303,6 +303,13 @@ def _build_full_metadata(df, col_types, study):
     return metadata
 
 
+# The overlay is built entirely from the three dynamic columns
+# enrich_with_user_tags adds, and those are derived from just these source
+# columns. Projecting the study frame to them keeps this endpoint's per-request
+# copy in the tens of MB instead of several GB on a multi-million-row study.
+OVERLAY_SOURCE_COLUMNS = ("item_id", "annotated_ok", "annotation_version")
+
+
 def _compute_dynamic_overlay(df, col_types):
     """
     Compute per-user dynamic columns (User Tags, Has Annotation, Machine
@@ -474,7 +481,9 @@ def api_explorer_metadata_overlay():
     # the page still renders from the base call, so degrade gracefully to an
     # empty overlay rather than 500-ing.
     try:
-        df, col_types = get_explorer_data(study, context=context)
+        df, col_types = get_explorer_data(
+            study, context=context, columns=OVERLAY_SOURCE_COLUMNS,
+        )
         if df is None:
             return jsonify({"error": "Dataset not found"}), 404
 

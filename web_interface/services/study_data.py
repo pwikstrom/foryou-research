@@ -247,7 +247,34 @@ def _enrichment_status(raw_df, require_annotated):
 
 
 
-def get_explorer_data(study, context=None, verbose=False):
+# Columns the context filter itself reads. A projected request keeps these on
+# top of whatever the caller asked for, so the returned frame is never filtered
+# on a column it no longer carries.
+_CONTEXT_FILTER_COLUMNS = ("annotated_ok", "scraped_ok", "activity_type", "item_id")
+
+
+def get_explorer_data(study, context=None, columns=None, verbose=False):
+    """Return the study frame filtered for ``context``, plus its column types.
+
+    The raw frame is cached once and shared, but each caller gets its own copy
+    of the filtered rows. On a multi-million-row study that copy is several GB,
+    so a caller that reads only a handful of columns should name them in
+    ``columns``: the projection happens before the copy, and only the named
+    columns are duplicated.
+
+    Args:
+        study: Study name.
+        context: ``"explorer"`` or ``"viewer"`` — both apply the same
+            enrichment + play/observe row filter.
+        columns: Optional column projection. ``_CONTEXT_FILTER_COLUMNS`` are
+            added automatically, and the returned ``col_types`` is narrowed to
+            match. ``None`` (the default) returns every column.
+        verbose: When True, print cache hits and load progress.
+
+    Returns:
+        Tuple of (filtered DataFrame, column-type mapping), or (None, None)
+        when the study has no recoded dataset.
+    """
     # Capture parquet mtime up front so a worker rewriting the file in another
     # process invalidates this Flask process's RAM cache automatically on the
     # next request.
@@ -320,15 +347,33 @@ def get_explorer_data(study, context=None, verbose=False):
             else:
                 enrichment_mask = pd.Series(False, index=raw_df.index)
 
+        # Project before copying. ``raw_df[keep]`` shares the cached column data
+        # rather than duplicating it, so the copy below only materialises the
+        # columns this caller actually reads.
+        if columns is not None:
+            keep = [c for c in dict.fromkeys([*columns, *_CONTEXT_FILTER_COLUMNS])
+                    if c in raw_df.columns]
+            source_df = raw_df[keep]
+            out_col_types = {k: v for k, v in raw_col_types.items() if k in keep}
+        else:
+            source_df = raw_df
+            out_col_types = raw_col_types.copy()
+
         if context in ("viewer", "explorer"):
-            filtered_df = raw_df[
+            # Boolean-mask selection already materialises an independent frame,
+            # so no .copy() on top: that would duplicate the whole selection a
+            # second time. Callers never write to this frame directly — both
+            # enrich_with_user_tags and filter_dataframe take their own copy
+            # first — so the cached frame stays safe.
+            filtered_df = source_df[
                 enrichment_mask
                 & (raw_df['activity_type'].isin(['play', 'observe']))
                 & (raw_df['item_id'].notna())
-            ].copy()
+            ]
         else:
-            # return raw copy to be safe. this should never happen though...
-            filtered_df = raw_df.copy()
+            # No mask ran, so this would otherwise hand out the cached frame
+            # itself. Copy is required here. Should never happen though...
+            filtered_df = source_df.copy()
 
         # Stash the dataset status on the DataFrame so routes can surface a
         # clear message when an empty result is caused by missing enrichment
@@ -338,7 +383,7 @@ def get_explorer_data(study, context=None, verbose=False):
         except Exception:
             pass
 
-        return filtered_df, raw_col_types.copy()
+        return filtered_df, out_col_types
 
     return None, None
 
@@ -398,8 +443,12 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
     # We continue now to ensure "Has Annotation" and "Machine Annotations" are added even if empty.
         
 
-    # Copy to avoid modifying cache
-    df = df.copy()
+    # Shallow copy: this function only adds, replaces or drops whole columns,
+    # and the three columns it writes through .loc are ones it created here, so
+    # nothing shared with the caller's frame is mutated. A deep copy would
+    # duplicate the whole study frame (several GB on all_collections) to add
+    # three columns.
+    df = df.copy(deep=False)
     col_types = col_types.copy()
     
     str_ids = df['item_id'].astype(str) # just to be safe. item_id should always be a string
