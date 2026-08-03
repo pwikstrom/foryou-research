@@ -59,15 +59,17 @@ def _col_types():
 
 
 def _seed_cache(monkeypatch, study="proj_study"):
-    """Put a frame straight into the RAM cache so no parquet is touched."""
-    raw = _raw_frame()
+    """Seed the RAM cache the way _cached_study_frame would, so no parquet is
+    touched. The cache holds the context-filtered frame, so filter here too."""
     monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
+    filtered, status = study_data._apply_context_filter(_raw_frame())
     study_data.study_cache.put(study, {
-        "df": raw,
+        "df": filtered,
         "col_types": _col_types(),
+        "status": status,
         "mtime": 1.0,
     })
-    return study, raw
+    return study, filtered
 
 
 
@@ -130,11 +132,11 @@ def test_projection_ignores_unknown_column_names(monkeypatch):
 def test_unprojected_call_still_returns_every_column(monkeypatch):
     """The default is unchanged — /api/explore/filter needs the full width to
     compute stats for every variable."""
-    study, raw = _seed_cache(monkeypatch)
+    study, cached = _seed_cache(monkeypatch)
 
     df, col_types = study_data.get_explorer_data(study, context="explorer")
 
-    assert set(df.columns) == set(raw.columns)
+    assert set(df.columns) == set(cached.columns)
     assert set(col_types) == set(_col_types())
 
 
@@ -205,7 +207,10 @@ def test_filter_dataframe_does_not_mutate_the_callers_frame():
 def test_returned_frame_is_independent_of_the_cached_frame(monkeypatch):
     """The context filter no longer copies on top of its mask selection, so
     pin that the cached frame still cannot be reached through the result."""
-    study, raw = _seed_cache(monkeypatch)
+    study, cached = _seed_cache(monkeypatch)
+    before_columns = list(cached.columns)
+    before_values = cached["niche_name"].tolist()
+    before_len = len(cached)
 
     df, col_types = study_data.get_explorer_data(study, context="explorer")
     enriched, _ = study_data.enrich_with_user_tags(
@@ -215,8 +220,109 @@ def test_returned_frame_is_independent_of_the_cached_frame(monkeypatch):
         enriched, col_types, {"niche_name": {"value": ["Cat Mischief"]}}, None,
     )
 
-    # Nothing downstream may add columns to, or alter values in, the cached frame.
-    assert list(raw.columns) == list(_raw_frame().columns)
-    assert raw["niche_name"].tolist() == _raw_frame()["niche_name"].tolist()
-    assert len(raw) == _N_ROWS
+    # Nothing downstream may add columns to, or alter values in, the cached
+    # frame — which callers now hold a live view of, not a copy.
+    assert list(cached.columns) == before_columns
+    assert cached["niche_name"].tolist() == before_values
+    assert len(cached) == before_len
+    assert len(filtered) < before_len
+
+
+
+
+
+def test_get_explorer_data_returns_a_view_not_a_row_copy(monkeypatch):
+    """The cache holds the context-filtered frame, so a request is a column
+    view of it — same rows, shared column data."""
+    study, cached = _seed_cache(monkeypatch)
+
+    df, _ = study_data.get_explorer_data(study, context="explorer")
+
+    assert list(df.index) == list(cached.index)
+    assert df is not cached          # distinct object, so attrs/drops are safe
+    assert df["item_id"].tolist() == cached["item_id"].tolist()
+
+
+
+
+def test_context_filter_keeps_only_enriched_play_rows():
+    """scraped_ok gates the rows (require_annotated_items is false in config),
+    together with the play/observe activity filter and a present item_id."""
+    filtered, status = study_data._apply_context_filter(_raw_frame())
+
+    assert set(filtered["activity_type"]) <= {"play", "observe"}
+    assert filtered["item_id"].notna().all()
     assert len(filtered) < _N_ROWS
+    assert status["ok"] is True
+
+
+
+
+def test_get_explorer_rows_finds_an_item_by_id(monkeypatch):
+    """The detail-panel path returns the matching rows without going through
+    the full frame."""
+    study, cached = _seed_cache(monkeypatch)
+    wanted = cached["item_id"].iloc[3]
+
+    rows, col_types = study_data.get_explorer_rows(study, item_id=wanted)
+
+    assert len(rows) == 1
+    assert rows["item_id"].iloc[0] == wanted
+    # Detail panel needs every column, unlike the projected list endpoints.
+    assert set(col_types) == set(_col_types())
+
+
+
+
+def test_get_explorer_rows_prefers_the_row_index(monkeypatch):
+    """row_index disambiguates duplicate item_ids, so it wins when valid."""
+    study, cached = _seed_cache(monkeypatch)
+    idx = cached.index[2]
+
+    rows, _ = study_data.get_explorer_rows(
+        study, item_id="does-not-matter", row_index=idx,
+    )
+
+    assert list(rows.index) == [idx]
+
+
+
+
+def test_get_explorer_rows_falls_back_when_the_index_is_stale(monkeypatch):
+    """A row_index from a stale client chunk must not 404 an item that is
+    still present — fall back to matching on item_id."""
+    study, cached = _seed_cache(monkeypatch)
+    wanted = cached["item_id"].iloc[0]
+
+    rows, _ = study_data.get_explorer_rows(
+        study, item_id=wanted, row_index=10**9,
+    )
+
+    assert len(rows) == 1
+    assert rows["item_id"].iloc[0] == wanted
+
+
+
+
+def test_get_explorer_rows_returns_empty_for_a_filtered_out_item(monkeypatch):
+    """An item the context filter excludes is reported as absent, not raised."""
+    study, _ = _seed_cache(monkeypatch)
+    # index 0 is activity_type "fave", which the context filter drops.
+    excluded = _raw_frame()["item_id"].iloc[0]
+
+    rows, _ = study_data.get_explorer_rows(study, item_id=excluded)
+
+    assert rows.empty
+
+
+
+
+def test_get_explorer_rows_does_not_mutate_the_cached_frame(monkeypatch):
+    """The returned rows are copied, so the detail panel cannot write back."""
+    study, cached = _seed_cache(monkeypatch)
+    before = cached["niche_name"].tolist()
+
+    rows, _ = study_data.get_explorer_rows(study, item_id=cached["item_id"].iloc[1])
+    rows["niche_name"] = "MUTATED"
+
+    assert cached["niche_name"].tolist() == before
