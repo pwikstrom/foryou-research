@@ -326,3 +326,52 @@ def test_get_explorer_rows_does_not_mutate_the_cached_frame(monkeypatch):
     rows["niche_name"] = "MUTATED"
 
     assert cached["niche_name"].tolist() == before
+
+
+
+
+def test_enrich_user_tags_values_and_shared_empty(monkeypatch):
+    """The vectorized User-Tags build fills tagged rows with their tags and
+    every other row with an empty list, and never touches the input frame."""
+    df = _raw_frame()
+    tagged_id = df["item_id"].iloc[2]
+    monkeypatch.setattr(
+        study_data, "get_user_json_cached",
+        lambda u: {"annotations": {tagged_id: {"topic": ["cats", "music"]}}},
+    )
+
+    enriched, col_types = study_data.enrich_with_user_tags(
+        df, _col_types(), "somebody@example.com",
+    )
+
+    assert col_types["User Tags"] == "list"
+    assert sorted(enriched["User Tags"].iloc[2]) == ["cats", "music"]
+    untagged = [v for i, v in enumerate(enriched["User Tags"]) if i != 2]
+    assert all(v == [] for v in untagged)
+    assert enriched["Has Annotation"].iloc[2]
+    assert not enriched["Has Annotation"].iloc[3]
+    # astype(str) on the boolean column must keep producing 'True'/'False' —
+    # the filter payloads compare against these exact strings.
+    assert set(enriched["Has Annotation"].astype(str)) == {"True", "False"}
+    assert "User Tags" not in df.columns
+
+
+
+
+def test_enrich_user_tags_column_absent_when_no_tag_matches(monkeypatch):
+    """Tags for items outside the study must not create the column (the old
+    implementation created-then-dropped it)."""
+    monkeypatch.setattr(
+        study_data, "get_user_json_cached",
+        lambda u: {"annotations": {"not-in-study": {"topic": ["x"]}}},
+    )
+
+    enriched, col_types = study_data.enrich_with_user_tags(
+        _raw_frame(), _col_types(), "somebody@example.com",
+    )
+
+    assert "User Tags" not in enriched.columns
+    assert "User Tags" not in col_types
+    # The item is still counted as annotated for Has Annotation purposes —
+    # unchanged from the old behavior (annotated_ids is id-based, not row-based).
+    assert "Has Annotation" in enriched.columns
