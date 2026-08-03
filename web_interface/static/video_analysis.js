@@ -442,28 +442,8 @@ function renderViewerFilters(metadata) {
     }
 
     // "Customize variables" gear (shared filter surface) — mounted next to the
-    // "Filters" heading. Re-run safe (removes any prior gear first); margin-auto
-    // keeps it beside the heading with the Reset button pushed to the right.
-    if (window.VariablePrefs && metadata.all_variables_order) {
-        const heading = document.querySelector('#va-left-panel .header h2');
-        if (heading) {
-            const existing = document.getElementById('viewer-filter-gear');
-            if (existing) existing.remove();
-            const gear = VariablePrefs.gearButton('filter', () => {
-                VariablePrefs.openPanel({
-                    surface: 'filter',
-                    title: 'Customize filter variables',
-                    allOrder: metadata.all_variables_order.filter(c => metadata[c]),
-                    globalList: metadata.filter_priority || [],
-                    schemaMap: metadata.schema_map || {},
-                    onApply: () => renderViewerFilters(metadata),
-                });
-            });
-            gear.id = 'viewer-filter-gear';
-            gear.style.marginRight = 'auto';
-            heading.insertAdjacentElement('afterend', gear);
-        }
-    }
+    // (The per-tab filter gear moved to My Stuff -> Preferences; changes made
+    // there reach this tab via the 'fyp:variable-prefs-changed' event.)
 
     // Hide categorical/list filters with 0 or 1 unique values (no filtering possible)
     availableCols = availableCols.filter(col => {
@@ -1379,22 +1359,7 @@ function renderMetadata(item) {
         } else {
             voteContainer.innerHTML = '';
         }
-        // "Customize variables" gear for this user's detail-panel field set.
-        const m = viewerData.metadata || {};
-        if (window.VariablePrefs && m.all_variables_order && !document.querySelector('[data-vp-gear="display"]')) {
-            voteContainer.parentElement.appendChild(VariablePrefs.gearButton('display', () => {
-                VariablePrefs.openPanel({
-                    surface: 'display',
-                    title: 'Customize detail-panel fields',
-                    allOrder: m.all_variables_order,
-                    globalList: m.display_priority || [],
-                    schemaMap: m.schema_map || {},
-                    onApply: () => {
-                        if (viewerData.lastMetadataItem) renderMetadata(viewerData.lastMetadataItem);
-                    },
-                });
-            }));
-        }
+        // (The detail-panel field gear moved to My Stuff -> Preferences.)
     }
 
     // Inject Display ID if present at top

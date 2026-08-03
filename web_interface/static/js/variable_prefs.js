@@ -1,13 +1,15 @@
 // Per-user variable preferences ("Customize variables").
 //
 // Each user can include/exclude variables per surface (filter / display /
-// timeline / viz) on top of the admin-set global defaults. Preferences are
+// timeline / viz) on top of the admin-set global defaults, edited in
+// My Stuff -> Preferences -> Variable customizations. Preferences are
 // stored as deltas in user.settings.variable_prefs via /api/user/settings:
 //   { surface: { include: [names], exclude: [names] } }
 // Composition everywhere: effective = (global ∪ include) − exclude, ordered
 // by the canonical derived order (all_variables_order). Unknown names are
 // ignored so stored prefs survive schema evolution; an absent key means the
-// user sees the global defaults.
+// user sees the global defaults. Tabs react to changes via the
+// 'fyp:variable-prefs-changed' event this module broadcasts on save.
 window.VariablePrefs = (function () {
     'use strict';
 
@@ -175,36 +177,5 @@ window.VariablePrefs = (function () {
         if (el) el.remove();
     }
 
-    // A clear, readable gear icon (Material "settings" glyph). Uses currentColor
-    // so it inherits the button's themed text colour. Sized to match the control
-    // bar icons (18px) — the old ⚙ emoji rendered far too small to read.
-    const _GEAR_SVG =
-        '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" ' +
-        'aria-hidden="true" focusable="false" style="display: block;">' +
-        '<path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61' +
-        'l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41' +
-        'h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87' +
-        'c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61' +
-        'l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84' +
-        'c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32' +
-        'c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6' +
-        '-1.62 3.6-3.6 3.6z"/></svg>';
-
-    // Gear button factory for surface headers. Marked with a dot when the user
-    // has an active customization on that surface.
-    function gearButton(surface, onClick) {
-        const btn = document.createElement('button');
-        btn.className = 'btn-discreet';
-        btn.style.cssText = 'display: inline-flex; align-items: center; gap: 4px; ' +
-            'padding: 3px 7px; margin-left: 6px;';
-        btn.setAttribute('data-vp-gear', surface);
-        btn.title = 'Customize variables';
-        const dot = isCustomized(surface)
-            ? '<span class="text-xs" style="color: var(--color-accent);">●</span>' : '';
-        btn.innerHTML = _GEAR_SVG + dot;
-        btn.onclick = onClick;
-        return btn;
-    }
-
-    return { effective, isCustomized, save, resetAll, openPanel, closePanel, gearButton };
+    return { effective, isCustomized, save, resetAll, openPanel, closePanel };
 })();

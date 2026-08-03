@@ -919,6 +919,13 @@
   ]
  ],
  [
+  "/api/user/variable-catalog",
+  "auth_bp.api_user_variable_catalog",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/video/<study>/<item_id>",
   "viewer_bp.api_video_stream",
   [

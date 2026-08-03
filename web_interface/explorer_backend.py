@@ -644,6 +644,39 @@ def load_data(study: str, verbose: bool = False):
 
 
 
+def _list_value_counts_top(col_data: pd.Series, n: int = 20) -> dict:
+    """Top-``n`` value counts for an Arrow-backed list column, Arrow-native.
+
+    The pandas route (``explode().value_counts()``) round-trips every element
+    through Python objects and dominates the stats cost on large studies.
+    ``pc.list_flatten`` + ``pc.value_counts`` do the same computation inside
+    Arrow. Ties at the cut-off may order differently than pandas (both are
+    stable sorts over their own internal ordering), which is acceptable for a
+    top-20 display. Raises on any shape surprise — the caller falls back to
+    the pandas path.
+
+    Args:
+        col_data: Arrow-backed Series with a list dtype.
+        n: Number of most frequent values to return.
+
+    Returns:
+        Dict of value -> count, most frequent first.
+    """
+    import pyarrow.compute as pc
+
+    chunked = col_data.array._pa_array
+    flat = pc.list_flatten(chunked)
+    flat = flat.drop_null()
+    if len(flat) == 0:
+        return {}
+    vc = pc.value_counts(flat.combine_chunks())
+    counts = vc.field('counts').to_numpy()
+    order = np.argsort(-counts, kind='stable')[:n]
+    top_values = vc.field('values').take(pa.array(order)).to_pylist()
+    top_counts = counts[order]
+    return {str(v): int(c) for v, c in zip(top_values, top_counts)}
+
+
 def get_current_stats(df, column_types, number_meta=None, verbose=False):
     """Build per-column display stats (density histograms for numbers).
 
@@ -803,6 +836,11 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
 
         elif dtype == "list":
              if isinstance(df[col].dtype, pd.ArrowDtype) and 'list' in str(df[col].dtype):
+                  try:
+                      stats[col] = _list_value_counts_top(df[col], n=20)
+                      continue
+                  except Exception:
+                      pass
                   try:
                       exploded = df[col].explode().dropna()
                       vc = exploded.value_counts().head(20).to_dict()

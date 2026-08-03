@@ -449,7 +449,7 @@ Data is stored in Parquet. Complex types (dicts, lists) are JSON-stringified bef
 `StudyCache` in `data_service.py` uses double-checked locking — be careful when modifying cache logic.
 
 ### Frontend
-Single-page app with tab navigation controlled by `main.js`. All data endpoints return JSON; JS handles filtering and rendering. No bundler — JS files are served as-is from `static/`. **Per-user variable preferences**: each user can include/exclude variables per surface (filter / viz / detail-panel / timeline) via the ⚙ panels — stored as deltas in `user.settings.variable_prefs`, composed as `(global ∪ include) − exclude` (`static/js/variable_prefs.js` client-side; timelines compose server-side with on-demand cache re-aggregation).
+Single-page app with tab navigation controlled by `main.js`. All data endpoints return JSON; JS handles filtering and rendering. No bundler — JS files are served as-is from `static/`. **Per-user variable preferences**: each user can include/exclude variables per surface (filter / viz / detail-panel / timeline) via My Stuff → Preferences → Variable customizations (panels fed by the study-independent `GET /api/user/variable-catalog`) — stored as deltas in `user.settings.variable_prefs`, composed as `(global ∪ include) − exclude` (`static/js/variable_prefs.js` client-side; timelines AND the Explore filter-stats endpoint compose server-side — `/api/explore/filter` computes distribution stats only for the user's effective viz set).
 
 ### Role-Based Access
 Use `@admin_required` decorator from `web_interface/auth.py`. User data lives in JSON files under `{local_data}/users/`.

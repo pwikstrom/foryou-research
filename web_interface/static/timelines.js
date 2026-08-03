@@ -505,32 +505,8 @@ window.timelines = {
         // the timeline universe filter drops all other states — hide the chart.
         varKeys = varKeys.filter(k => k !== 'machine_state');
 
-        // "Customize variables" gear for this user's timeline set — mounted next
-        // to the Engagement dropdown in the control bar. Re-run safe (removes any
-        // prior gear first so the customized-dot indicator stays fresh).
-        if (window.VariablePrefs && Array.isArray(data.all_variables_order) && data.all_variables_order.length) {
-            const engDropdown = document.getElementById('timelines-engagement-dropdown');
-            if (engDropdown) {
-                const existing = document.getElementById('timelines-var-gear');
-                if (existing) existing.remove();
-                const gear = VariablePrefs.gearButton('timeline', () => {
-                    VariablePrefs.openPanel({
-                        surface: 'timeline',
-                        title: 'Customize timeline variables',
-                        allOrder: data.all_variables_order,
-                        globalList: data.variables_global || [],
-                        schemaMap: data.schema_map_lite || {},
-                        coveredSet: data.variables_covered || null,
-                        onApply: () => {
-                            const sel = document.getElementById('timelines-collection-select');
-                            if (sel && sel.value) timelines.selectDonation(sel.value);
-                        },
-                    });
-                });
-                gear.id = 'timelines-var-gear';
-                engDropdown.insertAdjacentElement('beforebegin', gear);
-            }
-        }
+        // (The timeline variable gear moved to My Stuff -> Preferences; a
+        // prefs change made there is picked up on the next timeline load.)
 
         // Iterate over variables
         varKeys.forEach(varName => {
@@ -2570,5 +2546,16 @@ document.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('theme-changed', () => {
     if (window.timelines && window.timelines.timelineData) {
         window.timelines.renderTimelineCharts();
+    }
+});
+
+// Timeline variable prefs are edited in My Stuff -> Preferences; the server
+// composes the effective list per request, so a change just needs a re-fetch
+// of the currently shown collection.
+window.addEventListener('fyp:variable-prefs-changed', (e) => {
+    const surface = e.detail ? e.detail.surface : undefined;
+    if (surface !== 'timeline' && surface !== null) return;
+    if (window.timelines && window.timelines.currentDonationId) {
+        window.timelines.selectDonation(window.timelines.currentDonationId);
     }
 });
