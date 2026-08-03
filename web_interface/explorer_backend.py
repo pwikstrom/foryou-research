@@ -367,8 +367,21 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                 if is_dt or "date" in col.lower():
                     value_mask = filtered_df[col].astype(str).str[:10].isin([str(v)[:10] for v in val])
                 else:
-                    value_mask = filtered_df[col].astype(str).isin(val)
-                has_value_criteria = True
+                    col_series = filtered_df[col]
+                    col_dtype = col_series.dtype
+                    if (isinstance(col_dtype, pd.ArrowDtype)
+                            and (pa.types.is_string(col_dtype.pyarrow_dtype)
+                                 or pa.types.is_large_string(col_dtype.pyarrow_dtype))):
+                        # Arrow string columns compare in-place — astype(str)
+                        # would round-trip every value through a python object
+                        # (seconds per filter on a multi-million-row study).
+                        # Non-string selections can never match the old
+                        # astype(str) semantics anyway, so drop them here.
+                        str_vals = [v for v in val if isinstance(v, str)]
+                        value_mask = col_series.isin(str_vals).fillna(False).to_numpy(dtype=bool)
+                    else:
+                        value_mask = col_series.astype(str).isin(val)
+                    has_value_criteria = True
         
         elif dtype == "list":
             if isinstance(val, (list, np.ndarray)) and len(val) > 0:

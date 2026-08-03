@@ -8,6 +8,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import numpy as np
 import pandas as pd
 from cachetools import LRUCache
 
@@ -336,6 +337,14 @@ def _cached_study_frame(study, verbose=False):
         # of the two and nothing downstream needs it.
         del raw_df
 
+        # Force the index's lazy hash engine to build NOW, while we still hold
+        # the loading lock. The cached frame is shared across request threads,
+        # and pandas builds this engine on the first lookup without locking —
+        # two concurrent first lookups can each observe a partially built
+        # table and miss keys that are present (seen in prod as a spurious
+        # KeyError on a valid row_idx from the item endpoint's prefetch pair).
+        _ = filtered_df.index.is_unique
+
         # Re-read the mtime *after* loading so the cache entry is
         # tagged with the version we actually have in memory.
         cache_item = {
@@ -425,12 +434,21 @@ def get_explorer_rows(study, item_id=None, row_index=None, verbose=False):
     id_col = 'item_id' if 'item_id' in df.columns else (
         'video_id' if 'video_id' in df.columns else None)
 
-    if row_index is not None and row_index in df.index:
-        rows = df.loc[[row_index]]
-    elif id_col is not None:
-        rows = df[df[id_col].astype(str) == str(item_id)]
-    else:
-        rows = df.iloc[0:0]
+    # Row lookup via a plain array comparison rather than .loc: label lookups
+    # go through the index's shared lazy hash engine, which is not safe to
+    # build from two request threads at once (the engine is also pre-built at
+    # cache time — this is defense in depth, and it handles duplicate labels
+    # the same way .loc[[label]] would).
+    rows = None
+    if row_index is not None:
+        positions = np.flatnonzero(np.asarray(df.index) == row_index)
+        if positions.size:
+            rows = df.iloc[positions]
+    if rows is None:
+        if id_col is not None:
+            rows = df[df[id_col].astype(str) == str(item_id)]
+        else:
+            rows = df.iloc[0:0]
 
     rows = rows.copy()
     try:
@@ -442,6 +460,11 @@ def get_explorer_rows(study, item_id=None, row_index=None, verbose=False):
 
 
 
+
+
+# The single shared empty-list cell used for every untagged row of the
+# 'User Tags' column. Read-only by contract — see enrich_with_user_tags.
+_NO_TAGS: list = []
 
 
 def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
@@ -496,58 +519,80 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
     # We continue now to ensure "Has Annotation" and "Machine Annotations" are added even if empty.
         
 
-    # Shallow copy: this function only adds, replaces or drops whole columns,
-    # and the three columns it writes through .loc are ones it created here, so
-    # nothing shared with the caller's frame is mutated. A deep copy would
-    # duplicate the whole study frame (several GB on all_collections) to add
-    # three columns.
+    # Shallow copy: this function only adds whole columns, so nothing shared
+    # with the caller's frame is mutated. A deep copy would duplicate the whole
+    # study frame (several GB on all_collections) to add three columns.
     df = df.copy(deep=False)
     col_types = col_types.copy()
-    
-    str_ids = df['item_id'].astype(str) # just to be safe. item_id should always be a string
-    
+    n = len(df)
+
+    # Arrow-native string view of the ids: isin() on it stays vectorized, and
+    # python-level per-row work below is confined to the annotated rows (tens
+    # to thousands, not millions). The old implementation mapped and re-checked
+    # every row through python callables, which alone cost tens of seconds per
+    # request on a multi-million-row study.
+    str_ids = df['item_id'].astype('string[pyarrow]')
+
     # 1. User Tags (List)
     if id_to_tags:
-        df['User Tags'] = str_ids.map(id_to_tags)
-        
-        # Fill NaNs with empty lists (crucial for type safety in filters)
-        df['User Tags'] = df['User Tags'].apply(lambda x: x if isinstance(x, list) else [])
-        
-        if df['User Tags'].apply(len).sum() > 0: # Check if any tags exist
-             col_types['User Tags'] = 'list'
-        else:
-             df.drop(columns=['User Tags'], inplace=True, errors='ignore')
-    
+        tag_mask = str_ids.isin(list(id_to_tags)).fillna(False).to_numpy(dtype=bool)
+        if tag_mask.any():
+            tags_col = np.empty(n, dtype=object)
+            # Every untagged row shares ONE empty list. The column is only ever
+            # read (filters, stats, JSON serialization) — never mutated
+            # per-cell — and materialising a fresh [] per row is seconds of
+            # allocation at this scale. Do not append to these cells.
+            tags_col.fill(_NO_TAGS)
+            positions = np.flatnonzero(tag_mask)
+            for pos, iid in zip(positions, str_ids.iloc[positions]):
+                tags_col[pos] = id_to_tags.get(str(iid)) or _NO_TAGS
+            df['User Tags'] = tags_col
+            col_types['User Tags'] = 'list'
+
     # 2. Has Annotation (Boolean/Category)
     if shared_users_tags:
         annotated_ids.update(str(k) for k in shared_users_tags.keys())
 
-    
-    df['Has Annotation'] = str_ids.isin(annotated_ids)
-    
+    # numpy bools rather than Arrow: downstream astype(str) must keep yielding
+    # 'True'/'False' (Arrow bools stringify lowercase), and the filter/metadata
+    # payloads are built from these values.
+    df['Has Annotation'] = str_ids.isin(annotated_ids).fillna(False).to_numpy(dtype=bool)
+
     # Only keep if there are any true values? Or always keep if explicit user request?
     # If no annotations exist at all, we returned early above.
     # So we have annotations.
     col_types['Has Annotation'] = 'category' # Treat as category to trigger checkbox UI
-    
+
     # 3. Machine Annotations — which model annotated each item. Annotated rows
     # get the annotating model's short name (resolved from the row's
     # annotation_version via the version registry); rows without per-row
     # provenance (pre-versioning history) fall back to the generic label.
     if 'annotated_ok' in df.columns:
-        df['Machine Annotations'] = 'Not Attempted'
-        df.loc[df['annotated_ok'] == True, 'Machine Annotations'] = 'Machine Annotated'
-        df.loc[df['annotated_ok'] == False, 'Machine Annotations'] = 'Cannot Machine Annotate'
+        # annotated_ok is bool[pyarrow] and can hold NA — fill before the numpy
+        # coercion (NA rows count as neither annotated nor failed).
+        ok = df['annotated_ok'].fillna(False).to_numpy(dtype=bool)
+        fail = (df['annotated_ok'] == False).fillna(False).to_numpy(dtype=bool)  # noqa: E712 — pyarrow-NA-safe comparison
+
+        machine = np.full(n, 'Not Attempted', dtype=object)
+        machine[fail] = 'Cannot Machine Annotate'
+        machine[ok] = 'Machine Annotated'
 
         if 'annotation_version' in df.columns:
             model_labels = _annotation_model_labels()
             if model_labels:
-                # annotated_ok is bool[pyarrow] and can hold NA — fill before
-                # the numpy coercion (NA cannot cast to a plain bool).
-                ok_mask = df['annotated_ok'].fillna(False).to_numpy(dtype=bool)
-                labels = df.loc[ok_mask, 'annotation_version'].astype(str).map(model_labels)
-                df.loc[ok_mask, 'Machine Annotations'] = labels.fillna('Machine Annotated').to_numpy()
+                # Factorize instead of mapping row-by-row: versions repeat, so
+                # the python-level dict lookup runs once per distinct version.
+                ok_positions = np.flatnonzero(ok)
+                codes, uniques = pd.factorize(df['annotation_version'].iloc[ok_positions])
+                mapped = np.array(
+                    [model_labels.get(str(u), 'Machine Annotated') for u in uniques],
+                    dtype=object,
+                )
+                labelled = np.where(codes >= 0, mapped[codes] if len(mapped) else 'Machine Annotated',
+                                    'Machine Annotated')
+                machine[ok_positions] = labelled
 
+        df['Machine Annotations'] = machine
         col_types['Machine Annotations'] = 'category'
 
     return df, col_types
