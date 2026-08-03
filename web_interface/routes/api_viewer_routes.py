@@ -11,7 +11,7 @@ import fyp.data_io as data_io
 import fyp.media_paths as media_paths
 from fyp.annotation import human_eval
 from fyp.fyp_config import fyp_cf
-from fyp.ingest import ForYouBaseCollection
+from fyp.ingest import platform_url_templates
 
 from .. import explorer_backend as explorer
 from ..data_service import (
@@ -28,15 +28,10 @@ from ._access import study_access_error
 viewer_bp = Blueprint('viewer_bp', __name__)
 
 
-# Built from the collection registry: every registered collection class that
-# declares both a source_platform and a platform_url_template contributes an
-# "open on platform" link template. Adding a platform = adding its collection
-# subclass; no edit here.
-_PLATFORM_URL_TEMPLATES: dict[str, str] = {
-    cls.source_platform: cls.platform_url_template
-    for cls in ForYouBaseCollection._registry
-    if getattr(cls, "source_platform", None) and getattr(cls, "platform_url_template", None)
-}
+# Built from the collection registry — the same map the frontend gets as
+# window.PLATFORM_URL_TEMPLATES, so a server-rendered link and a JS-built one
+# can never diverge. Adding a platform = adding its collection subclass.
+_PLATFORM_URL_TEMPLATES: dict[str, str] = platform_url_templates()
 
 
 # Which timezone the viewer's activity span is expressed in, per the timestamp
@@ -116,6 +111,22 @@ def api_viewer_ids():
     # Calculate true total count before slicing
     total_count = len(filtered_df)
 
+    # Optional "land on this video" lookup, used by the Semantic Space drill-down.
+    # The client cannot do this itself: it only ever holds one 1000-row chunk, and
+    # item_id is an identifier column so it cannot be passed as a filter. Resolved
+    # here against the fully filtered + sorted frame, so the answer is a real
+    # position the client can page to. None means the item is not in this study,
+    # or the current filters exclude it — the caller says so rather than silently
+    # landing on row 0.
+    focus_item_id = data.get("focus_item_id")
+    focus_index = None
+    if focus_item_id and total_count > 0:
+        matches = np.flatnonzero(
+            filtered_df[id_col].astype(str).to_numpy() == str(focus_item_id)
+        )
+        if matches.size:
+            focus_index = int(matches[0])
+
     # First / last activity timestamp across the whole filtered set (the
     # chronological span shown in the viewer header). Only needed on the initial
     # chunk; pagination requests reuse the value already on the client.
@@ -166,6 +177,9 @@ def api_viewer_ids():
         "truncated": False,
         "time_span": time_span,
     }
+
+    if focus_item_id:
+        result["focus_index"] = focus_index
 
     if extra_data_indices is not None:
         result["extra_data_indices"] = extra_data_indices

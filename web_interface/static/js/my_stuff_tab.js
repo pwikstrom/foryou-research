@@ -82,7 +82,17 @@
         }
 
         renderVariablePrefsStatus();
+        renderGettingStartedStatus();
         loadProfileForm();
+    }
+
+    function renderGettingStartedStatus() {
+        const status = document.getElementById('getting-started-status');
+        const button = document.getElementById('getting-started-restore');
+        if (!status || !button) return;
+        const dismissed = !!(window.userSettings && window.userSettings.getting_started_dismissed);
+        status.textContent = dismissed ? 'Currently hidden.' : 'Currently shown.';
+        button.disabled = !dismissed;
     }
 
     function renderVariablePrefsStatus() {

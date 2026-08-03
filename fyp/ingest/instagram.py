@@ -39,7 +39,10 @@ class InstagramDDPCollection(ForYouBaseCollection):
     JSON) raise so the file stays pending instead of being silently discarded.
     """
 
-    platform_url_template = "https://www.instagram.com/reel/{item_id}/"
+    # /p/ rather than /reel/: the ingested streams mix reels, feed videos and
+    # image posts, and Instagram redirects /p/<shortcode> to the right surface
+    # for all three, while /reel/<shortcode> 404s on an image post.
+    platform_url_template = "https://www.instagram.com/p/{item_id}/"
     source_platform = "instagram"
     raw_path = "instagram_raw"
 

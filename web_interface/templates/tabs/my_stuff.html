@@ -179,6 +179,16 @@
                 </p>
                 <button class="btn-discreet text-sm" onclick="resetVariablePrefs()">Reset all to defaults</button>
             </div>
+
+            <h4 class="text-sm font-semibold" style="margin-top: 25px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Onboarding</h4>
+
+            <div class="setting-group" style="margin-bottom: 12px;">
+                <p class="text-sm" style="color: var(--color-text-muted); margin-bottom: 8px;">
+                    The &ldquo;Getting started&rdquo; panel on the Home tab is hidden once you dismiss it.
+                    <span id="getting-started-status" class="font-semibold"></span>
+                </p>
+                <button id="getting-started-restore" class="btn-discreet text-sm" onclick="restoreGettingStarted()">Show it again</button>
+            </div>
         </div>
         {% endif %}
 
@@ -232,10 +242,25 @@
         {% endif %}
 
     </div>
+
+    {% if user.can_access('tab.my_stuff.my_studies') %}
+    <!-- Study Methods modal: plain-language provenance note, opened per row from
+         the My Studies table (was on Explore, where it could only ever show the
+         one active study). -->
+    <div id="study-methods-modal" class="modal" onclick="closeStudyMethodsModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <span class="close-button" onclick="closeStudyMethodsModal()">&times;</span>
+            <div id="study-methods-content" class="help-text"></div>
+        </div>
+    </div>
+    {% endif %}
 </div>
 
+{% if user.can_access('tab.my_stuff.my_studies') %}
+<script src="{{ url_for('static', filename='js/methods_note.js') }}" defer></script>
+{% endif %}
 {% if user.can_access('tab.my_stuff.tasks') %}
 <script src="{{ url_for('static', filename='js/human_coding.js') }}" defer></script>
 {% endif %}
 
-<script src="{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=1"></script>
+<script src="{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=2"></script>

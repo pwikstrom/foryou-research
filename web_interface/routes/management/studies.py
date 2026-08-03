@@ -93,7 +93,11 @@ def list_studies():
                 or current_user.username in user_access
                 or 'all' in user_access
             ):
-                studies_list.append(config)
+                # The My Studies read-only view renders from this payload, so it
+                # ships the whole definition. USER_ACCESS is the one key that
+                # says something about other users rather than about the study.
+                shared = {k: v for k, v in config.items() if k != "USER_ACCESS"}
+                studies_list.append(shared)
 
     return jsonify(studies_list)
 

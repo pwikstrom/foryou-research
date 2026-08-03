@@ -49,6 +49,19 @@ _CORR_DEFAULTS = {
     "permanova_permutations": 999,
 }
 
+# Per-group video count written by the PCA worker (see fyp.analysis.pca). It is
+# provenance, not a feature: excluded from the axis dropdowns, the correlation
+# matrix and the within-collection centering, and reported only as "N groups
+# covering M videos" in the Sample panel. Absent from PCA parquets built before
+# 2026-08, so every read is optional.
+GROUP_SIZE_COL = "group_size"
+
+# Views whose numbers come from the pca_refresh worker's whole-study artifacts
+# and therefore ignore the Sample panel entirely. The frontend disables the
+# panel (with an explanation) while one of these is active, rather than letting
+# it silently no-op.
+FILTER_IMMUNE_VIEWS = ("group_stats",)
+
 # Coverage of the scatter's confidence ellipses: chi-square(2 df) quantile at
 # 95%. Stated on the UI wherever the ellipses are drawn.
 ELLIPSE_COVERAGE = 0.95
@@ -106,24 +119,89 @@ def format_week_value(value) -> str:
 
 
 def apply_factor_filters(df: pd.DataFrame, filters: dict) -> pd.DataFrame:
-    """Return the rows of ``df`` matching the per-factor value lists in ``filters``.
+    """Return the rows of ``df`` matching the per-factor selections in ``filters``.
 
-    Date-like columns are compared on their ``YYYY-MM-DD`` prefix and week
-    columns through :func:`format_week_value`, mirroring how the values were
-    presented to the client in ``factor_values``.
+    Two selection shapes are accepted per factor:
+
+    * a **list of values** — membership, as presented in ``factor_values``.
+      Date-like columns are compared on their ``YYYY-MM-DD`` prefix and week
+      columns through :func:`format_week_value`.
+    * a **dict** ``{"min": "YYYY-MM-DD", "max": "YYYY-MM-DD"}`` — an inclusive
+      range, used for the activity-date window. Either bound may be absent or
+      blank, meaning "open at that end". A date column has too many distinct
+      values for a checkbox list (see ``factor_value_limit``), which used to
+      leave the time window unfilterable altogether.
+
+    Args:
+        df: The group-level PCA frame.
+        filters: Factor name → list of values, or a ``{"min", "max"}`` dict.
+
+    Returns:
+        A copy of the matching rows.
     """
     mask = pd.Series(True, index=df.index)
-    for col, vals in filters.items():
+    for col, sel in filters.items():
         if col not in df.columns:
             continue
         is_dt = pd.api.types.is_datetime64_any_dtype(df[col])
-        if is_dt or "date" in col.lower():
+        is_date_like = is_dt or "date" in col.lower()
+
+        if isinstance(sel, dict):
+            # Range selection. Comparing the YYYY-MM-DD prefix as text is exact
+            # for ISO dates and matches how the bounds were offered.
+            if not is_date_like:
+                continue
+            day = df[col].astype(str).str[:10]
+            lo = str(sel.get("min") or "")[:10]
+            hi = str(sel.get("max") or "")[:10]
+            if lo:
+                mask &= day >= lo
+            if hi:
+                mask &= day <= hi
+            continue
+
+        vals = sel
+        if is_date_like:
             mask &= df[col].astype(str).str[:10].isin([str(v)[:10] for v in vals])
         elif "week" in col.lower():
             mask &= df[col].map(format_week_value).isin([str(v) for v in vals])
         else:
             mask &= df[col].astype(str).isin(vals)
     return df[mask].copy()
+
+
+
+
+
+
+def build_sample_summary(df: pd.DataFrame, filtered_df: pd.DataFrame) -> dict:
+    """Describe what the Sample panel currently selects.
+
+    The unit of analysis here is a grouping-factor group (a collection-day),
+    not a video — the single most common misreading of this tab — so the panel
+    header states both the group count and the number of videos those groups
+    average over.
+
+    Args:
+        df: The full group-level PCA frame for the study.
+        filtered_df: The same frame after :func:`apply_factor_filters`.
+
+    Returns:
+        Dict with total/selected group counts and, when the PCA parquet carries
+        ``group_size``, the matching video counts (else None).
+    """
+    def _videos(frame: pd.DataFrame) -> int | None:
+        if GROUP_SIZE_COL not in frame.columns:
+            return None
+        total = pd.to_numeric(frame[GROUP_SIZE_COL], errors="coerce").sum()
+        return None if pd.isna(total) else int(total)
+
+    return {
+        "groups_total": int(len(df)),
+        "groups_selected": int(len(filtered_df)),
+        "videos_total": _videos(df),
+        "videos_selected": _videos(filtered_df),
+    }
 
 
 
@@ -366,6 +444,260 @@ def _matrix_to_json(mat) -> list:
 
 
 
+# --- Split comparison -------------------------------------------------------
+#
+# Subsetting answers "what does this look like for these groups"; splitting
+# answers "does this association differ between these groups", which is usually
+# the actual research question. Both views run the same live computation twice
+# — no new precomputation — so the cost is one extra pass over the group frame.
+#
+# The honesty constraint: comparing two correlations with Fisher's r-to-z
+# assumes INDEPENDENT samples. That holds when the split partitions collections
+# (platform, a donor attribute), because then no donor contributes to both
+# sides. It does not hold for a within-donor split (weekday, week), where the
+# same donors appear in both levels. ``split_is_independent`` decides which, and
+# the dependent case reports both correlations descriptively with no p-value
+# rather than a number that would read as more than it is.
+
+
+# At most this many levels are compared; a Δ needs exactly two sides, so the
+# two largest are used and the rest are named in ``levels_omitted``.
+SPLIT_LEVELS = 2
+
+# A factor with more levels than this is not offered as a split — collection_id
+# (one level per donor) and the date factors would otherwise qualify.
+SPLIT_MAX_LEVELS = 12
+
+
+def split_frames(df: pd.DataFrame, split_col: str) -> tuple[list[tuple[str, pd.DataFrame]], list[str]]:
+    """Split ``df`` into its two largest levels of ``split_col``.
+
+    Args:
+        df: Already-filtered group-level frame.
+        split_col: The factor to split on.
+
+    Returns:
+        ``(pairs, omitted)`` where ``pairs`` is up to ``SPLIT_LEVELS``
+        ``(level, subframe)`` tuples ordered by size (largest first), and
+        ``omitted`` names the levels that did not make the cut.
+    """
+    if split_col not in df.columns:
+        return [], []
+    labels = df[split_col].astype(str)
+    counts = labels.value_counts()
+    chosen = list(counts.index[:SPLIT_LEVELS])
+    omitted = [str(v) for v in counts.index[SPLIT_LEVELS:]]
+    return [(str(v), df[labels == v]) for v in chosen], omitted
+
+
+
+
+
+
+def split_is_independent(df: pd.DataFrame, split_col: str) -> bool:
+    """Whether the split partitions collections, making the levels independent.
+
+    True when every collection sits entirely on one side of the split — no
+    donor contributes rows to both levels — which is the condition Fisher's
+    r-to-z comparison needs. A within-donor split (weekday, week) is False.
+
+    Falls back to False when there is no collection column to reason about:
+    claiming independence we cannot verify would be the harmful error.
+    """
+    if "collection_id" not in df.columns or split_col not in df.columns:
+        return False
+    per_collection = df.groupby(df["collection_id"].astype(str))[split_col].nunique(dropna=True)
+    return bool((per_collection <= 1).all())
+
+
+
+
+
+
+def fisher_z_difference(r1: float, n1: int, r2: float, n2: int) -> tuple[float, float] | None:
+    """Two-sided test that two independent correlations differ.
+
+    Fisher's r-to-z transform: ``z = (z1 - z2) / sqrt(1/(n1-3) + 1/(n2-3))``.
+
+    Args:
+        r1: Correlation in the first level.
+        n1: Pairwise-complete n in the first level.
+        r2: Correlation in the second level.
+        n2: Pairwise-complete n in the second level.
+
+    Returns:
+        ``(z, p)``, or None when either side is too small (n <= 3) or |r| is 1
+        (the transform diverges).
+    """
+    if n1 <= 3 or n2 <= 3:
+        return None
+    if not (np.isfinite(r1) and np.isfinite(r2)):
+        return None
+    if abs(r1) >= 1.0 or abs(r2) >= 1.0:
+        return None
+    z1 = np.arctanh(r1)
+    z2 = np.arctanh(r2)
+    se = np.sqrt(1.0 / (n1 - 3) + 1.0 / (n2 - 3))
+    if se == 0:
+        return None
+    z = float((z1 - z2) / se)
+    p = float(2.0 * scipy_stats.norm.sf(abs(z)))
+    return z, p
+
+
+
+
+
+
+def build_scatter_split(filtered_df: pd.DataFrame, x_col: str, y_col: str,
+                        split_col: str) -> dict | None:
+    """Per-level regressions for the scatter, plus a comparison of the two.
+
+    Args:
+        filtered_df: Rows already filtered and dropna'd on both axes.
+        x_col: X-axis column.
+        y_col: Y-axis column.
+        split_col: The factor to split on.
+
+    Returns:
+        Dict with one entry per compared level (each carrying the full
+        :func:`compute_regression_stats` readout) and a ``comparison`` block,
+        or None when fewer than two levels have usable data.
+    """
+    pairs, omitted = split_frames(filtered_df, split_col)
+    levels = []
+    for value, sub in pairs:
+        stats = compute_regression_stats(sub[x_col], sub[y_col])
+        levels.append({"value": value, "n_groups": int(len(sub)), "stats": stats})
+
+    usable = [lv for lv in levels if lv["stats"]]
+    if len(usable) < 2:
+        return None
+
+    independent = split_is_independent(filtered_df, split_col)
+    a, b = usable[0], usable[1]
+    comparison = {
+        "independent": independent,
+        "note": _independence_note(split_col, independent, split_col),
+        "r_difference": float(a["stats"]["r"] - b["stats"]["r"]),
+        "z": None,
+        "p": None,
+    }
+    if independent:
+        test = fisher_z_difference(
+            a["stats"]["r"], a["stats"]["n"], b["stats"]["r"], b["stats"]["n"],
+        )
+        if test is not None:
+            comparison["z"], comparison["p"] = test
+
+    return {
+        "col": split_col,
+        "levels": levels,
+        "levels_omitted": omitted,
+        "comparison": comparison,
+    }
+
+
+
+
+
+
+def build_matrix_split(filtered_df: pd.DataFrame, cols: list, split_col: str,
+                       method: str) -> dict | None:
+    """Per-level correlation matrices plus the cellwise difference.
+
+    Same live computation as the single-sample heatmap, run once per level. The
+    ``p_matrix`` tests the *difference* (Fisher r-to-z) and is all-None for a
+    within-donor split, where the two correlations are not independent.
+
+    Args:
+        filtered_df: Rows already filtered (and centered, if requested).
+        cols: The ordered numeric columns to correlate.
+        split_col: The factor to split on.
+        method: "pearson" or "spearman".
+
+    Returns:
+        Dict with the two per-level matrices, the delta matrix and the test, or
+        None when fewer than two levels carry enough rows.
+    """
+    pairs, omitted = split_frames(filtered_df, split_col)
+    if len(pairs) < 2:
+        return None
+
+    per_level = []
+    for value, sub in pairs:
+        if len(sub) < 3:
+            continue
+        r, _p, _q, n = pairwise_correlation_stats(sub[cols], method)
+        per_level.append({"value": value, "n_groups": int(len(sub)), "r": r, "n": n})
+
+    if len(per_level) < 2:
+        return None
+
+    a, b = per_level[0], per_level[1]
+    k = len(cols)
+    delta = np.full((k, k), np.nan)
+    p = np.full((k, k), np.nan)
+    n_min = np.zeros((k, k), dtype=int)
+
+    independent = split_is_independent(filtered_df, split_col)
+    for i in range(k):
+        for j in range(k):
+            ra, rb = a["r"][i, j], b["r"][i, j]
+            n_min[i, j] = int(min(a["n"][i, j], b["n"][i, j]))
+            if i == j or not (np.isfinite(ra) and np.isfinite(rb)):
+                continue
+            delta[i, j] = ra - rb
+            if independent:
+                test = fisher_z_difference(float(ra), int(a["n"][i, j]),
+                                           float(rb), int(b["n"][i, j]))
+                if test is not None:
+                    p[i, j] = test[1]
+
+    # BH across the unique pairs, matching the single-sample matrix's family.
+    q = np.full((k, k), np.nan)
+    upper = [(i, j) for i in range(k) for j in range(i + 1, k)]
+    finite = [(i, j) for i, j in upper if np.isfinite(p[i, j])]
+    if finite:
+        _, qvals, _, _ = multipletests([p[i, j] for i, j in finite], method="fdr_bh")
+        for (i, j), qv in zip(finite, qvals):
+            q[i, j] = q[j, i] = float(qv)
+
+    return {
+        "col": split_col,
+        "levels": [
+            {"value": lv["value"], "n_groups": lv["n_groups"], "matrix": _matrix_to_json(lv["r"])}
+            for lv in (a, b)
+        ],
+        "levels_omitted": omitted,
+        "delta_matrix": _matrix_to_json(delta),
+        "p_matrix": _matrix_to_json(p),
+        "q_matrix": _matrix_to_json(q),
+        "n_matrix": [[int(v) for v in row] for row in n_min],
+        "independent": independent,
+        "note": _independence_note(split_col, independent, split_col),
+    }
+
+
+
+
+
+
+def _independence_note(split_col: str, independent: bool, display: str) -> str:
+    """The one-line caveat shown wherever a split comparison is presented."""
+    if independent:
+        return (f"Each collection sits entirely on one side of {display}, so the two "
+                f"correlations come from independent samples and the difference is tested "
+                f"directly (Fisher r-to-z).")
+    return (f"The same collections appear on both sides of {display}, so the two "
+            f"correlations are not independent and no test of the difference is "
+            f"reported — compare the two values and their confidence intervals instead.")
+
+
+
+
+
+
 def load_group_stats(study: str) -> dict | None:
     """Load the worker-precomputed ``{study}_corr_stats.json``, or None."""
     try:
@@ -542,7 +874,10 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
     # Get numeric columns and exclude any that have 1 or fewer unique non-null values
     # Also explicitly exclude the unscaled '_raw' tooltip columns from appearing in the UI dropdowns
     all_numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-    numeric_cols = [col for col in all_numeric_cols if df[col].nunique(dropna=True) > 1 and not str(col).endswith('_raw')]
+    numeric_cols = [col for col in all_numeric_cols
+                    if df[col].nunique(dropna=True) > 1
+                    and not str(col).endswith('_raw')
+                    and str(col) != GROUP_SIZE_COL]
 
     factors, _ = get_factors_and_features_from_var_schema(some_events_df=df, verbose=False)
 
@@ -557,17 +892,27 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
     def natural_sort_key(s):
         return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
 
-    # Build factor_values with date handling. Factors with too many distinct
-    # values get no checkbox list; they are reported as truncated instead.
+    # Build factor_values with date handling. A date factor gets a min/max range
+    # instead of a checkbox list — one row per day means it always blew past
+    # factor_value_limit, which used to render as a dead "too many values to
+    # filter" note and left the time window unfilterable. Non-date factors past
+    # the limit are still reported as truncated.
     factor_value_limit = int(corr_setting("factor_value_limit"))
     factor_values = {}
+    factor_ranges = {}
     truncated_factors = []
     for f in factors:
         is_dt = pd.api.types.is_datetime64_any_dtype(df[f])
-        if is_dt or "date" in f.lower():
+        is_date_like = is_dt or "date" in f.lower()
+        if is_date_like:
             vals = df[f].dropna().astype(str).str[:10].unique().tolist()
         else:
             vals = df[f].dropna().unique().tolist()
+
+        if is_date_like and vals:
+            days = sorted(str(v) for v in vals)
+            factor_ranges[f] = {"min": days[0], "max": days[-1], "n_values": len(days)}
+            continue
 
         if len(vals) >= factor_value_limit:
             truncated_factors.append(f)
@@ -616,12 +961,34 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
         "min_group_size": int(corr_setting("minimum_group_size")),
     }
 
+    # Factors offerable to "Split by". A comparison needs at least two levels
+    # and stays readable only for a handful, so collection_id (one level per
+    # donor) and the date factors are excluded by the cardinality bound. Each
+    # entry carries whether the split partitions collections, which is what
+    # decides whether the difference can be formally tested.
+    split_cols = []
+    for f in sorted(factors):
+        values = factor_values.get(f) or []
+        if not (2 <= len(values) <= SPLIT_MAX_LEVELS):
+            continue
+        split_cols.append({
+            "col": f,
+            "display_name": schema_map.get(f, {}).get("display_name", f),
+            "n_levels": len(values),
+            "independent": split_is_independent(df, f),
+        })
+
     return {
         "numeric_cols": filtered_numeric_cols,
         "numeric_col_bases": {c: b for c, b in numeric_col_bases.items() if c in filtered_numeric_cols},
         "factor_cols": sorted(factors),
         "factor_values": factor_values,
+        "factor_ranges": factor_ranges,
         "truncated_factors": truncated_factors,
+        "filter_immune_views": list(FILTER_IMMUNE_VIEWS),
+        "split_cols": split_cols,
+        "split_levels": SPLIT_LEVELS,
+        "sample": build_sample_summary(df, df),
         "interpretations": interpretations,
         "schema_map": schema_map,
         "display_ids": display_ids,
@@ -640,16 +1007,32 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
 
 
 def build_scatter_payload(df: pd.DataFrame, filters: dict, x_col: str, y_col: str,
-                          color_col: str | None, center: bool = False) -> dict:
+                          color_col: str | None, center: bool = False,
+                          split_col: str | None = None) -> dict:
     """Build the /api/correlations/data response (filtered scatter points).
 
     ``center=True`` demeans the two axis columns within each collection
     before anything else, so both the points and the statistics describe
     within-collection variation.
+
+    ``split_col`` switches from one regression over everything to one per level
+    of that factor, plus a comparison of the two slopes — "does this association
+    hold for everyone?" rather than "what does this subset look like". The
+    points are coloured by the split so the two clouds are legible.
     """
     filtered_df = apply_factor_filters(df, filters)
+    # Summarised before the per-axis dropna, so the Sample panel reports what the
+    # filters select rather than what these two axes happen to have values for.
+    sample = build_sample_summary(df, filtered_df)
 
     filtered_df = filtered_df.dropna(subset=[x_col, y_col])
+
+    # Splitting drives the colouring: two differently-coloured clouds with a
+    # regression line each is the whole point of the view.
+    if split_col and split_col in filtered_df.columns:
+        color_col = split_col
+    else:
+        split_col = None
 
     centered = False
     if center:
@@ -663,6 +1046,10 @@ def build_scatter_payload(df: pd.DataFrame, filters: dict, x_col: str, y_col: st
     color_for_groups = color_col if (color_col and color_col in filtered_df.columns) else None
     regression_stats = compute_regression_stats(filtered_df[x_col], filtered_df[y_col])
     group_ellipses = compute_group_ellipses(filtered_df, x_col, y_col, color_for_groups)
+
+    split_payload = None
+    if split_col:
+        split_payload = build_scatter_split(filtered_df, x_col, y_col, split_col)
 
     # Deterministic sample so the same request always shows the same points
     max_points = int(corr_setting("max_scatter_points"))
@@ -792,7 +1179,9 @@ def build_scatter_payload(df: pd.DataFrame, filters: dict, x_col: str, y_col: st
     return {
         "data": result_data,
         "total_count": total_count,
+        "sample": sample,
         "stats": regression_stats,
+        "split": split_payload,
         "group_ellipses": group_ellipses,
         "ellipse_coverage": ELLIPSE_COVERAGE,
         "centered": centered,
@@ -805,7 +1194,8 @@ def build_scatter_payload(df: pd.DataFrame, filters: dict, x_col: str, y_col: st
 
 def build_matrix_payload(df: pd.DataFrame, filters: dict, study: str,
                          method: str | None = None,
-                         center: bool = False) -> tuple[dict | None, str | None]:
+                         center: bool = False,
+                         split_col: str | None = None) -> tuple[dict | None, str | None]:
     """Build the /api/correlations/correlation_matrix response.
 
     Pairwise-complete correlations with per-pair n, p and Benjamini–Hochberg
@@ -820,15 +1210,19 @@ def build_matrix_payload(df: pd.DataFrame, filters: dict, study: str,
 
     filtered_df = apply_factor_filters(df, filters)
 
+    sample = build_sample_summary(df, filtered_df)
+
     centered = False
     if center:
         centerable = [c for c in filtered_df.select_dtypes(include=['number']).columns
-                      if not str(c).endswith('_raw')]
+                      if not str(c).endswith('_raw') and str(c) != GROUP_SIZE_COL]
         filtered_df, centered = apply_within_collection_centering(filtered_df, centerable)
 
-    # Select only numeric columns for correlation (exclude unscaled '_raw' columns)
+    # Select only numeric columns for correlation (exclude the unscaled '_raw'
+    # columns and the group_size provenance column)
     numeric_df = filtered_df.select_dtypes(include=['number'])
-    numeric_cols_to_keep = [col for col in numeric_df.columns if not str(col).endswith('_raw')]
+    numeric_cols_to_keep = [col for col in numeric_df.columns
+                            if not str(col).endswith('_raw') and str(col) != GROUP_SIZE_COL]
     numeric_df = numeric_df[numeric_cols_to_keep]
 
     # Filter out any columns that are constant within this filtered subset
@@ -854,14 +1248,25 @@ def build_matrix_payload(df: pd.DataFrame, filters: dict, study: str,
 
     r, p, q, n = pairwise_correlation_stats(numeric_df, method)
 
+    # The split matrices reuse the column set chosen above, so a cell means the
+    # same thing in the combined and the per-level views.
+    split_payload = None
+    if split_col and split_col in filtered_df.columns:
+        split_payload = build_matrix_split(
+            filtered_df.assign(**{c: numeric_df[c] for c in ordered_cols}),
+            ordered_cols, split_col, method,
+        )
+
     return {
         "columns": ordered_cols,
+        "split": split_payload,
         "families": [families[c] for c in ordered_cols],
         "matrix": _matrix_to_json(r),
         "p_matrix": _matrix_to_json(p),
         "q_matrix": _matrix_to_json(q),
         "n_matrix": [[int(v) for v in row] for row in n],
         "count": len(filtered_df),
+        "sample": sample,
         "method": method,
         "centered": centered,
         # Per-column group-level reliability for the disattenuation toggle

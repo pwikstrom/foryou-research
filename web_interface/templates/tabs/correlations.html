@@ -14,12 +14,17 @@
     <!-- Main Content -->
     <div class="corr-main">
 
-        <!-- Filter Panel -->
+        <!-- Sample panel. Deliberately NOT called "Filters": on Explore and Video
+             Analysis a filter selects videos, whereas here it selects groups
+             (collection-days), which is the tab's most common misreading. The
+             summary line states the unit and the current selection. -->
         <div id="correlations-filter-panel" class="panel corr-filter-panel" data-mobile-drawer="left">
             <div class="header">
-                <h2>Filters</h2>
+                <h2 class="meta-tooltip" data-tooltip="Which groups enter the analysis. Every statistic on this tab describes these groups, not individual videos.">Sample</h2>
                 <button class="btn-save" onclick="resetPcaFilters()">Reset</button>
             </div>
+            <div id="corr-sample-summary" class="text-xs corr-filter-note" style="padding: 0 8px 8px 8px;"></div>
+            <div id="corr-sample-disabled" class="text-xs corr-filter-note" style="display: none; padding: 0 8px 8px 8px; color: var(--color-warning);"></div>
             <div id="pca-filters" class="corr-filter-list">
             </div>
         </div>
@@ -87,6 +92,16 @@
                         <label for="pca-disattenuate" class="font-normal corr-checkbox-label">Correct for noise</label>
                     </div>
                     <button id="pca-export-csv" class="btn-discreet" onclick="exportCorrelationCsv()">Download CSV</button>
+                </div>
+
+                <!-- Split by (applies to scatter + heatmap). Options come from
+                     metadata.split_cols; populated by correlations.js. -->
+                <div id="pca-split-wrap" class="meta-tooltip tooltip-below" style="display: none;"
+                    data-tooltip="Instead of narrowing to one subset, compare the two largest levels of a factor: a regression line each on the scatter, and a difference (Δr) heatmap. Answers &ldquo;does this association hold for everyone?&rdquo;">
+                    <label class="corr-control-label">Split by:</label>
+                    <select id="pca-split-select" class="dropdown corr-select-narrow" onchange="refreshCurrentView()">
+                        <option value="">— no split —</option>
+                    </select>
                 </div>
 
                 <!-- Centering Toggle (applies to both views) -->

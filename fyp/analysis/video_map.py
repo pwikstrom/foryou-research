@@ -24,6 +24,7 @@ backend's model instead — the ``_ask``/``ask_fn`` seam in ``_name_niches`` /
 ``_dedupe_niche_names`` is the intended hook.
 """
 
+import re
 from collections.abc import Callable
 
 import numpy as np
@@ -74,6 +75,11 @@ _ALIGN_MIN_OVERLAP = 0.5
 
 _EXEMPLARS_PER_NICHE = 10
 _TERMS_PER_NICHE = 8
+
+# The last-resort label shape, e.g. "Niche 406". Reaching it means naming failed
+# for that cluster; the pattern is matched on carried-over names so a rebuild
+# retries them instead of inheriting the failure forever (see _name_niches).
+_GENERIC_NAME_RE = re.compile(r"Niche \d+")
 
 # Annotation scalar fields denormalised into the map file so the dashboard can
 # colour the scatter by them. Numeric fields drive a continuous colourscale;
@@ -305,6 +311,8 @@ def _name_niches(
         categories: First ``content_category`` Series aligned to ``item_ids``.
         carried_names: Optional map of niche id → name carried over from the
             previous build; these niches keep their name and skip Gemini naming.
+            Entries whose name is a generic ``"Niche N"`` are dropped and named
+            again, so an earlier naming failure does not become permanent.
         reporter: Optional status reporter.
 
     Returns:
@@ -312,7 +320,17 @@ def _name_niches(
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    carried_names = carried_names or {}
+    # A carried-over "Niche 12" means naming failed on an earlier build. Carrying
+    # it forward again would make a single transient failure permanent — the only
+    # escape being a full reset_labels rebuild — so drop those and let this build
+    # retry them. Copied rather than mutated: the caller still holds this dict.
+    carried_in = carried_names or {}
+    carried_names = {
+        niche: name
+        for niche, name in carried_in.items()
+        if not _GENERIC_NAME_RE.fullmatch(str(name).strip())
+    }
+    n_retried = len(carried_in) - len(carried_names)
     story_list = stories.tolist()
     vectorizer = TfidfVectorizer(
         max_features=8000, min_df=3, max_df=0.4,
@@ -356,7 +374,8 @@ def _name_niches(
             reporter.log(
                 f"Named {len(to_name)} niches from top terms (Gemini not "
                 f"configured; {len(carried_names)} carried over from previous "
-                f"build, {renamed} duplicate labels renamed)."
+                f"build, {n_retried} generic labels retried, {renamed} duplicate "
+                f"labels renamed)."
             )
         return meta
 
@@ -389,7 +408,11 @@ def _name_niches(
             f"{avoid}"
             "Reply with only the label."
         )
-        return niche, _ask(prompt) or f"Niche {niche}"
+        # A failed (or empty) naming call degrades to the same deterministic
+        # term-based label the no-Gemini path uses, not to a bare "Niche 406".
+        # Some clusters fail every time — a safety block on the exemplar
+        # summaries, say — so the generic label would otherwise be permanent.
+        return niche, _ask(prompt) or _term_name(meta, niche)
 
     with ThreadPoolExecutor(max_workers=10) as ex:
         for fut in as_completed([ex.submit(_name, n) for n in to_name]):
@@ -402,7 +425,7 @@ def _name_niches(
         warn = (
             f"WARNING: {len(naming_errors)} niche-naming call(s) failed "
             f"(model={naming_model}, gemini_mode={mode}); affected niches fall "
-            f"back to generic 'Niche N' labels. First error: {naming_errors[0][:300]}"
+            f"back to term-based labels. First error: {naming_errors[0][:300]}"
         )
         if reporter is not None:
             reporter.log(warn)
@@ -412,7 +435,8 @@ def _name_niches(
         reporter.log(
             f"Named {len(to_name)} niches via {naming_model} "
             f"({len(carried_names)} carried over from previous build, "
-            f"{renamed} duplicate labels renamed)."
+            f"{n_retried} generic labels retried, {renamed} duplicate labels "
+            f"renamed)."
         )
     return meta
 

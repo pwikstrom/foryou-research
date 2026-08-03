@@ -84,11 +84,16 @@ function loadSystemRoles(callback) {
 // Collection Selector Helper Logic
 // --------------------------------------------------------------------------
 
-function renderCollectionSelector(container, selectedList) {
+function renderCollectionSelector(container, selectedList, readOnly = false) {
     if (!container) return;
 
     container.innerHTML = '';
     const selectedSet = new Set(selectedList || []);
+
+    if (readOnly) {
+        _renderReadOnlyCollectionList(container, selectedList || []);
+        return;
+    }
 
     if (availableCollections.length === 0) {
         container.innerHTML = '<div style="padding: 10px; color: var(--color-text-tertiary);">No collections available.</div>';
@@ -234,6 +239,35 @@ function renderCollectionSelector(container, selectedList) {
             }
         }
     }
+}
+
+// Read-only collection list for the My Studies modal. Built from the study's own
+// SELECTED_COLLECTIONS rather than the global `availableCollections`, which comes
+// from an endpoint a plain viewer is refused — and which would expose every donor
+// in the system, not just this study's.
+function _renderReadOnlyCollectionList(container, selectedList) {
+    const ids = Array.from(selectedList).sort();
+    if (!ids.length) {
+        container.innerHTML = '<div style="padding: 10px; color: var(--color-text-tertiary);">This study has no collections.</div>';
+        return;
+    }
+
+    const header = document.createElement('div');
+    header.className = 'text-xs';
+    header.style.cssText = 'padding: 6px 5px; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border-strong);';
+    header.textContent = `${ids.length.toLocaleString()} collection${ids.length === 1 ? '' : 's'} in this study`;
+    container.appendChild(header);
+
+    const list = document.createElement('div');
+    list.className = 'text-sm';
+    list.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 8px 5px; color: var(--color-text-secondary);';
+    ids.forEach(id => {
+        const span = document.createElement('span');
+        span.style.cssText = 'font-family: var(--font-mono); white-space: nowrap;';
+        span.textContent = id;
+        list.appendChild(span);
+    });
+    container.appendChild(list);
 }
 
 const _LARGE_STUDY_THRESHOLD = 500000;
@@ -416,14 +450,13 @@ function renderStudiesTable() {
         if (isRefreshing || isSaving) {
             tr.style.cursor = 'default';
             tr.style.opacity = '0.45';
-        } else if (allowEdit) {
+        } else {
+            // My Studies opens the same modal read-only: every field disabled,
+            // no Save/Delete/Access, and rendered without the Data-Management
+            // endpoints a plain viewer would be refused.
             tr.style.cursor = 'pointer';
             tr.style.opacity = '1';
-            tr.onclick = () => openStudyModal(index);
-        } else {
-            // Read-only context (My Studies tab) — no modal, no pointer cue.
-            tr.style.cursor = 'default';
-            tr.style.opacity = '1';
+            tr.onclick = () => openStudyModal(index, !allowEdit);
         }
 
         const stats = study.stats || {};
@@ -443,6 +476,12 @@ function renderStudiesTable() {
                         <div style="width: ${pct}%; height: 100%; background: var(--color-warning); border-radius: 3px; transition: width 0.3s;"></div>
                     </div>
                 </div>`;
+        } else if (!allowEdit) {
+            // Per-study provenance note (My Studies only — it lists every study
+            // the user can see, so the note is offered per row rather than for
+            // one "active" study the way Explore used to). Wired below rather
+            // than inline, so a study name containing a quote is safe.
+            actionHtml = '<button class="btn-discreet text-xs js-study-methods-btn">Methods</button>';
         }
 
         tr.innerHTML = `
@@ -457,6 +496,17 @@ function renderStudiesTable() {
             <td style="text-align: right; padding: 5px;">${formatNum(stats.annotated_videos)}</td>
             <td style="padding: 5px;">${actionHtml}</td>
         `;
+
+        const methodsBtn = tr.querySelector('.js-study-methods-btn');
+        if (methodsBtn) {
+            methodsBtn.title = "How this study's dataset was built";
+            methodsBtn.onclick = (ev) => {
+                ev.stopPropagation();   // don't also open the read-only definition
+                if (typeof openStudyMethodsModal === 'function') {
+                    openStudyMethodsModal(study.STUDY_NAME);
+                }
+            };
+        }
         return tr;
     };
 
@@ -485,23 +535,35 @@ function renderStudiesTable() {
     });
 }
 
-function openStudyModal(index) {
+function openStudyModal(index, readOnly = false) {
     const study = allStudies[index];
     if (!study) return;
 
     // Block opening if study is currently refreshing
     if (refreshingStudies.has(study.STUDY_NAME)) return;
 
+    // Read-only opens straight away: roles only feed the admin-only access
+    // dropdown, which is not rendered in that mode.
+    if (readOnly) {
+        _showStudyModal(study, false, true);
+        return;
+    }
+
     // Refresh roles before populating to pick up any newly defined roles
     loadSystemRoles(() => _showStudyModal(study));
 }
 
-function _showStudyModal(study, isNew = false) {
+function _showStudyModal(study, isNew = false, readOnly = false) {
     const modal = document.getElementById('editStudyModal');
     const title = document.getElementById('editStudyModalTitle');
     const body = document.getElementById('editStudyModalBody');
 
     body.innerHTML = '';
+
+    // The access dropdown is admin-only markup, but an admin browsing My
+    // Studies would otherwise see an editing control on a read-only view.
+    const accessDropdown = document.getElementById('studyAccessDropdown');
+    if (accessDropdown) accessDropdown.style.display = readOnly ? 'none' : '';
 
     if (isNew) {
         title.textContent = 'New Study';
@@ -519,6 +581,10 @@ function _showStudyModal(study, isNew = false) {
     const formClone = template.content.cloneNode(true).querySelector('.study-edit-form');
     formClone.dataset.studyName = study.STUDY_NAME;
     if (isNew) formClone.dataset.isNew = 'true';
+    // Consulted by populateForm and the chart/collection renderers. Read-only
+    // renders entirely from the /api/manage/studies payload — it never calls the
+    // Data-Management-only endpoints a viewer would be refused.
+    if (readOnly) formClone.dataset.readOnly = '1';
 
     // Set last updated text in modal header
     const lastUpdatedEl = document.getElementById('editStudyModalLastUpdated');
@@ -531,11 +597,24 @@ function _showStudyModal(study, isNew = false) {
     body.appendChild(formClone);
     populateForm(formClone, study);
 
+    if (readOnly) _lockStudyForm(formClone);
+
     modal.classList.add('visible');
 
     if (isNew) {
         document.getElementById('newStudyNameInput')?.focus();
     }
+}
+
+
+// Belt-and-braces over the template's own `{% if not current_user.is_admin() %}
+// disabled{% endif %}`: that only covers non-admins, and an admin can reach this
+// modal from My Studies too, where nothing is editable.
+function _lockStudyForm(row) {
+    row.querySelectorAll('input, select, textarea, button').forEach(el => {
+        el.disabled = true;
+    });
+    row.querySelectorAll('.sampling-input').forEach(el => { el.style.opacity = ''; });
 }
 
 function closeStudyModal() {
@@ -561,6 +640,8 @@ window.toggleSamplingOptions = function () { };
 
 
 function populateForm(row, study) {
+    const readOnly = row.dataset.readOnly === '1';
+
     // 1. Standard Inputs
     const inputs = row.querySelectorAll('[data-field]');
     inputs.forEach(input => {
@@ -592,7 +673,7 @@ function populateForm(row, study) {
                 input.value = JSON.stringify(selectedList); // Set hidden value
 
                 // Render Checklist
-                renderCollectionSelector(container, selectedList);
+                renderCollectionSelector(container, selectedList, readOnly);
             } else {
                 // Fallback (should not happen if HTML updated)
                 if (Array.isArray(value)) {
@@ -652,7 +733,7 @@ function populateForm(row, study) {
 
     // 2. Checkbox Groups (USER_ACCESS) — now lives in the modal header dropdown
     // rather than the cloned template, so look it up via the modal scope.
-    _renderAccessDropdown(study);
+    if (!readOnly) _renderAccessDropdown(study);
 
     // 3. Stats Display (seed from saved study; potentials fill on chart fetch).
     // Collections shows in the header; the mosaic viz needs the date-range universe
@@ -674,6 +755,26 @@ function populateForm(row, study) {
         _renderStudySetViz(row, { universe: stats.universe, included: stats, frame: study.SAMPLE_FRAME, seeded: true });
     } else {
         _resetStudySetViz(row, 'empty');
+    }
+
+    // Read-only stops here: everything below either edits the form or calls a
+    // Data-Management-only endpoint (/calculate_stats, /daily_activities,
+    // /prewarm_check). The chart is seeded from the study's own
+    // cached_daily_activities below instead of being refetched.
+    if (readOnly) {
+        const cached = study.cached_daily_activities;
+        const state = _getChartState(row);
+        if (cached && Array.isArray(cached.total_per_day) && cached.total_per_day.length) {
+            state.totalPerDay = cached.total_per_day;
+            if (cached.potentials && cached.potentials.collections != null) {
+                _updateCollectionsHeader({ potential: cached.potentials.collections });
+            }
+        } else {
+            state.totalPerDay = [];
+        }
+        state.loading = false;
+        _renderDailyChart(row);
+        return;
     }
 
     // Auto-update the mosaic / issues / overlay when sampling or the date window
@@ -1324,6 +1425,7 @@ function _renderDailyChart(row) {
     if (!chartDiv) return;
 
     const s = _getChartState(row);
+    const readOnly = row.dataset.readOnly === '1';
     const total = s.totalPerDay || [];
     const included = s.includedPerDay;
     const selected = _getSelectedCollections(row);
@@ -1335,6 +1437,10 @@ function _renderDailyChart(row) {
             emptyDiv.style.display = '';
             if (s.loading && selected.length) {
                 emptyDiv.textContent = 'Loading daily activities\u2026';
+            } else if (readOnly) {
+                // Read-only never fetches; the chart only appears when the study
+                // carries a cached snapshot from its last save.
+                emptyDiv.textContent = 'No activity chart has been computed for this study yet.';
             } else {
                 emptyDiv.textContent = 'Select one or more collections to see activities per day.';
             }
@@ -1348,7 +1454,8 @@ function _renderDailyChart(row) {
 
     if (emptyDiv) emptyDiv.style.display = 'none';
     chartDiv.style.display = '';
-    if (hintDiv) hintDiv.style.display = '';
+    // The hint explains drag-to-set-window, which read-only does not offer.
+    if (hintDiv) hintDiv.style.display = readOnly ? 'none' : '';
 
     const startInput = row.querySelector('[data-field="START_DATE"]');
     const endInput = row.querySelector('[data-field="END_DATE"]');
@@ -1449,7 +1556,8 @@ function _renderDailyChart(row) {
             font: { size: 10, color: getCSSVar('--color-text-tertiary') },
         }],
         showlegend: false,
-        dragmode: 'select',
+        // Read-only has no editable date window, so drag-to-select is off.
+        dragmode: readOnly ? false : 'select',
         selectdirection: 'h',
         hovermode: 'x',
     };
@@ -1487,7 +1595,7 @@ function _renderDailyChart(row) {
     if (!window.Plotly) return;
     window.Plotly.react(chartDiv, traces, layout, config);
 
-    if (!chartDiv._plotlyInited) {
+    if (!chartDiv._plotlyInited && !readOnly) {
         chartDiv._plotlyInited = true;
         chartDiv.on('plotly_selected', (ev) => {
             if (!ev || !ev.range || !ev.range.x) return;
@@ -1778,9 +1886,22 @@ function createNewStudy() {
 // Init
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
-// Load collections FIRST, then studies to ensure selector populates correctly
-loadAvailableCollections();
-loadSystemRoles();
+// This file is also loaded for My-Studies-only users, who have none of the Data
+// Management permissions. Skipping the three admin bootstraps for them avoids a
+// row of 403s in the console; the My Studies table only needs loadStudies().
+function _dmCan(perm) {
+    return !Array.isArray(window.USER_PERMS) || window.USER_PERMS.includes(perm);
+}
+
+if (_dmCan('tab.data_management.edit_collections')) {
+    // Load collections FIRST, then studies to ensure selector populates correctly
+    loadAvailableCollections();
+} else {
+    loadStudies();
+}
+// Roles only drive the admin-only access dropdown in the study modal.
+if (window.USER_IS_ADMIN) loadSystemRoles();
+// Self-guards on the ingestion sub-page being present.
 loadIngestionSources();
 
 // --- Enrichment Stats & Logic ---

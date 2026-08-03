@@ -380,8 +380,8 @@ function renderSemanticSpace() {
     const ovField = overlay ? overlay.field : null;
     const hover = new Array(n);
     for (let i = 0; i < n; i++) {
-        const extra = ovField ? `<br>${overlay.label}: ${P[ovField][i]}` : '';
-        hover[i] = `<b>${P.niche_name[i]}</b>${extra}<br>${P.story[i]}`;
+        const extra = ovField ? `<br>${_ssWrap(`${overlay.label}: ${P[ovField][i]}`)}` : '';
+        hover[i] = `<b>${_ssWrap(P.niche_name[i])}</b>${extra}<br>${_ssWrap(P.story[i])}`;
     }
 
     const trace = {
@@ -389,6 +389,10 @@ function renderSemanticSpace() {
         x: P.x, y: P.y,
         customdata: P.item_id,
         text: hover, hoverinfo: 'text',
+        // Plotly sizes the hover box to its longest line, so the wrapping above
+        // is what keeps it narrow; left-align so the wrapped lines read as a
+        // paragraph rather than a centred stack.
+        hoverlabel: { align: 'left' },
         marker: Object.assign({ size: sizeArr, color: colorArr, opacity: opacityArr,
             line: { width: 0 } }, markerExtra)
     };
@@ -430,10 +434,58 @@ function renderSemanticSpace() {
             const pt = ev.points && ev.points[0];
             // Only the base scatter (curve 0) opens a video; overlay traces ignore clicks.
             if (pt && pt.curveNumber === 0 && pt.customdata) {
-                window.open(`https://www.tiktok.com/@/video/${pt.customdata}/`, '_blank', 'noopener');
+                _ssOpenInVideoAnalysis(pt.customdata, pt.pointNumber);
             }
         });
         div.on('plotly_relayout', _ssOnZoomRelayout);
+    }
+}
+
+
+// Clicking a dot drills into Video Analysis: filter to the dot's niche and land
+// on that exact video. This map covers the whole corpus while Video Analysis is
+// scoped to the active study, so the video may not be there — the drill-down
+// carries the platform URL as a fallback and Video Analysis explains the miss.
+function _ssOpenInVideoAnalysis(itemId, i) {
+    const P = _ssData && _ssData.points;
+    if (!P || !itemId) { return; }
+    // The trace is built from the payload arrays unfiltered, so Plotly's point
+    // index addresses the parallel arrays directly. Guard anyway: a mismatch
+    // would attach the wrong niche to the drill-down.
+    const ok = (i != null && i < P.item_id.length && P.item_id[i] === itemId);
+    const nicheId = ok ? P.niche[i] : null;
+    const nicheName = ok ? ((_ssData.niches[nicheId] || {}).name || P.niche_name[i]) : null;
+    const platform = (ok && P.source_platform) ? P.source_platform[i] : null;
+    const platformUrl = (typeof fypPlatformUrl === 'function') ? fypPlatformUrl(platform, itemId) : null;
+
+    const study = (window.studyState && window.studyState.current) || null;
+    if (!study) {
+        // Nothing to drill into — fall back to the post itself.
+        if (platformUrl) window.open(platformUrl, '_blank', 'noopener');
+        return;
+    }
+
+    // Same contract Explore / Correlations / Timelines use (consumed by
+    // checkPendingDrillDown, which enforces a 5s freshness window — hence the
+    // synchronous tab click below).
+    window._pendingDrillDown = {
+        filters: nicheName
+            ? { niche_name: { type: 'category', value: [nicheName] } }
+            : {},
+        searchQuery: '',
+        itemId: itemId,
+        platformUrl: platformUrl,
+        missNotice: `That video isn't in "${study}"${nicheName ? ` — showing the "${nicheName}" niche instead` : ''}.`,
+        timestamp: Date.now()
+    };
+
+    const tabBtn = document.querySelector('.tab-button[onclick*="video_analysis"]');
+    if (tabBtn) {
+        tabBtn.click();
+    } else if (platformUrl) {
+        // No Video Analysis permission — the post itself is still useful.
+        window._pendingDrillDown = null;
+        window.open(platformUrl, '_blank', 'noopener');
     }
 }
 
@@ -472,6 +524,35 @@ function _ssFmtNum(v) {
 }
 
 
+// Break a hover line at word boundaries so Plotly's hover box stops widening to
+// fit it. Video stories are a single unbroken 140-character run and categorical
+// overlay values can be nearly as long, either of which produces a hover box
+// wider than the plot. A word longer than the limit is left intact (it would
+// only be hyphenated mid-token otherwise).
+const _SS_HOVER_WRAP = 48;
+
+function _ssWrap(text, width) {
+    const s = (text === null || text === undefined) ? '' : String(text);
+    const limit = width || _SS_HOVER_WRAP;
+    if (s.length <= limit) { return s; }
+    const lines = [];
+    let line = '';
+    for (const word of s.split(/\s+/)) {
+        if (!word) { continue; }
+        if (!line) {
+            line = word;
+        } else if (line.length + 1 + word.length <= limit) {
+            line += ` ${word}`;
+        } else {
+            lines.push(line);
+            line = word;
+        }
+    }
+    if (line) { lines.push(line); }
+    return lines.join('<br>');
+}
+
+
 // Click a categorical swatch to hide/show that category's points (delegated
 // from #ss-legend; swatches are recreated on every render).
 function _ssOnLegendClick(ev) {
@@ -490,7 +571,7 @@ function _ssOnLegendClick(ev) {
 function _ssRenderLegend(mode, overlay, catColorMap) {
     const legend = document.getElementById('ss-legend');
     if (!legend) { return; }
-    const openHint = '<span style="margin-left:auto;white-space:nowrap;">click a point to open on TikTok</span>';
+    const openHint = '<span style="margin-left:auto;white-space:nowrap;">click a point to open it in Video Analysis</span>';
     if (overlay && overlay.kind === 'categorical' && catColorMap) {
         _ssLegendCats = _ssDistinct(overlay.field);
         const swatches = _ssLegendCats.map((c, i) => {
@@ -501,7 +582,7 @@ function _ssRenderLegend(mode, overlay, catColorMap) {
                 + `<span style="width:9px;height:9px;border-radius:2px;background:${catColorMap[c]};`
                 + `display:inline-block;${off ? 'filter:grayscale(1);' : ''}"></span>${c}</span>`;
         }).join('');
-        const hint = '<span style="margin-left:auto;white-space:nowrap;">click a swatch to show/hide · click a point to open</span>';
+        const hint = '<span style="margin-left:auto;white-space:nowrap;">click a swatch to show/hide · click a point to open it in Video Analysis</span>';
         legend.innerHTML = swatches + hint;
     } else if (overlay && overlay.kind === 'numeric') {
         _ssLegendCats = null;

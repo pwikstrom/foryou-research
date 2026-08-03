@@ -103,8 +103,10 @@ def _build_payload() -> dict:
             points[field] = col.astype("string").fillna("unknown").tolist()
         overlays.append({"key": ov["key"], "label": ov["label"], "kind": ov["kind"], "field": field})
 
+    # A missing/blank name falls back to the same "Niche N" label the frontend
+    # uses, so an unnamed niche reads identically wherever it surfaces.
     niches = {
-        str(k): {"name": v.get("name", str(k)), "size": int(v.get("size", 0))}
+        str(k): {"name": v.get("name") or f"Niche {k}", "size": int(v.get("size", 0))}
         for k, v in niches_meta.items()
     }
 

@@ -1938,3 +1938,26 @@ def registered_raw_locations() -> tuple[str, ...]:
         if isinstance(raw_path, str) and raw_path and raw_path not in locations:
             locations.append(raw_path)
     return tuple(locations)
+
+
+
+
+
+def platform_url_templates() -> dict[str, str]:
+    """Return each registered platform's "open on platform" URL template.
+
+    Built from class attributes (no instantiation): every registered collection
+    class declaring both a ``source_platform`` and a ``platform_url_template``
+    contributes one entry, so adding a platform needs no edit here or in the web
+    layer. Templates take a single ``{item_id}`` placeholder.
+
+    Returns:
+        Dict source_platform → URL template.
+    """
+    templates: dict[str, str] = {}
+    for cls in ForYouBaseCollection._registry:
+        platform = getattr(cls, "source_platform", None)
+        template = getattr(cls, "platform_url_template", None)
+        if platform and template:
+            templates.setdefault(platform, template)
+    return templates

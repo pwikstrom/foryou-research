@@ -161,6 +161,7 @@ def _register_web_ui(app):
             return render_template('public/landing.html', active_page='landing')
 
         from fyp.fyp_config import get_config
+        from fyp.ingest import platform_url_templates
 
         from .permissions import get_user_permissions
         from .slack_service import get_recent_messages
@@ -170,7 +171,9 @@ def _register_web_ui(app):
         # The async (batch) annotator needs media as gs:// URIs, so its card is
         # only meaningful when media is GCS-backed (same flag resolve_media uses).
         media_on_gcs = bool(get_config().get("data_io", {}).get("use_gcs_for_media"))
-        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, media_on_gcs=media_on_gcs)
+        # Lets client-side "open on platform" links resolve per platform from the
+        # same registry the viewer API uses (see fypPlatformUrl in main.js).
+        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, media_on_gcs=media_on_gcs, platform_url_templates=platform_url_templates())
 
 
 def create_app():
