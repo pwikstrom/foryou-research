@@ -1,7 +1,10 @@
 let pcaData = {
     activeStudy: null,
     metadata: null,
+    // Per grouping factor: a list of values, or {min, max} for the date window.
+    // Selects GROUPS (collection-days), not videos — see the Sample panel.
     filters: {},
+    lastSample: null,           // group/video counts from the last payload
     plotData: null,
     currentView: 'scatter'      // 'scatter' or 'heatmap'
 };
@@ -240,6 +243,7 @@ async function loadPcaMetadata() {
         }
 
         pcaData.metadata = data;
+        pcaData.lastSample = data.sample || null;
         document.getElementById('pca-status').innerText = "Ready";
 
         renderViewToggle(data.views);
@@ -332,6 +336,39 @@ function renderPcaControls(data) {
     });
 
     if (data.factor_cols.length > 0) colorSelect.value = data.factor_cols[0];
+
+    renderSplitControl(data);
+}
+
+
+// "Split by" options come from the server (factors with 2..N levels, each
+// flagged for whether it partitions collections). The whole control hides when
+// this study has none.
+function renderSplitControl(data) {
+    const wrap = document.getElementById('pca-split-wrap');
+    const select = document.getElementById('pca-split-select');
+    if (!wrap || !select) return;
+
+    const options = data.split_cols || [];
+    const prev = select.value;
+    select.innerHTML = '<option value="">— no split —</option>';
+
+    options.forEach(o => {
+        const opt = document.createElement('option');
+        opt.value = o.col;
+        // The dagger marks a split whose levels share donors, so the difference
+        // between the two correlations cannot be formally tested.
+        opt.text = o.independent ? o.display_name : `${o.display_name} †`;
+        select.appendChild(opt);
+    });
+
+    wrap.style.display = options.length ? '' : 'none';
+    if (options.some(o => o.col === prev)) select.value = prev;
+}
+
+
+function currentSplitCol() {
+    return document.getElementById('pca-split-select')?.value || '';
 }
 
 
@@ -343,6 +380,7 @@ function renderPcaFilters(data) {
     const displayIds = data.display_ids || {};
 
     const truncatedFactors = data.truncated_factors || [];
+    const factorRanges = data.factor_ranges || {};
 
     data.factor_cols.forEach(col => {
         const wrapper = document.createElement('div');
@@ -353,6 +391,15 @@ function renderPcaFilters(data) {
         label.innerText = (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
         label.classList.add('font-bold', 'corr-filter-label');
         wrapper.appendChild(label);
+
+        // Date factors get a range, not a list: one row per day means a checkbox
+        // list would run to hundreds of entries (and used to be suppressed
+        // entirely, leaving the time window unfilterable).
+        if (factorRanges[col]) {
+            wrapper.appendChild(_buildDateRangeControl(col, factorRanges[col]));
+            container.appendChild(wrapper);
+            return;
+        }
 
         // Factors with too many distinct values are not filterable — say so
         // instead of rendering an empty checkbox list.
@@ -370,8 +417,19 @@ function renderPcaFilters(data) {
         const listDiv = document.createElement('div');
         listDiv.className = 'corr-filter-values';
 
+        const commit = () => {
+            const checked = Array.from(listDiv.querySelectorAll('input:checked')).map(c => c.value);
+            if (checked.length > 0) {
+                pcaData.filters[col] = checked;
+            } else {
+                delete pcaData.filters[col];
+            }
+            refreshCurrentView();
+        };
+
         values.forEach(val => {
             const row = document.createElement('div');
+            row.className = 'corr-filter-value-row';
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.value = val;
@@ -381,15 +439,7 @@ function renderPcaFilters(data) {
                 cb.checked = true;
             }
 
-            cb.onchange = () => {
-                const checked = Array.from(listDiv.querySelectorAll('input:checked')).map(c => c.value);
-                if (checked.length > 0) {
-                    pcaData.filters[col] = checked;
-                } else {
-                    delete pcaData.filters[col];
-                }
-                refreshCurrentView();
-            };
+            cb.onchange = commit;
 
             const span = document.createElement('span');
             // For collection_id, show display_collection_id if available
@@ -399,15 +449,184 @@ function renderPcaFilters(data) {
                 span.innerText = val;
             }
             span.classList.add('text-sm');
+            row.dataset.search = `${val} ${span.innerText}`.toLowerCase();
 
             row.appendChild(cb);
             row.appendChild(span);
             listDiv.appendChild(row);
         });
 
+        // Long value lists (collections, above all) get a search box and
+        // select-all/none, so restricting to a handful of donors stops being a
+        // scroll-and-click chore.
+        if (values.length > _CORR_SEARCHABLE_FROM) {
+            wrapper.appendChild(_buildValueListTools(listDiv, commit));
+        }
+
         wrapper.appendChild(listDiv);
         container.appendChild(wrapper);
     });
+
+    renderSampleSummary();
+}
+
+
+// Value lists longer than this get a search box + select all/none.
+const _CORR_SEARCHABLE_FROM = 8;
+
+
+function _buildValueListTools(listDiv, commit) {
+    const tools = document.createElement('div');
+    tools.className = 'corr-filter-tools';
+
+    const search = document.createElement('input');
+    search.type = 'search';
+    search.className = 'control-input text-xs';
+    search.placeholder = 'Search…';
+    search.oninput = () => {
+        const q = search.value.trim().toLowerCase();
+        listDiv.querySelectorAll('.corr-filter-value-row').forEach(row => {
+            row.style.display = (!q || (row.dataset.search || '').includes(q)) ? '' : 'none';
+        });
+    };
+    tools.appendChild(search);
+
+    // Both act on the rows currently visible, so "all" after a search means
+    // "all the ones I just narrowed to".
+    const setVisible = (checked) => {
+        listDiv.querySelectorAll('.corr-filter-value-row').forEach(row => {
+            if (row.style.display === 'none') return;
+            const cb = row.querySelector('input[type="checkbox"]');
+            if (cb) cb.checked = checked;
+        });
+        commit();
+    };
+
+    const all = document.createElement('button');
+    all.className = 'btn-discreet text-xxs';
+    all.textContent = 'All';
+    all.onclick = () => setVisible(true);
+    tools.appendChild(all);
+
+    const none = document.createElement('button');
+    none.className = 'btn-discreet text-xxs';
+    none.textContent = 'None';
+    none.onclick = () => setVisible(false);
+    tools.appendChild(none);
+
+    return tools;
+}
+
+
+function _buildDateRangeControl(col, range) {
+    const box = document.createElement('div');
+    box.className = 'corr-filter-range';
+
+    const current = pcaData.filters[col] || {};
+    const inputs = {};
+
+    ['min', 'max'].forEach(bound => {
+        const row = document.createElement('label');
+        row.className = 'corr-filter-range-row text-xs';
+        row.textContent = bound === 'min' ? 'From' : 'To';
+
+        const input = document.createElement('input');
+        input.type = 'date';
+        input.className = 'control-input text-xs';
+        input.min = range.min;
+        input.max = range.max;
+        input.value = current[bound] || '';
+        inputs[bound] = input;
+        row.appendChild(input);
+        box.appendChild(row);
+    });
+
+    const commit = () => {
+        const lo = inputs.min.value;
+        const hi = inputs.max.value;
+        // An untouched (or fully reopened) range is no filter at all — keeping
+        // it out of pcaData.filters keeps "Reset" and the summary honest.
+        if (!lo && !hi) {
+            delete pcaData.filters[col];
+        } else {
+            pcaData.filters[col] = { min: lo || null, max: hi || null };
+        }
+        refreshCurrentView();
+    };
+    inputs.min.onchange = commit;
+    inputs.max.onchange = commit;
+
+    const hint = document.createElement('div');
+    hint.className = 'text-xxs corr-filter-note';
+    hint.textContent = `Data spans ${range.min} to ${range.max} (${(range.n_values || 0).toLocaleString()} days). Both ends included.`;
+    box.appendChild(hint);
+
+    return box;
+}
+
+
+// Panel header: what the current selection actually is, in the tab's own unit.
+function renderSampleSummary(sample) {
+    const el = document.getElementById('corr-sample-summary');
+    if (!el) return;
+
+    const meta = pcaData.metadata || {};
+    const unit = meta.unit || {};
+    const s = sample || pcaData.lastSample || meta.sample || {};
+    const grouping = (unit.grouping_display || []).join(' × ') || 'group';
+    const fmt = (n) => (n === null || n === undefined) ? '?' : Number(n).toLocaleString();
+
+    const bits = [`1 row = one ${grouping}`];
+    if (s.groups_total != null) {
+        bits.push(s.groups_selected === s.groups_total
+            ? `${fmt(s.groups_total)} groups`
+            : `${fmt(s.groups_selected)} of ${fmt(s.groups_total)} groups`);
+    }
+    // Only present once the PCA parquet has been rebuilt with group_size.
+    if (s.videos_selected != null) {
+        bits.push(`covering ${fmt(s.videos_selected)} videos`);
+    }
+    if (unit.min_group_size != null) {
+        bits.push(`≥${fmt(unit.min_group_size)} videos each`);
+    }
+    el.textContent = bits.join(' · ') + '.';
+}
+
+
+// Record the sample counts a payload came back with, so the panel header tracks
+// the current selection. Filter-immune views never report one.
+function noteSampleFromPayload(payload) {
+    if (payload && payload.sample) {
+        pcaData.lastSample = payload.sample;
+        renderSampleSummary(payload.sample);
+    }
+}
+
+
+// The "Group differences" view reads whole-study artifacts written by the
+// pca_refresh worker, so the Sample panel does not apply to it. Disable it
+// visibly rather than letting it silently do nothing.
+function applySamplePanelAvailability() {
+    const meta = pcaData.metadata || {};
+    const immune = (meta.filter_immune_views || []).includes(pcaData.currentView);
+
+    const list = document.getElementById('pca-filters');
+    const note = document.getElementById('corr-sample-disabled');
+    const panel = document.getElementById('correlations-filter-panel');
+    if (list) {
+        list.style.opacity = immune ? '0.4' : '';
+        list.style.pointerEvents = immune ? 'none' : '';
+    }
+    if (panel) {
+        const reset = panel.querySelector('.btn-save');
+        if (reset) reset.disabled = immune;
+    }
+    if (note) {
+        note.style.display = immune ? '' : 'none';
+        note.textContent = immune
+            ? 'This view is computed over the whole study when the caches are rebuilt, so the sample selection below does not apply to it.'
+            : '';
+    }
 }
 
 
@@ -443,6 +662,7 @@ function setPcaView(view) {
         heatmapControls.style.display = (view === 'heatmap') ? 'flex' : 'none';
     }
     setCaption('');
+    applySamplePanelAvailability();
 
     refreshCurrentView();
 }
@@ -469,6 +689,7 @@ async function updatePcaPlot() {
                 x_col: xCol,
                 y_col: yCol,
                 color_col: colorCol,
+                split_col: currentSplitCol() || undefined,
                 center: !!document.getElementById('pca-center-toggle')?.checked
             })
         });
@@ -480,6 +701,8 @@ async function updatePcaPlot() {
             if (statusEl) statusEl.innerText = `Error: ${data.error}`;
             return;
         }
+
+        noteSampleFromPayload(data);
 
         // Update point count
         const countEl = document.getElementById('pca-point-count');
@@ -700,6 +923,24 @@ function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
         }
     }
 
+    // Split comparison: one regression line per level instead of one over
+    // everything, so the question becomes "does this hold for both?" rather
+    // than "what does the whole selection look like".
+    const split = payload.split || null;
+    if (split) {
+        renderSplitRegressions(split, traces, layout, dataPoints, groups, groupsKeys, colors, displayIds, colorLabel);
+        renderSplitCaption(split, xTitle, yTitle, isCentered);
+        Plotly.newPlot('pca-plot', traces, layout, { responsive: true, displayModeBar: true });
+        document.getElementById('pca-plot').on('plotly_click', function (eventData) {
+            const point = eventData.points[0];
+            if (!point || !point.customdata) return;
+            const factors = point.customdata;
+            if (!factors || Object.keys(factors).length === 0) return;
+            drillDownFromCorrelations(factors);
+        });
+        return;
+    }
+
     // Regression line + full readout (server-computed on all filtered groups)
     const showStats = document.getElementById('pca-show-stats')?.checked;
     if (showStats && serverStats) {
@@ -759,6 +1000,101 @@ function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
 }
 
 
+// One dashed regression line per compared level, in that level's own point
+// colour, spanning only that level's observed x range.
+function renderSplitRegressions(split, traces, layout, dataPoints, groups, groupsKeys, colors, displayIds, colorLabel) {
+    (split.levels || []).forEach(level => {
+        if (!level.stats) return;
+        const gName = (colorLabel === 'collection_id' && displayIds[level.value])
+            ? displayIds[level.value] : level.value;
+        const gi = groupsKeys.indexOf(gName);
+        const color = colors[(gi >= 0 ? gi : 0) % colors.length];
+
+        const xs = (gi >= 0 ? groups[gName].x : dataPoints.map(d => d.x));
+        let xMin = Infinity, xMax = -Infinity;
+        xs.forEach(x => { if (x < xMin) xMin = x; if (x > xMax) xMax = x; });
+        if (!isFinite(xMin) || !isFinite(xMax)) return;
+
+        const s = level.stats;
+        traces.push({
+            x: [xMin, xMax],
+            y: [xMin, xMax].map(x => s.slope * x + s.intercept),
+            mode: 'lines',
+            type: 'scatter',
+            name: `${gName}: r = ${s.r.toFixed(2)}`,
+            line: { color: color, width: 2, dash: 'dash' },
+            hoverinfo: 'none'
+        });
+    });
+
+    const rows = (split.levels || []).filter(l => l.stats).map(l => {
+        const s = l.stats;
+        return `${l.value}:  r = ${s.r.toFixed(2)}   slope = ${s.slope.toFixed(2)} `
+            + `[${s.ci_low.toFixed(2)}, ${s.ci_high.toFixed(2)}]   n = ${s.n.toLocaleString()}`;
+    });
+    if (rows.length) {
+        layout.annotations.push({
+            xref: 'paper', yref: 'paper',
+            x: 0.02, y: 0.98,
+            xanchor: 'left', yanchor: 'top',
+            text: rows.join('<br>'),
+            showarrow: false,
+            font: { family: getCSSVar('--font-sans'), size: 12, color: getCSSVar('--white') },
+            bgcolor: getCSSVar('--chart-badge-bg'),
+            bordercolor: getCSSVar('--color-text-faint'), borderwidth: 1,
+            align: 'left'
+        });
+    }
+}
+
+
+// Plain-language reading of the split, including — deliberately prominently —
+// whether the difference could be tested at all.
+function renderSplitCaption(split, xTitle, yTitle, isCentered) {
+    const schemaMap = pcaData.metadata?.schema_map || {};
+    const splitName = schemaMap[split.col]?.display_name || split.col;
+    const usable = (split.levels || []).filter(l => l.stats);
+
+    if (usable.length < 2) {
+        setCaption(`Not enough groups on both sides of ${escapeHtml(splitName)} to compare.`);
+        return;
+    }
+
+    const parts = [];
+    const described = usable.map(l => {
+        const r = l.stats.r;
+        const dir = r >= 0 ? 'positive' : 'negative';
+        return `for <strong>${escapeHtml(l.value)}</strong> the association is `
+            + `${describeStrength(r)} and ${dir} (r = ${r.toFixed(2)}, n = ${l.stats.n.toLocaleString()})`;
+    });
+    parts.push(`Comparing <strong>${escapeHtml(xTitle)}</strong> and <strong>${escapeHtml(yTitle)}</strong> `
+        + `across ${escapeHtml(splitName)}: ${described.join('; ')}.`);
+
+    const c = split.comparison || {};
+    if (c.p !== null && c.p !== undefined) {
+        const verdict = c.p < 0.05
+            ? 'The two associations differ significantly'
+            : 'The two associations are not significantly different';
+        parts.push(`${verdict} (Fisher r-to-z, ${formatP(c.p)}).`);
+    } else if (c.r_difference !== null && c.r_difference !== undefined) {
+        parts.push(`The correlations differ by ${Math.abs(c.r_difference).toFixed(2)}, `
+            + 'reported descriptively only.');
+    }
+    if (c.note) parts.push(escapeHtml(c.note));
+
+    if ((split.levels_omitted || []).length) {
+        parts.push(`Only the two largest levels are compared; `
+            + `${split.levels_omitted.map(escapeHtml).join(', ')} `
+            + `${split.levels_omitted.length === 1 ? 'is' : 'are'} not shown in the comparison.`);
+    }
+    if (isCentered) {
+        parts.push('Both axes are centred within collection, so this describes variation inside a donor’s feed.');
+    }
+
+    setCaption(parts.join(' '));
+}
+
+
 function drillDownFromCorrelations(factors) {
     const schemaMap = pcaData.metadata?.schema_map || {};
 
@@ -804,6 +1140,7 @@ async function loadCorrelationHeatmap() {
                 study: pcaData.activeStudy,
                 filters: pcaData.filters,
                 method: document.getElementById('pca-method-select')?.value || undefined,
+                split_col: currentSplitCol() || undefined,
                 center: !!document.getElementById('pca-center-toggle')?.checked
             })
         });
@@ -814,6 +1151,8 @@ async function loadCorrelationHeatmap() {
             if (countEl) countEl.innerText = `Error: ${data.error}`;
             return;
         }
+
+        noteSampleFromPayload(data);
 
         if (countEl) {
             countEl.innerText = `${data.count.toLocaleString()} observations`;
@@ -839,7 +1178,15 @@ function renderCorrelationHeatmap(payload) {
     _lastHeatmapArgs = payload;
     const schemaMap = pcaData.metadata?.schema_map || {};
     const method = payload.method;
-    const rLabel = (method === 'spearman') ? 'Spearman ρ' : 'Pearson r';
+    const rSym = (method === 'spearman') ? 'ρ' : 'r';
+
+    // Split mode swaps in the cellwise difference between the two levels. The
+    // p/q matrices then test the DIFFERENCE (Fisher r-to-z) and are all-null for
+    // a within-donor split, where that test does not apply.
+    const split = payload.split || null;
+    const rLabel = split
+        ? `Δ${rSym}`
+        : ((method === 'spearman') ? 'Spearman ρ' : 'Pearson r');
     const maskNonSig = !!document.getElementById('pca-mask-nonsig')?.checked;
 
     // Apply the user's effective viz preferences (same base-variable rule as
@@ -852,10 +1199,12 @@ function renderCorrelationHeatmap(payload) {
     const columns = keptIdx.map(i => allCols[i]);
     const families = (payload.families || allCols).filter((f, i) => keptIdx.includes(i));
     const pick = (mat) => (mat ? keptIdx.map(i => keptIdx.map(j => mat[i][j])) : null);
-    const rM = pick(payload.matrix);
-    const pM = pick(payload.p_matrix);
-    const qM = pick(payload.q_matrix);
-    const nM = pick(payload.n_matrix);
+    const rM = pick(split ? split.delta_matrix : payload.matrix);
+    const pM = pick(split ? split.p_matrix : payload.p_matrix);
+    const qM = pick(split ? split.q_matrix : payload.q_matrix);
+    const nM = pick(split ? split.n_matrix : payload.n_matrix);
+    // Per-level values, for the hover ("a: r = .62 · b: r = -.10").
+    const levelMs = split ? (split.levels || []).map(l => ({ value: l.value, m: pick(l.matrix) })) : [];
 
     // Map columns to display names
     const displayColumns = columns.map(col => {
@@ -865,8 +1214,12 @@ function renderCorrelationHeatmap(payload) {
     // Optional Spearman disattenuation: r ÷ √(rel_i × rel_j), clipped to ±1.
     // Cells without a reliability estimate for BOTH columns are blanked so
     // corrected and uncorrected values are never mixed in one picture.
+    // Disattenuation divides a correlation by its measurement reliability; that
+    // has no defined meaning for a difference between two correlations, so it
+    // is off in split mode rather than silently applied to the wrong quantity.
     const reliability = payload.reliability || {};
-    const disattenuate = !!document.getElementById('pca-disattenuate')?.checked
+    const disattenuate = !split
+        && !!document.getElementById('pca-disattenuate')?.checked
         && Object.keys(reliability).length > 0;
     const relOf = (i) => reliability[columns[i]]?.group_r;
     let noRelCount = 0;
@@ -895,12 +1248,19 @@ function renderCorrelationHeatmap(payload) {
     }));
 
     // Hover: r with pairwise n, p and BH q (null = undefined correlation)
-    const rSymbol = (method === 'spearman') ? 'ρ' : 'r';
+    const rSymbol = split ? `Δ${rSym}` : rSym;
     const hoverText = rM.map((row, i) =>
         row.map((val, j) => {
             const head = `${displayColumns[i]} × ${displayColumns[j]}`;
             if (val === null || val === undefined) return `${head}<br>${rSymbol} undefined`;
             const parts = [`${rSymbol} = ${val.toFixed(3)}`];
+            // Show what the difference is made of, not just its size.
+            levelMs.forEach(lv => {
+                const v = lv.m?.[i]?.[j];
+                if (v !== null && v !== undefined && i !== j) {
+                    parts.push(`${lv.value}: ${rSym} = ${v.toFixed(3)}`);
+                }
+            });
             if (disattenuate && correctedM) {
                 const corr = correctedM[i][j];
                 if (i !== j) {
@@ -938,8 +1298,10 @@ function renderCorrelationHeatmap(payload) {
             [0.75, '#ef8a62'],
             [1, '#b2182b']
         ],
-        zmin: -1,
-        zmax: 1,
+        // A difference between two correlations spans ±2, so the split scale is
+        // widened rather than saturating every strong divergence at the ends.
+        zmin: split ? -2 : -1,
+        zmax: split ? 2 : 1,
         text: hoverText,
         hoverinfo: 'text',
         colorbar: {
@@ -960,9 +1322,12 @@ function renderCorrelationHeatmap(payload) {
         }
     }
 
+    const splitTitle = split && split.levels && split.levels.length === 2
+        ? `Correlation difference: ${split.levels[0].value} − ${split.levels[1].value}`
+        : 'Correlation Matrix';
     const layout = {
         title: {
-            text: 'Correlation Matrix',
+            text: splitTitle,
             font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') }
         },
         paper_bgcolor: getCSSVar('--chart-bg'),
@@ -991,6 +1356,38 @@ function renderCorrelationHeatmap(payload) {
 function renderHeatmapCaption(payload, maskNonSig, maskedCount, disattenuate, noRelCount) {
     const methodName = payload.method === 'spearman' ? 'Spearman (rank-based)' : 'Pearson (linear)';
     const parts = [];
+
+    const split = payload.split || null;
+    if (split && (split.levels || []).length === 2) {
+        const schemaMap = pcaData.metadata?.schema_map || {};
+        const splitName = schemaMap[split.col]?.display_name || split.col;
+        const [a, b] = split.levels;
+        parts.push(`Each cell is the difference between two ${methodName} correlations, ` +
+            `split by ${escapeHtml(splitName)}: ` +
+            `<strong>${escapeHtml(a.value)}</strong> (${a.n_groups.toLocaleString()} groups) ` +
+            `minus <strong>${escapeHtml(b.value)}</strong> (${b.n_groups.toLocaleString()} groups). ` +
+            `Red means the association is stronger for ${escapeHtml(a.value)}, blue for ${escapeHtml(b.value)}; ` +
+            `hover a cell for both underlying correlations.`);
+        parts.push(split.independent
+            ? 'Each cell also reports a Fisher r-to-z test of the difference, with a Benjamini–Hochberg adjusted q across all pairs.'
+            : '<span class="corr-caption-warning">No p-values are shown.</span>');
+        if (split.note) parts.push(escapeHtml(split.note));
+        if ((split.levels_omitted || []).length) {
+            parts.push(`Only the two largest levels are compared; ` +
+                `${split.levels_omitted.map(escapeHtml).join(', ')} not shown.`);
+        }
+        if (maskNonSig) {
+            parts.push(split.independent
+                ? `${maskedCount.toLocaleString()} cells whose difference is not significant (q ≥ .05) are blanked.`
+                : 'Significance masking has nothing to act on here — no test of the difference is available.');
+        }
+        if (payload.centered) {
+            parts.push('Values are centered within each collection (within-donor associations).');
+        }
+        setCaption(parts.join(' '));
+        return;
+    }
+
     parts.push(`${methodName} correlations across ${payload.count.toLocaleString()} groups; ` +
         `each cell also reports its pairwise n, p, and a Benjamini–Hochberg adjusted q ` +
         `(controls the share of false positives among all pairs tested).`);

@@ -107,3 +107,76 @@ def test_gemini_path_untouched_when_available(monkeypatch):
     item_ids, labels, reduced, stories, categories = _fixture_corpus()
     with pytest.raises(RuntimeError, match="naming client requested"):
         video_map._name_niches(item_ids, labels, reduced, stories, categories)
+
+
+
+
+class _DeadClient:
+    """Naming client whose every generate_content call raises (e.g. a safety block)."""
+
+    class _Models:
+        def generate_content(self, **kwargs):
+            raise RuntimeError("blocked")
+
+    models = _Models()
+
+
+
+
+def _stub_gemini(monkeypatch):
+    monkeypatch.setattr(video_map, "_naming_available", lambda: True)
+    monkeypatch.setattr(video_map, "_get_naming_client", lambda: _DeadClient())
+    monkeypatch.setattr(video_map, "_cf", lambda: {"machine": {"gemini": {"model": "stub"}}})
+    monkeypatch.setattr(video_map.gemini_client, "gemini_mode", lambda: ("stub", None))
+
+
+
+
+def test_gemini_naming_failure_falls_back_to_terms(monkeypatch):
+    """A cluster whose naming call always fails still gets a real label.
+
+    The generic "Niche N" placeholder is sticky across rebuilds, so a
+    deterministic failure (a safety block on the exemplars, say) must not
+    produce one.
+    """
+    _stub_gemini(monkeypatch)
+    item_ids, labels, reduced, stories, categories = _fixture_corpus()
+
+    meta = video_map._name_niches(item_ids, labels, reduced, stories, categories)
+
+    names = {n: m["name"] for n, m in meta.items()}
+    assert all(not video_map._GENERIC_NAME_RE.fullmatch(name) for name in names.values())
+    assert len(set(names.values())) == len(names)
+
+
+
+
+def test_generic_carried_name_is_renamed_without_reset(monkeypatch):
+    """A carried "Niche N" is re-queued for naming on an ordinary rebuild."""
+    monkeypatch.setattr(video_map, "_naming_available", lambda: False)
+    item_ids, labels, reduced, stories, categories = _fixture_corpus()
+
+    meta = video_map._name_niches(
+        item_ids, labels, reduced, stories, categories,
+        carried_names={0: "Niche 406", 1: "Guitar Practice"},
+    )
+
+    assert meta[0]["name"] != "Niche 406"
+    assert not video_map._GENERIC_NAME_RE.fullmatch(meta[0]["name"])
+    # A real carried name is still honoured.
+    assert meta[1]["name"] == "Guitar Practice"
+
+
+
+
+def test_carried_names_argument_is_not_mutated(monkeypatch):
+    """The caller's carry-over dict survives the generic-label filter."""
+    monkeypatch.setattr(video_map, "_naming_available", lambda: False)
+    item_ids, labels, reduced, stories, categories = _fixture_corpus()
+    carried = {0: "Niche 406"}
+
+    video_map._name_niches(
+        item_ids, labels, reduced, stories, categories, carried_names=carried,
+    )
+
+    assert carried == {0: "Niche 406"}

@@ -923,7 +923,16 @@ def calculate_scaled_pca_scores(
     # Drop standard scaled versions of _raw category columns so we can securely inject the unscaled ones
     pca_indexed = pca_indexed.drop(columns=raw_cat_cols, errors="ignore")
 
-    events_pca_scores_scaled = pd.concat([time_columns_to_put_back, pca_indexed, raw_df], axis=1).reset_index().copy()
+    # How many videos each group averages over. Provenance, not a feature: the
+    # Correlations tab reports it ("N groups covering M videos") and excludes it
+    # from the axis dropdowns and the correlation matrix alongside the _raw
+    # columns. Attached after scaling so it never enters the PCA basis.
+    group_size_df = study_recoded_dataset[grouping_factors].groupby(grouping_factors).agg(
+        group_size=pd.NamedAgg(column=grouping_factors[0], aggfunc="count"))
+    group_size_df.index = convert_index_dtype_pyarrow(group_size_df.index)
+
+    events_pca_scores_scaled = pd.concat(
+        [time_columns_to_put_back, pca_indexed, raw_df, group_size_df], axis=1).reset_index().copy()
 
 
     # TODO: avoid making direct references to column names

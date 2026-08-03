@@ -106,3 +106,65 @@ def test_panel_hidden_after_dismissal(client, monkeypatch):
 
     html = client.get("/").data.decode()
     assert 'id="getting-started-panel"' not in html
+
+
+
+
+def test_dismissed_panel_can_be_restored_from_preferences(client, monkeypatch):
+    """The dismissal used to be one-way — nothing ever wrote the flag back."""
+    from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+
+    _grant_permissions(monkeypatch, DEFAULT_NON_ADMIN_PERMISSIONS)
+    client._settings_state["settings"] = {"getting_started_dismissed": True}
+    _login(client, _TEST_VIEWER)
+
+    html = client.get("/").data.decode()
+    # My stuff -> Preferences, and the help modal, both offer a way back.
+    assert 'id="getting-started-restore"' in html
+    assert "restoreGettingStarted()" in html
+
+
+
+
+
+
+def test_shell_carries_the_platform_url_templates(client, monkeypatch):
+    """Client-side "open on platform" links resolve from this map.
+
+    Without it the Semantic Space drill-down has no way to build a correct
+    per-platform URL, which is how the hardcoded TikTok link survived.
+    """
+    from fyp.ingest import platform_url_templates
+    from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+
+    _grant_permissions(monkeypatch, DEFAULT_NON_ADMIN_PERMISSIONS)
+    _login(client, _TEST_VIEWER)
+
+    html = client.get("/").data.decode()
+    assert "window.PLATFORM_URL_TEMPLATES" in html
+    for platform in platform_url_templates():
+        assert platform in html
+
+
+
+
+
+
+def test_shell_renders_the_relocated_surfaces_for_a_plain_viewer(client, monkeypatch):
+    """Markup that moved or is new must reach a non-admin, not just an admin."""
+    from web_interface.permissions import DEFAULT_NON_ADMIN_PERMISSIONS
+
+    _grant_permissions(monkeypatch, DEFAULT_NON_ADMIN_PERMISSIONS)
+    _login(client, _TEST_VIEWER)
+
+    html = client.get("/").data.decode()
+    # Methods note moved off Explore onto My Studies.
+    assert 'id="study-methods-modal"' in html
+    assert 'id="explorer-v2-methods-btn"' not in html
+    # Read-only study definitions need the modal in the DOM.
+    assert 'id="editStudyModal"' in html
+    # Correlations Sample panel + split control.
+    assert 'id="corr-sample-summary"' in html
+    assert 'id="pca-split-select"' in html
+    # Video Analysis drill-down miss notice.
+    assert 'id="viewer-drilldown-notice"' in html

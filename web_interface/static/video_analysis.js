@@ -158,11 +158,38 @@ async function checkPendingDrillDown() {
             renderViewerFilters(viewerData.metadata);
         }
 
-        await applyViewerFilters();
+        const landed = await applyViewerFilters(pending.itemId || null);
+
+        // The Semantic Space map spans the whole corpus while this tab is scoped
+        // to one study, so a named video is often simply not here. Say so instead
+        // of silently showing row 0 of the niche.
+        if (pending.itemId && !landed) {
+            _showViewerNotice(pending.missNotice
+                || `That video isn't in "${globalStudy}". Showing the rest of the filter instead.`,
+                pending.platformUrl);
+        }
         return true;
     } finally {
         _drillDownInProgress = false;
     }
+}
+
+
+// One-off banner above the player, cleared by the next item load. Used for
+// drill-downs that could not land on the video they named.
+function _showViewerNotice(message, platformUrl) {
+    const bar = document.getElementById('viewer-drilldown-notice');
+    if (!bar) return;
+    const link = platformUrl
+        ? ` <a href="${platformUrl}" target="_blank" rel="noopener">Open it on the platform ↗</a>`
+        : '';
+    bar.innerHTML = `${escapeHtml(message)}${link}`;
+    bar.style.display = '';
+}
+
+function _clearViewerNotice() {
+    const bar = document.getElementById('viewer-drilldown-notice');
+    if (bar) { bar.style.display = 'none'; bar.innerHTML = ''; }
 }
 
 
@@ -897,9 +924,13 @@ function updateViewerDateRange(span) {
     }
 }
 
-async function applyViewerFilters() {
-    if (!viewerData.activeStudy) return;
+// `focusItemId` (optional) asks the server where that video sits in the filtered
+// order, so a drill-down can land on it directly instead of on row 0. Returns
+// true when the video was found and selected.
+async function applyViewerFilters(focusItemId = null) {
+    if (!viewerData.activeStudy) return false;
 
+    _clearViewerNotice();
     const hideDuplicates = document.getElementById('viewer-hide-duplicates')?.checked || false;
 
     try {
@@ -911,6 +942,7 @@ async function applyViewerFilters() {
                 filters: viewerData.filters,
                 search_query: viewerData.searchQuery,
                 hide_duplicates: hideDuplicates,
+                focus_item_id: focusItemId || undefined,
                 offset: 0,
                 limit: 1000
             })
@@ -919,7 +951,7 @@ async function applyViewerFilters() {
 
         if (data.error) {
             alert(data.error);
-            return;
+            return false;
         }
 
         // Capture the currently playing video ID before overwriting the array
@@ -948,6 +980,17 @@ async function applyViewerFilters() {
 
         // Reset to first item
         if (viewerData.itemCount > 0) {
+
+            // A drill-down that named a video wins over both branches below:
+            // loadViewerItem pages to the right chunk itself when the position
+            // falls outside the 1000 rows just downloaded.
+            if (focusItemId && Number.isInteger(data.focus_index)) {
+                viewerData.currentIndex = data.focus_index;
+                await loadViewerItem(data.focus_index);
+                updateNavUI();
+                markApplyButtonDirty(false);
+                return true;
+            }
 
             // Check if the previously playing video survived the filter change
             const newIndex = previousItemId ? viewerData.filteredIds.indexOf(previousItemId) : -1;
@@ -984,10 +1027,12 @@ async function applyViewerFilters() {
         }
 
         markApplyButtonDirty(false);
+        return false;
 
     } catch (e) {
         console.error(e);
         alert("Failed to filter items");
+        return false;
     }
 }
 

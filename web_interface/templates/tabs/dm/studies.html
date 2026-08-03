@@ -9,6 +9,11 @@
     <button type="button" class="action-btn" onclick="createNewStudy(); event.stopPropagation();">Define new study</button>
     {% endif %}
 </h2>
+{% else %}
+<p class="text-sm" style="margin: 0 0 12px 0; color: var(--color-text-muted);">
+    Click a study to see how it was defined &mdash; its collections, date window and
+    sampling rules. The definition is read-only here.
+</p>
 {% endif %}
 
 <div style="overflow-x: auto;">

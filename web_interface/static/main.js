@@ -175,11 +175,42 @@ async function saveUserSettings(newSettings) {
     }
 }
 
+// --- Platform links ---
+
+// Build the "open on platform" URL for an item from its source_platform, using
+// the registry-derived templates injected by the server. Returns null for an
+// unknown/absent platform so callers can hide the affordance rather than open a
+// wrong link — the Semantic Space map used to hardcode TikTok for every dot.
+function fypPlatformUrl(platform, itemId) {
+    const templates = window.PLATFORM_URL_TEMPLATES || {};
+    const template = platform ? templates[platform] : null;
+    if (!template || !itemId) return null;
+    return template.replace('{item_id}', encodeURIComponent(itemId));
+}
+
 // Home-tab getting-started panel: hide now, persist the one-shot dismissal.
 async function dismissGettingStarted() {
     const panel = document.getElementById('getting-started-panel');
     if (panel) panel.style.display = 'none';
     await saveUserSettings({ getting_started_dismissed: true });
+}
+
+// The reverse, offered from My stuff -> Preferences and the help modal. The
+// panel is rendered by Jinja on page load, so it only exists in the DOM when it
+// was dismissed during this same session; otherwise a reload is what brings it
+// back.
+async function restoreGettingStarted() {
+    await saveUserSettings({ getting_started_dismissed: false });
+    if (typeof renderSettingsUI === 'function') renderSettingsUI();
+    const panel = document.getElementById('getting-started-panel');
+    if (panel) {
+        panel.style.display = '';
+        _navigateToTabPage('home');
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+    }
+    window.location.hash = '#home';
+    window.location.reload();
 }
 
 // --- Tag Management ---

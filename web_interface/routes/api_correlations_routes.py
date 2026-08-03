@@ -79,7 +79,9 @@ def api_pca_data():
         return jsonify({"error": "Unknown axis column"}), 400
 
     payload = correlations_service.build_scatter_payload(
-        df, filters, x_col, y_col, color_col, center=bool(data.get("center")))
+        df, filters, x_col, y_col, color_col,
+        center=bool(data.get("center")),
+        split_col=data.get("split_col") or None)
     return jsonify(payload)
 
 
@@ -108,7 +110,8 @@ def api_pca_correlation_matrix():
     payload, error = correlations_service.build_matrix_payload(
         df, filters, study,
         method=data.get("method"),
-        center=bool(data.get("center")))
+        center=bool(data.get("center")),
+        split_col=data.get("split_col") or None)
     if payload is None:
         return jsonify({"error": error}), 400
 

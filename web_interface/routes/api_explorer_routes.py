@@ -50,12 +50,15 @@ def api_get_study_defs():
 
 
 @explorer_bp.route('/api/studies/<study>/methods', methods=['GET'])
-@permission_required('tab.explore', 'tab.video_analysis')
+@permission_required('tab.explore', 'tab.video_analysis', 'tab.my_stuff.my_studies')
 def api_study_methods(study):
     """The study's methods/provenance note (written at refresh time).
 
     Informational: describes how the dataset was built — filters, counts,
     annotation/scrape/activity versions, embedding model, refresh dates.
+
+    Surfaced from the My Studies table (any-of permissions above); the per-study
+    ``study_access_error`` gate below is what actually scopes the response.
     """
     from ..services import methods_note as methods_note_service
 
