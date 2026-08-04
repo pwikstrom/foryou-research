@@ -260,24 +260,51 @@ function renderPcaControls(data) {
 
     // X/Y Axis: Numeric Columns with variance info, filtered by the user's
     // effective "viz" variable preferences (components inherit their base
-    // variable's membership).
+    // variable's membership). Columns are grouped into <optgroup>s by their
+    // base variable so a variable's components/entropy read as one family;
+    // standalone measures (no siblings) stay top-level.
     const schemaMap = data.schema_map || {};
     const visibleCols = filterColsByPrefs(data.numeric_cols || []);
+    const bases = data.numeric_col_bases || {};
 
-    visibleCols.forEach(col => {
+    const optionLabel = (col) => {
         const variance = inter[col]?.explained_variance_pct;
         const displayName = (schemaMap[col] && schemaMap[col].display_name) ? schemaMap[col].display_name : col;
-        const label = variance ? `${displayName} (${variance}%)` : displayName;
+        return variance ? `${displayName} (${variance}%)` : displayName;
+    };
 
+    const families = new Map();
+    visibleCols.forEach(col => {
+        const base = bases[col] || col;
+        if (!families.has(base)) families.set(base, []);
+        families.get(base).push(col);
+    });
+
+    const appendOption = (parentX, parentY, col) => {
+        const label = optionLabel(col);
         const optX = document.createElement('option');
         optX.value = col;
         optX.text = label;
-        xSelect.appendChild(optX);
-
+        parentX.appendChild(optX);
         const optY = document.createElement('option');
         optY.value = col;
         optY.text = label;
-        ySelect.appendChild(optY);
+        parentY.appendChild(optY);
+    };
+
+    families.forEach((cols, base) => {
+        if (cols.length === 1) {
+            appendOption(xSelect, ySelect, cols[0]);
+            return;
+        }
+        const groupName = (schemaMap[base] && schemaMap[base].display_name) ? schemaMap[base].display_name : base;
+        const groupX = document.createElement('optgroup');
+        groupX.label = groupName;
+        const groupY = document.createElement('optgroup');
+        groupY.label = groupName;
+        cols.forEach(col => appendOption(groupX, groupY, col));
+        xSelect.appendChild(groupX);
+        ySelect.appendChild(groupY);
     });
 
     // Check if the previous selections are still valid options in this new study
@@ -343,6 +370,14 @@ function renderSplitControl(data) {
 
 function currentSplitCol() {
     return document.getElementById('pca-split-select')?.value || '';
+}
+
+
+// Display name for a split-level value: collection ids map through display_ids
+// (the legend already does this; readouts and captions must match).
+function splitLevelName(splitCol, value) {
+    const displayIds = pcaData.metadata?.display_ids || {};
+    return (splitCol === 'collection_id' && displayIds[value]) ? displayIds[value] : value;
 }
 
 
@@ -1003,7 +1038,7 @@ function renderSplitRegressions(split, traces, layout, dataPoints, groups, group
 
     const rows = (split.levels || []).filter(l => l.stats).map(l => {
         const s = l.stats;
-        return `${l.value}:  r = ${s.r.toFixed(2)}   slope = ${s.slope.toFixed(2)} `
+        return `${splitLevelName(split.col, l.value)}:  r = ${s.r.toFixed(2)}   slope = ${s.slope.toFixed(2)} `
             + `[${s.ci_low.toFixed(2)}, ${s.ci_high.toFixed(2)}]   n = ${s.n.toLocaleString()}`;
     });
     if (rows.length) {
@@ -1038,7 +1073,7 @@ function renderSplitCaption(split, xTitle, yTitle, isCentered) {
     const described = usable.map(l => {
         const r = l.stats.r;
         const dir = r >= 0 ? 'positive' : 'negative';
-        return `for <strong>${escapeHtml(l.value)}</strong> the association is `
+        return `for <strong>${escapeHtml(splitLevelName(split.col, l.value))}</strong> the association is `
             + `${describeStrength(r)} and ${dir} (r = ${r.toFixed(2)}, n = ${l.stats.n.toLocaleString()})`;
     });
     parts.push(`Comparing <strong>${escapeHtml(xTitle)}</strong> and <strong>${escapeHtml(yTitle)}</strong> `
@@ -1058,7 +1093,7 @@ function renderSplitCaption(split, xTitle, yTitle, isCentered) {
 
     if ((split.levels_omitted || []).length) {
         parts.push(`Only the two largest levels are compared; `
-            + `${split.levels_omitted.map(escapeHtml).join(', ')} `
+            + `${split.levels_omitted.map(v => escapeHtml(splitLevelName(split.col, v))).join(', ')} `
             + `${split.levels_omitted.length === 1 ? 'is' : 'are'} not shown in the comparison.`);
     }
     if (isCentered) {
@@ -1141,6 +1176,34 @@ async function loadCorrelationHeatmap() {
 }
 
 
+// "Correct for noise" needs reliability estimates (the worker-written
+// artifact) and has no defined meaning for a split difference — disable the
+// checkbox with an explanation instead of letting it silently do nothing.
+let _disattenuateTooltipDefault = null;
+
+function applyDisattenuateAvailability(payload) {
+    const cb = document.getElementById('pca-disattenuate');
+    if (!cb) return;
+    const relAvailable = Object.keys(payload.reliability || {}).length > 0;
+    cb.disabled = !relAvailable || !!payload.split;
+    if (cb.disabled) cb.checked = false;
+    const wrap = cb.closest('.corr-checkbox-group');
+    if (!wrap) return;
+    if (_disattenuateTooltipDefault === null) {
+        _disattenuateTooltipDefault = wrap.dataset.tooltip || '';
+    }
+    if (!relAvailable) {
+        wrap.dataset.tooltip = 'No reliability estimates are available yet — they come from ' +
+            'repeat-annotation evaluation runs. Until then, noise-corrected correlations cannot be computed.';
+    } else if (payload.split) {
+        wrap.dataset.tooltip = 'Correcting for noise is undefined for a difference between two ' +
+            'correlations, so it is unavailable while a split is active.';
+    } else {
+        wrap.dataset.tooltip = _disattenuateTooltipDefault;
+    }
+}
+
+
 function rerenderHeatmapFromCache() {
     if (pcaData.currentView === 'heatmap' && _lastHeatmapArgs) {
         renderCorrelationHeatmap(_lastHeatmapArgs);
@@ -1150,6 +1213,7 @@ function rerenderHeatmapFromCache() {
 
 function renderCorrelationHeatmap(payload) {
     _lastHeatmapArgs = payload;
+    applyDisattenuateAvailability(payload);
     const schemaMap = pcaData.metadata?.schema_map || {};
     const method = payload.method;
     const rSym = (method === 'spearman') ? 'ρ' : 'r';
@@ -1178,7 +1242,8 @@ function renderCorrelationHeatmap(payload) {
     const qM = pick(split ? split.q_matrix : payload.q_matrix);
     const nM = pick(split ? split.n_matrix : payload.n_matrix);
     // Per-level values, for the hover ("a: r = .62 · b: r = -.10").
-    const levelMs = split ? (split.levels || []).map(l => ({ value: l.value, m: pick(l.matrix) })) : [];
+    const levelMs = split ? (split.levels || []).map(l => (
+        { value: splitLevelName(split.col, l.value), m: pick(l.matrix) })) : [];
 
     // Map columns to display names
     const displayColumns = columns.map(col => {
@@ -1297,7 +1362,8 @@ function renderCorrelationHeatmap(payload) {
     }
 
     const splitTitle = split && split.levels && split.levels.length === 2
-        ? `Correlation difference: ${split.levels[0].value} − ${split.levels[1].value}`
+        ? `Correlation difference: ${splitLevelName(split.col, split.levels[0].value)} − `
+            + `${splitLevelName(split.col, split.levels[1].value)}`
         : 'Correlation Matrix';
     const layout = {
         title: {
@@ -1336,11 +1402,13 @@ function renderHeatmapCaption(payload, maskNonSig, maskedCount, disattenuate, no
         const schemaMap = pcaData.metadata?.schema_map || {};
         const splitName = schemaMap[split.col]?.display_name || split.col;
         const [a, b] = split.levels;
+        const aName = splitLevelName(split.col, a.value);
+        const bName = splitLevelName(split.col, b.value);
         parts.push(`Each cell is the difference between two ${methodName} correlations, ` +
             `split by ${escapeHtml(splitName)}: ` +
-            `<strong>${escapeHtml(a.value)}</strong> (${a.n_groups.toLocaleString()} groups) ` +
-            `minus <strong>${escapeHtml(b.value)}</strong> (${b.n_groups.toLocaleString()} groups). ` +
-            `Red means the association is stronger for ${escapeHtml(a.value)}, blue for ${escapeHtml(b.value)}; ` +
+            `<strong>${escapeHtml(aName)}</strong> (${a.n_groups.toLocaleString()} groups) ` +
+            `minus <strong>${escapeHtml(bName)}</strong> (${b.n_groups.toLocaleString()} groups). ` +
+            `Red means the association is stronger for ${escapeHtml(aName)}, blue for ${escapeHtml(bName)}; ` +
             `hover a cell for both underlying correlations.`);
         parts.push(split.independent
             ? 'Each cell also reports a Fisher r-to-z test of the difference, with a Benjamini–Hochberg adjusted q across all pairs.'
@@ -1348,7 +1416,7 @@ function renderHeatmapCaption(payload, maskNonSig, maskedCount, disattenuate, no
         if (split.note) parts.push(escapeHtml(split.note));
         if ((split.levels_omitted || []).length) {
             parts.push(`Only the two largest levels are compared; ` +
-                `${split.levels_omitted.map(escapeHtml).join(', ')} not shown.`);
+                `${split.levels_omitted.map(v => escapeHtml(splitLevelName(split.col, v))).join(', ')} not shown.`);
         }
         if (maskNonSig) {
             parts.push(split.independent

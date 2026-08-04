@@ -84,7 +84,10 @@ def test_contract_column_metadata() -> None:
     meta = ac.contract_column_metadata(contract)
     assert "item_id" in meta                                  # activity contract owns item_id
     assert meta["collection_id"]["role"] == "group_factor"
-    assert meta["local_hour"]["role"] == "feature"
+    # local_hour and local_day_segment are deliberately role-free: hour-of-day
+    # is circular, and day segment varies within a collection-day group.
+    assert meta["local_hour"]["role"] is None
+    assert meta["local_day_segment"]["role"] is None
     assert meta["local_week"]["role"] == "factor"
     assert meta["activity_contract_version"]["role"] == "skip"
     assert meta["utc_timestamp"]["scale"] == "datetime"

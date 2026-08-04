@@ -25,9 +25,11 @@ version = "1"
 name = "days_since_created"
 dtype = "double[pyarrow]"
 section = "Activity"
+role = "feature"
 scale = "numeric"
+transform = "log1p"
 display_name = "Days since posted"
-description = "Number of days elapsed between the item's post time and this activity."
+description = "Number of days elapsed between the item's post time and this activity — freshness of the served item. Log-transformed (log1p) before group averaging in the PCA/correlations frame."
 
 [[fields]]
 name = "completion_rate"
@@ -37,6 +39,44 @@ role = "feature"
 scale = "numeric"
 display_name = "Completion Rate"
 description = "How much of the item the user played at this activity (0-1)."
+
+[[fields]]
+name = "engaged"
+dtype = "double[pyarrow]"
+section = "Activity"
+role = "feature"
+scale = "numeric"
+display_name = "Engaged with item"
+description = "1 when this play carries any of the account's own engagement activity (fave/comment/share/save/follow folded into extra_data), else 0. Group mean = the collection's own engagement rate — distinct from the item-popularity *_per_K_play rates. Platform caveat: Instagram/YouTube exports log fewer engagement types than TikTok, so cross-platform levels are not directly comparable."
+
+[[fields]]
+name = "rewatched"
+dtype = "double[pyarrow]"
+section = "Activity"
+role = "feature"
+scale = "numeric"
+display_name = "Rewatched item"
+description = "1 when play_duration exceeds the item's duration (looped or rewatched), else 0. Recovers the signal completion_rate's clip at 1.0 discards."
+
+[[fields]]
+name = "is_weekend"
+dtype = "string[pyarrow]"
+section = "Activity"
+role = "factor"
+scale = "categorical"
+display_name = "Weekend"
+description = "'weekend' (saturday/sunday) or 'weekday', derived from Activity weekday at merge time."
+
+# Group-level: computed per collection-day at PCA build (fyp/analysis/pca.py),
+# not per row — declared here so the contract stays the source of the metadata.
+[[fields]]
+name = "videos_watched"
+skip_recode = true
+dtype = "int64[pyarrow]"
+section = "Activity"
+scale = "numeric"
+display_name = "Videos watched (day)"
+description = "Number of annotated videos the collection played that day (each correlations group's size) — consumption intensity, in natural units."
 
 [[fields]]
 name = "scraped_fail"

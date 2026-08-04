@@ -86,7 +86,7 @@
   "political_score": {
     "description": "AI-estimated probability (0-100) of political content.",
     "display_name": "Political? (score 0-1)",
-    "role": null,
+    "role": "feature",
     "scale": "numeric"
   },
   "primary_country": {
@@ -98,7 +98,7 @@
   "sensitivity_score": {
     "description": "AI-estimated probability (0-100) of sensitive topics.",
     "display_name": "Sensitive? (score 0-1)",
-    "role": null,
+    "role": "feature",
     "scale": "numeric"
   },
   "speech_vs_music": {

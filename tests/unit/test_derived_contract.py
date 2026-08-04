@@ -9,6 +9,7 @@ from fyp import derived_contract as dc
 _EXPECTED = {
     "days_since_created", "completion_rate", "scraped_fail", "niche", "niche_name",
     "desc_hashtags", "desc_raw", "scraped_ok", "annotated_ok", "annotated_fail",
+    "engaged", "rewatched", "is_weekend", "videos_watched",
 }
 
 

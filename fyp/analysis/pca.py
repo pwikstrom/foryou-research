@@ -40,6 +40,39 @@ def _cf():
 
 
 
+# The column the PCA frame carries for each group's video count. Structural
+# (computed per group at build time, attached after scaling so it never enters
+# the PCA basis); its var_schema metadata is declared in the derived contract.
+VIDEOS_WATCHED_COL = "videos_watched"
+
+
+def contract_numeric_transforms() -> dict[str, str]:
+    """Per-column pre-aggregation transforms declared in the contracts.
+
+    A contract field may carry ``transform = "log1p"`` (heavy-tailed numerics:
+    play_count, plays_per_day, days_since_created), applied to the row values
+    before the group mean. Group-level declarations (``videos_watched``) are
+    not row-aggregated, so their entries are ignored here.
+
+    Returns:
+        Mapping of column name → transform keyword.
+    """
+    out: dict[str, str] = {}
+    for loader_name in ("scrape_contract", "activity_contract", "derived_contract"):
+        try:
+            import importlib
+
+            loader = importlib.import_module(f"fyp.{loader_name}")
+            contract = loader.load_contract()
+        except Exception:
+            continue
+        for field in contract.get("fields", []):
+            name, transform = field.get("name"), field.get("transform")
+            if name and transform:
+                out[name] = transform
+    return out
+
+
 Group = Union[dict[str, int], Sequence[str]]
 Metric = Literal["jensen-shannon", "hellinger", "total-variation", "bray-curtis", "chi2"]
 Mode = Literal["distance", "similarity"]
@@ -831,8 +864,22 @@ def calculate_scaled_pca_scores(
     # batch all numerical features into a single groupby
     numerical_features = [c for c in study_recoded_dataset[fyp_features].columns
                           if c in study_recoded_dataset.select_dtypes(include=["number"]).columns]
+    numerical_means_raw = None
     if numerical_features:
-        numerical_means = study_recoded_dataset[numerical_features + grouping_factors].groupby(grouping_factors).mean()
+        num_block = study_recoded_dataset[numerical_features + grouping_factors]
+        # Untransformed means feed the `_raw` tooltip copies (natural units).
+        numerical_means_raw = num_block.groupby(grouping_factors).mean()
+        # Contract-declared transforms (log1p for heavy-tailed counts) apply to
+        # the row values before the mean; negatives are missing-value sentinels
+        # (e.g. play_count -1 where a platform exposes no view count).
+        transforms = contract_numeric_transforms()
+        transformed = num_block.copy()
+        for col in numerical_features:
+            if transforms.get(col) == "log1p":
+                vals = pd.to_numeric(transformed[col], errors="coerce").astype("double[pyarrow]")
+                vals = vals.mask(vals < 0, pd.NA)
+                transformed[col] = np.log1p(vals.astype("float64"))
+        numerical_means = transformed.groupby(grouping_factors).mean()
         events_pca_scores.append(numerical_means)
 
 
@@ -909,9 +956,14 @@ def calculate_scaled_pca_scores(
     time_columns_to_put_back = time_columns_to_put_back.set_index(grouping_factors)
     pca_indexed = events_pca_scores_scaled.set_index(grouping_factors)
 
-    # Extract raw numerical features and append them with '_raw' suffix
-    raw_num_cols = [c for c in study_recoded_dataset[fyp_features].columns if c in study_recoded_dataset.select_dtypes(include=["number"]).columns]
-    raw_num_df = events_pca_scores[raw_num_cols].rename(columns={c: f"{c}_raw" for c in raw_num_cols})
+    # Extract raw numerical features and append them with '_raw' suffix — from
+    # the untransformed aggregation, so tooltips stay in natural units even for
+    # log1p-transformed features.
+    if numerical_means_raw is not None:
+        raw_num_df = numerical_means_raw.rename(
+            columns={c: f"{c}_raw" for c in numerical_means_raw.columns})
+    else:
+        raw_num_df = pd.DataFrame(index=events_pca_scores.index)
     
     # Extract previously injected raw proportion columns from PCA categories
     raw_cat_cols = [c for c in events_pca_scores.columns if str(c).endswith("_raw")]
@@ -923,12 +975,12 @@ def calculate_scaled_pca_scores(
     # Drop standard scaled versions of _raw category columns so we can securely inject the unscaled ones
     pca_indexed = pca_indexed.drop(columns=raw_cat_cols, errors="ignore")
 
-    # How many videos each group averages over. Provenance, not a feature: the
-    # Correlations tab reports it ("N groups covering M videos") and excludes it
-    # from the axis dropdowns and the correlation matrix alongside the _raw
-    # columns. Attached after scaling so it never enters the PCA basis.
+    # How many videos each group averages over — the collection-day's
+    # consumption intensity (declared as `videos_watched` in the derived
+    # contract) and the sample-summary video count. Attached after scaling so
+    # it never enters the PCA basis.
     group_size_df = study_recoded_dataset[grouping_factors].groupby(grouping_factors).agg(
-        group_size=pd.NamedAgg(column=grouping_factors[0], aggfunc="count"))
+        **{VIDEOS_WATCHED_COL: pd.NamedAgg(column=grouping_factors[0], aggfunc="count")})
     group_size_df.index = convert_index_dtype_pyarrow(group_size_df.index)
 
     events_pca_scores_scaled = pd.concat(
