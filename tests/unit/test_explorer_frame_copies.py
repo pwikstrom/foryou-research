@@ -375,3 +375,69 @@ def test_enrich_user_tags_column_absent_when_no_tag_matches(monkeypatch):
     # The item is still counted as annotated for Has Annotation purposes —
     # unchanged from the old behavior (annotated_ids is id-based, not row-based).
     assert "Has Annotation" in enriched.columns
+
+
+
+
+def test_big_study_load_evicts_other_cached_studies(monkeypatch):
+    """Loading a study at/over the row threshold must clear the other cache
+    slots BEFORE the parquet load — raw + filtered coexist during a load, so
+    a big study cannot fit alongside previously cached frames (the 2026-08-03
+    23:47 OOM)."""
+    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
+    study_data.study_cache.put("small_a", {"df": _raw_frame(),
+                                           "col_types": _col_types(),
+                                           "status": {"ok": True}, "mtime": 1.0})
+    study_data.study_cache.put("small_b", {"df": _raw_frame(),
+                                           "col_types": _col_types(),
+                                           "status": {"ok": True}, "mtime": 1.0})
+    monkeypatch.setattr(
+        study_data, "get_study_sidecar",
+        lambda s: {"row_count": study_data._BIG_STUDY_ROW_THRESHOLD},
+    )
+    monkeypatch.setattr(study_data.explorer, "load_data",
+                        lambda s, verbose=False: (_raw_frame(), _col_types()))
+
+    df, _, _ = study_data._cached_study_frame("huge_study")
+
+    assert df is not None
+    assert study_data.study_cache.get("small_a") is None
+    assert study_data.study_cache.get("small_b") is None
+    assert study_data.study_cache.get("huge_study") is not None
+
+
+
+
+def test_small_study_load_keeps_other_cached_studies(monkeypatch):
+    """Below the threshold the two-slot LRU behavior is unchanged."""
+    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
+    study_data.study_cache.put("small_a", {"df": _raw_frame(),
+                                           "col_types": _col_types(),
+                                           "status": {"ok": True}, "mtime": 1.0})
+    monkeypatch.setattr(study_data, "get_study_sidecar",
+                        lambda s: {"row_count": 50_000})
+    monkeypatch.setattr(study_data.explorer, "load_data",
+                        lambda s, verbose=False: (_raw_frame(), _col_types()))
+
+    df, _, _ = study_data._cached_study_frame("small_c")
+
+    assert df is not None
+    assert study_data.study_cache.get("small_a") is not None
+
+
+
+
+def test_missing_sidecar_counts_as_big(monkeypatch):
+    """No sidecar means unknown size — evict, since the failure mode of
+    guessing small is an OOM-killed instance."""
+    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
+    study_data.study_cache.put("small_a", {"df": _raw_frame(),
+                                           "col_types": _col_types(),
+                                           "status": {"ok": True}, "mtime": 1.0})
+    monkeypatch.setattr(study_data, "get_study_sidecar", lambda s: None)
+    monkeypatch.setattr(study_data.explorer, "load_data",
+                        lambda s, verbose=False: (_raw_frame(), _col_types()))
+
+    study_data._cached_study_frame("unknown_size_study")
+
+    assert study_data.study_cache.get("small_a") is None

@@ -54,10 +54,21 @@ class StudyCache:
             if study_name in self.cache:
                 del self.cache[study_name]
 
+    def clear_except(self, study_name):
+        """Drop every cached study except ``study_name``."""
+        with self.lock:
+            for key in [k for k in self.cache if k != study_name]:
+                del self.cache[key]
+
 
 
 
 study_cache = StudyCache(maxsize=2)
+
+# Studies at or above this raw row count evict every other cached study
+# BEFORE their parquet is loaded (see _cached_study_frame). Below it, the
+# two-slot LRU keeps a pair of small studies hot across switches.
+_BIG_STUDY_ROW_THRESHOLD = 1_000_000
 
 
 # --- Per-user JSON cache -----------------------------------------------------
@@ -323,6 +334,21 @@ def _cached_study_frame(study, verbose=False):
 
         if verbose:
             print(f"    Loading study {study} from disk (with lock)...")
+
+        # Loading holds the raw frame AND the filtered result in memory at
+        # once (the context mask reads the raw frame), so a very large study
+        # cannot fit alongside previously cached frames — on 2026-08-03 the
+        # all_collections load (7.25 GB raw + 5.52 GB filtered) OOM-killed
+        # the 16 GiB instance because two other studies were still cached.
+        # Evict everything else FIRST when the incoming study is big; eviction
+        # at insert time (the LRU default) happens after the peak. A missing
+        # sidecar reads as big — the cost of over-evicting is a re-load,
+        # the cost of under-evicting is the instance.
+        sidecar = get_study_sidecar(study)
+        row_count = (sidecar or {}).get('row_count')
+        if row_count is None or row_count >= _BIG_STUDY_ROW_THRESHOLD:
+            study_cache.clear_except(study)
+
         # Resolve path
         raw_df, col_types = explorer.load_data(study, verbose=False)
 
