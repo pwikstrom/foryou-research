@@ -142,16 +142,13 @@ def test_promoted_roles_reach_var_schema():
 
 
 
-def test_sample_summary_prefers_videos_watched_over_legacy_group_size():
+def test_total_videos_prefers_videos_watched_over_legacy_group_size():
     df = pd.DataFrame({
         "collection_id": ["c1", "c1", "c2"],
         svc.VIDEOS_WATCHED_COL: [10, 20, 30],
         svc.GROUP_SIZE_COL: [1, 1, 1],
     })
-    summary = svc.build_sample_summary(df, df.iloc[:2])
-    assert summary["videos_total"] == 60
-    assert summary["videos_selected"] == 30
+    assert svc.total_videos(df) == 60
 
     legacy = df.drop(columns=[svc.VIDEOS_WATCHED_COL])
-    summary = svc.build_sample_summary(legacy, legacy)
-    assert summary["videos_total"] == 3
+    assert svc.total_videos(legacy) == 3

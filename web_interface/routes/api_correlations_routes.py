@@ -59,7 +59,6 @@ def api_pca_metadata():
 def api_pca_data():
     data = request.json or {}
     study = data.get("study")
-    filters = data.get("filters", {})
     x_col = data.get("x_col")
     y_col = data.get("y_col")
     color_col = data.get("color_col")
@@ -79,9 +78,8 @@ def api_pca_data():
         return jsonify({"error": "Unknown axis column"}), 400
 
     payload = correlations_service.build_scatter_payload(
-        df, filters, x_col, y_col, color_col,
-        center=bool(data.get("center")),
-        split_col=data.get("split_col") or None)
+        df, x_col, y_col, color_col,
+        center=bool(data.get("center")))
     return jsonify(payload)
 
 
@@ -94,7 +92,6 @@ def api_pca_data():
 def api_pca_correlation_matrix():
     data = request.json or {}
     study = data.get("study")
-    filters = data.get("filters", {})
 
     if not study:
         return jsonify({"error": "No study"}), 400
@@ -108,10 +105,9 @@ def api_pca_correlation_matrix():
         return jsonify({"error": "PCA data not found"}), 404
 
     payload, error = correlations_service.build_matrix_payload(
-        df, filters, study,
+        df, study,
         method=data.get("method"),
-        center=bool(data.get("center")),
-        split_col=data.get("split_col") or None)
+        center=bool(data.get("center")))
     if payload is None:
         return jsonify({"error": error}), 400
 

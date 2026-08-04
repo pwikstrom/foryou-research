@@ -1961,7 +1961,6 @@ button.meta-tooltip:disabled {
 #timelines-sidebar-toggle,
 #explore-sidebar-toggle,
 #explore-sidebar-toggle-2,
-#correlations-sidebar-toggle,
 #va-left-toggle,
 #va-right-toggle {
     transition: background 0.15s;
@@ -1971,7 +1970,6 @@ button.meta-tooltip:disabled {
 #timelines-sidebar-toggle:hover,
 #explore-sidebar-toggle:hover,
 #explore-sidebar-toggle-2:hover,
-#correlations-sidebar-toggle:hover,
 #va-left-toggle:hover,
 #va-right-toggle:hover {
     background: var(--color-bg-elevated) !important;
@@ -1980,7 +1978,6 @@ button.meta-tooltip:disabled {
 #timelines-sidebar-toggle:hover svg,
 #explore-sidebar-toggle:hover svg,
 #explore-sidebar-toggle-2:hover svg,
-#correlations-sidebar-toggle:hover svg,
 #va-left-toggle:hover svg,
 #va-right-toggle:hover svg {
     stroke: var(--color-text-primary);
@@ -2576,166 +2573,142 @@ button.meta-tooltip:disabled {
 
 
 /* ── Correlations tab layout ── */
-.corr-sidebar-toggle {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 4px;
-    margin-right: 10px;
-    display: flex;
-    align-items: center;
-}
-
-.corr-drawer-trigger {
-    margin-right: 10px;
-}
-
 .corr-status {
     color: var(--control-bar-info);
 }
 
-.corr-main {
-    display: flex;
-    height: calc(100vh - 180px);
-    gap: 20px;
-}
-
-.corr-filter-panel {
-    flex: 0 0 300px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-.corr-filter-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 10px;
-}
-
-.corr-filter-group {
-    margin-bottom: 15px;
-}
-
-.corr-filter-label {
-    margin-bottom: 5px;
-}
-
-.corr-filter-note {
-    color: var(--color-text-tertiary);
-    font-style: italic;
-}
-
-.corr-filter-values {
-    max-height: 150px;
-    overflow-y: auto;
-    border: 1px solid var(--chart-grid);
-    padding: 5px;
-    background: var(--color-bg-surface);
-}
-
-.corr-filter-checkbox {
-    margin-right: 5px;
-}
-
-/* Search + select-all/none above a long value list (collections, above all). */
-.corr-filter-tools {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-bottom: 4px;
-}
-
-.corr-filter-tools input[type="search"] {
-    flex: 1;
-    min-width: 0;
-    padding: 2px 6px;
-}
-
-.corr-filter-tools button {
-    flex: 0 0 auto;
-    padding: 2px 6px;
-}
-
-/* Date-window range control — the replacement for a per-day checkbox list. */
-.corr-filter-range {
-    border: 1px solid var(--chart-grid);
-    padding: 6px;
-    background: var(--color-bg-surface);
-}
-
-.corr-filter-range-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    margin-bottom: 4px;
-    color: var(--color-text-secondary);
-}
-
-.corr-filter-range-row input[type="date"] {
-    flex: 0 1 auto;
-    min-width: 0;
-    padding: 2px 4px;
-}
-
-.corr-viz-panel {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    padding: 0;
-}
-
-.corr-controls {
-    padding: 10px;
-    border-bottom: 1px solid var(--color-border-subtle);
-    background: var(--color-bg-elevated);
-    display: flex;
-    gap: 20px;
-    align-items: center;
+/* Single compact control bar (Timelines layout): every control on one row,
+   small type, abbreviated labels, narrow inputs. */
+.corr-control-bar {
     flex-wrap: wrap;
+    gap: 10px;
+    padding: 5px 10px;
+    font-size: var(--text-xs);
 }
 
-.corr-view-toggle {
-    border-right: 1px solid var(--color-border-strong);
-    padding-right: 15px;
+.corr-control-bar label {
+    font-weight: var(--weight-normal);
+}
+
+.corr-control-bar .dropdown {
+    width: auto;
+    padding: 2px 4px;
+    font-size: var(--text-xs);
+}
+
+.corr-view-toggle .toggle-option {
+    padding: 3px 10px;
+    font-size: var(--text-xs);
+}
+
+.corr-info-wrapper {
+    margin-left: 2px;
+}
+
+.corr-info-tooltip {
+    left: 0;
+    transform: none;
+    min-width: 260px;
+    max-width: 380px;
+    padding: 8px 10px;
+    color: var(--color-text-secondary);
+    line-height: var(--leading-normal);
 }
 
 .corr-scatter-controls {
     display: flex;
-    gap: 15px;
+    gap: 8px;
     align-items: center;
+    flex-wrap: wrap;
 }
 
 .corr-control-label {
-    margin-right: 5px;
+    color: var(--control-bar-label);
+    margin-right: 0;
 }
 
-.corr-select {
-    width: 180px;
-}
-
-.corr-select-narrow {
+/* Fixed widths, and scoped to the bar so they outrank `.control-bar .dropdown`
+   (width: 300px): a <select> otherwise auto-sizes to its longest option, which
+   pushed the bar onto a second row. Full variable names stay readable in the
+   open dropdown and in the axis titles. */
+.corr-control-bar .corr-select {
     width: 150px;
+}
+
+.corr-control-bar .corr-select-narrow {
+    width: 105px;
 }
 
 .corr-checkbox-group {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    user-select: none;
 }
 
-.corr-checkbox-label {
-    color: var(--color-text-secondary);
+.corr-checkbox-group input[type="checkbox"] {
+    margin: 0;
     cursor: pointer;
 }
 
-.corr-point-count {
+/* Sized to sit flush with the selects on the same row. .btn-discreet sets its
+   own font-size, so the size has to be restated here rather than left to the
+   .text-xxs utility class. */
+.corr-control-bar .corr-bar-button {
+    padding: 2px 8px;
+    font-size: var(--text-xxs);
+    line-height: 1.4;
+}
+
+/* Status / errors only - pushed right so it never shifts the knobs, which all
+   read left-to-right. */
+.corr-bar-status {
     margin-left: auto;
 }
 
-.corr-plot {
+/* Observation count sits in the corner of the plot/table it describes. */
+.corr-plot-wrap {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 460px;
+    display: flex;
+    flex-direction: column;
+}
+
+.corr-obs-badge {
+    position: absolute;
+    top: 6px;
+    left: 12px;
+    z-index: 2;
+    color: var(--color-text-tertiary);
+    pointer-events: none;
+}
+
+/* The app shell locks body scrolling, so a fixed `height: calc(100vh - 180px)`
+   clipped the x-axis title and the caption outright on shorter viewports
+   (Chrome with a bookmarks bar). The tab now scrolls internally instead: the
+   plot keeps a workable minimum size and anything past the fold is reachable. */
+.corr-main {
+    display: flex;
     flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    gap: 20px;
+}
+
+.corr-viz-panel {
+    flex: 1;
+    min-width: 0;
+    min-height: calc(100vh - 200px);
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+.corr-plot {
+    flex: 1 1 auto;
     min-height: 0;
 }
 
