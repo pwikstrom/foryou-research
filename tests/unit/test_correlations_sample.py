@@ -1,10 +1,9 @@
-"""Correlations Sample panel: date-range filtering + the group/video summary.
+"""Correlations unit-of-analysis payload: the study IS the sample.
 
-A row of the PCA frame is one grouping-factor group (a collection-day), not a
-video. The date factor has one value per day, which used to blow past
-``factor_value_limit`` and render as a dead "too many distinct values to filter"
-note — leaving the time window unfilterable. It is now offered as an inclusive
-range instead.
+The tab has no filter/sample panel by design — exclusions and event windows
+belong in study definitions, where they are versioned and documented. These
+tests pin the whole-study contract: the metadata payload ships no filter
+machinery, and the unit banner carries the study-wide video count.
 """
 
 import pandas as pd
@@ -26,7 +25,7 @@ def _frame():
                 "local_date": f"2026-03-{day:02d}",
                 "local_weekday": "Mon" if day % 2 else "Tue",
                 "score": float(day),
-                svc.GROUP_SIZE_COL: 10 + day,
+                svc.VIDEOS_WATCHED_COL: 10 + day,
             })
     return pd.DataFrame(rows)
 
@@ -35,96 +34,56 @@ def _frame():
 
 
 
-def test_date_range_is_inclusive_at_both_ends():
+def test_total_videos_prefers_videos_watched_with_legacy_fallback():
     df = _frame()
-    out = svc.apply_factor_filters(df, {"local_date": {"min": "2026-03-03", "max": "2026-03-05"}})
+    assert svc.total_videos(df) == sum(10 + d for d in range(1, 11)) * 3
 
-    assert sorted(out["local_date"].unique()) == ["2026-03-03", "2026-03-04", "2026-03-05"]
-    assert len(out) == 9   # 3 days × 3 collections
+    legacy = df.rename(columns={svc.VIDEOS_WATCHED_COL: svc.GROUP_SIZE_COL})
+    assert svc.total_videos(legacy) == svc.total_videos(df)
+
+    neither = df.drop(columns=[svc.VIDEOS_WATCHED_COL])
+    assert svc.total_videos(neither) is None
 
 
 
 
 
 
-def test_date_range_bounds_are_independently_optional():
+def test_metadata_payload_ships_no_filter_machinery(monkeypatch):
     df = _frame()
+    monkeypatch.setattr(svc, "get_factors_and_features_from_var_schema",
+                        lambda **kw: (["collection_id", "local_weekday"], []))
+    monkeypatch.setattr(svc, "get_grouping_factors_from_var_schema",
+                        lambda **kw: ["collection_id", "local_date"])
+    monkeypatch.setattr(svc, "load_interpretations", lambda study: {})
+    monkeypatch.setattr(svc, "load_display_id_map", lambda: {})
+    monkeypatch.setattr(svc, "load_schema_metadata", lambda m: {})
 
-    open_start = svc.apply_factor_filters(df, {"local_date": {"min": None, "max": "2026-03-02"}})
-    assert sorted(open_start["local_date"].unique()) == ["2026-03-01", "2026-03-02"]
+    payload = svc.build_metadata_payload(df, "mystudy")
 
-    open_end = svc.apply_factor_filters(df, {"local_date": {"min": "2026-03-09", "max": ""}})
-    assert sorted(open_end["local_date"].unique()) == ["2026-03-09", "2026-03-10"]
-
-
-
-
+    for retired_key in ("factor_values", "factor_ranges", "truncated_factors",
+                        "filter_immune_views", "sample", "split_cols", "split_levels"):
+        assert retired_key not in payload, retired_key
+    assert payload["unit"]["n_groups"] == len(df)
+    assert payload["unit"]["videos_total"] == svc.total_videos(df)
 
 
-def test_date_range_works_on_a_real_datetime_column():
-    """Same behaviour when the column is datetime64 rather than text."""
+
+
+
+
+def test_scatter_and_matrix_cover_the_whole_study(monkeypatch):
     df = _frame()
-    df["local_date"] = pd.to_datetime(df["local_date"])
+    monkeypatch.setattr(svc, "get_factors_and_features_from_var_schema",
+                        lambda **kw: (["collection_id"], []))
+    monkeypatch.setattr(svc, "load_interpretations", lambda study: {})
+    monkeypatch.setattr(svc, "load_display_id_map", lambda: {})
 
-    out = svc.apply_factor_filters(df, {"local_date": {"min": "2026-03-08", "max": "2026-03-08"}})
+    scatter = svc.build_scatter_payload(df, "score", svc.VIDEOS_WATCHED_COL, "collection_id")
+    assert scatter["total_count"] == len(df)
+    assert "sample" not in scatter
 
-    assert len(out) == 3
-    assert out["local_date"].dt.day.unique().tolist() == [8]
-
-
-
-
-
-
-def test_range_and_list_selections_combine():
-    df = _frame()
-    out = svc.apply_factor_filters(df, {
-        "local_date": {"min": "2026-03-04", "max": "2026-03-06"},
-        "collection_id": ["c2"],
-    })
-
-    assert len(out) == 3
-    assert out["collection_id"].unique().tolist() == ["c2"]
-
-
-
-
-
-
-def test_a_range_on_a_non_date_factor_is_ignored():
-    """The control is only ever offered for dates; a stray range must not filter."""
-    df = _frame()
-    out = svc.apply_factor_filters(df, {"collection_id": {"min": "c1", "max": "c2"}})
-
-    assert len(out) == len(df)
-
-
-
-
-
-
-def test_sample_summary_counts_groups_and_videos():
-    df = _frame()
-    filtered = svc.apply_factor_filters(df, {"collection_id": ["c1"]})
-
-    summary = svc.build_sample_summary(df, filtered)
-
-    assert summary["groups_total"] == 30
-    assert summary["groups_selected"] == 10
-    assert summary["videos_total"] == 3 * sum(10 + d for d in range(1, 11))
-    assert summary["videos_selected"] == sum(10 + d for d in range(1, 11))
-
-
-
-
-
-
-def test_sample_summary_without_group_size_reports_no_video_counts():
-    """PCA parquets built before group_size existed must still summarise."""
-    df = _frame().drop(columns=[svc.GROUP_SIZE_COL])
-
-    summary = svc.build_sample_summary(df, df)
-
-    assert summary["groups_total"] == 30
-    assert summary["videos_total"] is None
-    assert summary["videos_selected"] is None
+    matrix, err = svc.build_matrix_payload(df, "mystudy")
+    assert err is None
+    assert matrix["count"] == len(df)
+    assert "sample" not in matrix

@@ -310,12 +310,21 @@ require_annotated_items = false
 # component of each variable is always kept.
 min_variance_pct = 5.0
 
+# How many PCA components each variable may contribute to the Correlations UI
+# (its highest-variance ones). The cap is PER VARIABLE because a
+# high-cardinality variable (e.g. ~150 niches) spreads its variance thinly
+# over a dozen components that no one interprets, while a small variable's
+# third component can still carry 20%+ — a single variance floor cannot serve
+# both. Deliberately not a UI control: changing which correlations exist is a
+# study-level analytic choice, not a per-session one.
+max_components_per_variable = 3
+
 # Scatter responses are capped at this many points (deterministic sample; the
 # heatmap always uses all rows).
 max_scatter_points = 5000
 
-# Factors with at least this many distinct values get no filter checkboxes on
-# the Correlations tab (reported to the UI as "too many values to filter").
+# Factors with at least this many distinct values are not offered as levels
+# anywhere on the Correlations tab.
 factor_value_limit = 500
 
 # Correlation method for the heatmap matrix: "pearson" or "spearman".

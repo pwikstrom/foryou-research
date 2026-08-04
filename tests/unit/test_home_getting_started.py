@@ -163,8 +163,11 @@ def test_shell_renders_the_relocated_surfaces_for_a_plain_viewer(client, monkeyp
     assert 'id="explorer-v2-methods-btn"' not in html
     # Read-only study definitions need the modal in the DOM.
     assert 'id="editStudyModal"' in html
-    # Correlations Sample panel + split control.
-    assert 'id="corr-sample-summary"' in html
-    assert 'id="pca-split-select"' in html
+    # Correlations is deliberately minimal: no Sample/filter panel (the study
+    # is the sample), no split control, no disattenuation toggle.
+    assert 'id="pca-view-toggle"' in html
+    assert 'id="corr-sample-summary"' not in html
+    assert 'id="pca-split-select"' not in html
+    assert 'id="pca-disattenuate"' not in html
     # Video Analysis drill-down miss notice.
     assert 'id="viewer-drilldown-notice"' in html

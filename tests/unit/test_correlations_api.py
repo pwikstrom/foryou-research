@@ -245,6 +245,60 @@ def test_variance_filter_uses_config_threshold(monkeypatch):
 
 
 
+def test_component_cap_is_per_variable(monkeypatch):
+    """A high-cardinality variable is trimmed without starving a small one.
+
+    The cap must not be global: 'niche' spreads its variance over many
+    components while 'gender' concentrates it in three, and a single variance
+    floor cannot serve both.
+    """
+    from web_interface.services import correlations_service as cs
+
+    interpretations = {f"niche_C{i}": {"explained_variance_pct": 15.0 - i}
+                       for i in range(10)}
+    interpretations.update({
+        "gender_C0": {"explained_variance_pct": 45.0},
+        "gender_C1": {"explained_variance_pct": 33.0},
+        "gender_C2": {"explained_variance_pct": 22.0},
+    })
+    cols = list(interpretations) + ["niche_entropy", "completion_rate"]
+
+    monkeypatch.setattr(cs, "fyp_cf", {"correlations": {
+        "min_variance_pct": 5.0, "max_components_per_variable": 3}})
+    kept = cs.filter_components_by_variance(cols, interpretations)
+
+    # Top 3 of each variable, by variance — no more, from either.
+    assert [c for c in kept if c.startswith("niche_C")] == ["niche_C0", "niche_C1", "niche_C2"]
+    assert [c for c in kept if c.startswith("gender_C")] == ["gender_C0", "gender_C1", "gender_C2"]
+    # Non-component columns pass through untouched.
+    assert "niche_entropy" in kept and "completion_rate" in kept
+
+
+
+
+
+
+def test_component_cap_keeps_every_variable_represented(monkeypatch):
+    """Each variable keeps its leading component even below the floor."""
+    from web_interface.services import correlations_service as cs
+
+    interpretations = {
+        "big_C0": {"explained_variance_pct": 60.0},
+        "big_C1": {"explained_variance_pct": 20.0},
+        "thin_C0": {"explained_variance_pct": 2.0},   # whole variable is weak
+        "thin_C1": {"explained_variance_pct": 1.5},
+    }
+    monkeypatch.setattr(cs, "fyp_cf", {"correlations": {
+        "min_variance_pct": 10.0, "max_components_per_variable": 3}})
+    kept = cs.filter_components_by_variance(list(interpretations), interpretations)
+
+    assert kept == sorted(["big_C0", "big_C1", "thin_C0"])
+
+
+
+
+
+
 def test_metadata_payload_prefs_and_views(monkeypatch):
     """The metadata payload carries the stat-view manifest and viz-prefs inputs."""
     from web_interface.services import correlations_service as cs
@@ -588,34 +642,3 @@ def test_group_stats_endpoint(client, monkeypatch):
     monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: [])
     res = client.post("/api/correlations/group_stats", json={"study": "mystudy"})
     assert res.status_code == 403
-
-
-
-
-
-
-def test_matrix_payload_includes_reliability(client, monkeypatch):
-    from web_interface.routes import api_correlations_routes as routes
-    from web_interface.services import correlations_service as cs
-
-    _grant_permissions(monkeypatch, ["tab.correlations"])
-    monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: ["mystudy"])
-    monkeypatch.setattr(cs, "load_interpretations", lambda study: {})
-    monkeypatch.setattr(cs, "load_reliability_map", lambda: {
-        "a": {"reliability": 0.6, "n": 40, "source": "machine test-retest"},
-    })
-
-    df = pd.DataFrame({
-        "a": [1.0, 2.0, 3.0, 4.0],
-        "b": [2.0, 4.0, 5.5, 8.5],
-    })
-    monkeypatch.setattr(routes, "get_pca_df", lambda study: df)
-
-    _login(client, _TEST_VIEWER)
-    res = client.post("/api/correlations/correlation_matrix", json={"study": "mystudy"})
-    assert res.status_code == 200
-    payload = res.get_json()
-    assert "a" in payload["reliability"]
-    assert payload["reliability"]["a"]["item_r"] == pytest.approx(0.6)
-    assert payload["reliability"]["a"]["group_r"] > 0.6  # Spearman-Brown boost
-    assert payload["reliability_k"] >= 1
