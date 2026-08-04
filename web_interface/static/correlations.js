@@ -10,6 +10,7 @@ let pcaData = {
 
 let _lastScatterArgs = null;
 let _lastHeatmapArgs = null;
+let _lastGroupStats = null;
 
 // Renderer registry for the server-declared stat views (metadata.views).
 // A new view = one manifest entry server-side + one renderer here.
@@ -358,8 +359,30 @@ function setPcaView(view) {
         heatmapControls.style.display = (view === 'heatmap') ? 'flex' : 'none';
     }
     setCaption('');
+    applyCenteringAvailability();
 
     refreshCurrentView();
+}
+
+
+// Group differences is precomputed over the whole study by the pca_refresh
+// worker, so centering cannot apply to it. Disable the control with an
+// explanation rather than leaving a live-looking checkbox that does nothing.
+let _centerTooltipDefault = null;
+
+function applyCenteringAvailability() {
+    const cb = document.getElementById('pca-center-toggle');
+    const wrap = document.getElementById('pca-center-wrap');
+    if (!cb || !wrap) return;
+    if (_centerTooltipDefault === null) {
+        _centerTooltipDefault = wrap.dataset.tooltip || '';
+    }
+    const precomputed = pcaData.currentView === 'group_stats';
+    cb.disabled = precomputed;
+    wrap.classList.toggle('corr-control-disabled', precomputed);
+    wrap.dataset.tooltip = precomputed
+        ? 'These tables are precomputed over the whole study when the caches are rebuilt, so within-collection centering does not apply to them.'
+        : _centerTooltipDefault;
 }
 
 
@@ -970,73 +993,166 @@ async function loadGroupStats() {
 }
 
 
+// Column specs for the two Group-differences tables: the label, the row key
+// it reads, how to format it, and the plain-language explainer shown on hover.
+// `num` marks columns sorted numerically; the rest sort as text.
+const GROUP_STATS_TABLES = [
+    {
+        key: 'anova',
+        title: 'Which factors move single components? (one-way ANOVA)',
+        empty: 'No testable factor × component pairs in this study.',
+        defaultSort: { col: 'eta2', dir: -1 },
+        columns: [
+            { key: 'factor', label: 'Factor', kind: 'name',
+              tip: 'The grouping the test compares — e.g. do the collections, or the weeks, differ from each other?' },
+            { key: 'component', label: 'Component', kind: 'name',
+              tip: 'The variable being compared across those groups. "(C0)" is a variable\'s leading PCA dimension; "(entropy)" is how diverse the feed was on that variable.' },
+            { key: 'eta2', label: 'η²', num: true, digits: 3,
+              tip: 'Eta-squared: the share of this component\'s variation explained by the factor. The effect size — read this before the p-value. Conventions: .01 small, .06 medium, .14 large.' },
+            { key: 'magnitude', label: 'Effect',
+              tip: 'Plain-language label for η² using the conventional cutoffs (negligible / small / medium / large).' },
+            { key: 'omega2', label: 'ω²', num: true, digits: 3,
+              tip: 'Omega-squared: a less optimistic η². Trust it over η² when the factor has many levels or few groups per level.' },
+            { key: 'F', label: 'F', num: true, digits: 1,
+              tip: 'The ANOVA test statistic — between-group variance divided by within-group variance. Larger means the groups separate more cleanly.' },
+            { key: 'p', label: 'p', num: true, p: true,
+              tip: 'Uncorrected significance of this single test. With hundreds of tests in this table, use q instead.' },
+            { key: 'q', label: 'q', num: true, p: true,
+              tip: 'Benjamini–Hochberg adjusted p, across every test in this table. q < .05 means under 5% of the rows you call real are expected to be noise. This is the column to judge significance on.' },
+            { key: 'kw_q', label: 'KW q', num: true, p: true,
+              tip: 'The same comparison run as a rank-based Kruskal–Wallis test, BH-adjusted. Trust it over q when groups are small or skewed; if the two disagree, be sceptical of the result.' },
+            { key: 'n', label: 'n', num: true,
+              tip: 'Number of collection-day groups behind the test.' },
+            { key: 'levels', label: 'Levels', num: true,
+              tip: 'How many distinct values the factor takes (e.g. 2 collections, 26 weeks).' },
+        ],
+    },
+    {
+        key: 'permanova',
+        title: 'Do whole variable profiles differ by factor? (PERMANOVA)',
+        empty: 'No testable family × factor pairs in this study.',
+        defaultSort: { col: 'q', dir: 1 },
+        columns: [
+            { key: 'family', label: 'Variable family', kind: 'name',
+              tip: 'The variable whose components are tested together, as one profile.' },
+            { key: 'factor', label: 'Factor', kind: 'name',
+              tip: 'The grouping being compared.' },
+            { key: 'pseudo_F', label: 'pseudo-F', num: true, digits: 2,
+              tip: 'PERMANOVA test statistic: how much better the factor separates whole profiles than chance. Its significance comes from permutation, not a table.' },
+            { key: 'p', label: 'p', num: true, p: true,
+              tip: 'Permutation p-value: the share of random shuffles that separated the groups at least as well as the real labels.' },
+            { key: 'q', label: 'q', num: true, p: true,
+              tip: 'Benjamini–Hochberg adjusted p across this table — judge significance here rather than on p.' },
+            { key: 'n', label: 'n', num: true,
+              tip: 'Number of collection-day groups behind the test.' },
+            { key: 'levels', label: 'Levels', num: true,
+              tip: 'How many distinct values the factor takes.' },
+            { key: 'n_components', label: 'Components', num: true,
+              tip: 'How many of the variable\'s components were compared together as a profile.' },
+            { key: 'permutations', label: 'Permutations', num: true,
+              tip: 'How many random shuffles the p-value was computed from. More permutations = a finer-grained p.' },
+        ],
+    },
+];
+
+// Per-table sort state, keyed by table key. Persists across re-renders so a
+// re-render (theme change, prefs change) keeps the reader's chosen order.
+const _groupStatsSort = {};
+
+
+function _groupStatsSortedRows(rows, spec, displayName) {
+    const sort = _groupStatsSort[spec.key] || spec.defaultSort;
+    if (!sort || !sort.col) return rows;
+    const col = spec.columns.find(c => c.key === sort.col);
+    // Name columns sort on what the reader sees, not the underlying key.
+    const valueOf = (row) => (col && col.kind === 'name')
+        ? displayName(row[sort.col]) : row[sort.col];
+    const out = [...rows];
+    out.sort((a, b) => {
+        const va = valueOf(a);
+        const vb = valueOf(b);
+        // Missing values sort last whichever direction is active.
+        const aMissing = va === null || va === undefined || va === '';
+        const bMissing = vb === null || vb === undefined || vb === '';
+        if (aMissing && bMissing) return 0;
+        if (aMissing) return 1;
+        if (bMissing) return -1;
+        if (col && col.num) return (Number(va) - Number(vb)) * sort.dir;
+        return String(va).localeCompare(String(vb), undefined, { sensitivity: 'base' }) * sort.dir;
+    });
+    return out;
+}
+
+
+// Clicking the sorted column flips its direction; clicking a new one sorts it
+// biggest-first for numbers (the useful default for effect sizes and test
+// statistics) and A-Z for names. There is no "unsorted" state — the table
+// always has a defined, visible order.
+function sortGroupStatsBy(tableKey, colKey) {
+    const spec = GROUP_STATS_TABLES.find(s => s.key === tableKey);
+    if (!spec) return;
+    const cur = _groupStatsSort[tableKey] || spec.defaultSort;
+    if (cur && cur.col === colKey) {
+        _groupStatsSort[tableKey] = { col: colKey, dir: cur.dir === 1 ? -1 : 1 };
+    } else {
+        const col = spec.columns.find(c => c.key === colKey);
+        _groupStatsSort[tableKey] = { col: colKey, dir: (col && col.num) ? -1 : 1 };
+    }
+    if (_lastGroupStats) renderGroupStats(_lastGroupStats);
+}
+
+
 function renderGroupStats(data) {
+    _lastGroupStats = data;
     const plotDiv = document.getElementById('pca-plot');
     const schemaMap = pcaData.metadata?.schema_map || {};
     const dname = (c) => (schemaMap[c] && schemaMap[c].display_name) ? schemaMap[c].display_name : c;
     const fmtP = (p) => (p === null || p === undefined) ? '—' : formatP(p).replace(/^p /, '');
     const fmtN = (v, d) => (v === null || v === undefined) ? '—' : Number(v).toFixed(d);
 
+    const renderTable = (spec) => {
+        const rows = data[spec.key] || [];
+        let out = `<h3 class="text-h3">${escapeHtml(spec.title)}</h3>`;
+        if (!rows.length) return out + `<p class="text-xs">${escapeHtml(spec.empty)}</p>`;
+
+        const sort = _groupStatsSort[spec.key] || spec.defaultSort;
+        const mid = spec.columns.length / 2;
+        out += `<table class="collection-table corr-stats-table"><thead><tr>`;
+        spec.columns.forEach((col, i) => {
+            const active = sort && sort.col === col.key;
+            const arrow = active ? (sort.dir === 1 ? ' ▲' : ' ▼') : '';
+            // Columns in the right half anchor their tooltip to the right edge
+            // so it extends leftward and stays on screen.
+            const anchor = i >= mid ? ' tooltip-right-anchored' : '';
+            out += `<th class="corr-sortable meta-tooltip tooltip-below${anchor}${active ? ' corr-sorted' : ''}" ` +
+                `data-tooltip="${escapeHtml(col.tip)}" ` +
+                `onclick="sortGroupStatsBy('${spec.key}', '${col.key}')">` +
+                `${escapeHtml(col.label)}${arrow}</th>`;
+        });
+        out += `</tr></thead><tbody>`;
+
+        _groupStatsSortedRows(rows, spec, dname).forEach(row => {
+            const sig = row.q !== null && row.q !== undefined && row.q < 0.05;
+            out += `<tr${sig ? ' class="font-bold"' : ''}>`;
+            spec.columns.forEach(col => {
+                const raw = row[col.key];
+                let cell;
+                if (col.kind === 'name') cell = escapeHtml(dname(raw));
+                else if (col.p) cell = fmtP(raw);
+                else if (col.digits !== undefined) cell = fmtN(raw, col.digits);
+                else cell = (raw === null || raw === undefined) ? '—' : escapeHtml(String(raw));
+                out += `<td>${cell}</td>`;
+            });
+            out += `</tr>`;
+        });
+        return out + `</tbody></table>`;
+    };
+
+    plotDiv.innerHTML = `<div class="corr-table-wrap">` +
+        GROUP_STATS_TABLES.map(renderTable).join('') + `</div>`;
+
     const anova = [...(data.anova || [])].sort((a, b) => (b.eta2 || 0) - (a.eta2 || 0));
     const perma = [...(data.permanova || [])].sort((a, b) => (a.q ?? 1) - (b.q ?? 1));
-
-    const generated = data.generated_at
-        ? new Date(data.generated_at * 1000).toLocaleString() : 'unknown time';
-
-    let html = `<div class="corr-table-wrap">`;
-    html += `<p class="text-xs">Precomputed for the whole study (${generated}) — ` +
-        `centering and variable preferences do <b>not</b> apply here. ` +
-        `q-values are Benjamini–Hochberg adjusted across each table.</p>`;
-
-    html += `<h3 class="text-h3">Which factors move single components? (one-way ANOVA)</h3>`;
-    if (!anova.length) {
-        html += `<p>No testable factor × component pairs in this study.</p>`;
-    } else {
-        html += `<table class="collection-table"><thead><tr>` +
-            `<th>Factor</th><th>Component</th><th>η²</th><th>Effect</th><th>ω²</th>` +
-            `<th>F</th><th>p</th><th>q</th><th>KW q</th><th>n</th><th>Levels</th>` +
-            `</tr></thead><tbody>`;
-        anova.forEach(row => {
-            const sig = row.q !== null && row.q !== undefined && row.q < 0.05;
-            html += `<tr${sig ? ' class="font-bold"' : ''}>` +
-                `<td>${escapeHtml(dname(row.factor))}</td>` +
-                `<td>${escapeHtml(dname(row.component))}</td>` +
-                `<td>${fmtN(row.eta2, 3)}</td>` +
-                `<td>${escapeHtml(row.magnitude || '—')}</td>` +
-                `<td>${fmtN(row.omega2, 3)}</td>` +
-                `<td>${fmtN(row.F, 1)}</td>` +
-                `<td>${fmtP(row.p)}</td>` +
-                `<td>${fmtP(row.q)}</td>` +
-                `<td>${fmtP(row.kw_q)}</td>` +
-                `<td>${row.n}</td><td>${row.levels}</td></tr>`;
-        });
-        html += `</tbody></table>`;
-    }
-
-    html += `<h3 class="text-h3">Do whole variable profiles differ by factor? (PERMANOVA)</h3>`;
-    if (!perma.length) {
-        html += `<p>No testable family × factor pairs in this study.</p>`;
-    } else {
-        html += `<table class="collection-table"><thead><tr>` +
-            `<th>Variable family</th><th>Factor</th><th>pseudo-F</th><th>p</th><th>q</th>` +
-            `<th>n</th><th>Levels</th><th>Components</th><th>Permutations</th>` +
-            `</tr></thead><tbody>`;
-        perma.forEach(row => {
-            const sig = row.q !== null && row.q !== undefined && row.q < 0.05;
-            html += `<tr${sig ? ' class="font-bold"' : ''}>` +
-                `<td>${escapeHtml(dname(row.family))}</td>` +
-                `<td>${escapeHtml(dname(row.factor))}</td>` +
-                `<td>${fmtN(row.pseudo_F, 2)}</td>` +
-                `<td>${fmtP(row.p)}</td>` +
-                `<td>${fmtP(row.q)}</td>` +
-                `<td>${row.n}</td><td>${row.levels}</td>` +
-                `<td>${row.n_components}</td><td>${row.permutations}</td></tr>`;
-        });
-        html += `</tbody></table>`;
-    }
-    html += `</div>`;
-
-    plotDiv.innerHTML = html;
     renderGroupStatsCaption(anova, perma, schemaMap);
 }
 
