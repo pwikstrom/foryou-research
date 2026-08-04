@@ -241,6 +241,9 @@ def validate_contract(contract: dict) -> list[str]:
             errors.append(f"{where}: invalid role '{role}'")
         if valid_scales is not None and scale is not None and scale not in valid_scales:
             errors.append(f"{where}: invalid scale '{scale}'")
+        transform = field.get("transform")
+        if transform is not None and transform != "log1p":
+            errors.append(f"{where}: invalid transform '{transform}' (only 'log1p' is supported)")
 
         if field.get("required") and field.get("derived"):
             errors.append(f"{where}: a field cannot be both 'required' and 'derived'")

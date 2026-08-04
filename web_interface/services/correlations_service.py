@@ -49,12 +49,14 @@ _CORR_DEFAULTS = {
     "permanova_permutations": 999,
 }
 
-# Per-group video count written by the PCA worker (see fyp.analysis.pca). It is
-# provenance, not a feature: excluded from the axis dropdowns, the correlation
-# matrix and the within-collection centering, and reported only as "N groups
-# covering M videos" in the Sample panel. Absent from PCA parquets built before
-# 2026-08, so every read is optional.
+# Per-group video count written by the PCA worker (see fyp.analysis.pca).
+# Current parquets carry it as `videos_watched` (a contract-declared variable:
+# consumption intensity, offered on the axes/matrix like any numeric column);
+# parquets built before 2026-08 carry the retired `group_size` name instead,
+# which stays excluded from the dropdowns/matrix/centering and feeds only the
+# "N groups covering M videos" Sample-panel counts. Every read is optional.
 GROUP_SIZE_COL = "group_size"
+VIDEOS_WATCHED_COL = "videos_watched"
 
 # Views whose numbers come from the pca_refresh worker's whole-study artifacts
 # and therefore ignore the Sample panel entirely. The frontend disables the
@@ -191,9 +193,10 @@ def build_sample_summary(df: pd.DataFrame, filtered_df: pd.DataFrame) -> dict:
         ``group_size``, the matching video counts (else None).
     """
     def _videos(frame: pd.DataFrame) -> int | None:
-        if GROUP_SIZE_COL not in frame.columns:
+        col = VIDEOS_WATCHED_COL if VIDEOS_WATCHED_COL in frame.columns else GROUP_SIZE_COL
+        if col not in frame.columns:
             return None
-        total = pd.to_numeric(frame[GROUP_SIZE_COL], errors="coerce").sum()
+        total = pd.to_numeric(frame[col], errors="coerce").sum()
         return None if pd.isna(total) else int(total)
 
     return {

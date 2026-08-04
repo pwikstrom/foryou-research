@@ -23,6 +23,7 @@ import fyp.annotation_versioning as annotation_versioning
 from fyp.machine_annotation import consolidate_and_save_refined_annotations
 from fyp import scrape_contract as _scrape_contract
 from fyp.polars_ops import fast_join
+from fyp.utils import parse_extra_data_tokens
 from fyp.recode_variables import compute_var_schema_hash, derive_australian_relevance, get_grouping_factors_from_var_schema
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
 
@@ -1459,7 +1460,10 @@ def _annotations_for_study(study_name, annotations_df):
 
 
 def _add_merge_calculated_columns(shebang: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
-    """Add days_since_created / plays_per_day / scraped_fail / completion_rate.
+    """Add the merge-derived columns declared in ``config/derived_contract.toml``.
+
+    days_since_created / plays_per_day / scraped_fail / completion_rate plus the
+    behavioral derivations engaged / rewatched / is_weekend.
 
     Each column guards on its input columns, so a study frame with no scrape
     enrichment (item-metadata like create_time / duration / play_count is
@@ -1512,6 +1516,38 @@ def _add_merge_calculated_columns(shebang: pd.DataFrame, verbose: bool = False) 
         shebang[calc_col[-1]] = shebang[calc_col[-1]].clip(lower=0, upper=1).astype("double[pyarrow]")
     else:
         shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
+
+    # 5. engaged — this play carries any of the account's own engagement
+    # activity (the fave/comment/share/save/follow tokens folded into
+    # extra_data at ingest). Group mean = the collection's own engagement rate.
+    calc_col += ["engaged"]
+    if "extra_data" in shebang.columns:
+        shebang[calc_col[-1]] = shebang["extra_data"].map(
+            lambda s: 1.0 if parse_extra_data_tokens(s) else 0.0
+        ).astype("double[pyarrow]")
+    else:
+        shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
+
+    # 6. rewatched — played longer than the item lasts (looped/rewatched); the
+    # signal completion_rate's clip at 1.0 discards. NA where either side is NA.
+    calc_col += ["rewatched"]
+    if "play_duration" in shebang.columns and "duration" in shebang.columns:
+        shebang[calc_col[-1]] = (
+            shebang["play_duration"] > shebang["duration"]
+        ).astype("double[pyarrow]").mask(
+            shebang["play_duration"].isna() | shebang["duration"].isna(), pd.NA)
+    else:
+        shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="double[pyarrow]")
+
+    # 7. is_weekend — two-level factor from the ingest-derived local weekday.
+    calc_col += ["is_weekend"]
+    if "local_weekday" in shebang.columns:
+        weekday = shebang["local_weekday"].astype("string[pyarrow]").str.lower()
+        shebang[calc_col[-1]] = weekday.isin(["saturday", "sunday"]).map(
+            {True: "weekend", False: "weekday"}
+        ).astype("string[pyarrow]").mask(weekday.isna(), pd.NA)
+    else:
+        shebang[calc_col[-1]] = pd.Series(pd.NA, index=shebang.index, dtype="string[pyarrow]")
 
     if verbose:
         logger.info(f"Adding columns: {calc_col}. Resulting output log DF shape {shebang.shape}")
@@ -1699,6 +1735,9 @@ _CALCULATED_ENRICHMENT_COLUMNS = {
     "plays_per_day",
     "scraped_fail",
     "completion_rate",
+    "engaged",
+    "rewatched",
+    "is_weekend",
     # Niche columns are re-joined by new_merge() via _join_niche_columns(), so
     # drop the cached copies before re-merging to avoid _x/_y suffixing.
     *_NICHE_COLUMNS,

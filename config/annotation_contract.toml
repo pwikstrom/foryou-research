@@ -239,6 +239,7 @@ desc = "The ethnicity of the main person featured in the video."
 
 [[fields]]
 name = "political_score"
+role = "feature"
 display_name = "Political? (score 0-1)"
 type = "int"
 min = 0
@@ -247,6 +248,7 @@ desc = "How political the video is, from 0 (not at all) to 100 (entirely politic
 
 [[fields]]
 name = "sensitivity_score"
+role = "feature"
 display_name = "Sensitive? (score 0-1)"
 type = "int"
 min = 0

@@ -166,9 +166,9 @@ name = "local_day_segment"
 scope = "base"
 dtype = "string[pyarrow]"
 section = "Activity"
-scale = "text"
+scale = "categorical"
 display_name = "Activity day segment"
-description = "Time of day (e.g., morning, night) in local time."
+description = "Time of day (e.g., morning, night) in local time. No analysis role: it varies within a collection-day, so it cannot be a factor of the day-grouped PCA frame (a factor there must be constant per group)."
 derived = true
 
 [[fields]]
@@ -176,10 +176,9 @@ name = "local_hour"
 scope = "base"
 dtype = "uint8[pyarrow]"
 section = "Activity"
-role = "feature"
 scale = "numeric"
 display_name = "Activity hour"
-description = "Hour of the day (0-23) in local time."
+description = "Hour of the day (0-23) in local time. No analysis role: hour-of-day is circular, so a group mean is meaningless — use local_day_segment for time-of-day comparisons."
 derived = true
 
 [[fields]]
