@@ -669,7 +669,12 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         if task_args is None:
             task_args = _cli_args_to_dict(name, args, study_name)
 
-        # Set dispatch_deadline for self-chaining processes
+        # Set dispatch_deadline for self-chaining processes and for the long
+        # single-shot refreshes. Cloud Tasks' default dispatch deadline is 600s:
+        # a handler that runs longer never gets to respond, so the task is
+        # re-dispatched from scratch up to max-attempts — the run "starts over
+        # and over" even though each attempt would eventually succeed
+        # (2026-08-04: pca_refresh at ~12 min looped exactly this way).
         deadline = None
         if name == "queue_annotator" and task_args:
             batch_size = int(task_args.get("batch_size", 500))
@@ -679,6 +684,12 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             # poll re-chains on its own wall-clock budget.
             deadline = 1800
         elif name.startswith("queue_scraper_"):
+            deadline = 1800
+        elif name in ("pca_refresh", "recode_refresh_studies"):
+            # Whole-study sweeps that scale with corpus size: pca_refresh
+            # regenerates every study's recoded frame + runs the group-stats
+            # sweep (~12 min at 11 studies); recode_refresh_studies is ~7 min
+            # and one growth step from the 600s cliff.
             deadline = 1800
 
         success, msg = _dispatch_cloud_task(name, task_args,
