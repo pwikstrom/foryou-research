@@ -37,8 +37,8 @@
             tip: 'Aggregated and offered on the Timelines tab by default.',
         },
         web_viz_prio: {
-            label: 'Explore',
-            tip: 'Offered in Explore visualizations by default.',
+            label: 'Explore / Correlations',
+            tip: 'Offered in Explore visualizations and on the Correlations axes/heatmap by default.',
         },
         web_display_prio: {
             label: 'Video Analysis',
