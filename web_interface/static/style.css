@@ -2799,6 +2799,54 @@ button.meta-tooltip:disabled {
     color: var(--color-warning);
 }
 
+/* The caption strip now sits ABOVE the plot (highlight text + explainer),
+   so its divider flips from a top border to a bottom border. */
+.corr-caption.corr-topbar {
+    border-top: none;
+    border-bottom: 1px solid var(--color-border-subtle);
+}
+
+/* "What is this?" toggle after the highlight text (and per group-diff table) */
+.corr-explainer-toggle,
+.corr-table-explainer-toggle a {
+    color: var(--color-link);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.corr-explainer-toggle:hover,
+.corr-table-explainer-toggle a:hover {
+    text-decoration: underline;
+}
+
+.corr-table-explainer-toggle {
+    margin: 0 0 6px;
+    font-size: var(--text-xs);
+}
+
+/* Collapsed-by-default explanatory copy (per view and per table) */
+.corr-explainer-body {
+    margin-top: 8px;
+    max-width: 900px;
+    color: var(--color-text-secondary);
+    line-height: var(--leading-relaxed);
+}
+
+.corr-explainer-body p {
+    margin: 0 0 8px;
+}
+
+.corr-explainer-body p:last-child {
+    margin-bottom: 0;
+}
+
+.corr-table-wrap .corr-table-explainer {
+    margin: 0 0 10px;
+    padding: 8px 12px;
+    background: var(--color-bg-elevated);
+    border-left: 3px solid var(--color-border-strong);
+}
+
 .corr-table-wrap {
     overflow: auto;
     padding: 12px 16px;
