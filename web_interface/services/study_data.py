@@ -435,6 +435,116 @@ def get_explorer_data(study, context=None, columns=None, verbose=False):
     return view, out_col_types
 
 
+def get_study_col_types(study):
+    """Return the full column-type mapping for a study, or ``None`` if absent.
+
+    Loads (and caches) the study frame when cold — the caller invariably needs
+    the frame right after (e.g. to run a projected filter request), so the load
+    is never wasted.
+    """
+    _df, col_types, _status = _cached_study_frame(study)
+    return col_types
+
+
+
+
+
+
+def get_search_column(study, column):
+    """Return ``(series, dtype)`` for one column of a study's filtered frame.
+
+    Warm path: a read-only column view of the ``StudyCache`` entry. Cold path:
+    a selective single-column parquet read (plus the context-filter columns)
+    that deliberately does NOT populate ``StudyCache`` — answering a value
+    search must never trigger a multi-GB full load or evict a warm study.
+
+    Returns ``(None, None)`` when the study or column doesn't exist.
+    """
+    current_mtime = _get_recoded_mtime(study)
+    if current_mtime is None:
+        return None, None
+
+    cached = study_cache.get(study, current_mtime=current_mtime)
+    if cached is not None:
+        df = cached['df']
+        if column not in df.columns:
+            return None, None
+        return df[column], cached['col_types'].get(column)
+
+    try:
+        frame = data_io.load_parquet_selective(
+            storage_location="cache",
+            filename=f"{study}_recoded.parquet",
+            columns=list(dict.fromkeys([column, *_CONTEXT_FILTER_COLUMNS])),
+        )
+    except Exception:
+        return None, None
+    if frame is None or column not in frame.columns:
+        return None, None
+    filtered, _status = _apply_context_filter(frame)
+    col_types = explorer.classify_columns(filtered[[column]])
+    return filtered[column], col_types.get(column)
+
+
+
+
+
+
+# Per-(study, column) full value-count cache backing the value-search
+# endpoint. The counts pass over the column is the expensive step (one scan,
+# or a Counter pass for list columns); it runs once per parquet version and
+# every subsequent keystroke is a vectorized substring match over the cached
+# unique values only.
+_value_search_cache = LRUCache(maxsize=16)
+_value_search_lock = threading.Lock()
+
+
+
+
+
+
+def search_column_value_counts(study, column):
+    """Return the cached full value counts for one categorical/list column.
+
+    Returns a dict with ``type`` (``"category"``/``"list"``), ``values`` (all
+    unique values, most frequent first, singletons included), ``counts``
+    (parallel list of ints) and ``lowered`` (a lowercased pyarrow-string
+    Series over ``values`` for case-insensitive matching) — or ``None`` when
+    the study/column is missing or the column isn't value-searchable.
+
+    Staleness is keyed on the recoded parquet's mtime, like ``StudyCache``.
+    """
+    mtime = _get_recoded_mtime(study)
+    if mtime is None:
+        return None
+    key = (study, column)
+    with _value_search_lock:
+        entry = _value_search_cache.get(key)
+        if entry is not None and entry['mtime'] == mtime:
+            return entry
+
+    series, dtype = get_search_column(study, column)
+    if series is None or dtype not in ("category", "list"):
+        return None
+    pairs = explorer.column_value_counts(
+        series, dtype, date_like="date" in column.lower())
+    values = [k for k, _ in pairs]
+    entry = {
+        "mtime": mtime,
+        "type": dtype,
+        "values": values,
+        "counts": [v for _, v in pairs],
+        "lowered": pd.Series(values, dtype="string[pyarrow]").str.lower(),
+    }
+    with _value_search_lock:
+        _value_search_cache[key] = entry
+    return entry
+
+
+
+
+
+
 def get_explorer_rows(study, item_id=None, row_index=None, verbose=False):
     """Return just the rows for one item, without touching the other millions.
 

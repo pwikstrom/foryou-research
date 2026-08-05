@@ -38,6 +38,8 @@ from .services.study_data import (  # noqa: F401
     get_collection_tags,
     get_explorer_data,
     get_explorer_rows,
+    get_search_column,
+    get_study_col_types,
     get_study_collections,
     get_study_sidecar,
     get_user_json_cached,
@@ -46,6 +48,7 @@ from .services.study_data import (  # noqa: F401
     load_display_id_map,
     load_shared_tags,
     make_serializable,
+    search_column_value_counts,
     study_cache,
 )
 from .services.timeline_service import (  # noqa: F401

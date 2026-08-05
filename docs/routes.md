@@ -22,6 +22,7 @@ python scripts/gen_route_inventory.py
 | auth_bp | `/api/admin/users/<path:username>/log` | GET | `auth_bp.api_admin_user_log` |
 | auth_bp | `/api/user/profile` | GET,POST | `auth_bp.api_user_profile` |
 | auth_bp | `/api/user/settings` | GET,POST | `auth_bp.api_user_settings` |
+| auth_bp | `/api/user/variable-catalog` | GET | `auth_bp.api_user_variable_catalog` |
 | auth_bp | `/login` | GET,POST | `auth_bp.login` |
 | auth_bp | `/logout` | GET | `auth_bp.logout` |
 | auth_bp | `/signup` | GET,POST | `auth_bp.signup` |
@@ -34,6 +35,7 @@ python scripts/gen_route_inventory.py
 | explorer_bp | `/api/explore/metadata` | GET | `explorer_bp.api_explorer_metadata` |
 | explorer_bp | `/api/explore/metadata/base` | GET | `explorer_bp.api_explorer_metadata_base` |
 | explorer_bp | `/api/explore/metadata/overlay` | GET | `explorer_bp.api_explorer_metadata_overlay` |
+| explorer_bp | `/api/explore/values/search` | GET | `explorer_bp.api_explorer_value_search` |
 | explorer_bp | `/api/studies/<study>/methods` | GET | `explorer_bp.api_study_methods` |
 | explorer_bp | `/api/studies/defined` | GET | `explorer_bp.api_get_study_defs` |
 | explorer_bp | `/api/system-health` | GET | `explorer_bp.get_system_health` |
@@ -156,4 +158,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-145 routes total.
+147 routes total.

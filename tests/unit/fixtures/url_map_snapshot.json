@@ -147,6 +147,13 @@
   ]
  ],
  [
+  "/api/explore/values/search",
+  "explorer_bp.api_explorer_value_search",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/human-eval/my-tasks",
   "human_eval.my_human_eval_tasks",
   [

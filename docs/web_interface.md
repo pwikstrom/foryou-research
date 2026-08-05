@@ -85,6 +85,20 @@ properties, a 7-step type scale, utility classes, and both dark
 colors/fonts/sizes in templates or JS — see `CLAUDE.md` §"Frontend Styling
 Rules" for the full rules.
 
+Filter dropdowns for categorical/list variables show the top-200
+most-frequent values (single-occurrence values are dropped entirely at
+metadata-build time — see `explorer_backend.get_metadata`). Any capped
+dropdown gets a per-variable search box (`static/filter_value_search.js`,
+shared by Explore and Video Analysis) backed by
+`GET /api/explore/values/search`, which matches against **all** values of
+that one column — singletons included — via a per-(study, column) counts
+cache in `services/study_data.py` (`search_column_value_counts`; cold path
+is a selective single-column parquet read that never touches `StudyCache`).
+The global free-text search is a separate mechanism: it scans every
+searchable column (`explorer_backend.search_columns` derives the set, and
+the filter/ids endpoints project the frame to it instead of loading full
+width) with one string cast per column per request.
+
 Per-user variable preferences (which variables show on each surface) are
 composed client-side by `static/js/variable_prefs.js` as
 `(global ∪ include) − exclude` deltas stored in the user's settings. The

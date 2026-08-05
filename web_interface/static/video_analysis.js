@@ -806,6 +806,25 @@ function renderViewerFilterColumn(col, metadata, schemaMap) {
         }
 
         wrapper.appendChild(listContainer);
+
+        // Capped dropdown: add the value-search box so out-of-top-200
+        // (and single-occurrence) values stay reachable.
+        if (typeof attachFilterValueSearch === 'function'
+                && info.total_unique && info.total_unique > info.values.length) {
+            attachFilterValueSearch({
+                wrapper, listContainer,
+                column: col,
+                getStudy: () => viewerData.activeStudy,
+                isChecked: (v) => !!(viewerData.filters[col]
+                    && Array.isArray(viewerData.filters[col].value)
+                    && viewerData.filters[col].value.includes(v)),
+                onSelectionChanged: () => {
+                    const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
+                    setViewerFilter(col, info.type, 'list', checked);
+                },
+                totalUnique: info.total_unique,
+            });
+        }
     }
 
     return wrapper;

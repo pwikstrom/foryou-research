@@ -4,6 +4,7 @@ from collections import Counter
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
@@ -162,6 +163,50 @@ def derive_bin_count(use_log: bool) -> int:
 
 
 
+def column_value_counts(series: pd.Series, dtype: str, date_like: bool = False) -> list[tuple[str, int]]:
+    """Return every (value, count) pair for a filterable column, most frequent first.
+
+    Includes single-occurrence values: :func:`get_metadata` applies its own
+    count>1 drop and top-200 cap for the dropdown, while the per-variable
+    value-search endpoint deliberately keeps the full tail so rare values
+    (e.g. an author with a single video) stay reachable.
+
+    Values are stringified exactly as ``filter_dataframe`` compares them —
+    date-like category columns normalise to the date part (``str[:10]``) and
+    list elements go through ``str(x)`` with per-row deduplication
+    (document frequency).
+
+    Args:
+        series: The raw column values.
+        dtype: The classified column type (``"category"`` or ``"list"``).
+        date_like: For category columns, force the date-part normalisation
+            (datetime-typed series are normalised regardless).
+
+    Returns:
+        List of ``(value, count)`` tuples sorted by descending count.
+    """
+    if dtype == "list":
+        all_items = []
+        for row in series.dropna():
+            if isinstance(row, (list, np.ndarray)):
+                # Deduplicate within row to count Document Frequency (rows
+                # with the tag) instead of Term Frequency
+                try:
+                    all_items.extend(list(set(str(x) for x in row)))
+                except Exception:
+                    pass
+        return [(str(k), int(v)) for k, v in Counter(all_items).most_common()]
+
+    col_data = series
+    if pd.api.types.is_datetime64_any_dtype(series) or date_like:
+        col_data = series.astype(str).str[:10]
+    return [(str(k), int(v)) for k, v in col_data.value_counts().items()]
+
+
+
+
+
+
 def get_metadata(df, column_types, verbose=False):
     """
     Returns metadata for frontend:
@@ -219,25 +264,17 @@ def get_metadata(df, column_types, verbose=False):
             })
             metadata[col] = base_meta
         elif dtype == "category":
-            # Limit for UI filters — show top 200 most frequent values
-            is_dt = pd.api.types.is_datetime64_any_dtype(df[col])
-            col_data = df[col]
-            if is_dt or "date" in col.lower():
-                col_data = df[col].astype(str).str[:10]
-
-            vc_full = col_data.value_counts()
+            # Limit for UI filters — show top 200 most frequent values.
             # Drop single-occurrence labels — filtering to one yields a 1-video
             # slice (noise in small studies). The frontend hides a column once
             # ≤1 selectable value remains. total_unique counts only selectable
             # (count>1) values so the "showing top X of Y" notice stays honest.
-            vc_full = vc_full[vc_full > 1]
-            total_unique = int(len(vc_full))
-            vc = vc_full.head(200)
+            pairs = column_value_counts(df[col], "category",
+                                        date_like="date" in col.lower())
+            multi = [(k, v) for k, v in pairs if v > 1]
+            total_unique = len(multi)
 
-            # Sort by frequency (default from value_counts)
-            top_keys = vc.index.tolist()
-
-            unique_vals = [{"value": str(x), "count": int(vc[x])} for x in top_keys]
+            unique_vals = [{"value": k, "count": v} for k, v in multi[:200]]
 
             base_meta.update({
                 "type": "category",
@@ -247,25 +284,13 @@ def get_metadata(df, column_types, verbose=False):
             metadata[col] = base_meta
 
         elif dtype == "list":
-            # Extract all unique items from lists
-            # Flatten
-            all_items = []
-            for row in df[col].dropna():
-                if isinstance(row, (list, np.ndarray)):
-                    # Deduplicate within row to count Document Frequency (rows with tag) instead of Term Frequency
-                    try:
-                        all_items.extend(list(set(str(x) for x in row)))
-                    except:
-                        pass
-
-            # Use Counter to find top tags, dropping single-occurrence tags
-            # (see the category note above).
-            c = Counter(all_items)
-            multi = [(k, v) for k, v in c.most_common() if v > 1]
+            # Document-frequency counts over list elements, dropping
+            # single-occurrence tags (see the category note above).
+            pairs = column_value_counts(df[col], "list")
+            multi = [(k, v) for k, v in pairs if v > 1]
             total_unique = len(multi)
-            top_items = multi[:200]
 
-            items_list = [{"value": str(k), "count": v} for k, v in top_items]
+            items_list = [{"value": k, "count": v} for k, v in multi[:200]]
 
             base_meta.update({
                 "type": "list",
@@ -281,6 +306,27 @@ def get_metadata(df, column_types, verbose=False):
     if verbose:
         print(f"    ...done calculating things for viewer and explorer. Time: {_dt.datetime.now()-t1}")
     return metadata
+
+
+
+
+
+def search_columns(column_types: dict, *queries) -> set:
+    """Columns a free-text search over ``queries`` actually scans.
+
+    Mirrors :func:`filter_dataframe`'s Global Search block: every
+    category/long_text/list column, plus the number columns only when some
+    comma-separated term looks numeric. Used by the routes to project a
+    search request's frame instead of falling back to the full width.
+    """
+    wanted = {c for c, t in (column_types or {}).items()
+              if t in ("category", "long_text", "list")}
+    terms = [t.strip() for q in queries if isinstance(q, str)
+             for t in q.split(",") if t.strip()]
+    if any(t.replace('.', '', 1).isdigit() for t in terms):
+        wanted |= {c for c, t in (column_types or {}).items() if t == "number"}
+    return wanted
+
 
 
 
@@ -420,34 +466,61 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                 if column_types.get(col) in ("category", "long_text", "list")
             ]
             
+            # Each column is cast to a searchable string Series exactly once
+            # per request and reused for every term — the cast (and for list
+            # columns the object-string round-trip) dominates the scan cost,
+            # so repeating it per term multiplied the whole search by the
+            # number of comma-separated terms. Case-insensitivity comes from
+            # ``case=False`` (pyarrow ``match_substring(ignore_case=True)``),
+            # so no lowercased copy of any column is materialised.
+            casted = {}
+
+            def _list_search_text(series):
+                # Join each row's elements into one searchable string. The
+                # arrow-native join is the normal path; ``astype(str)`` raises
+                # on ArrowDtype list columns (which used to make the bare
+                # except skip list columns from global search entirely), so
+                # the fallback maps through python for object-typed lists.
+                try:
+                    joined = pc.binary_join(series.array._pa_array, " ")
+                    return pd.Series(pd.arrays.ArrowExtensionArray(joined),
+                                     index=series.index)
+                except Exception:
+                    return series.map(
+                        lambda x: " ".join(str(i) for i in x)
+                        if isinstance(x, (list, np.ndarray)) else None)
+
+            def _searchable_series(col):
+                if col not in casted:
+                    dtype = column_types.get(col)
+                    if dtype == "list":
+                        casted[col] = _list_search_text(filtered_df[col])
+                    else:
+                        try:
+                            # Attempt fast PyArrow string engine
+                            casted[col] = filtered_df[col].astype("string[pyarrow]")
+                        except Exception:
+                            # Fallback if PyArrow string conversion fails
+                            casted[col] = filtered_df[col].astype(str)
+                return casted[col]
+
             for term in terms:
                 term_mask = pd.Series(False, index=original_indices)
                 term_is_numeric = term.replace('.', '', 1).isdigit()
-                
+
                 cols_to_search = searchable_cols.copy()
                 if term_is_numeric:
                     # Add numeric columns if the term looks like a number
                     for col in filtered_df.columns:
                         if column_types.get(col) == "number":
                             cols_to_search.append(col)
-                
+
                 for col in cols_to_search:
                     try:
-                        dtype = column_types.get(col)
-                        if dtype == "list":
-                            # Lists are complex, fallback to standard object string casting
-                            mask = filtered_df[col].astype(str).str.lower().str.contains(term, regex=False, na=False)
-                        else:
-                            try:
-                                # Attempt fast PyArrow string engine
-                                col_str = filtered_df[col].astype("string[pyarrow]").str.lower()
-                                mask = col_str.str.contains(term, regex=False, na=False)
-                            except:
-                                # Fallback if PyArrow string conversion fails
-                                mask = filtered_df[col].astype(str).str.lower().str.contains(term, regex=False, na=False)
-                                
+                        mask = _searchable_series(col).str.contains(
+                            term, case=False, regex=False, na=False)
                         term_mask |= mask
-                    except:
+                    except Exception:
                         continue
                 final_mask &= term_mask
             
