@@ -30,6 +30,6 @@ fields = "The Gemini output fields, in prompt/schema order. Everything except 'n
 "fields.min" = "Lower bound for a number field. With max, lets the generic numeric recode rescale the value to 0-1."
 "fields.max" = "Upper bound for a number field."
 "fields.keys" = """Sub-keys for an object field. Each value is either a compact spec string — 'enum:NAME' (closed set), 'list: <desc>' (array of strings), 'int(lo,hi): <desc>' or 'int: <desc>' (integer, optional bounds), or plain text (a string sub-key whose description is the text) — or an inline table { spec = "...", role = "...", scale = "...", display_name = "..." } that also carries var_schema metadata. Sub-keys flatten to '<field>_<key>' columns."""
-"fields.role" = "How the recoded column is used: '(default)' = a plain variable, 'feature' = offered in Correlations, 'skip' = dropped from the recoded output. Metadata-only: doesn't change the annotation version."
+"fields.role" = "How the recoded column is used: '(default)' = a plain variable, 'measure' = offered in Correlations, 'skip' = dropped from the recoded output. Metadata-only: doesn't change the annotation version."
 "fields.scale" = "How the column is recoded ('categorical' / 'list' / 'numeric' / 'text'). Inferred from the field's shape; only a free-text field must choose — 'categorical' for short labels (cleaned like a value list), 'text' for long prose (kept as-is). Metadata-only."
 "fields.display_name" = "Human-readable name shown across the web UI. Metadata-only."

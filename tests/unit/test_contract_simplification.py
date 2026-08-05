@@ -126,14 +126,20 @@ def test_metadata_identical_to_pre_migration():
     role and scale feed the var_schema semantic hash — any drift here would
     invalidate every cached study parquet. description is expected to differ:
     the migration retired the separate web-UI description, falling back to the
-    prompt desc.
+    prompt desc. Roles compare modulo LEGACY_ROLE_ALIASES: the fixture is a
+    frozen pre-rename snapshot ("feature"), and the 2026-08 vocabulary rename
+    ("measure") was a deliberate, hash-versioned change (v3).
     """
+    from fyp.recode_variables import normalize_role
+
     old = json.loads(METADATA_V1.read_text(encoding="utf-8"))
     new = ac.contract_column_metadata(_baked_contract())
     assert sorted(old) == sorted(new)
     for col, meta in old.items():
-        for key in ("role", "scale", "display_name"):
+        for key in ("scale", "display_name"):
             assert new[col].get(key) == meta.get(key), f"{col}.{key} drifted"
+        assert normalize_role(new[col].get("role")) == normalize_role(meta.get("role")), \
+            f"{col}.role drifted"
         assert new[col].get("description")  # falls back to desc, never empty
 
 

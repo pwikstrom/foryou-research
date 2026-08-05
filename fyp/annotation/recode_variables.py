@@ -218,10 +218,30 @@ SEMANTIC_COLUMNS = (
     "accepted_labels",
 )
 
-VAR_SCHEMA_HASH_VERSION = "v2"
+VAR_SCHEMA_HASH_VERSION = "v3"
 
 
-VAR_SCHEMA_ROLES = ("factor", "feature", "group_factor", "skip")
+# Analysis roles, keyed to the Correlations tab's unit of analysis (the
+# collection-day group):
+#   grouping   — defines the unit (collection_id, local_date)
+#   comparison — group-constant categorical compared across in the
+#                Group-differences sweep (ANOVA/PERMANOVA) and Colour-by
+#   measure    — per-item property aggregated to a group-level quantity
+#                (numeric -> day mean; categorical -> PCA components/entropy)
+#   descriptor — group-constant context offered for Colour-by only,
+#                excluded from the comparison sweep
+#   skip       — hidden from analysis and recoding
+VAR_SCHEMA_ROLES = ("grouping", "comparison", "measure", "descriptor", "skip")
+
+# Pre-2026-08 role vocabulary. Contract TOMLs are rewritten, but legacy
+# registry field_metadata snapshots keep the old strings on disk forever;
+# load_var_schema() normalizes every role through this map so downstream
+# matchers only ever see the new values.
+LEGACY_ROLE_ALIASES = {
+    "group_factor": "grouping",
+    "factor": "comparison",
+    "feature": "measure",
+}
 VAR_SCHEMA_SCALES = (
     "categorical",
     "datetime",
@@ -601,18 +621,55 @@ def compute_var_schema_hash() -> str:
 
 
 
-def get_factors_and_features_from_var_schema(some_events_df = None, verbose = False):
+def normalize_role(value):
+    """Map a legacy role string to its current name (identity for new values)."""
+    return LEGACY_ROLE_ALIASES.get(value, value)
 
+
+
+
+
+
+def get_vars_by_role(roles: tuple, some_events_df: pd.DataFrame = None, verbose: bool = False) -> list:
+    """Return the sorted variable names whose (normalized) role is in ``roles``.
+
+    Args:
+        roles: Role values to select, from ``VAR_SCHEMA_ROLES``.
+        some_events_df: When given, restrict to columns present in this frame.
+        verbose: Log the selection.
+
+    Returns:
+        Sorted unique variable names.
+    """
     if "var_schema" not in _cf() or _cf()["var_schema"].empty:
-        return [], []
+        return []
 
     var_schema = _cf()["var_schema"]
-
-    the_factors = sorted(list(set(var_schema[var_schema["role"].isin(['factor','group_factor'])].variable_name)))
-    the_features = sorted(list(set(var_schema[var_schema["role"]=='feature'].variable_name)))
+    normalized = var_schema["role"].map(normalize_role)
+    the_vars = sorted(set(var_schema[normalized.isin(roles)].variable_name))
     if some_events_df is not None:
-        the_factors = [c for c in the_factors if c in some_events_df.columns]
-        the_features = [c for c in the_features if c in some_events_df.columns]
+        the_vars = [c for c in the_vars if c in some_events_df.columns]
+
+    if verbose and the_vars:
+        logger.info(f"    Role {'/'.join(roles)}: {', '.join(the_vars)}")
+
+    return the_vars
+
+
+
+
+
+
+def get_factors_and_features_from_var_schema(some_events_df = None, verbose = False):
+    """Legacy wrapper: (colourable/groupable vars, measures).
+
+    "Factors" here = grouping + comparison + descriptor variables — every
+    group-constant column carried alongside the PCA frame. Descriptors ride
+    along for Colour-by; the Group-differences sweep narrows to role
+    "comparison" itself via get_vars_by_role.
+    """
+    the_factors = get_vars_by_role(("grouping", "comparison", "descriptor"), some_events_df)
+    the_features = get_vars_by_role(("measure",), some_events_df)
 
     if verbose and len(the_factors) > 0:
         logger.info(f"    Factors: {', '.join(the_factors)}")
@@ -625,15 +682,8 @@ def get_factors_and_features_from_var_schema(some_events_df = None, verbose = Fa
 
 def get_grouping_factors_from_var_schema(some_events_df = None, verbose = False):
 
-    if "var_schema" not in _cf() or _cf()["var_schema"].empty:
-        return []
+    the_grouping_factors = get_vars_by_role(("grouping",), some_events_df)
 
-    var_schema = _cf()["var_schema"]
-
-    the_grouping_factors = sorted(list(set(var_schema[var_schema["role"]=='group_factor'].variable_name)))
-    if some_events_df is not None:
-        the_grouping_factors = [c for c in the_grouping_factors if c in some_events_df.columns]
-    
     if verbose  and len(the_grouping_factors) > 0:
         logger.info(f"    Grouping Factors: {', '.join(the_grouping_factors)}")
 

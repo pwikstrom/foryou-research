@@ -122,14 +122,14 @@ def test_promoted_roles_reach_var_schema():
     from fyp.fyp_config import fyp_cf
 
     vs = fyp_cf["var_schema"].set_index("variable_name")
-    assert vs.at["political_score", "role"] == "feature"
-    assert vs.at["sensitivity_score", "role"] == "feature"
-    assert vs.at["duration", "role"] == "feature"
-    assert vs.at["plays_per_day", "role"] == "feature"
-    assert vs.at["days_since_created", "role"] == "feature"
-    assert vs.at["engaged", "role"] == "feature"
-    assert vs.at["rewatched", "role"] == "feature"
-    assert vs.at["is_weekend", "role"] == "factor"
+    assert vs.at["political_score", "role"] == "measure"
+    assert vs.at["sensitivity_score", "role"] == "measure"
+    assert vs.at["duration", "role"] == "measure"
+    assert vs.at["plays_per_day", "role"] == "measure"
+    assert vs.at["days_since_created", "role"] == "measure"
+    assert vs.at["engaged", "role"] == "measure"
+    assert vs.at["rewatched", "role"] == "measure"
+    assert vs.at["is_weekend", "role"] == "comparison"
     # local_hour is circular and local_day_segment varies within a
     # collection-day group — both deliberately role-free; videos_watched is
     # group-level (offered by the tab from the PCA frame, no row role).

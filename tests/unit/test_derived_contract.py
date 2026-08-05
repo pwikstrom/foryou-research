@@ -30,8 +30,8 @@ def test_owns_the_calc_and_niche_columns() -> None:
     meta = dc.contract_column_metadata(contract)
     assert set(meta) == _EXPECTED, set(meta) ^ _EXPECTED
     assert "plays_per_day" not in meta                       # scrape-owned
-    assert meta["completion_rate"]["role"] == "feature"
-    assert meta["niche_name"]["role"] == "feature"
+    assert meta["completion_rate"]["role"] == "measure"
+    assert meta["niche_name"]["role"] == "measure"
     assert meta["niche"]["role"] == "skip" and meta["niche"]["scale"] == "raw"
     assert meta["scraped_fail"]["role"] == "skip"
     # recode fan-out of desc + the status-flag family

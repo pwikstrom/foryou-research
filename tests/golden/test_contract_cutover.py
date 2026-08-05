@@ -155,8 +155,9 @@ def test_factor_feature_selection_ignores_dropped_columns() -> None:
     dropped field never gets referenced downstream (this is what protects PCA /
     study recoding from the reduced new-contract column set)."""
     vs = fyp_cf["var_schema"]
-    feat_names = sorted(vs[vs["role"] == "feature"]["variable_name"].dropna().astype(str).tolist())
-    assert feat_names, "var_schema has no 'feature' rows; fixture assumption broken"
+    # "measure" is the post-2026-08 name of the old "feature" role.
+    feat_names = sorted(vs[vs["role"] == "measure"]["variable_name"].dropna().astype(str).tolist())
+    assert feat_names, "var_schema has no 'measure' rows; fixture assumption broken"
 
     present = feat_names[0]
     # A frame that carries the first feature but NONE of the others.

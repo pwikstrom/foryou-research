@@ -175,11 +175,13 @@
         return html + "</select>";
     }
 
-    // The only roles annotation fields use ('factor'/'group_factor' belong to the
-    // activity contract) — plain-language labels for the Advanced row.
+    // The only roles annotation fields use ('comparison'/'grouping'/'descriptor'
+    // belong to the activity/derived contracts) — plain-language labels for the
+    // Advanced row. Legacy values (e.g. 'feature') in older uploaded contracts
+    // are preserved by the unknown-value fallback in _labelSelect.
     const ROLE_OPTIONS = [
         ["", "(default)"],
-        ["feature", "Correlations feature"],
+        ["measure", "Measure (offered in Correlations)"],
         ["skip", "Skip recoding"],
     ];
 
