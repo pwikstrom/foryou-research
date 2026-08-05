@@ -18,6 +18,7 @@ from ..data_service import (
     enrich_with_user_tags,
     get_explorer_data,
     get_explorer_rows,
+    get_study_col_types,
     invalidate_user_json_cache,
     load_display_id_map,
     load_shared_tags,
@@ -57,21 +58,25 @@ _IDS_BASE_COLUMNS = (
 )
 
 
-def _ids_columns(filters, search_query):
+def _ids_columns(filters, search_query, full_col_types=None):
     """Columns ``api_viewer_ids`` needs for this request, or None for all.
 
-    Returns None when a free-text search is active: search sweeps every
-    category/long_text/list column in the frame, so projecting would silently
-    narrow what the query matches. Otherwise the set is fully determined by the
-    active filters, and projecting keeps the per-request copy of a
-    multi-million-row study small.
+    The set is fully determined by the active filters, and — when a free-text
+    search is active — the columns the search sweeps (every
+    category/long_text/list column, plus numbers for numeric terms; mirrors
+    ``filter_dataframe``'s Global Search block via ``explorer.search_columns``).
+    Projecting keeps the per-request copy of a multi-million-row study small.
+    Falls back to the full width only when a search is active but the study's
+    column types are unavailable.
     """
-    if search_query:
-        return None
     wanted = list(_IDS_BASE_COLUMNS)
     for col in (filters or {}):
         # 'Collection Tags' is a virtual filter resolved against collection_id.
         wanted.append("collection_id" if col == "Collection Tags" else col)
+    if search_query:
+        if not full_col_types:
+            return None
+        wanted.extend(explorer.search_columns(full_col_types, search_query))
     return tuple(dict.fromkeys(wanted))
 
 
@@ -91,8 +96,13 @@ def api_viewer_ids():
     filters = data.get("filters", {})
     search_query = data.get("search_query")
 
+    # The searchable-column set needs the study's full column types; the frame
+    # is warmed by the same call, so a subsequent projected fetch is free.
+    full_col_types = get_study_col_types(study) if search_query else None
     df, col_types = get_explorer_data(
-        study, context="viewer", columns=_ids_columns(filters, search_query),
+        study, context="viewer",
+        columns=_ids_columns(filters, search_query,
+                             full_col_types=full_col_types),
     )
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404

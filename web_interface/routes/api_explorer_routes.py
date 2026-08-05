@@ -19,11 +19,13 @@ from ..data_service import (
     get_accessible_studies,
     get_collection_tags,
     get_explorer_data,
+    get_study_col_types,
     get_study_collections,
     load_display_id_map,
     load_schema_metadata,
     load_shared_tags,
     make_serializable,
+    search_column_value_counts,
 )
 from ..permissions import permission_required
 from ..security import user_manager
@@ -455,6 +457,66 @@ def api_explorer_metadata_base():
         }), 503
 
 
+# Frame-independent virtual/dynamic filter columns: their values are per-user
+# or token-enumerated, never capped in the dropdown, so value search does not
+# apply to them.
+_VALUE_SEARCH_EXCLUDED_COLUMNS = {
+    'extra_data', 'Collection Tags', 'User Tags',
+    'Has Annotation', 'Machine Annotations',
+}
+
+
+@explorer_bp.route('/api/explore/values/search', methods=['GET'])
+@permission_required('tab.explore', 'tab.video_analysis')
+def api_explorer_value_search():
+    """Search ALL values of one categorical/list column, tail included.
+
+    The dropdown metadata only persists the top-200 count>1 values; this
+    endpoint scans the live column (through a per-(study, column) counts
+    cache), so out-of-top-200 and single-occurrence values — e.g. an author
+    with one video — are reachable. Case-insensitive substring match; commas
+    are treated literally (values may contain them), unlike the global
+    search's comma-term syntax.
+    """
+    study = request.args.get('study')
+    column = request.args.get('column')
+    q = (request.args.get('q') or '').strip()
+    if not study or not column:
+        return jsonify({"error": "study and column are required"}), 400
+    if len(q) < 2:
+        return jsonify({"error": "Query must be at least 2 characters"}), 400
+    try:
+        limit = min(max(int(request.args.get('limit', 50)), 1), 200)
+    except (TypeError, ValueError):
+        limit = 50
+
+    denied = study_access_error(study)
+    if denied is not None:
+        return denied
+
+    if column in _VALUE_SEARCH_EXCLUDED_COLUMNS:
+        return jsonify({"error": "Column is not value-searchable"}), 400
+
+    entry = search_column_value_counts(study, column)
+    if entry is None:
+        return jsonify({"error": "Column not found or not searchable"}), 404
+
+    mask = entry['lowered'].str.contains(q.lower(), regex=False, na=False)
+    matched_idx = mask[mask].index
+    matches = [{"value": entry['values'][i], "count": entry['counts'][i]}
+               for i in matched_idx[:limit]]
+    total_matches = int(len(matched_idx))
+    return jsonify({
+        "column": column,
+        "type": entry['type'],
+        "query": q,
+        "matches": matches,
+        "total_matches": total_matches,
+        "truncated": total_matches > limit,
+        "limit": limit,
+    })
+
+
 @explorer_bp.route('/api/explore/metadata/overlay', methods=['GET'])
 @permission_required('tab.explore', 'tab.video_analysis')
 def api_explorer_metadata_overlay():
@@ -816,7 +878,7 @@ def _viz_stats_col_types(col_types, user_settings):
     return {k: v for k, v in col_types.items() if k in keep}
 
 
-def _filter_request_columns(data, user_settings):
+def _filter_request_columns(data, user_settings, full_col_types=None):
     """Column projection for one /api/explore/filter request, or None for all.
 
     filter_dataframe's boolean mask materialises every column it is handed —
@@ -824,12 +886,11 @@ def _filter_request_columns(data, user_settings):
     request, dwarfing the stats compute itself. The endpoint only reads the
     user's effective viz set (what get_current_stats runs over), the columns
     the active filters touch, and the enrichment sources — so project to
-    those. A free-text search sweeps every category/long_text/list column and
-    falls back to the full width.
+    those. A free-text search additionally sweeps every searchable
+    (category/long_text/list, plus numbers for numeric terms) column, so
+    those are added rather than falling back to the full width — identifiers
+    and unsearched wide columns still stay out of the per-request copy.
     """
-    if data.get("search_query") or data.get("search_query2"):
-        return None
-
     schema_meta = load_schema_metadata({})
     global_viz = schema_meta.get('viz_priority') or []
     if not global_viz:
@@ -845,6 +906,12 @@ def _filter_request_columns(data, user_settings):
     for fdict in (data.get("filters"), data.get("filters2")):
         for col in (fdict or {}):
             wanted.add("collection_id" if col == "Collection Tags" else col)
+
+    if data.get("search_query") or data.get("search_query2"):
+        if not full_col_types:
+            return None
+        wanted |= explorer.search_columns(
+            full_col_types, data.get("search_query"), data.get("search_query2"))
     return tuple(wanted)
 
 
@@ -861,9 +928,16 @@ def api_explorer_filter():
     if denied is not None:
         return denied
 
+    # The searchable-column set needs the study's full column types; the frame
+    # is warmed by the same call, so a subsequent projected fetch is free.
+    full_col_types = (
+        get_study_col_types(study)
+        if (data.get("search_query") or data.get("search_query2")) else None
+    )
     df, col_types = get_explorer_data(
         study, context="explorer",
-        columns=_filter_request_columns(data, current_user.settings),
+        columns=_filter_request_columns(data, current_user.settings,
+                                        full_col_types=full_col_types),
     )
     if df is None:
         return jsonify({"error": "Dataset not found"}), 404

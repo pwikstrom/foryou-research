@@ -21,6 +21,7 @@ _STUDY_ENDPOINTS = [
     ("GET", "/api/explore/metadata/overlay?study=secret", None),
     ("GET", "/api/explore/metadata?study=secret", None),
     ("POST", "/api/explore/filter", {"study": "secret"}),
+    ("GET", "/api/explore/values/search?study=secret&column=author_handle&q=ab", None),
     ("POST", "/api/video_analysis/ids", {"study": "secret"}),
     ("GET", "/api/video_analysis/item/secret/12345", None),
     ("GET", "/api/video/secret/12345", None),
@@ -126,7 +127,7 @@ def test_inaccessible_study_is_403(client, monkeypatch):
     study_scoped = [e for e in _STUDY_ENDPOINTS
                     if ("secret" in e[1] or (e[2] or {}).get("study") == "secret")
                     and not e[1].startswith("/api/timelines/")]
-    assert len(study_scoped) == 7
+    assert len(study_scoped) == 8
     for method, path, payload in study_scoped:
         res = _request(client, method, path, payload)
         assert res.status_code == 403, path

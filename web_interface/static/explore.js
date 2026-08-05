@@ -683,6 +683,26 @@ function renderFilterColumnV2(col, metadata, sliceId) {
                 }
 
                 wrapper.appendChild(listContainer);
+
+                // Capped dropdown: add the value-search box so out-of-top-200
+                // (and single-occurrence) values stay reachable.
+                if (typeof attachFilterValueSearch === 'function'
+                        && info.total_unique && info.total_unique > info.values.length) {
+                    attachFilterValueSearch({
+                        wrapper, listContainer,
+                        column: col,
+                        getStudy: () => explorerDataV2.activeStudy,
+                        isChecked: (v) => {
+                            const f = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
+                            return !!(f[col] && Array.isArray(f[col].value) && f[col].value.includes(v));
+                        },
+                        onSelectionChanged: () => {
+                            const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
+                            setFilterV2(sliceId, col, info.type, 'list', checked);
+                        },
+                        totalUnique: info.total_unique,
+                    });
+                }
             }
 
     return wrapper;

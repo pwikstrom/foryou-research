@@ -2555,6 +2555,36 @@ button.meta-tooltip:disabled {
     border-color: var(--color-text-muted);
 }
 
+/* ── Per-variable value search (capped filter dropdowns) ── */
+.filter-value-search-wrap {
+    margin: 4px 0;
+}
+.filter-value-search {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    padding: 3px 6px;
+}
+.filter-value-search::placeholder {
+    color: var(--color-text-faint);
+}
+.filter-value-search-status {
+    color: var(--color-text-faint);
+    padding: 2px 2px 0;
+}
+.filter-checkbox-item--pinned {
+    border-left: 2px solid var(--color-accent);
+    padding-left: 3px;
+}
+/* Hides items whose inline display:flex would defeat the hidden attribute. */
+.fvs-hidden {
+    display: none !important;
+}
+
 
 /* ── Explore chart drill-down affordance ── */
 #explorer-v2-stats .js-plotly-plot .bars .point path,
