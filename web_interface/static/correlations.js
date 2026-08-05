@@ -1157,6 +1157,17 @@ function renderGroupStats(data) {
 }
 
 
+// Cohen bands, matching fyp/analysis/stats.py ETA2_THRESHOLDS. Applied to
+// omega-squared here so the label always describes the number quoted beside it.
+function varianceMagnitude(value) {
+    if (value === null || value === undefined || !isFinite(value)) return null;
+    if (value < 0.01) return 'negligible';
+    if (value < 0.06) return 'small';
+    if (value < 0.14) return 'medium';
+    return 'large';
+}
+
+
 function renderGroupStatsCaption(anova, perma, schemaMap) {
     const dname = (c) => (schemaMap[c] && schemaMap[c].display_name) ? schemaMap[c].display_name : c;
     const parts = [];
@@ -1164,12 +1175,19 @@ function renderGroupStatsCaption(anova, perma, schemaMap) {
     if (anova.length) {
         parts.push(`${sigAnova.length} of ${anova.length} factor × component tests are ` +
             `significant after correction (q < .05).`);
-        const top = sigAnova[0] || anova[0];
-        if (top && top.eta2 !== null && top.eta2 !== undefined) {
+        // Headline on omega-squared, not eta-squared: eta-squared is inflated by
+        // the number of factor levels, so a 26-week factor would otherwise
+        // outrank a genuinely larger 2-level effect.
+        const hasOmega = (r) => r && r.omega2 !== null && r.omega2 !== undefined && isFinite(r.omega2);
+        const pool = (sigAnova.length ? sigAnova : anova).filter(hasOmega);
+        const top = pool.length
+            ? pool.reduce((best, r) => (r.omega2 > best.omega2 ? r : best))
+            : null;
+        if (top && top.omega2 > 0) {
             parts.push(`Largest effect: <b>${escapeHtml(dname(top.factor))}</b> explains ` +
-                `${(top.eta2 * 100).toFixed(0)}% of the variation in ` +
-                `<b>${escapeHtml(dname(top.component))}</b> (a ${top.magnitude} effect, ` +
-                `${formatP(top.q)} after correction).`);
+                `${(top.omega2 * 100).toFixed(0)}% of the variation in ` +
+                `<b>${escapeHtml(dname(top.component))}</b> ` +
+                `(a ${varianceMagnitude(top.omega2)} effect, ${formatP(top.q)} after correction).`);
         }
     }
     const sigPerma = perma.filter(r => r.q !== null && r.q !== undefined && r.q < 0.05);
@@ -1180,10 +1198,12 @@ function renderGroupStatsCaption(anova, perma, schemaMap) {
     } else if (perma.length) {
         parts.push('No variable family shows a significant whole-profile difference after correction.');
     }
-    parts.push('<span class="text-xs">η² = share of a component\'s variance explained by the factor ' +
-        '(.01 small, .06 medium, .14 large). KW q = rank-based Kruskal–Wallis check — trust it ' +
-        'over the ANOVA q when groups are small or skewed. PERMANOVA compares each variable\'s ' +
-        'whole component profile, never mixing different variables\' PCA bases.</span>');
+    parts.push('<span class="text-xs">Effects are quoted as ω², the share of a component\'s ' +
+        'variance explained by the factor (.01 small, .06 medium, .14 large). ω² rather than η² ' +
+        'because η² grows with the number of factor levels, which would flatter a 26-week factor ' +
+        'over a 2-collection one. KW q = rank-based Kruskal–Wallis check — trust it over the ANOVA ' +
+        'q when groups are small or skewed. PERMANOVA compares each variable\'s whole component ' +
+        'profile, never mixing different variables\' PCA bases.</span>');
     setCaption(parts.join(' '));
 }
 
