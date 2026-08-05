@@ -347,6 +347,12 @@ permanova_permutations = 999
 # per-collection regression slopes.
 independence_warning_collections = 10
 
+# When the scatter has a colour split with at most this many series, the
+# Regression toggle also draws each series' own line (fitted on the full
+# data; legend show/hide toggles a series' line together with its dots).
+# Above the cap, only the pooled whole-study line is drawn.
+max_regression_series = 12
+
 
 
 ##########################################################################################

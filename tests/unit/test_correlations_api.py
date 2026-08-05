@@ -636,6 +636,22 @@ def test_scatter_payload_stats_and_ellipses(client, monkeypatch):
         assert slopes[coll]["slope"] == pytest.approx(float(expected.slope))
         assert slopes[coll]["n"] == 3
 
+    # Per-group regressions (colour split = collection_id here): full stats
+    # incl. intercept per series, matching scipy per group.
+    regs = {r["group"]: r for r in payload["per_group_regressions"]}
+    assert set(regs) == {"a", "b"}
+    for coll in ("a", "b"):
+        sub = df[df["collection_id"] == coll]
+        expected = scipy_stats.linregress(sub["x"], sub["y"])
+        assert regs[coll]["slope"] == pytest.approx(float(expected.slope))
+        assert regs[coll]["intercept"] == pytest.approx(float(expected.intercept))
+        assert regs[coll]["n"] == 3
+
+    # No colour split -> no per-group regressions.
+    res_nc = client.post("/api/correlations/data", json={
+        "study": "mystudy", "x_col": "x", "y_col": "y"})
+    assert res_nc.get_json()["per_group_regressions"] == []
+
     # Slopes are invariant to within-collection centering.
     res_c = client.post("/api/correlations/data", json={
         "study": "mystudy", "x_col": "x", "y_col": "y",
@@ -678,3 +694,23 @@ def test_group_stats_endpoint(client, monkeypatch):
     monkeypatch.setattr("web_interface.routes._access.get_accessible_studies", lambda *a, **k: [])
     res = client.post("/api/correlations/group_stats", json={"study": "mystudy"})
     assert res.status_code == 403
+
+
+def test_per_group_regressions_series_cap(monkeypatch):
+    """More series than max_regression_series -> no per-group lines."""
+    import numpy as np
+    from web_interface.services import correlations_service as cs
+
+    rng = np.random.RandomState(3)
+    n_series = 13  # config default cap is 12
+    df = pd.DataFrame({
+        "x": rng.normal(size=n_series * 4),
+        "y": rng.normal(size=n_series * 4),
+        "collection_id": [f"c{i}" for i in range(n_series) for _ in range(4)],
+    })
+    assert cs.compute_per_group_regressions(df, "x", "y", "collection_id") == []
+    small = df[df["collection_id"].isin([f"c{i}" for i in range(3)])]
+    out = cs.compute_per_group_regressions(small, "x", "y", "collection_id")
+    assert [r["group"] for r in out] == ["c0", "c1", "c2"]
+    assert cs.compute_per_group_regressions(small, "x", "y", None) == []
+

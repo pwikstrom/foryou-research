@@ -514,6 +514,7 @@ function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
                 y: ellipseY,
                 mode: 'lines',
                 name: `${gName} (95% ellipse, n=${e.n})`,
+                legendgroup: gName,
                 showlegend: false,
                 line: { width: 1, color: color },
                 fill: 'toself',
@@ -524,7 +525,8 @@ function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
         });
     }
 
-    // Scatter traces
+    // Scatter traces. Each series is its own legendgroup, so its ellipse and
+    // per-series regression line show/hide together with the dots.
     groupsKeys.forEach((g, i) => {
         const color = colors[i % colors.length];
         traces.push({
@@ -533,6 +535,7 @@ function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
             mode: 'markers',
             type: 'scatter',
             name: g,
+            legendgroup: g,
             text: groups[g].text,
             customdata: groups[g].factors,
             hoverinfo: 'text',
@@ -668,6 +671,32 @@ function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
             });
         }
 
+        // Per-series lines (server-fitted on the FULL data per colour group).
+        // Sharing the series' legendgroup makes the legend toggle an honest
+        // per-series filter: hiding a series hides its line, and no statistic
+        // is ever re-fitted to the visible subset (the pooled line above
+        // always describes the whole study — see the guide §3/§4.2).
+        (payload.per_group_regressions || []).forEach(r => {
+            const gName = (colorLabel === 'collection_id' && displayIds[r.group])
+                ? displayIds[r.group] : r.group;
+            const gi = groupsKeys.indexOf(gName);
+            if (gi < 0) return; // series absent from the display sample
+            const gx = groups[gName].x;
+            const gMin = Math.min(...gx), gMax = Math.max(...gx);
+            if (!isFinite(gMin) || !isFinite(gMax) || gMin === gMax) return;
+            traces.push({
+                x: [gMin, gMax],
+                y: [r.slope * gMin + r.intercept, r.slope * gMax + r.intercept],
+                mode: 'lines',
+                type: 'scatter',
+                name: `${gName}: slope ${r.slope.toFixed(2)} (n=${r.n})`,
+                legendgroup: gName,
+                showlegend: false,
+                line: { color: colors[gi % colors.length], width: 1.5, dash: 'dot' },
+                hoverinfo: 'name'
+            });
+        });
+
         const s = serverStats;
         const readout = [
             `R² = ${s.r2.toFixed(2)}`,
@@ -688,7 +717,7 @@ function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
         });
     }
 
-    renderScatterCaption(serverStats, xTitle, yTitle, isCentered, showStats, payload);
+    renderScatterCaption(serverStats, xTitle, yTitle, isCentered, showStats, payload, colorLabel);
 
     Plotly.newPlot('pca-plot', traces, layout, { responsive: true, displayModeBar: true });
 
@@ -1376,7 +1405,7 @@ function independenceCaveat() {
 
 // --- Scatter caption (plain-language summary of the server statistics) ---
 
-function renderScatterCaption(stats, xTitle, yTitle, isCentered, showStats, payload) {
+function renderScatterCaption(stats, xTitle, yTitle, isCentered, showStats, payload, colorLabel) {
     if (!showStats) {
         setCaption('');
         return;
@@ -1400,16 +1429,29 @@ function renderScatterCaption(stats, xTitle, yTitle, isCentered, showStats, payl
         parts.push('<span class="corr-caption-warning">Small sample — fewer than 30 groups; ' +
             'interpret with caution.</span>');
     }
-    // Below the collection threshold, complement the pooled slope with each
-    // collection's own: agreeing slopes back the pooled claim, disagreeing
-    // ones expose it as a mixture. Display names come from the anonymised map.
+    // Per-series slopes complement the pooled line: agreeing slopes back the
+    // pooled claim, disagreeing ones expose it as a mixture. With a colour
+    // split active, list every series (matching the drawn per-series lines);
+    // otherwise fall back to per-collection slopes under the small-study
+    // caveat. Display names come from the anonymised map.
     const caveat = independenceCaveat();
-    const slopes = payload?.per_collection_slopes || [];
-    if (caveat && slopes.length > 1) {
-        const displayMap = pcaData.metadata?.display_ids || {};
-        const label = (cid) => displayMap[cid] || cid;
-        const items = slopes.map(s =>
-            `${escapeHtml(label(s.collection_id))} ${s.slope.toFixed(2)} (n=${s.n})`);
+    const displayMap = pcaData.metadata?.display_ids || {};
+    const seriesRegs = payload?.per_group_regressions || [];
+    const collSlopes = payload?.per_collection_slopes || [];
+    if (seriesRegs.length > 1) {
+        const label = (g) => (colorLabel === 'collection_id' && displayMap[g]) ? displayMap[g] : g;
+        const items = seriesRegs.map(r =>
+            `${escapeHtml(label(r.group))} ${r.slope.toFixed(2)} (n=${r.n})`);
+        parts.push(`Per-series slopes: ${items.join('; ')} — if these disagree, ` +
+            `the pooled line mixes different relationships.`);
+        parts.push('<span class="text-xs">Each series\' dotted line is fitted on the ' +
+            'full data for that series; use the legend to show or hide series and ' +
+            'their lines. The pooled line and readout always describe all groups, ' +
+            'including any series hidden via the legend — they are never re-fitted ' +
+            'to the visible subset.</span>');
+    } else if (caveat && collSlopes.length > 1) {
+        const items = collSlopes.map(s =>
+            `${escapeHtml(displayMap[s.collection_id] || s.collection_id)} ${s.slope.toFixed(2)} (n=${s.n})`);
         parts.push(`Per-collection slopes: ${items.join('; ')} — if these disagree, ` +
             `the pooled line mixes different relationships.`);
     }

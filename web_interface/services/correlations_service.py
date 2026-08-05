@@ -50,6 +50,7 @@ _CORR_DEFAULTS = {
     "minimum_group_size": 10,
     "permanova_permutations": 999,
     "independence_warning_collections": 10,
+    "max_regression_series": 12,
 }
 
 # Per-group video count written by the PCA worker (see fyp.analysis.pca).
@@ -350,6 +351,55 @@ def compute_per_collection_slopes(df: pd.DataFrame, x_col: str, y_col: str) -> l
 
 
 
+def compute_per_group_regressions(df: pd.DataFrame, x_col: str, y_col: str,
+                                  color_col: str | None) -> list[dict]:
+    """Per-colour-group regression lines for the scatter's Regression toggle.
+
+    One entry per colour group, fitted on the FULL filtered frame (never the
+    display sample) — so a series' line is a stable quantity, and Plotly's
+    legend show/hide acts as an honest per-series filter: hiding a series
+    hides its line without any number changing. Deliberately carries no
+    per-series p-values (a family of uncorrected p's across series is the
+    multiple-testing trap the tab avoids); slope and n are the reading.
+
+    Empty when there is no colour split or when the colour variable has more
+    series than ``[correlations].max_regression_series`` (line spaghetti).
+
+    Args:
+        df: The scatter frame (post axis-dropna, post optional centering).
+        x_col: X-axis column.
+        y_col: Y-axis column.
+        color_col: The active colour column, or None.
+
+    Returns:
+        ``[{"group", "slope", "intercept", "n"}]`` sorted by group.
+    """
+    if not color_col or color_col not in df.columns:
+        return []
+    groups = df[color_col].astype(str)
+    if groups.nunique(dropna=True) > int(corr_setting("max_regression_series")):
+        return []
+    out = []
+    for group, sub in df.groupby(groups.values):
+        x = pd.to_numeric(sub[x_col], errors='coerce').astype('float64')
+        y = pd.to_numeric(sub[y_col], errors='coerce').astype('float64')
+        mask = x.notna() & y.notna()
+        stats = compute_regression_stats(x[mask].to_numpy(), y[mask].to_numpy())
+        if stats is None:
+            continue
+        out.append({
+            "group": str(group),
+            "slope": stats["slope"],
+            "intercept": stats["intercept"],
+            "n": stats["n"],
+        })
+    return sorted(out, key=lambda r: r["group"])
+
+
+
+
+
+
 def pairwise_correlation_stats(numeric_df: pd.DataFrame, method: str):
     """Pairwise-complete correlation matrix with n, p and BH-adjusted q.
 
@@ -638,6 +688,8 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
     regression_stats = compute_regression_stats(filtered_df[x_col], filtered_df[y_col])
     group_ellipses = compute_group_ellipses(filtered_df, x_col, y_col, color_for_groups)
     per_collection_slopes = compute_per_collection_slopes(filtered_df, x_col, y_col)
+    per_group_regressions = compute_per_group_regressions(
+        filtered_df, x_col, y_col, color_for_groups)
 
     # Deterministic sample so the same request always shows the same points
     max_points = int(corr_setting("max_scatter_points"))
@@ -769,6 +821,7 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
         "total_count": total_count,
         "stats": regression_stats,
         "per_collection_slopes": per_collection_slopes,
+        "per_group_regressions": per_group_regressions,
         "group_ellipses": group_ellipses,
         "ellipse_coverage": ELLIPSE_COVERAGE,
         "centered": centered,
