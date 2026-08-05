@@ -129,15 +129,126 @@ function describeStrength(r) {
 
 
 function setCaption(html) {
-    const el = document.getElementById('corr-caption');
-    if (!el) return;
-    if (!html) {
-        el.style.display = 'none';
-        el.innerHTML = '';
-        return;
+    const textEl = document.getElementById('corr-caption-text');
+    if (!textEl) return;
+    textEl.innerHTML = html || '';
+    syncCaptionVisibility();
+}
+
+
+// --- Static per-view explainers ("What is this?") ---
+//
+// Longer plain-language copy for readers new to the tab, collapsed by default
+// behind the toggle link that follows the highlight text. The copy is static
+// on purpose: it describes the KINDS of variables and where the pipeline
+// produces them (contracts -> ingest/scrape/annotate -> recode), never a
+// specific variable name, so it stays true when the contracts change.
+const VIEW_EXPLAINERS = {
+    scatter:
+        '<p>Each dot is one <b>collection-day</b>: all the videos that one donated feed ' +
+        '(a “collection”) played on a single calendar day, averaged together. Days with too few ' +
+        'annotated videos are dropped, so every dot summarises a reasonable sample of videos. ' +
+        'Everything on this plot describes those day-averages — never an individual video.</p>' +
+        '<p>The axis variables are built from the day-averages in four ways. <b>Components</b> ' +
+        '(C0, C1, …) summarise how a day’s feed was spread across a categorical annotation: the ' +
+        'percentage says how much of the day-to-day variation that summary captures, and the small ' +
+        'labels at the ends of the axes name what each direction means — read them before ' +
+        'interpreting. <b>(entropy)</b> measures how diverse the day’s feed was on that variable ' +
+        '(low = concentrated, high = spread out). <b>(share of feed)</b> is the fraction of the ' +
+        'day’s videos answered “yes” for a yes/no annotation. The rest are plain day averages of ' +
+        'numeric properties. Most values are standardised (z-scores): 0 is an average day, ±1 is ' +
+        'one standard deviation — hover a dot for the raw values.</p>' +
+        '<p>The variables themselves come from the platform’s pipeline: what the account holder ' +
+        'did comes from the donated activity data, properties of the served videos come from ' +
+        'scraping, and content judgements come from AI annotation — each variable is declared in ' +
+        'the study’s data contracts, so the dropdown lists follow whatever the contracts currently ' +
+        'define.</p>' +
+        '<p><b>Regression</b> fits one straight line over every group in the study and reports its ' +
+        'strength (R²), slope and significance (p). <b>Ellipses</b> draw each colour group’s 95% ' +
+        'region — separated ellipses mean the groups occupy different parts of the plane. ' +
+        '<b>Within-collection</b> removes differences between collections first, so what remains ' +
+        'is day-to-day movement inside each feed. A pattern here is an association between ' +
+        'day-profiles — it does not show that one thing causes the other. Click any dot to ' +
+        'inspect the actual videos behind it.</p>',
+    heatmap:
+        '<p>Each cell is the correlation between two of the study’s variables, computed over the ' +
+        'same <b>collection-day</b> groups as the scatter plot (one donated feed’s videos on one ' +
+        'calendar day, averaged). It runs from −1 (blue: when one is high the other is low) ' +
+        'through 0 (no association) to +1 (red: they rise and fall together). Hover a cell for ' +
+        'the exact value, the number of groups behind it (n), the p-value and the q-value.</p>' +
+        '<p><b>Method:</b> Pearson measures straight-line association; Spearman ranks the values ' +
+        'first and is safer when a variable is skewed or has outliers. <b>p vs q:</b> the matrix ' +
+        'tests hundreds of pairs at once, so some would look “significant” by luck alone; the ' +
+        'q-value corrects for this, and <b>Hide n.s.</b> blanks every cell that does not survive ' +
+        'the correction — the cells left are the ones worth taking seriously.</p>' +
+        '<p>The variables are the same day-level summaries as on the scatter plot — components, ' +
+        'entropies, shares of feed and day averages — produced by the pipeline from donated ' +
+        'activity data, scraped video metadata and AI annotation, as declared in the study’s ' +
+        'data contracts. Thin separator lines group summaries of the same underlying variable: ' +
+        'cells inside one block are partly related by construction, so the scientifically ' +
+        'interesting cells usually cross a separator. Correlation here means day-profiles ' +
+        'co-vary — it is not causal, and it says nothing about individual videos. ' +
+        '<b>Download CSV</b> exports every pair for supplementary tables.</p>',
+    group_stats:
+        '<p>Both panels below compare the same <b>collection-day</b> groups as the scatter and ' +
+        'heatmap: each row summarises how one variable’s day-level values differ between groups ' +
+        'of days.</p>' +
+        '<p><b>Where the variables come from.</b> Every variable on this tab is declared in the ' +
+        'platform’s data contracts and produced by the pipeline: behavioural variables from the ' +
+        'donated activity data, video properties from scraping, and content judgements from AI ' +
+        'annotation. Each contract entry also assigns the variable a <i>role</i>: ' +
+        '<b>measures</b> (per-video properties whose day-level average is meaningful) become the ' +
+        'variable rows of these tables; <b>comparison</b> variables (categorical, constant across ' +
+        'a whole collection-day, with a few meaningful levels) become the groupings tested in the ' +
+        'second panel; and the collection identifier is the grouping key that defines the unit ' +
+        'and drives the first panel. The tables update automatically when the contracts change — ' +
+        'nothing on this page is a fixed variable list.</p>' +
+        '<p><b>Changing what you see.</b> These tables always show every measure and comparison ' +
+        'computed for the study (personal variable preferences and the Within-collection switch ' +
+        'apply to the scatter and heatmap, not here). Adding or removing a variable means ' +
+        'changing the contracts and re-running the pipeline — for example an admin adding an ' +
+        'annotation field and refreshing the study — and a new comparison likewise needs a ' +
+        'contract role, not a UI setting.</p>',
+};
+
+let _explainerOpen = false;
+
+
+function toggleCorrExplainer() {
+    _explainerOpen = !_explainerOpen;
+    applyExplainerState();
+    return false;
+}
+
+
+function applyExplainerState() {
+    const body = document.getElementById('corr-view-explainer');
+    const link = document.getElementById('corr-explainer-toggle');
+    if (!body || !link) return;
+    const copy = VIEW_EXPLAINERS[pcaData.currentView];
+    if (!copy) {
+        link.style.display = 'none';
+        body.style.display = 'none';
+    } else {
+        link.style.display = '';
+        link.textContent = _explainerOpen ? 'Hide explanation' : 'What is this?';
+        body.innerHTML = copy;
+        body.style.display = _explainerOpen ? 'block' : 'none';
     }
-    el.innerHTML = html;
-    el.style.display = 'block';
+    syncCaptionVisibility();
+}
+
+
+// The strip shows whenever there is a highlight text OR the current view has
+// explainer copy to offer (so the "What is this?" link is always reachable).
+function syncCaptionVisibility() {
+    const el = document.getElementById('corr-caption');
+    const textEl = document.getElementById('corr-caption-text');
+    if (!el || !textEl) return;
+    const hasText = !!textEl.innerHTML;
+    const hasCopy = !!VIEW_EXPLAINERS[pcaData.currentView];
+    textEl.style.display = hasText ? '' : 'none';
+    el.style.display = (hasText || hasCopy) ? 'block' : 'none';
 }
 
 
@@ -338,7 +449,17 @@ function renderPcaControls(data) {
 
 function setPcaView(view) {
     if (!VIEW_RENDERERS[view]) return;
+    const viewChanged = pcaData.currentView !== view;
     pcaData.currentView = view;
+
+    // Clear the plot area on a view change: Plotly.newPlot does not remove
+    // foreign HTML (the Group-differences tables), so without this the old
+    // view's headings stay visible under the next view's chart.
+    const plotDiv = document.getElementById('pca-plot');
+    if (viewChanged && plotDiv) {
+        if (typeof Plotly !== 'undefined') Plotly.purge(plotDiv);
+        plotDiv.innerHTML = '';
+    }
 
     // Highlight the active view button (buttons come from the manifest)
     const container = document.getElementById('pca-view-toggle');
@@ -358,7 +479,10 @@ function setPcaView(view) {
     if (heatmapControls) {
         heatmapControls.style.display = (view === 'heatmap') ? 'flex' : 'none';
     }
+    // Collapse the explainer when the view changes — its copy is per-view.
+    if (viewChanged) _explainerOpen = false;
     setCaption('');
+    applyExplainerState();
     applyCenteringAvailability();
 
     refreshCurrentView();
@@ -1050,10 +1174,12 @@ const GROUP_STATS_PANELS = [
     },
     {
         key: 'comparison',
-        title: 'Within-feed comparisons (blocked on collection)',
-        intro: 'Do days differ by these variables <i>inside the same feed</i>? Each test ' +
-            'removes collection-to-collection differences first (blocking), so effect ' +
-            'sizes are partial: the share of the <i>within-feed</i> variance the ' +
+        title: 'Within-feed comparisons (collection differences removed first)',
+        intro: 'Do days differ by these variables <i>inside the same feed</i>? Because feeds ' +
+            'differ so much from each other, each test first sets aside the differences ' +
+            'between collections — every collection acts as its own control — and then asks ' +
+            'whether the comparison explains any of the variation left <i>within</i> feeds. ' +
+            'Effect sizes are therefore partial: the share of the within-feed variance the ' +
             'comparison explains, quoted as ω²ₚ (.01 small, .06 medium, .14 large). ' +
             '† rows are constant within each collection and cannot be separated from ' +
             'personalization — their p is descriptive only. KW q is a rank-based check ' +
@@ -1083,6 +1209,19 @@ const GROUP_STATS_TABLES = [
         title: 'Variance between collections, per variable (ANOVA η² = ICC)',
         empty: 'Personalization needs at least 2 collections with enough days each.',
         defaultSort: { col: 'eta2', dir: -1 },
+        explain:
+            '<p>This table asks, one variable at a time: if you know which collection a day ' +
+            'belongs to, how much do you know about that variable? Every day-level measure the ' +
+            'pipeline produced for this study appears as a row — components, entropies, shares ' +
+            'of feed and day averages alike (the row list follows the data contracts, so it ' +
+            'changes when they do).</p>' +
+            '<p><b>η²</b> is the share of the variable’s day-to-day variance that lies ' +
+            '<i>between</i> collections rather than within them: 0 means the feeds are ' +
+            'interchangeable on this variable; large values mean the variable mostly reflects ' +
+            '<i>whose feed it is</i> — personalization made a number. <b>ω²</b> is the same idea ' +
+            'with a small-sample correction; quote that one in a paper. There are deliberately ' +
+            'no p-values: with hundreds of non-independent days per collection every test would ' +
+            'come out “significant”, so the effect size is the finding.</p>',
         columns: [
             { key: 'component', label: 'Variable', kind: 'name',
               tip: 'The variable whose day-to-day variance is decomposed. "(C0)" is a variable\'s leading PCA dimension; "(entropy)" is feed diversity on that variable; "(share of feed)" is a yes/no variable\'s daily share.' },
@@ -1106,6 +1245,22 @@ const GROUP_STATS_TABLES = [
         title: 'Whole-profile personalization (PERMANOVA on collection)',
         empty: 'No multi-component variable families to test.',
         defaultSort: { col: 'pseudo_F', dir: -1 },
+        explain:
+            '<p>A categorical variable with many possible values is summarised by several ' +
+            'components (C0, C1, …), and a difference between feeds can be spread across all of ' +
+            'them at once — invisible to any single row of the table above. PERMANOVA therefore ' +
+            'tests each <b>variable family</b> — all the components that came out of one ' +
+            'variable’s PCA — as a single profile, asking whether whole day-profiles cluster by ' +
+            'collection.</p>' +
+            '<p><b>Why only families appear here:</b> a variable represented by one number (a ' +
+            'day average, an entropy, a share of feed) — or whose PCA kept only one component — ' +
+            'has no multi-dimensional profile to test; it is fully covered by the ' +
+            'single-variable table above. So the rows are exactly the categorical variables ' +
+            'whose PCA produced two or more components in this study — a list that follows the ' +
+            'contracts and the data, not a fixed choice.</p>' +
+            '<p>Rank rows by <b>pseudo-F</b> (larger = collection membership separates the ' +
+            'profiles more strongly). The permutation p is nearly always tiny for the same ' +
+            'non-independence reason as above — read it as descriptive.</p>',
         columns: [
             { key: 'family', label: 'Variable family', kind: 'name',
               tip: 'The variable whose components are tested together, as one profile.' },
@@ -1128,9 +1283,29 @@ const GROUP_STATS_TABLES = [
     {
         key: 'anova',
         panel: 'comparison',
-        title: 'Which comparisons move single variables? (ANOVA blocked on collection)',
+        title: 'Which comparisons move single variables? (ANOVA, collection differences removed)',
         empty: 'No testable comparison × variable pairs in this study.',
         defaultSort: { col: 'eta2', dir: -1 },
+        explain:
+            '<p>This table asks whether a <b>comparison variable</b> — a categorical property ' +
+            'that is constant across a whole collection-day and has a few meaningful levels — ' +
+            'shifts a variable <i>inside the same feed</i>. Which comparisons appear is set by ' +
+            'the role each variable is assigned in the data contracts, plus basic eligibility ' +
+            '(enough days per level, not too many levels); a comparison missing here either has ' +
+            'no qualifying contract role or too little data in this study. The variable rows are ' +
+            'the same contract-driven measures as in the personalization table.</p>' +
+            '<p>Because feeds differ so much from each other, a naive comparison would mostly ' +
+            're-measure personalization. Each test here therefore first sets the collection ' +
+            'differences aside — every collection acts as its own control (statisticians call ' +
+            'this “blocking on collection”) — and then asks whether the comparison explains any ' +
+            'of the variation that remains within feeds. <b>η²ₚ</b> (“partial”) is the share of ' +
+            'that within-feed variation the comparison explains; <b>ω²ₚ</b> is its corrected ' +
+            'twin — quote it. Judge significance on <b>q</b> (corrected for the number of tests ' +
+            'in the table) and cross-check with <b>KW q</b>, a rank-based version that is more ' +
+            'robust with small or skewed groups.</p>' +
+            '<p>Rows marked <b>†</b> never vary within a collection, so their effect cannot be ' +
+            'told apart from personalization: they are tested without the collection adjustment ' +
+            'and their p is descriptive only.</p>',
         columns: [
             { key: 'factor', label: 'Comparison', kind: 'name',
               cell: (row, html) => row.nested_in_collection
@@ -1165,6 +1340,22 @@ const GROUP_STATS_TABLES = [
         title: 'Do whole variable profiles differ? (PERMANOVA, within-collection)',
         empty: 'No testable family × comparison pairs in this study.',
         defaultSort: { col: 'q', dir: 1 },
+        explain:
+            '<p>The profile-level version of the table above: for each <b>variable family</b> ' +
+            '(the components of one categorical variable, tested together as a single profile) ' +
+            'it asks whether a comparison separates whole day-profiles inside feeds. Values are ' +
+            'first centered within each collection — each collection’s own average profile is ' +
+            'subtracted — so the test looks at day-to-day movement, not differences between ' +
+            'feeds.</p>' +
+            '<p>As in the other PERMANOVA table, only variables whose PCA produced two or more ' +
+            'components appear as families; variables summarised by a single number are covered ' +
+            'by the ANOVA table above. The comparisons are the same contract-declared comparison ' +
+            'variables as above.</p>' +
+            '<p>Rank on <b>pseudo-F</b> and judge significance on <b>q</b>. One honesty note: ' +
+            'the permutation shuffles days without respecting which collection they belong to, ' +
+            'so under strong day-to-day dependence its p runs optimistic. <b>†</b> rows are ' +
+            'collection-constant comparisons, tested on raw (uncentered) profiles and reported ' +
+            'without q.</p>',
         columns: [
             { key: 'family', label: 'Variable family', kind: 'name',
               tip: 'The variable whose components are tested together, as one profile.' },
@@ -1194,6 +1385,17 @@ const GROUP_STATS_TABLES = [
 // Per-table sort state, keyed by table key. Persists across re-renders so a
 // re-render (theme change, prefs change) keeps the reader's chosen order.
 const _groupStatsSort = {};
+
+// Per-table explainer open/closed state — persists across re-renders (sorting
+// a column must not collapse an explanation the reader is mid-way through).
+const _groupStatsExplainerOpen = {};
+
+
+function toggleGroupTableExplainer(tableKey) {
+    _groupStatsExplainerOpen[tableKey] = !_groupStatsExplainerOpen[tableKey];
+    if (_lastGroupStats) renderGroupStats(_lastGroupStats);
+    return false;
+}
 
 
 function _groupStatsSortedRows(rows, spec, displayName) {
@@ -1262,6 +1464,15 @@ function renderGroupStats(data) {
     const renderTable = (spec) => {
         const rows = data[spec.key] || [];
         let out = `<h3 class="text-h3">${escapeHtml(spec.title)}</h3>`;
+        if (spec.explain) {
+            const open = !!_groupStatsExplainerOpen[spec.key];
+            out += `<p class="corr-table-explainer-toggle"><a href="#" ` +
+                `onclick="return toggleGroupTableExplainer('${spec.key}')">` +
+                `${open ? 'Hide explanation' : 'What does this table show?'}</a></p>`;
+            if (open) {
+                out += `<div class="corr-explainer-body corr-table-explainer text-xs">${spec.explain}</div>`;
+            }
+        }
         if (!rows.length) return out + `<p class="text-xs">${escapeHtml(spec.empty)}</p>`;
 
         const sort = _groupStatsSort[spec.key] || spec.defaultSort;

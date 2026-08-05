@@ -82,14 +82,21 @@
             <!-- Freshness banner (warning only; the unit copy lives on the (i)) -->
             <div id="corr-stale-banner" class="corr-banner corr-banner-warn" style="display: none;"></div>
 
+            <!-- Plain-language highlight + per-view explainer, above the plot.
+                 The highlight (caption) is always visible when there is one;
+                 the longer static "What is this?" copy stays collapsed. -->
+            <div id="corr-caption" class="corr-caption corr-topbar" style="display: none;">
+                <span id="corr-caption-text"></span>
+                <a id="corr-explainer-toggle" class="corr-explainer-toggle" href="#"
+                    onclick="return toggleCorrExplainer();" style="display: none;">What is this?</a>
+                <div id="corr-view-explainer" class="corr-explainer-body text-xs" style="display: none;"></div>
+            </div>
+
             <!-- Plot / table area, with the observation count in its corner -->
             <div class="corr-plot-wrap">
                 <span id="pca-point-count" class="text-xs corr-obs-badge"></span>
                 <div id="pca-plot" class="corr-plot"></div>
             </div>
-
-            <!-- Plain-language caption -->
-            <div id="corr-caption" class="corr-caption" style="display: none;"></div>
 
         </div>
 
