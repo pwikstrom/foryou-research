@@ -154,9 +154,9 @@ here:
 3. **Is it a per-video property whose day-level aggregate is meaningful?** → a
    *measure* (everything in §2.1–2.4).
 4. **Is it group-constant context that describes rather than contrasts?** → a
-   *descriptor* (e.g. calendar week): offered for colouring, never tested —
-   a 26-level "week effect" is a time trend wearing an ANOVA costume, and time
-   trends belong to the Timelines tab.
+   *descriptor* (e.g. calendar week): carried along for hover context, never
+   tested or coloured — a 26-level "week effect" is a time trend wearing an
+   ANOVA costume, and time trends belong to the Timelines tab.
 
 Anything failing all four is deliberately role-free. The canonical example is
 time-of-day: it varies *within* a collection-day, so it cannot be a comparison
@@ -220,8 +220,12 @@ One dot per collection-day in the study.
 
 - **X Axis / Y Axis** — any two of the variables from §2. The dropdowns group
   a variable's components and entropy together under one heading.
-- **Colour by** — colours dots by a comparison variable or descriptor
-  (Collection ID, weekday, weekend, platform, calendar week, …). Colour is
+- **Colour by** — colours dots by Collection ID or a comparison variable
+  (weekend, weekday, platform). The list is exactly those roles, on purpose:
+  colouring by a grouping key like the date would give each dot a near-unique
+  colour (noise), and colouring by a descriptor like the calendar week would
+  invite reading a 26-colour rainbow as a finding — time trends belong to the
+  Timelines tab. (Date and week still appear in each dot's hover.) Colour is
   descriptive only; it does not change any statistic.
 
 ### 4.2 Regression

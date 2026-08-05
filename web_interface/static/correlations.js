@@ -397,6 +397,11 @@ async function updatePcaPlot() {
 
     if (!xCol || !yCol) return;
 
+    // The scatter fetch is the tab's slowest request — show the same loading
+    // signal the other views use, incl. on every X/Y/colour change.
+    const loadingEl = document.getElementById('pca-point-count');
+    if (loadingEl) loadingEl.innerText = 'Loading…';
+
     try {
         const res = await fetch('/api/correlations/data', {
             method: 'POST',
@@ -415,6 +420,7 @@ async function updatePcaPlot() {
             console.error(data.error);
             const statusEl = document.getElementById('pca-status');
             if (statusEl) statusEl.innerText = `Error: ${data.error}`;
+            if (loadingEl) loadingEl.innerText = '';
             return;
         }
 
@@ -432,6 +438,7 @@ async function updatePcaPlot() {
 
     } catch (e) {
         console.error(e);
+        if (loadingEl) loadingEl.innerText = 'Error';
     }
 }
 
@@ -1007,7 +1014,10 @@ const GROUP_STATS_PANELS = [
             'collections. η² here reads as an intraclass correlation: 0 = the ' +
             'collections’ feeds are interchangeable, 1 = knowing the collection tells ' +
             'you everything. No p-values on purpose — with hundreds of dependent days ' +
-            'per collection they are always ≈0 and say nothing; the effect size is the finding.',
+            'per collection they are always ≈0 and say nothing; the effect size is the ' +
+            'finding. The PERMANOVA table below asks the same question at ' +
+            'whole-profile level (all of a variable’s components at once) — rank it ' +
+            'by pseudo-F.',
     },
     {
         key: 'comparison',
@@ -1015,7 +1025,14 @@ const GROUP_STATS_PANELS = [
         intro: 'Do days differ by these variables <i>inside the same feed</i>? Each test ' +
             'removes collection-to-collection differences first (blocking), so effect ' +
             'sizes are partial: the share of the <i>within-feed</i> variance the ' +
-            'comparison explains.',
+            'comparison explains, quoted as ω²ₚ (.01 small, .06 medium, .14 large). ' +
+            '† rows are constant within each collection and cannot be separated from ' +
+            'personalization — their p is descriptive only. KW q is a rank-based check ' +
+            'on within-collection-centered values; trust it over the ANOVA q when ' +
+            'groups are small or skewed. The PERMANOVA table runs on ' +
+            'within-collection-centered profiles, never mixing different variables’ ' +
+            'PCA bases; its permutation is not restricted within collections, so read ' +
+            'its p as slightly optimistic.',
     },
 ];
 
@@ -1252,17 +1269,26 @@ function renderGroupStats(data) {
         return out + `</tbody></table>`;
     };
 
+    // Each panel's result summary sits under its own heading, next to its
+    // explanatory intro — not pooled into one caption below all the tables.
+    const highlights = {
+        personalization: personalizationHighlight(data, dname),
+        comparison: comparisonHighlight(data, dname),
+    };
+
     const renderPanel = (panel) => {
         const specs = GROUP_STATS_TABLES.filter(s => s.panel === panel.key);
+        const highlight = highlights[panel.key];
         return `<h2 class="text-h2 corr-panel-title">${escapeHtml(panel.title)}</h2>` +
             `<p class="text-xs corr-panel-intro">${panel.intro}</p>` +
+            (highlight ? `<p class="corr-panel-highlight">${highlight}</p>` : '') +
             specs.map(renderTable).join('');
     };
 
     plotDiv.innerHTML = `<div class="corr-table-wrap">` +
         GROUP_STATS_PANELS.map(renderPanel).join('') + `</div>`;
 
-    renderGroupStatsCaption(data, schemaMap);
+    setCaption('');
 }
 
 
@@ -1277,30 +1303,32 @@ function varianceMagnitude(value) {
 }
 
 
-function renderGroupStatsCaption(data, schemaMap) {
-    const dname = (c) => (schemaMap[c] && schemaMap[c].display_name) ? schemaMap[c].display_name : c;
-    const parts = [];
-
-    // Personalization headline: the largest ICC.
+// Result summary for the personalization panel: the largest ICC.
+function personalizationHighlight(data, dname) {
     const pers = data.personalization || [];
     const hasEta = (r) => r && r.eta2 !== null && r.eta2 !== undefined && isFinite(r.eta2);
     const topPers = pers.filter(hasEta).reduce(
         (best, r) => (best === null || r.eta2 > best.eta2 ? r : best), null);
-    if (topPers) {
-        parts.push(`Personalization: at its strongest, ` +
-            `${(topPers.eta2 * 100).toFixed(0)}% of the day-to-day variation in ` +
-            `<b>${escapeHtml(dname(topPers.component))}</b> lies between the ` +
-            `${(data.n_collections || topPers.levels).toLocaleString()} collections ` +
-            `(a ${varianceMagnitude(topPers.eta2)} effect).`);
-    }
+    if (!topPers) return '';
+    return `At its strongest, ` +
+        `${(topPers.eta2 * 100).toFixed(0)}% of the day-to-day variation in ` +
+        `<b>${escapeHtml(dname(topPers.component))}</b> lies between the ` +
+        `${(data.n_collections || topPers.levels).toLocaleString()} collections ` +
+        `(a ${varianceMagnitude(topPers.eta2)} effect).`;
+}
 
-    // Comparison headline: largest partial omega² among significant,
-    // non-nested rows (nested rows have no valid q by design).
+
+// Result summary for the comparison panel: significant-test count, the
+// largest partial omega², the PERMANOVA families, and — when the study has
+// few collections — the standing non-independence caveat.
+function comparisonHighlight(data, dname) {
+    const parts = [];
+
     const anova = data.anova || [];
     const testable = anova.filter(r => !r.nested_in_collection);
     const sigAnova = testable.filter(r => r.q !== null && r.q !== undefined && r.q < 0.05);
     if (testable.length) {
-        parts.push(`Within feeds: ${sigAnova.length} of ${testable.length} comparison × ` +
+        parts.push(`${sigAnova.length} of ${testable.length} comparison × ` +
             `variable tests are significant after correction (q < .05).`);
         const hasOmega = (r) => r && r.omega2 !== null && r.omega2 !== undefined && isFinite(r.omega2);
         const pool = (sigAnova.length ? sigAnova : testable).filter(hasOmega);
@@ -1308,7 +1336,7 @@ function renderGroupStatsCaption(data, schemaMap) {
             ? pool.reduce((best, r) => (r.omega2 > best.omega2 ? r : best))
             : null;
         if (top && top.omega2 > 0) {
-            parts.push(`Largest within-feed effect: <b>${escapeHtml(dname(top.factor))}</b> explains ` +
+            parts.push(`Largest effect: <b>${escapeHtml(dname(top.factor))}</b> explains ` +
                 `${(top.omega2 * 100).toFixed(0)}% of the within-feed variation in ` +
                 `<b>${escapeHtml(dname(top.component))}</b> ` +
                 `(a ${varianceMagnitude(top.omega2)} effect, ${formatP(top.q)} after correction).`);
@@ -1319,23 +1347,15 @@ function renderGroupStatsCaption(data, schemaMap) {
     const sigPerma = perma.filter(r => r.q !== null && r.q !== undefined && r.q < 0.05);
     if (sigPerma.length) {
         const fams = [...new Set(sigPerma.map(r => `${dname(r.family)} (by ${dname(r.factor)})`))].slice(0, 4);
-        parts.push(`Whole-profile differences within feeds (PERMANOVA): ` +
+        parts.push(`Whole-profile differences (PERMANOVA): ` +
             `${fams.map(escapeHtml).join('; ')}${sigPerma.length > 4 ? ' and more' : ''}.`);
     } else if (perma.length) {
-        parts.push('No variable family shows a significant within-feed whole-profile difference after correction.');
+        parts.push('No variable family shows a significant whole-profile difference after correction.');
     }
-
-    parts.push('<span class="text-xs">Comparison tests are blocked on collection: they ask ' +
-        'whether days <i>within the same feed</i> differ, after removing feed-to-feed ' +
-        'differences, and quote partial ω² (.01 small, .06 medium, .14 large). † rows are ' +
-        'constant within each collection and cannot be separated from personalization. ' +
-        'KW q = rank-based check on within-collection-centered values — trust it over the ' +
-        'ANOVA q when groups are small or skewed. PERMANOVA compares each variable\'s whole ' +
-        'component profile, never mixing different variables\' PCA bases.</span>');
 
     const caveat = independenceCaveat();
     if (caveat) parts.push(caveat);
-    setCaption(parts.join(' '));
+    return parts.join(' ');
 }
 
 

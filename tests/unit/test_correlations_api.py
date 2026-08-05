@@ -306,9 +306,17 @@ def test_metadata_payload_prefs_and_views(monkeypatch):
     df = pd.DataFrame({
         "advertising_C0": [0.1, 0.5, 0.9, 0.2],
         "collection_id": ["a", "a", "b", "b"],
+        "local_date": ["d1", "d2", "d1", "d2"],
+        "local_week": ["w1", "w1", "w1", "w1"],
+        "is_weekend": ["weekday", "weekend", "weekday", "weekend"],
     })
-    monkeypatch.setattr(cs, "get_factors_and_features_from_var_schema",
-                        lambda **kw: (["collection_id"], []))
+
+    def fake_get_vars_by_role(roles, some_events_df=None, verbose=False):
+        cols = ["is_weekend"] if "comparison" in roles else []
+        if some_events_df is not None:
+            cols = [c for c in cols if c in some_events_df.columns]
+        return sorted(cols)
+    monkeypatch.setattr(cs, "get_vars_by_role", fake_get_vars_by_role)
     monkeypatch.setattr(cs, "load_interpretations", lambda study: {})
     monkeypatch.setattr(cs, "load_display_id_map", lambda: {})
     monkeypatch.setattr(cs, "load_schema_metadata", lambda m: {
@@ -330,6 +338,9 @@ def test_metadata_payload_prefs_and_views(monkeypatch):
     # Non-independence caveat inputs ride the unit block.
     assert payload["unit"]["n_collections"] == 2
     assert payload["unit"]["independence_warning_collections"] == 10
+    # Colour-by candidates = collection_id + comparison variables only: the
+    # date grouping key (near-unique) and descriptors (local_week) stay out.
+    assert payload["factor_cols"] == ["collection_id", "is_weekend"]
 
 
 

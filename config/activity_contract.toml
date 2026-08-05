@@ -28,8 +28,8 @@
 #                      meaningful levels)?                  → "comparison"
 #                   3. Per-item property whose group
 #                      aggregate is meaningful?             → "measure"
-#                   4. Group-constant context, descriptive
-#                      only (Colour-by, never tested)?      → "descriptor"
+#                   4. Group-constant context, carried for
+#                      hover/reference, never tested?       → "descriptor"
 #                 Anything else gets NO role. "skip" hides a column entirely.
 #                 comparison/descriptor columns MUST be constant within a
 #                 collection-day: a within-group-varying value duplicates the
@@ -213,7 +213,7 @@ section = "Activity"
 role = "descriptor"
 scale = "text"
 display_name = "Activity week"
-description = "Week (YYYY-WW) of the activity in local time. Group-constant descriptor: available for Colour-by, excluded from the comparison sweep — a week label describes when a day happened, it is not an experimental contrast (time trends belong to the Timelines tab)."
+description = "Week (YYYY-WW) of the activity in local time. Group-constant descriptor: carried into the Correlations frame for hover context, excluded from the comparison sweep and the Colour-by dropdown — a week label describes when a day happened, it is not an experimental contrast (time trends belong to the Timelines tab)."
 derived = true
 
 [[fields]]

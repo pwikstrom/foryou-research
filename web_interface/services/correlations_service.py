@@ -21,6 +21,7 @@ from fyp.logging_setup import get_logger
 from fyp.recode_variables import (
     get_factors_and_features_from_var_schema,
     get_grouping_factors_from_var_schema,
+    get_vars_by_role,
 )
 
 from .study_data import load_display_id_map
@@ -532,7 +533,13 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
                     and not str(col).endswith('_raw')
                     and str(col) != GROUP_SIZE_COL]
 
-    factors, _ = get_factors_and_features_from_var_schema(some_events_df=df, verbose=False)
+    # Colour-by candidates: Collection ID plus the comparison-role variables.
+    # Grouping keys other than collection_id (local_date: near-unique values,
+    # colouring by half the group key is noise) and descriptors (local_week:
+    # kept in the frame for hover context) are deliberately not colourable.
+    factors = get_vars_by_role(("comparison",), some_events_df=df)
+    if 'collection_id' in df.columns:
+        factors = sorted(set(factors) | {'collection_id'})
 
     if not factors:
         return None
