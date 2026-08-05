@@ -32,7 +32,7 @@ findings are about day-profiles — see §8 for what you may and may not conclud
 ## 2. Where the variables come from
 
 The variables offered on the axes and in the heatmap are built from the study's
-annotated videos in three different ways. Knowing which kind you are looking at
+annotated videos in four different ways. Knowing which kind you are looking at
 matters for interpretation.
 
 ### 2.1 Components of categorical variables — "Content category (C0) (15.5%)"
@@ -50,8 +50,8 @@ the resulting **components** (C0, C1, …) as axes:
   have more of some categories and less of others. On the scatter plot, small
   labels at the ends of each axis ("More likely: …") name the categories that
   dominate each direction. Hover them before interpreting an axis.
-- **Yes/no variables** (advertising, platform-native, trend) get a single
-  component oriented so that *more "yes" = higher score*.
+- **Yes/No variables never appear as components** — they get a plain
+  "(share of feed)" column instead; see §2.4.
 - **Only each variable's leading three components are offered.** PCA produces
   as many components as a variable has structure, but the tail is not
   interpretable: a variable with ~150 niches spreads its variance over a dozen
@@ -127,7 +127,50 @@ organized by what they measure:
 > mean. Axis positions therefore reflect orders of magnitude; the hover
 > tooltip's "(Abs)" values always show untransformed natural units.
 
-### 2.4 Standardisation
+### 2.4 Yes/No variables — "Advertising (share of feed)"
+
+Annotations answered Yes / No / Unclear (advertising, platform-native, the two
+trend questions, multilingual) skip the PCA entirely. Their substantive
+content *is* the share of "yes" — running them through a PCA would only dress
+that share up as a "component" with an uninformative variance percentage. The
+tab shows them as **the fraction of the day's coded videos answered "yes"**
+(Unclear answers count in the denominator; videos the model could not code at
+all are excluded). Like the other variables the plotted value is z-scored;
+the hover tooltip carries the raw share.
+
+### 2.5 Which variables get which role — the admission test
+
+Every variable on this tab passed a four-question test, asked in order, that
+is written into the data contracts themselves. It is the tab's admission
+principle, and the reason some columns you may know from Explore never appear
+here:
+
+1. **Does it define the unit of analysis?** → a *grouping key* (Collection ID,
+   date). Closed set; never plotted.
+2. **Is it constant within every collection-day, categorical, with a few
+   a-priori meaningful levels?** → a *comparison variable* (weekend, weekday,
+   platform). These are what the Group-differences view tests and what
+   Colour-by colours.
+3. **Is it a per-video property whose day-level aggregate is meaningful?** → a
+   *measure* (everything in §2.1–2.4).
+4. **Is it group-constant context that describes rather than contrasts?** → a
+   *descriptor* (e.g. calendar week): offered for colouring, never tested —
+   a 26-level "week effect" is a time trend wearing an ANOVA costume, and time
+   trends belong to the Timelines tab.
+
+Anything failing all four is deliberately role-free. The canonical example is
+time-of-day: it varies *within* a collection-day, so it cannot be a comparison
+variable of this tab's unit (§1) — analysing it needs a finer unit, not a
+shortcut.
+
+> **A limitation worth knowing — composition is closed.** A day's shares
+> across one variable's categories sum to 1, so when one category rises the
+> others must fall. Correlations between components of the *same* variable,
+> and part of any correlation between share-type measures, are therefore
+> partly mechanical. The family separators in the heatmap mark where this
+> applies; cross-family cells are unaffected by this particular artifact.
+
+### 2.6 Standardisation
 
 All plotted values (except *Videos watched*) are **z-scores across the study's
 groups**: 0 is the average collection-day, ±1 is one standard deviation. This
@@ -177,8 +220,9 @@ One dot per collection-day in the study.
 
 - **X Axis / Y Axis** — any two of the variables from §2. The dropdowns group
   a variable's components and entropy together under one heading.
-- **Colour by** — colours dots by a factor (Collection ID, weekday, weekend,
-  platform, …). Colour is descriptive only; it does not change any statistic.
+- **Colour by** — colours dots by a comparison variable or descriptor
+  (Collection ID, weekday, weekend, platform, calendar week, …). Colour is
+  descriptive only; it does not change any statistic.
 
 ### 4.2 Regression
 
@@ -197,6 +241,17 @@ association…", using the conventional |r| bands: <.1 negligible, <.3 weak,
 <.5 moderate, ≥.5 strong) and warns when n < 30. The caption also reminds you
 that the line assumes linearity — look at the cloud before trusting it.
 
+**Per-collection slopes and the independence caveat.** When the study has few
+collections (fewer than the configured threshold, default 10), the caption
+additionally lists **each collection's own regression slope** and warns that
+days within a collection are not independent, so the pooled p-value runs
+optimistic. Read the slopes as a robustness check: if they agree with the
+pooled line, the association holds inside feeds; if they disagree — or the
+pooled slope sits outside all of them — the pooled line is mixing different
+relationships (Simpson's-paradox territory) and should not be reported as one
+finding. With very few collections, the honest framing of *any* result on
+this tab is "descriptive of these collections", not population inference.
+
 ### 4.3 Ellipses
 
 Ticking **Ellipses** draws a 95%-coverage confidence ellipse per colour group,
@@ -207,7 +262,7 @@ occupy different regions of this plane?" before formal testing.
 
 ### 4.4 Hover and drill-down
 
-Hovering a dot shows the group's factors plus the absolute (untransformed,
+Hovering a dot shows the group's comparison variables plus the absolute (untransformed,
 unscaled) values of the numeric variables. **Clicking a dot** offers to jump to
 the Video Analysis tab filtered to that collection-day — the fastest route from
 a statistical outlier to the actual videos behind it. Use it: qualitative
@@ -274,41 +329,62 @@ The all-pairs correlation matrix over the study's groups.
 
 ## 7. The Group differences view
 
-Answers *"which factors structure the feeds at all?"* with two precomputed
-tables. Like the rest of the tab this view is whole-study; centering and
-personal variable preferences do not apply, and the header states when the
-tables were generated.
+Two panels, because the view answers two statistically different questions.
+Like the rest of the tab it is whole-study; centering and personal variable
+preferences do not apply.
 
-### 7.1 One-way ANOVA sweep — "Which factors move single components?"
+### 7.1 Panel one — "How personalized are the feeds?"
 
-Every factor × variable pair, one row each:
+One row per variable: a **variance decomposition** on Collection ID. The η²
+here reads as an **intraclass correlation (ICC)**: the share of a variable's
+day-to-day variance that lies *between* collections. 0 means the collections'
+feeds are statistically interchangeable on that variable; 0.6 means most
+daily variation is "which feed is this?" rather than "which day is it?" —
+personalization made a number. Quote ω² (the less optimistic twin) in papers.
+
+**This panel deliberately shows no p-values.** With hundreds of
+serially-dependent days per collection, every such test comes out "p ≈ 0"
+regardless of scientific interest — printing stars would only invite
+misreading. The effect size *is* the finding. (The companion PERMANOVA table
+asks the same question at the whole-profile level; rank it by pseudo-F.)
+
+### 7.2 Panel two — "Within-feed comparisons (blocked on collection)"
+
+Does a comparison variable (weekend, weekday, …) move a variable *inside the
+same feed*? Each test is an ANOVA **blocked on collection**: collection
+differences are removed into their own term first, so they neither masquerade
+as a comparison effect nor bloat the error term (in the old pooled design a
+strongly personalized study systematically *understated* every other effect).
 
 | Column | Meaning |
 |---|---|
-| **η² (eta-squared)** | Share of the variable's variance explained by the factor. The effect-size column — sort by it, read it first. Conventions: .01 small, .06 medium, .14 large (the **Effect** column applies these labels). |
-| **ω² (omega-squared)** | A less-biased η²; trust it over η² for factors with many levels or few groups per level. |
-| **F, p** | The ANOVA test statistic and its significance. |
-| **q** | BH-adjusted significance across the whole table — use this, not p. |
-| **KW q** | The same comparison run as a rank-based Kruskal–Wallis test. When groups are small or skewed, trust KW q over the ANOVA q; when the two disagree, be suspicious. |
-| **n, Levels** | Groups tested and number of factor levels. |
+| **η²ₚ (partial eta-squared)** | Share of the *within-feed* variance the comparison explains, after blocking. The effect-size column — sort by it, read it first (.01 small, .06 medium, .14 large; the **Effect** column applies the labels). |
+| **ω²ₚ (partial omega-squared)** | The less-biased partial η²; quote this one. Slightly negative just means "indistinguishable from zero". |
+| **F, p** | The blocked test statistic and its significance. |
+| **q** | BH-adjusted significance across the table's testable rows — use this, not p. |
+| **KW q** | The same comparison as a Kruskal–Wallis test on within-collection-centered values (a rank-based approximation of the blocked test). Trust it over q when groups are small or skewed; disagreement is a warning. |
+| **n, Levels** | Groups tested and number of comparison levels. |
 
-Rows significant after correction (q < .05) are bold. Note that with 26 weeks
-as a factor, statistically significant η² values can still be scientifically
-boring — effect size, not the star, is the finding.
+**† — nested comparisons.** A variable constant within every collection
+(platform, when each collection donates from one platform) *cannot* be
+blocked: it is statistically inseparable from personalization, and its
+comparison has only as many independent units as there are collections. Such
+rows are marked †, computed one-way, and shown **without q** — read their p
+as descriptive, never confirmatory.
 
-*Reading example:* "Collection ID explains 63% of Niche (C0)" = the two
-collections' feeds differ enormously in this niche contrast — a direct
-**personalization-strength** measurement (most day-to-day variance is
-between-collection, not shared).
-
-### 7.2 PERMANOVA — "Do whole variable profiles differ?"
+### 7.3 PERMANOVA — "Do whole variable profiles differ?"
 
 Single components can miss distributed differences. PERMANOVA asks, per
-variable family: does the factor separate day-profiles across *all* of that
-variable's components at once? The pseudo-F is tested by permutation (999
-shuffles), with BH-adjusted q across the table. It never mixes components from
-different variables' PCA spaces. Significant PERMANOVA + unimpressive per-component
-η² means the difference is real but spread across many small contrasts.
+variable family: does the grouping separate day-profiles across *all* of that
+variable's components at once? It appears in both panels: on raw profiles for
+Collection ID (profile-level personalization), and on
+**within-collection-centered** profiles for the comparison variables (do
+days differ inside feeds?). The pseudo-F is tested by permutation (999
+shuffles), with BH-adjusted q per table, and never mixes components from
+different variables' PCA spaces. One honesty note: the permutation shuffles
+days freely rather than within collections (a strata-restricted permutation
+is future work), so under strong day-to-day dependence its p runs optimistic
+— another reason to rank on pseudo-F and q rather than celebrate a bare p.
 
 ---
 
@@ -329,11 +405,19 @@ different variables' PCA spaces. Significant PERMANOVA + unimpressive per-compon
    does it survive (a) Spearman, (b) Within-collection centering, (c) the q
    threshold? A result that needs Pearson, pooled data, and uncorrected p is
    not a result.
-5. **Known artifacts:** entropy × volume (§2.2); cross-platform engagement
-   capture (§2.3); components with low explained variance are unstable across
-   study refreshes; small studies (the caption warns below 30 groups) make
-   everything fragile.
-6. **A stale-data banner** appears when the study's underlying data is newer
+5. **Days are not independent.** Collection-days are nested in collections
+   and autocorrelated along each collection's timeline, so every pooled
+   p-value on this tab is somewhat optimistic. The tab mitigates rather than
+   solves this: the blocked design in §7.2, the per-collection slopes in
+   §4.2, and a standing caption caveat whenever the study has few
+   collections. Under that caveat, report findings as descriptive of the
+   studied collections and lean on effect sizes; only design-based follow-up
+   licenses population claims.
+6. **Known artifacts:** entropy × volume (§2.2); compositional closure
+   (§2.5); cross-platform engagement capture (§2.3); components with low
+   explained variance are unstable across study refreshes; small studies (the
+   caption warns below 30 groups) make everything fragile.
+7. **A stale-data banner** appears when the study's underlying data is newer
    than the statistics on screen; ask an admin to refresh before reporting
    numbers.
 
@@ -342,11 +426,12 @@ different variables' PCA spaces. Significant PERMANOVA + unimpressive per-compon
 ## 9. Recipes: five research questions, knob by knob
 
 **Q1 — How personalized are the feeds?**
-Group differences → sort ANOVA by η², read the Collection ID rows, then the
-PERMANOVA Collection ID rows. High η² on content families = strongly
-personalized feeds. Complement visually: Scatter, any content C0 × another,
-Colour by Collection ID, Ellipses on — separated ellipses are personalization
-you can see.
+Group differences → the **personalization panel**, sorted by η² (ICC): high
+values on content families = strongly personalized feeds; the panel's
+PERMANOVA table gives the same reading at whole-profile level (rank by
+pseudo-F). Complement visually: Scatter, any content C0 × another, Colour by
+Collection ID, Ellipses on — separated ellipses are personalization you can
+see.
 
 **Q2 — Does intensity narrow the feed?**
 Scatter: X = *Videos watched (day)*, Y = a content entropy. Regression on.
@@ -363,7 +448,7 @@ trend content is systematically fresher.
 **Q4 — Who gets the consequential content?**
 Scatter: Y = *Political? (score 0-1)*, X = another variable; Colour by
 Collection ID (for a time window, define a sub-study over that period). Group
-differences: the Collection ID × political/sensitivity rows quantify
+differences: the personalization panel's political/sensitivity rows quantify
 between-collection exposure inequality.
 
 **Q5 — Does an association hold for everyone?**
@@ -387,6 +472,6 @@ compare the readouts.
   built — filters, versions, refresh dates — and is the provenance you cite.
 - Tunable thresholds mentioned in this guide (minimum group size 10, at most 3
   components per variable, component variance floor 5%, scatter display cap
-  5,000, PERMANOVA permutations 999) are instance configuration, recorded with
-  the study rather than set per session; the UI always reflects the active
-  values.
+  5,000, PERMANOVA permutations 999, independence-caveat threshold 10
+  collections) are instance configuration, recorded with the study rather
+  than set per session; the UI always reflects the active values.

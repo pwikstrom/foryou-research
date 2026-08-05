@@ -48,6 +48,7 @@ _CORR_DEFAULTS = {
     "correlation_method": "pearson",
     "minimum_group_size": 10,
     "permanova_permutations": 999,
+    "independence_warning_collections": 10,
 }
 
 # Per-group video count written by the PCA worker (see fyp.analysis.pca).
@@ -162,8 +163,9 @@ def filter_components_by_variance(numeric_cols, interpretations):
 
     Each variable's leading component is always kept (so no variable vanishes
     from the tab); the remaining slots additionally require the
-    ``min_variance_pct`` floor. Non-PCA columns (plain numerics, entropies)
-    pass through untouched.
+    ``min_variance_pct`` floor. Non-PCA columns (plain numerics, entropies,
+    the yes/no variables' ``_share_of_feed`` columns) pass through untouched
+    — only ``_C<n>`` component names are ever trimmed.
 
     Args:
         numeric_cols: Candidate numeric column names.
@@ -218,19 +220,12 @@ def filter_components_by_variance(numeric_cols, interpretations):
 def apply_within_collection_centering(df: pd.DataFrame, cols) -> tuple[pd.DataFrame, bool]:
     """Subtract each collection's mean from ``cols`` (a fixed-effects move).
 
-    Removes between-collection composition, so remaining associations are
-    within-collection. Returns ``(df, applied)`` — a no-op when there is no
-    ``collection_id`` column or none of ``cols`` is present.
+    Thin wrapper over :func:`fyp.analysis.stats.center_within_collection` —
+    the helper lives in ``fyp`` so the group-stats worker shares it.
     """
-    cols = [c for c in cols if c in df.columns]
-    if 'collection_id' not in df.columns or not cols:
-        return df, False
-    out = df.copy()
-    vals = out[cols].astype('float64')
-    group_keys = out['collection_id'].astype(str).values
-    means = vals.groupby(group_keys).transform('mean')
-    out[cols] = vals - means
-    return out, True
+    from fyp.analysis.stats import center_within_collection
+
+    return center_within_collection(df, cols)
 
 
 
@@ -307,6 +302,47 @@ def compute_group_ellipses(df: pd.DataFrame, x_col: str, y_col: str,
                     [float(cov[1, 0]), float(cov[1, 1])]],
         })
     return out
+
+
+
+
+
+
+def compute_per_collection_slopes(df: pd.DataFrame, x_col: str, y_col: str) -> list[dict]:
+    """Per-collection regression slopes for the scatter caption.
+
+    The pooled regression treats collection-days as independent; with few
+    collections the honest complement is each collection's own slope — if
+    they disagree, the pooled claim is not one population. Computed on the
+    full filtered frame (never the display sample); the slope is invariant to
+    within-collection centering, so callers need not special-case it.
+
+    Args:
+        df: The scatter frame (post axis-dropna).
+        x_col: X-axis column.
+        y_col: Y-axis column.
+
+    Returns:
+        ``[{"collection_id", "slope", "n"}]`` for collections with a valid
+        regression (>= 3 points, non-degenerate x); [] when there is no
+        ``collection_id`` column.
+    """
+    if 'collection_id' not in df.columns:
+        return []
+    out = []
+    for coll, sub in df.groupby(df['collection_id'].astype(str).values):
+        x = pd.to_numeric(sub[x_col], errors='coerce').astype('float64')
+        y = pd.to_numeric(sub[y_col], errors='coerce').astype('float64')
+        mask = x.notna() & y.notna()
+        stats = compute_regression_stats(x[mask].to_numpy(), y[mask].to_numpy())
+        if stats is None:
+            continue
+        out.append({
+            "collection_id": str(coll),
+            "slope": stats["slope"],
+            "n": stats["n"],
+        })
+    return sorted(out, key=lambda r: r["collection_id"])
 
 
 
@@ -540,6 +576,12 @@ def build_metadata_payload(df: pd.DataFrame, study: str) -> dict | None:
         "n_groups": int(len(df)),
         "videos_total": total_videos(df),
         "min_group_size": int(corr_setting("minimum_group_size")),
+        # Non-independence caveat inputs: below the threshold, the scatter and
+        # heatmap captions warn that days within a collection are dependent.
+        "n_collections": (int(df['collection_id'].nunique(dropna=True))
+                          if 'collection_id' in df.columns else None),
+        "independence_warning_collections":
+            int(corr_setting("independence_warning_collections")),
     }
 
     return {
@@ -588,6 +630,7 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
     color_for_groups = color_col if (color_col and color_col in filtered_df.columns) else None
     regression_stats = compute_regression_stats(filtered_df[x_col], filtered_df[y_col])
     group_ellipses = compute_group_ellipses(filtered_df, x_col, y_col, color_for_groups)
+    per_collection_slopes = compute_per_collection_slopes(filtered_df, x_col, y_col)
 
     # Deterministic sample so the same request always shows the same points
     max_points = int(corr_setting("max_scatter_points"))
@@ -718,6 +761,7 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
         "data": result_data,
         "total_count": total_count,
         "stats": regression_stats,
+        "per_collection_slopes": per_collection_slopes,
         "group_ellipses": group_ellipses,
         "ellipse_coverage": ELLIPSE_COVERAGE,
         "centered": centered,

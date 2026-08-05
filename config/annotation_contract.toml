@@ -25,8 +25,11 @@
 #              enum → categorical); REQUIRED only for a free-text string field,
 #              where "categorical" (short labels) vs "text" (long prose) picks
 #              the recode function. Metadata-only (never version-affecting).
-#   role     — var_schema role: "feature" (correlations feature) or "skip"
-#              (drop from recoded output). Metadata-only.
+#   role     — var_schema role: "measure" (Correlations variable — categorical
+#              fields become PCA components/entropy or a share-of-feed column,
+#              numeric fields become day means) or "skip" (drop from recoded
+#              output). Metadata-only. Full vocabulary + admission test:
+#              activity_contract.toml header.
 #   display_name — web-UI label for the recoded column. Metadata-only.
 #
 # Inferred (never written): the flatten rule (scalar / list_join / object_unpack),
@@ -110,7 +113,7 @@ desc = "The primary language spoken or sung in the video — if several are used
 
 [[fields]]
 name = "multilingual"
-role = "feature"
+role = "measure"
 display_name = "Multilingual"
 enum = "yes_no"
 desc = "Are multiple languages spoken or sung in the video (e.g. code-switching, or different speakers using different languages)? Answer No if there is no speech or only one language is used."
@@ -157,7 +160,7 @@ notable_sounds = { spec = "list: notable sounds or sound effects", display_name 
 
 [[fields]]
 name = "main_activity"
-role = "feature"
+role = "measure"
 scale = "categorical"
 display_name = "Main activity"
 desc = "The main activity, as a verb + object, e.g. 'dancing in a studio'."
@@ -170,14 +173,14 @@ desc = "A concise narrative summary of the entire video."
 
 [[fields]]
 name = "type_of_story"
-role = "feature"
+role = "measure"
 display_name = "Type of story"
 enum = "type_of_story"
 desc = "The narrative type of the video."
 
 [[fields]]
 name = "content_category"
-role = "feature"
+role = "measure"
 display_name = "Content category"
 enum = "content_category"
 array = 2
@@ -191,28 +194,28 @@ desc = "The country the video is primarily connected to — through the creator'
 
 [[fields]]
 name = "tiktok_native"
-role = "feature"
+role = "measure"
 display_name = "Platform Native"
 enum = "yes_no"
 desc = "Is the video produced primarily for the short-video platform it appears on — vertical/portrait, short (typically under 60 seconds), using the platform's native features (filters, effects, text overlays, trending sounds) and pacing? Answer No for content clearly made for another platform or medium (e.g. a longer TV-style video) and merely reposted."
 
 [[fields]]
 name = "trend_technical"
-role = "feature"
+role = "measure"
 display_name = "Technical trend"
 enum = "yes_no"
 desc = "Does the video leverage a technical short-video trend — a trending template, effect, or sound used to make it (e.g. a CapCut 'try this effect' or 'use this sound' template)? A video can be both a technical and a cultural trend."
 
 [[fields]]
 name = "trend_cultural"
-role = "feature"
+role = "measure"
 display_name = "Cultural trend"
 enum = "yes_no"
 desc = "Does the video replicate a cultural short-video trend — a participatory format meant for other creators to imitate (e.g. a dance challenge, meme, or format like 'candy salad')? A video can be both a technical and a cultural trend."
 
 [[fields]]
 name = "advertising"
-role = "feature"
+role = "measure"
 display_name = "Advertising - Gemini"
 enum = "yes_no"
 desc = "Is the video an explicit paid promotion of a product, service, or brand — shown by a sponsorship label, repeated prominent brand mentions, or a direct call to purchase or visit? Answer No for an organic review or discussion, or a creator simply expressing affinity for a brand with no sign of a commercial agreement."
@@ -225,21 +228,21 @@ desc = "Is the video primarily AI-generated — AI-generated elements forming a 
 
 [[fields]]
 name = "main_gender"
-role = "feature"
+role = "measure"
 display_name = "Main gender"
 enum = "gender"
 desc = "The gender of the main person featured in the video."
 
 [[fields]]
 name = "main_ethnicity"
-role = "feature"
+role = "measure"
 display_name = "Main ethnicity"
 enum = "ethnicity"
 desc = "The ethnicity of the main person featured in the video."
 
 [[fields]]
 name = "political_score"
-role = "feature"
+role = "measure"
 display_name = "Political? (score 0-1)"
 type = "int"
 min = 0
@@ -248,7 +251,7 @@ desc = "How political the video is, from 0 (not at all) to 100 (entirely politic
 
 [[fields]]
 name = "sensitivity_score"
-role = "feature"
+role = "measure"
 display_name = "Sensitive? (score 0-1)"
 type = "int"
 min = 0

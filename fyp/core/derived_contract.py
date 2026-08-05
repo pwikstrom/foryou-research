@@ -123,8 +123,10 @@ def validate_contract(contract: dict) -> list[str]:
         errors.append("contract has no [[fields]]")
 
     try:
-        from fyp.recode_variables import VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
-        valid_roles, valid_scales = set(VAR_SCHEMA_ROLES), set(VAR_SCHEMA_SCALES)
+        from fyp.recode_variables import LEGACY_ROLE_ALIASES, VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
+        # Legacy role strings stay valid (normalized at var_schema load).
+        valid_roles = set(VAR_SCHEMA_ROLES) | set(LEGACY_ROLE_ALIASES)
+        valid_scales = set(VAR_SCHEMA_SCALES)
     except Exception:
         valid_roles, valid_scales = None, None
 

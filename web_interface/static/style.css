@@ -2779,6 +2779,24 @@ button.meta-tooltip:disabled {
     margin: 16px 0 8px;
 }
 
+/* Group-differences panel headings + intros (personalization / comparison) */
+.corr-table-wrap .corr-panel-title {
+    margin: 20px 0 4px;
+}
+
+.corr-table-wrap .corr-panel-intro {
+    margin: 0 0 8px;
+    max-width: 900px;
+    color: var(--color-text-secondary);
+}
+
+/* Dagger marking a comparison nested in collections (hover for the caveat) */
+.corr-nested-badge {
+    color: var(--color-warning);
+    cursor: help;
+    font-weight: var(--weight-semibold);
+}
+
 .corr-table-wrap .collection-table th {
     text-align: left;
     padding: 4px 10px;

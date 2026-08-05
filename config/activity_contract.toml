@@ -19,7 +19,21 @@
 #   platform    — for scope="platform": which platform owns the field (e.g. "tiktok")
 #   dtype       — PyArrow dtype string for the stored column
 #   section     — var_schema UI section (Activity / Item metadata / backstage)
-#   role        — var_schema role (factor / feature / group_factor / skip); omit for the default
+#   role        — analysis role, keyed to the Correlations unit of analysis (the
+#                 collection-day group); omit for the default (no analysis role).
+#                 The admission test — ask the four questions in order:
+#                   1. Does it define the unit?            → "grouping"
+#                   2. Group-constant contrast to compare
+#                      feeds' days across (few, a-priori
+#                      meaningful levels)?                  → "comparison"
+#                   3. Per-item property whose group
+#                      aggregate is meaningful?             → "measure"
+#                   4. Group-constant context, descriptive
+#                      only (Colour-by, never tested)?      → "descriptor"
+#                 Anything else gets NO role. "skip" hides a column entirely.
+#                 comparison/descriptor columns MUST be constant within a
+#                 collection-day: a within-group-varying value duplicates the
+#                 PCA frame's rows (see local_day_segment's description).
 #   scale       — var_schema scale (numeric / categorical / list / text / datetime / raw)
 #   display_name / description — var_schema metadata (overlaid at load)
 #   required    — true when a null value makes a row invalid (the hard-drop gate)
@@ -68,7 +82,7 @@ name = "collection_id"
 scope = "base"
 dtype = "string[pyarrow]"
 section = "Activity"
-role = "group_factor"
+role = "grouping"
 scale = "text"
 display_name = "Collection ID"
 description = "Identifier for the collection (participant/donation) this activity belongs to."
@@ -119,7 +133,7 @@ name = "source_platform"
 scope = "base"
 dtype = "string[pyarrow]"
 section = "Activity"
-role = "factor"
+role = "comparison"
 scale = "categorical"
 display_name = "Platform"
 description = "The platform this activity was donated from (tiktok, instagram, youtube)."
@@ -155,7 +169,7 @@ name = "local_date"
 scope = "base"
 dtype = "date32[pyarrow]"
 section = "Activity"
-role = "group_factor"
+role = "grouping"
 scale = "datetime"
 display_name = "Activity date"
 description = "Date of the activity adjusted to local timezone."
@@ -168,7 +182,7 @@ dtype = "string[pyarrow]"
 section = "Activity"
 scale = "categorical"
 display_name = "Activity day segment"
-description = "Time of day (e.g., morning, night) in local time. No analysis role: it varies within a collection-day, so it cannot be a factor of the day-grouped PCA frame (a factor there must be constant per group)."
+description = "Time of day (e.g., morning, night) in local time. No analysis role: it varies within a collection-day, so it cannot be a comparison variable of the day-grouped PCA frame (comparison/descriptor columns must be constant per group)."
 derived = true
 
 [[fields]]
@@ -196,10 +210,10 @@ name = "local_week"
 scope = "base"
 dtype = "string[pyarrow]"
 section = "Activity"
-role = "factor"
+role = "descriptor"
 scale = "text"
 display_name = "Activity week"
-description = "Week (YYYY-WW) of the activity in local time."
+description = "Week (YYYY-WW) of the activity in local time. Group-constant descriptor: available for Colour-by, excluded from the comparison sweep — a week label describes when a day happened, it is not an experimental contrast (time trends belong to the Timelines tab)."
 derived = true
 
 [[fields]]
@@ -207,7 +221,7 @@ name = "local_weekday"
 scope = "base"
 dtype = "string[pyarrow]"
 section = "Activity"
-role = "factor"
+role = "comparison"
 scale = "text"
 display_name = "Activity weekday"
 description = "Day of the week (e.g., monday) in local time."

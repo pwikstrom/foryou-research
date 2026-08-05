@@ -327,6 +327,9 @@ def test_metadata_payload_prefs_and_views(monkeypatch):
     assert payload["numeric_col_bases"].get("advertising_C0") == "advertising"
     # And the base variable's schema_map entry gained its section for the panel
     assert payload["schema_map"]["advertising"].get("section") == "Content"
+    # Non-independence caveat inputs ride the unit block.
+    assert payload["unit"]["n_collections"] == 2
+    assert payload["unit"]["independence_warning_collections"] == 10
 
 
 
@@ -611,6 +614,28 @@ def test_scatter_payload_stats_and_ellipses(client, monkeypatch):
     assert groups == {"a", "b"}
     assert payload["centered"] is False
     assert payload["ellipse_coverage"] == pytest.approx(0.95)
+
+    # Per-collection slopes: one entry per collection, matching scipy per group.
+    from scipy import stats as scipy_stats
+    slopes = {s["collection_id"]: s for s in payload["per_collection_slopes"]}
+    assert set(slopes) == {"a", "b"}
+    for coll in ("a", "b"):
+        sub = df[df["collection_id"] == coll]
+        expected = scipy_stats.linregress(sub["x"], sub["y"])
+        assert slopes[coll]["slope"] == pytest.approx(float(expected.slope))
+        assert slopes[coll]["n"] == 3
+
+    # Slopes are invariant to within-collection centering.
+    res_c = client.post("/api/correlations/data", json={
+        "study": "mystudy", "x_col": "x", "y_col": "y",
+        "color_col": "collection_id", "center": True})
+    assert res_c.status_code == 200
+    payload_c = res_c.get_json()
+    assert payload_c["centered"] is True
+    slopes_c = {s["collection_id"]: s["slope"]
+                for s in payload_c["per_collection_slopes"]}
+    for coll in ("a", "b"):
+        assert slopes_c[coll] == pytest.approx(slopes[coll]["slope"])
 
 
 

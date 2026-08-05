@@ -73,6 +73,88 @@ def contract_numeric_transforms() -> dict[str, str]:
     return out
 
 
+# Yes/No(/Unclear) categoricals bypass the PCA entirely: their substantive
+# content is the share of "yes", which a component would only obfuscate
+# ("Advertising (C0)" is a z-scored yes-share wearing a costume). Detection is
+# data-driven on the counts frame so any future yes/no field gets it for free.
+YES_NO_UNCLEAR = frozenset({"yes", "no", "unclear"})
+
+# Suffix of the plain day-share column such variables emit instead of C0/
+# entropy. Never matches the component regex (_C\d+$), so the read-side
+# component cap passes it through untouched, and the service's longest-prefix
+# display naming renders "Display name (share of feed)".
+SHARE_OF_FEED_SUFFIX = "_share_of_feed"
+
+
+
+
+
+
+def _recode_sentinels() -> set:
+    """Lowercased recode missing-value sentinel labels from config."""
+    try:
+        labels = _cf()["labels"]
+        return {str(labels["NOT_CODED"]).strip().lower(),
+                str(labels["UNABLE_TO_DETECT"]).strip().lower()}
+    except Exception:
+        return {"not coded", "unable to detect"}
+
+
+
+
+
+
+def is_yes_no_counts(counts_df: pd.DataFrame) -> bool:
+    """True when a counts frame is a yes/no(/unclear) variable's.
+
+    Every column name must lowercase into yes/no/unclear or a recode
+    missing-value sentinel, with at least one non-sentinel column present.
+
+    Args:
+        counts_df: Group × category counts frame (post explode/crosstab).
+
+    Returns:
+        Whether the variable should bypass PCA for a yes-share column.
+    """
+    sentinels = _recode_sentinels()
+    names = [str(c).strip().lower() for c in counts_df.columns]
+    if not names:
+        return False
+    substantive = [n for n in names if n not in sentinels]
+    return bool(substantive) and all(n in YES_NO_UNCLEAR for n in substantive)
+
+
+
+
+
+
+def yes_share_from_counts(counts_df: pd.DataFrame) -> pd.Series:
+    """Per-group share of "yes" among the yes/no/unclear answers.
+
+    Sentinel columns are excluded from numerator and denominator. A group
+    with no substantive answers gets NaN; a variable with no "yes" column
+    yields 0.0 shares.
+
+    Args:
+        counts_df: Group × category counts frame.
+
+    Returns:
+        Float series in [0, 1] (or NaN), indexed like ``counts_df``.
+    """
+    lowered = {c: str(c).strip().lower() for c in counts_df.columns}
+    substantive = [c for c, low in lowered.items() if low in YES_NO_UNCLEAR]
+    yes_cols = [c for c, low in lowered.items() if low == "yes"]
+
+    denominator = counts_df[substantive].sum(axis=1).astype("float64")
+    numerator = (counts_df[yes_cols].sum(axis=1).astype("float64")
+                 if yes_cols else pd.Series(0.0, index=counts_df.index))
+    return (numerator / denominator.where(denominator > 0)).astype("float64")
+
+
+
+
+
+
 Group = Union[dict[str, int], Sequence[str]]
 Metric = Literal["jensen-shannon", "hellinger", "total-variation", "bray-curtis", "chi2"]
 Mode = Literal["distance", "similarity"]
@@ -895,6 +977,31 @@ def calculate_scaled_pca_scores(
         counts_df = counts_list[i]
         col_name = categorical_features[i]
         print(f"    [PCA] {(i+1):02}/{len(counts_list)}. {col_name}, {counts_df.shape}", end=": ", flush=True)
+
+        # Yes/no(/unclear) variables bypass PCA: emit the day share of "yes"
+        # instead of components/entropy. The scaled copy joins the frame like
+        # any numeric; the _raw twin rides the existing raw-category plumbing
+        # (scaled version dropped, unscaled re-injected after StandardScaler).
+        if is_yes_no_counts(counts_df):
+            share = yes_share_from_counts(counts_df)
+            share_col = f"{col_name}{SHARE_OF_FEED_SUFFIX}"
+            wer = pd.DataFrame({share_col: share, f"{share_col}_raw": share})
+
+            if len(grouping_factors) > 1:
+                wer.index = pd.MultiIndex.from_tuples(wer.index, names=grouping_factors)
+            else:
+                wer.index = wer.index.get_level_values(0)
+                wer.index.name = grouping_factors[0]
+            wer.index = convert_index_dtype_pyarrow(wer.index)
+
+            comp_interpretations[share_col] = {
+                "top_positive": "more 'yes' days",
+                "top_negative": "fewer 'yes' days",
+            }
+            events_pca_scores += [wer.copy()]
+            print(f"yes-share column ({share_col})", flush=True)
+            continue
+
         wer, the_pc_df, comp_interpretation = transform_categories_to_components_and_diversity(
             counts_df=counts_df,
             gamma=0.8,

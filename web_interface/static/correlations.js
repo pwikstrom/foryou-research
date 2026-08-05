@@ -322,7 +322,7 @@ function renderPcaControls(data) {
         }
     }
 
-    // Colour: Factors — use display_name from schema_map if available
+    // Colour: comparison/descriptor variables — display_name from schema_map if available
     data.factor_cols.forEach(col => {
         const opt = document.createElement('option');
         opt.value = col;
@@ -681,7 +681,7 @@ function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
         });
     }
 
-    renderScatterCaption(serverStats, xTitle, yTitle, isCentered, showStats);
+    renderScatterCaption(serverStats, xTitle, yTitle, isCentered, showStats, payload);
 
     Plotly.newPlot('pca-plot', traces, layout, { responsive: true, displayModeBar: true });
 
@@ -909,6 +909,8 @@ function renderHeatmapCaption(payload, maskNonSig, maskedCount) {
     if (payload.centered) {
         parts.push('Values are centered within each collection (within-collection associations).');
     }
+    const caveat = independenceCaveat();
+    if (caveat) parts.push(caveat);
     parts.push('<span class="text-xs">Thin separators group components of the same variable; ' +
         'cells that cross a separator compare components from different per-variable PCA ' +
         'spaces — read them as associations between summary dimensions, not shared axes.</span>');
@@ -993,60 +995,148 @@ async function loadGroupStats() {
 }
 
 
-// Column specs for the two Group-differences tables: the label, the row key
+// The Group-differences view renders TWO panels because it answers two
+// statistically different questions: personalization (variance BETWEEN
+// collections — an effect-size reading with no p-values) and within-feed
+// comparisons (ANOVA blocked on collection, with partial effect sizes).
+const GROUP_STATS_PANELS = [
+    {
+        key: 'personalization',
+        title: 'How personalized are the feeds?',
+        intro: 'Share of each variable’s day-to-day variance that lies between ' +
+            'collections. η² here reads as an intraclass correlation: 0 = the ' +
+            'collections’ feeds are interchangeable, 1 = knowing the collection tells ' +
+            'you everything. No p-values on purpose — with hundreds of dependent days ' +
+            'per collection they are always ≈0 and say nothing; the effect size is the finding.',
+    },
+    {
+        key: 'comparison',
+        title: 'Within-feed comparisons (blocked on collection)',
+        intro: 'Do days differ by these variables <i>inside the same feed</i>? Each test ' +
+            'removes collection-to-collection differences first (blocking), so effect ' +
+            'sizes are partial: the share of the <i>within-feed</i> variance the ' +
+            'comparison explains.',
+    },
+];
+
+// Marker + explainer for factors that are constant within every collection
+// (e.g. platform when each collection donates from one platform).
+const NESTED_TIP = 'This variable is constant within each collection, so its effect ' +
+    'cannot be separated from personalization. The comparison has only as many ' +
+    'independent units as there are collections — not day-groups — so no q is ' +
+    'shown; treat its p as descriptive.';
+
+// Column specs for the four Group-differences tables: the label, the row key
 // it reads, how to format it, and the plain-language explainer shown on hover.
-// `num` marks columns sorted numerically; the rest sort as text.
+// `num` marks columns sorted numerically; the rest sort as text. `cell` is an
+// optional custom renderer (row, formattedCell) -> html.
 const GROUP_STATS_TABLES = [
     {
-        key: 'anova',
-        title: 'Which factors move single components? (one-way ANOVA)',
-        empty: 'No testable factor × component pairs in this study.',
+        key: 'personalization',
+        panel: 'personalization',
+        title: 'Variance between collections, per variable (ANOVA η² = ICC)',
+        empty: 'Personalization needs at least 2 collections with enough days each.',
         defaultSort: { col: 'eta2', dir: -1 },
         columns: [
-            { key: 'factor', label: 'Factor', kind: 'name',
-              tip: 'The grouping the test compares — e.g. do the collections, or the weeks, differ from each other?' },
-            { key: 'component', label: 'Component', kind: 'name',
-              tip: 'The variable being compared across those groups. "(C0)" is a variable\'s leading PCA dimension; "(entropy)" is how diverse the feed was on that variable.' },
-            { key: 'eta2', label: 'η²', num: true, digits: 3,
-              tip: 'Eta-squared: the share of this component\'s variation explained by the factor. The effect size — read this before the p-value. Conventions: .01 small, .06 medium, .14 large.' },
+            { key: 'component', label: 'Variable', kind: 'name',
+              tip: 'The variable whose day-to-day variance is decomposed. "(C0)" is a variable\'s leading PCA dimension; "(entropy)" is feed diversity on that variable; "(share of feed)" is a yes/no variable\'s daily share.' },
+            { key: 'eta2', label: 'η² (ICC)', num: true, digits: 3,
+              tip: 'Share of this variable\'s variance lying between collections (the intraclass correlation). This is the personalization-strength number — .01 small, .06 medium, .14 large.' },
             { key: 'magnitude', label: 'Effect',
               tip: 'Plain-language label for η² using the conventional cutoffs (negligible / small / medium / large).' },
             { key: 'omega2', label: 'ω²', num: true, digits: 3,
-              tip: 'Omega-squared: a less optimistic η². Trust it over η² when the factor has many levels or few groups per level.' },
+              tip: 'A less optimistic η² (corrects small-sample inflation). Quote this one in a paper.' },
             { key: 'F', label: 'F', num: true, digits: 1,
-              tip: 'The ANOVA test statistic — between-group variance divided by within-group variance. Larger means the groups separate more cleanly.' },
+              tip: 'Between-collection variance over within-collection variance. Descriptive here — no significance is attached (see the panel note).' },
+            { key: 'n', label: 'n', num: true,
+              tip: 'Number of collection-day groups behind the decomposition.' },
+            { key: 'levels', label: 'Collections', num: true,
+              tip: 'How many collections the variance is decomposed across.' },
+        ],
+    },
+    {
+        key: 'permanova_personalization',
+        panel: 'personalization',
+        title: 'Whole-profile personalization (PERMANOVA on collection)',
+        empty: 'No multi-component variable families to test.',
+        defaultSort: { col: 'pseudo_F', dir: -1 },
+        columns: [
+            { key: 'family', label: 'Variable family', kind: 'name',
+              tip: 'The variable whose components are tested together, as one profile.' },
+            { key: 'pseudo_F', label: 'pseudo-F', num: true, digits: 2,
+              tip: 'How much better collection membership separates whole day-profiles than chance. Rank on this — larger = stronger profile-level personalization.' },
             { key: 'p', label: 'p', num: true, p: true,
-              tip: 'Uncorrected significance of this single test. With hundreds of tests in this table, use q instead.' },
+              tip: 'Permutation p. With many dependent days per collection it is nearly always tiny — read it as descriptive, and rank on pseudo-F.' },
             { key: 'q', label: 'q', num: true, p: true,
-              tip: 'Benjamini–Hochberg adjusted p, across every test in this table. q < .05 means under 5% of the rows you call real are expected to be noise. This is the column to judge significance on.' },
+              tip: 'Benjamini–Hochberg adjusted p across this table.' },
+            { key: 'n', label: 'n', num: true,
+              tip: 'Number of collection-day groups behind the test.' },
+            { key: 'levels', label: 'Collections', num: true,
+              tip: 'How many collections are compared.' },
+            { key: 'n_components', label: 'Components', num: true,
+              tip: 'How many of the variable\'s components were compared together as a profile.' },
+            { key: 'permutations', label: 'Permutations', num: true,
+              tip: 'How many random shuffles the p-value was computed from.' },
+        ],
+    },
+    {
+        key: 'anova',
+        panel: 'comparison',
+        title: 'Which comparisons move single variables? (ANOVA blocked on collection)',
+        empty: 'No testable comparison × variable pairs in this study.',
+        defaultSort: { col: 'eta2', dir: -1 },
+        columns: [
+            { key: 'factor', label: 'Comparison', kind: 'name',
+              cell: (row, html) => row.nested_in_collection
+                  ? `${html} <span class="meta-tooltip corr-nested-badge" data-tooltip="${escapeHtml(NESTED_TIP)}">†</span>`
+                  : html,
+              tip: 'The comparison variable the test contrasts — e.g. do weekend days differ from weekdays within a feed? † marks variables constant within each collection (hover the mark).' },
+            { key: 'component', label: 'Variable', kind: 'name',
+              tip: 'The variable being compared. "(C0)" is a leading PCA dimension; "(entropy)" is feed diversity; "(share of feed)" is a yes/no variable\'s daily share.' },
+            { key: 'eta2', label: 'η²ₚ', num: true, digits: 3,
+              tip: 'Partial eta-squared: the share of the WITHIN-feed variance this comparison explains, after removing collection differences (the blocking). Read this before the p-value. Conventions: .01 small, .06 medium, .14 large.' },
+            { key: 'magnitude', label: 'Effect',
+              tip: 'Plain-language label for the partial η² using the conventional cutoffs.' },
+            { key: 'omega2', label: 'ω²ₚ', num: true, digits: 3,
+              tip: 'Partial omega-squared: a less optimistic partial η². Quote this one in a paper. Slightly negative values just mean "indistinguishable from zero".' },
+            { key: 'F', label: 'F', num: true, digits: 1,
+              tip: 'The test statistic from the blocked model — comparison variance over residual (within-feed) variance.' },
+            { key: 'p', label: 'p', num: true, p: true,
+              tip: 'Uncorrected significance of this single test. With many tests in this table, use q instead. Days within a collection are not fully independent, so p runs optimistic.' },
+            { key: 'q', label: 'q', num: true, p: true,
+              tip: 'Benjamini–Hochberg adjusted p, across every non-† test in this table. q < .05 means under 5% of the rows you call real are expected to be noise. Judge significance here.' },
             { key: 'kw_q', label: 'KW q', num: true, p: true,
-              tip: 'The same comparison run as a rank-based Kruskal–Wallis test, BH-adjusted. Trust it over q when groups are small or skewed; if the two disagree, be sceptical of the result.' },
+              tip: 'The same comparison as a rank-based Kruskal–Wallis test on within-collection-centered values (an approximation of the blocked test), BH-adjusted. Trust it over q when groups are small or skewed; if the two disagree, be sceptical.' },
             { key: 'n', label: 'n', num: true,
               tip: 'Number of collection-day groups behind the test.' },
             { key: 'levels', label: 'Levels', num: true,
-              tip: 'How many distinct values the factor takes (e.g. 2 collections, 26 weeks).' },
+              tip: 'How many distinct values the comparison takes (e.g. 2 for weekend vs weekday).' },
         ],
     },
     {
         key: 'permanova',
-        title: 'Do whole variable profiles differ by factor? (PERMANOVA)',
-        empty: 'No testable family × factor pairs in this study.',
+        panel: 'comparison',
+        title: 'Do whole variable profiles differ? (PERMANOVA, within-collection)',
+        empty: 'No testable family × comparison pairs in this study.',
         defaultSort: { col: 'q', dir: 1 },
         columns: [
             { key: 'family', label: 'Variable family', kind: 'name',
               tip: 'The variable whose components are tested together, as one profile.' },
-            { key: 'factor', label: 'Factor', kind: 'name',
-              tip: 'The grouping being compared.' },
+            { key: 'factor', label: 'Comparison', kind: 'name',
+              cell: (row, html) => row.nested_in_collection
+                  ? `${html} <span class="meta-tooltip corr-nested-badge" data-tooltip="${escapeHtml(NESTED_TIP)}">†</span>`
+                  : html,
+              tip: 'The comparison being tested. Non-† rows run on within-collection-centered profiles (do days differ inside feeds?); † rows are collection-constant and run on raw profiles.' },
             { key: 'pseudo_F', label: 'pseudo-F', num: true, digits: 2,
-              tip: 'PERMANOVA test statistic: how much better the factor separates whole profiles than chance. Its significance comes from permutation, not a table.' },
+              tip: 'PERMANOVA test statistic: how much better the comparison separates whole profiles than chance. Its significance comes from permutation, not a table.' },
             { key: 'p', label: 'p', num: true, p: true,
-              tip: 'Permutation p-value: the share of random shuffles that separated the groups at least as well as the real labels.' },
+              tip: 'Permutation p-value. Permutation is free (not restricted within collections), so under collection dependence it runs optimistic — lean on q and effect direction.' },
             { key: 'q', label: 'q', num: true, p: true,
-              tip: 'Benjamini–Hochberg adjusted p across this table — judge significance here rather than on p.' },
+              tip: 'Benjamini–Hochberg adjusted p across the non-† rows of this table — judge significance here rather than on p.' },
             { key: 'n', label: 'n', num: true,
               tip: 'Number of collection-day groups behind the test.' },
             { key: 'levels', label: 'Levels', num: true,
-              tip: 'How many distinct values the factor takes.' },
+              tip: 'How many distinct values the comparison takes.' },
             { key: 'n_components', label: 'Components', num: true,
               tip: 'How many of the variable\'s components were compared together as a profile.' },
             { key: 'permutations', label: 'Permutations', num: true,
@@ -1110,6 +1200,19 @@ function renderGroupStats(data) {
     const fmtP = (p) => (p === null || p === undefined) ? '—' : formatP(p).replace(/^p /, '');
     const fmtN = (v, d) => (v === null || v === undefined) ? '—' : Number(v).toFixed(d);
 
+    // Version guard: an artifact from an older worker uses the retired
+    // pooled-table layout whose numbers this overhaul deems misleading
+    // (unblocked p-values, collection_id in the same BH family). Never
+    // re-render them — ask for a refresh instead.
+    if (data.version !== 2) {
+        plotDiv.innerHTML = `<div class="corr-table-wrap"><p>These group statistics ` +
+            `were computed by an older version of the analysis and use a layout this ` +
+            `page no longer shows. Run Data Pipeline → Refresh Caches (PCA / ` +
+            `Correlations), then reload.</p></div>`;
+        setCaption('');
+        return;
+    }
+
     const renderTable = (spec) => {
         const rows = data[spec.key] || [];
         let out = `<h3 class="text-h3">${escapeHtml(spec.title)}</h3>`;
@@ -1141,6 +1244,7 @@ function renderGroupStats(data) {
                 else if (col.p) cell = fmtP(raw);
                 else if (col.digits !== undefined) cell = fmtN(raw, col.digits);
                 else cell = (raw === null || raw === undefined) ? '—' : escapeHtml(String(raw));
+                if (col.cell) cell = col.cell(row, cell);
                 out += `<td>${cell}</td>`;
             });
             out += `</tr>`;
@@ -1148,12 +1252,17 @@ function renderGroupStats(data) {
         return out + `</tbody></table>`;
     };
 
-    plotDiv.innerHTML = `<div class="corr-table-wrap">` +
-        GROUP_STATS_TABLES.map(renderTable).join('') + `</div>`;
+    const renderPanel = (panel) => {
+        const specs = GROUP_STATS_TABLES.filter(s => s.panel === panel.key);
+        return `<h2 class="text-h2 corr-panel-title">${escapeHtml(panel.title)}</h2>` +
+            `<p class="text-xs corr-panel-intro">${panel.intro}</p>` +
+            specs.map(renderTable).join('');
+    };
 
-    const anova = [...(data.anova || [])].sort((a, b) => (b.eta2 || 0) - (a.eta2 || 0));
-    const perma = [...(data.permanova || [])].sort((a, b) => (a.q ?? 1) - (b.q ?? 1));
-    renderGroupStatsCaption(anova, perma, schemaMap);
+    plotDiv.innerHTML = `<div class="corr-table-wrap">` +
+        GROUP_STATS_PANELS.map(renderPanel).join('') + `</div>`;
+
+    renderGroupStatsCaption(data, schemaMap);
 }
 
 
@@ -1168,49 +1277,86 @@ function varianceMagnitude(value) {
 }
 
 
-function renderGroupStatsCaption(anova, perma, schemaMap) {
+function renderGroupStatsCaption(data, schemaMap) {
     const dname = (c) => (schemaMap[c] && schemaMap[c].display_name) ? schemaMap[c].display_name : c;
     const parts = [];
-    const sigAnova = anova.filter(r => r.q !== null && r.q !== undefined && r.q < 0.05);
-    if (anova.length) {
-        parts.push(`${sigAnova.length} of ${anova.length} factor × component tests are ` +
-            `significant after correction (q < .05).`);
-        // Headline on omega-squared, not eta-squared: eta-squared is inflated by
-        // the number of factor levels, so a 26-week factor would otherwise
-        // outrank a genuinely larger 2-level effect.
+
+    // Personalization headline: the largest ICC.
+    const pers = data.personalization || [];
+    const hasEta = (r) => r && r.eta2 !== null && r.eta2 !== undefined && isFinite(r.eta2);
+    const topPers = pers.filter(hasEta).reduce(
+        (best, r) => (best === null || r.eta2 > best.eta2 ? r : best), null);
+    if (topPers) {
+        parts.push(`Personalization: at its strongest, ` +
+            `${(topPers.eta2 * 100).toFixed(0)}% of the day-to-day variation in ` +
+            `<b>${escapeHtml(dname(topPers.component))}</b> lies between the ` +
+            `${(data.n_collections || topPers.levels).toLocaleString()} collections ` +
+            `(a ${varianceMagnitude(topPers.eta2)} effect).`);
+    }
+
+    // Comparison headline: largest partial omega² among significant,
+    // non-nested rows (nested rows have no valid q by design).
+    const anova = data.anova || [];
+    const testable = anova.filter(r => !r.nested_in_collection);
+    const sigAnova = testable.filter(r => r.q !== null && r.q !== undefined && r.q < 0.05);
+    if (testable.length) {
+        parts.push(`Within feeds: ${sigAnova.length} of ${testable.length} comparison × ` +
+            `variable tests are significant after correction (q < .05).`);
         const hasOmega = (r) => r && r.omega2 !== null && r.omega2 !== undefined && isFinite(r.omega2);
-        const pool = (sigAnova.length ? sigAnova : anova).filter(hasOmega);
+        const pool = (sigAnova.length ? sigAnova : testable).filter(hasOmega);
         const top = pool.length
             ? pool.reduce((best, r) => (r.omega2 > best.omega2 ? r : best))
             : null;
         if (top && top.omega2 > 0) {
-            parts.push(`Largest effect: <b>${escapeHtml(dname(top.factor))}</b> explains ` +
-                `${(top.omega2 * 100).toFixed(0)}% of the variation in ` +
+            parts.push(`Largest within-feed effect: <b>${escapeHtml(dname(top.factor))}</b> explains ` +
+                `${(top.omega2 * 100).toFixed(0)}% of the within-feed variation in ` +
                 `<b>${escapeHtml(dname(top.component))}</b> ` +
                 `(a ${varianceMagnitude(top.omega2)} effect, ${formatP(top.q)} after correction).`);
         }
     }
+
+    const perma = (data.permanova || []).filter(r => !r.nested_in_collection);
     const sigPerma = perma.filter(r => r.q !== null && r.q !== undefined && r.q < 0.05);
     if (sigPerma.length) {
         const fams = [...new Set(sigPerma.map(r => `${dname(r.family)} (by ${dname(r.factor)})`))].slice(0, 4);
-        parts.push(`Whole-profile differences (PERMANOVA): ${fams.map(escapeHtml).join('; ')}` +
-            `${sigPerma.length > 4 ? ' and more' : ''}.`);
+        parts.push(`Whole-profile differences within feeds (PERMANOVA): ` +
+            `${fams.map(escapeHtml).join('; ')}${sigPerma.length > 4 ? ' and more' : ''}.`);
     } else if (perma.length) {
-        parts.push('No variable family shows a significant whole-profile difference after correction.');
+        parts.push('No variable family shows a significant within-feed whole-profile difference after correction.');
     }
-    parts.push('<span class="text-xs">Effects are quoted as ω², the share of a component\'s ' +
-        'variance explained by the factor (.01 small, .06 medium, .14 large). ω² rather than η² ' +
-        'because η² grows with the number of factor levels, which would flatter a 26-week factor ' +
-        'over a 2-collection one. KW q = rank-based Kruskal–Wallis check — trust it over the ANOVA ' +
-        'q when groups are small or skewed. PERMANOVA compares each variable\'s whole component ' +
-        'profile, never mixing different variables\' PCA bases.</span>');
+
+    parts.push('<span class="text-xs">Comparison tests are blocked on collection: they ask ' +
+        'whether days <i>within the same feed</i> differ, after removing feed-to-feed ' +
+        'differences, and quote partial ω² (.01 small, .06 medium, .14 large). † rows are ' +
+        'constant within each collection and cannot be separated from personalization. ' +
+        'KW q = rank-based check on within-collection-centered values — trust it over the ' +
+        'ANOVA q when groups are small or skewed. PERMANOVA compares each variable\'s whole ' +
+        'component profile, never mixing different variables\' PCA bases.</span>');
+
+    const caveat = independenceCaveat();
+    if (caveat) parts.push(caveat);
     setCaption(parts.join(' '));
+}
+
+
+// Standing non-independence caveat for small collection counts, shared by the
+// scatter, heatmap and group-differences captions. Returns '' when the study
+// has enough collections (metadata.unit carries the config threshold).
+function independenceCaveat() {
+    const unit = pcaData.metadata?.unit || {};
+    const n = unit.n_collections;
+    const threshold = unit.independence_warning_collections;
+    if (!threshold || n === null || n === undefined || n >= threshold) return '';
+    return `<span class="corr-caption-warning">This study has only ` +
+        `${n.toLocaleString()} collection${n === 1 ? '' : 's'}, and days within a ` +
+        `collection are not independent — pooled p-values run optimistic. Treat ` +
+        `results as descriptive of these collections.</span>`;
 }
 
 
 // --- Scatter caption (plain-language summary of the server statistics) ---
 
-function renderScatterCaption(stats, xTitle, yTitle, isCentered, showStats) {
+function renderScatterCaption(stats, xTitle, yTitle, isCentered, showStats, payload) {
     if (!showStats) {
         setCaption('');
         return;
@@ -1234,6 +1380,20 @@ function renderScatterCaption(stats, xTitle, yTitle, isCentered, showStats) {
         parts.push('<span class="corr-caption-warning">Small sample — fewer than 30 groups; ' +
             'interpret with caution.</span>');
     }
+    // Below the collection threshold, complement the pooled slope with each
+    // collection's own: agreeing slopes back the pooled claim, disagreeing
+    // ones expose it as a mixture. Display names come from the anonymised map.
+    const caveat = independenceCaveat();
+    const slopes = payload?.per_collection_slopes || [];
+    if (caveat && slopes.length > 1) {
+        const displayMap = pcaData.metadata?.display_ids || {};
+        const label = (cid) => displayMap[cid] || cid;
+        const items = slopes.map(s =>
+            `${escapeHtml(label(s.collection_id))} ${s.slope.toFixed(2)} (n=${s.n})`);
+        parts.push(`Per-collection slopes: ${items.join('; ')} — if these disagree, ` +
+            `the pooled line mixes different relationships.`);
+    }
+    if (caveat) parts.push(caveat);
     parts.push('<span class="text-xs">The line assumes a straight-line relationship — ' +
         'check the scatter for curvature or outliers before relying on it.</span>');
     setCaption(parts.join(' '));

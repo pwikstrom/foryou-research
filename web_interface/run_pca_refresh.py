@@ -72,9 +72,12 @@ def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None)
                     stats_payload = compute_group_stats_artifact(scores_df, study_name)
                     data_io.save_json(data=stats_payload, storage_location="cache",
                                       filename=f"{study_name}_corr_stats.json")
+                    n_perma = (len(stats_payload['permanova'])
+                               + len(stats_payload['permanova_personalization']))
                     reporter.log(f"  Saved group stats for {study_name} "
-                                 f"({len(stats_payload['anova'])} ANOVA, "
-                                 f"{len(stats_payload['permanova'])} PERMANOVA tests)")
+                                 f"({len(stats_payload['personalization'])} personalization, "
+                                 f"{len(stats_payload['anova'])} ANOVA, "
+                                 f"{n_perma} PERMANOVA tests)")
                 except Exception as e:
                     reporter.log(f"  Group-stats computation failed for {study_name} (continuing): {e}")
             else:

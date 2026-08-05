@@ -163,7 +163,7 @@ def test_get_schema_returns_etag_and_rows(client):
         # The presentation store (the only editable payload) rides along.
         and isinstance(body.get("presentation"), dict)
         and set(body.get("prio_columns", {})) == {"filter", "timeline", "viz", "display"}
-        and body.get("current_hash", "").startswith("v2:")
+        and body.get("current_hash", "").startswith("v3:")
     )
     _check("test_get_schema_returns_etag_and_rows", ok,
            f"keys={list(body.keys())}")

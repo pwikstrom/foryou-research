@@ -933,6 +933,19 @@ def load_var_schema(cf, verbose=False):
     _apply_contract_derived_metadata(cf)
     _apply_contract_accepted_labels(cf)
 
+    # Normalize legacy role strings (factor/group_factor/feature) to the current
+    # vocabulary. The contract TOMLs are rewritten, but registry field_metadata
+    # snapshots keep the old strings on disk forever — this single choke point
+    # means downstream matchers only ever see the new values.
+    if "role" in cf["var_schema"].columns:
+        try:
+            from fyp.recode_variables import normalize_role
+            cf["var_schema"]["role"] = cf["var_schema"]["role"].map(
+                lambda r: normalize_role(r) if pd.notna(r) else r
+            )
+        except Exception:
+            pass
+
     # Injection concatenates plain-dict rows, which can degrade column dtypes —
     # re-coerce the metadata columns to pyarrow strings for downstream consumers.
     for _meta_col in ("role", "scale", "display_name", "description", "section", "variable_name"):

@@ -341,6 +341,12 @@ interpretation_cutoff = 0.2
 # "Group differences" stats (run by the pca_refresh worker).
 permanova_permutations = 999
 
+# Below this many collections, the Correlations captions carry a standing
+# non-independence caveat (days within a collection are not independent, so
+# pooled p-values are anti-conservative) and the scatter caption lists
+# per-collection regression slopes.
+independence_warning_collections = 10
+
 
 
 ##########################################################################################
