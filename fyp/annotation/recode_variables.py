@@ -228,8 +228,9 @@ VAR_SCHEMA_HASH_VERSION = "v3"
 #                Group-differences sweep (ANOVA/PERMANOVA) and Colour-by
 #   measure    — per-item property aggregated to a group-level quantity
 #                (numeric -> day mean; categorical -> PCA components/entropy)
-#   descriptor — group-constant context offered for Colour-by only,
-#                excluded from the comparison sweep
+#   descriptor — group-constant context carried alongside the PCA frame for
+#                hover/reference; excluded from the comparison sweep and the
+#                Colour-by dropdown
 #   skip       — hidden from analysis and recoding
 VAR_SCHEMA_ROLES = ("grouping", "comparison", "measure", "descriptor", "skip")
 

@@ -2790,6 +2790,14 @@ button.meta-tooltip:disabled {
     color: var(--color-text-secondary);
 }
 
+/* Per-panel result summary (the panel's findings, under its intro) */
+.corr-table-wrap .corr-panel-highlight {
+    margin: 0 0 10px;
+    max-width: 900px;
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+}
+
 /* Dagger marking a comparison nested in collections (hover for the caveat) */
 .corr-nested-badge {
     color: var(--color-warning);

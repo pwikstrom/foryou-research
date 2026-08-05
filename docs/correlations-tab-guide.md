@@ -154,9 +154,9 @@ here:
 3. **Is it a per-video property whose day-level aggregate is meaningful?** → a
    *measure* (everything in §2.1–2.4).
 4. **Is it group-constant context that describes rather than contrasts?** → a
-   *descriptor* (e.g. calendar week): offered for colouring, never tested —
-   a 26-level "week effect" is a time trend wearing an ANOVA costume, and time
-   trends belong to the Timelines tab.
+   *descriptor* (e.g. calendar week): carried along for hover context, never
+   tested or coloured — a 26-level "week effect" is a time trend wearing an
+   ANOVA costume, and time trends belong to the Timelines tab.
 
 Anything failing all four is deliberately role-free. The canonical example is
 time-of-day: it varies *within* a collection-day, so it cannot be a comparison
@@ -220,8 +220,12 @@ One dot per collection-day in the study.
 
 - **X Axis / Y Axis** — any two of the variables from §2. The dropdowns group
   a variable's components and entropy together under one heading.
-- **Colour by** — colours dots by a comparison variable or descriptor
-  (Collection ID, weekday, weekend, platform, calendar week, …). Colour is
+- **Colour by** — colours dots by Collection ID or a comparison variable
+  (weekend, weekday, platform). The list is exactly those roles, on purpose:
+  colouring by a grouping key like the date would give each dot a near-unique
+  colour (noise), and colouring by a descriptor like the calendar week would
+  invite reading a 26-colour rainbow as a finding — time trends belong to the
+  Timelines tab. (Date and week still appear in each dot's hover.) Colour is
   descriptive only; it does not change any statistic.
 
 ### 4.2 Regression
@@ -241,11 +245,25 @@ association…", using the conventional |r| bands: <.1 negligible, <.3 weak,
 <.5 moderate, ≥.5 strong) and warns when n < 30. The caption also reminds you
 that the line assumes linearity — look at the cloud before trusting it.
 
+**Per-series lines — the legend is the honest filter.** When a colour split
+is active (and the colour variable has at most 12 series, configurable), the
+Regression toggle also draws **each series' own dotted line**, fitted on the
+full data for that series, and the caption lists every series' slope.
+Clicking a series in the legend hides its dots *and* its line (and ellipse)
+together — so you can visually isolate any subset. What deliberately does
+**not** happen: the pooled line and readout are never re-fitted to the
+visible subset. A pooled r/p over a hand-picked selection of series would be
+an unrecorded sampling decision — exactly what §3 removed the filter panel to
+prevent. If the per-series lines disagree with the pooled line, that *is* the
+finding (the pooled association mixes different relationships); if you need
+citable pooled statistics without a particular collection, define a sub-study
+excluding it, which documents the exclusion in the methods note.
+
 **Per-collection slopes and the independence caveat.** When the study has few
 collections (fewer than the configured threshold, default 10), the caption
-additionally lists **each collection's own regression slope** and warns that
-days within a collection are not independent, so the pooled p-value runs
-optimistic. Read the slopes as a robustness check: if they agree with the
+additionally lists **each collection's own regression slope** (when no colour
+split is active) and warns that days within a collection are not independent,
+so the pooled p-value runs optimistic. Read the slopes as a robustness check: if they agree with the
 pooled line, the association holds inside feeds; if they disagree — or the
 pooled slope sits outside all of them — the pooled line is mixing different
 relationships (Simpson's-paradox territory) and should not be reported as one

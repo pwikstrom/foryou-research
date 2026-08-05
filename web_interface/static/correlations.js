@@ -397,6 +397,11 @@ async function updatePcaPlot() {
 
     if (!xCol || !yCol) return;
 
+    // The scatter fetch is the tab's slowest request — show the same loading
+    // signal the other views use, incl. on every X/Y/colour change.
+    const loadingEl = document.getElementById('pca-point-count');
+    if (loadingEl) loadingEl.innerText = 'Loading…';
+
     try {
         const res = await fetch('/api/correlations/data', {
             method: 'POST',
@@ -415,6 +420,7 @@ async function updatePcaPlot() {
             console.error(data.error);
             const statusEl = document.getElementById('pca-status');
             if (statusEl) statusEl.innerText = `Error: ${data.error}`;
+            if (loadingEl) loadingEl.innerText = '';
             return;
         }
 
@@ -432,6 +438,7 @@ async function updatePcaPlot() {
 
     } catch (e) {
         console.error(e);
+        if (loadingEl) loadingEl.innerText = 'Error';
     }
 }
 
@@ -507,6 +514,7 @@ function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
                 y: ellipseY,
                 mode: 'lines',
                 name: `${gName} (95% ellipse, n=${e.n})`,
+                legendgroup: gName,
                 showlegend: false,
                 line: { width: 1, color: color },
                 fill: 'toself',
@@ -517,7 +525,8 @@ function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
         });
     }
 
-    // Scatter traces
+    // Scatter traces. Each series is its own legendgroup, so its ellipse and
+    // per-series regression line show/hide together with the dots.
     groupsKeys.forEach((g, i) => {
         const color = colors[i % colors.length];
         traces.push({
@@ -526,6 +535,7 @@ function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
             mode: 'markers',
             type: 'scatter',
             name: g,
+            legendgroup: g,
             text: groups[g].text,
             customdata: groups[g].factors,
             hoverinfo: 'text',
@@ -661,6 +671,32 @@ function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
             });
         }
 
+        // Per-series lines (server-fitted on the FULL data per colour group).
+        // Sharing the series' legendgroup makes the legend toggle an honest
+        // per-series filter: hiding a series hides its line, and no statistic
+        // is ever re-fitted to the visible subset (the pooled line above
+        // always describes the whole study — see the guide §3/§4.2).
+        (payload.per_group_regressions || []).forEach(r => {
+            const gName = (colorLabel === 'collection_id' && displayIds[r.group])
+                ? displayIds[r.group] : r.group;
+            const gi = groupsKeys.indexOf(gName);
+            if (gi < 0) return; // series absent from the display sample
+            const gx = groups[gName].x;
+            const gMin = Math.min(...gx), gMax = Math.max(...gx);
+            if (!isFinite(gMin) || !isFinite(gMax) || gMin === gMax) return;
+            traces.push({
+                x: [gMin, gMax],
+                y: [r.slope * gMin + r.intercept, r.slope * gMax + r.intercept],
+                mode: 'lines',
+                type: 'scatter',
+                name: `${gName}: slope ${r.slope.toFixed(2)} (n=${r.n})`,
+                legendgroup: gName,
+                showlegend: false,
+                line: { color: colors[gi % colors.length], width: 1.5, dash: 'dot' },
+                hoverinfo: 'name'
+            });
+        });
+
         const s = serverStats;
         const readout = [
             `R² = ${s.r2.toFixed(2)}`,
@@ -681,7 +717,7 @@ function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
         });
     }
 
-    renderScatterCaption(serverStats, xTitle, yTitle, isCentered, showStats, payload);
+    renderScatterCaption(serverStats, xTitle, yTitle, isCentered, showStats, payload, colorLabel);
 
     Plotly.newPlot('pca-plot', traces, layout, { responsive: true, displayModeBar: true });
 
@@ -1007,7 +1043,10 @@ const GROUP_STATS_PANELS = [
             'collections. η² here reads as an intraclass correlation: 0 = the ' +
             'collections’ feeds are interchangeable, 1 = knowing the collection tells ' +
             'you everything. No p-values on purpose — with hundreds of dependent days ' +
-            'per collection they are always ≈0 and say nothing; the effect size is the finding.',
+            'per collection they are always ≈0 and say nothing; the effect size is the ' +
+            'finding. The PERMANOVA table below asks the same question at ' +
+            'whole-profile level (all of a variable’s components at once) — rank it ' +
+            'by pseudo-F.',
     },
     {
         key: 'comparison',
@@ -1015,7 +1054,14 @@ const GROUP_STATS_PANELS = [
         intro: 'Do days differ by these variables <i>inside the same feed</i>? Each test ' +
             'removes collection-to-collection differences first (blocking), so effect ' +
             'sizes are partial: the share of the <i>within-feed</i> variance the ' +
-            'comparison explains.',
+            'comparison explains, quoted as ω²ₚ (.01 small, .06 medium, .14 large). ' +
+            '† rows are constant within each collection and cannot be separated from ' +
+            'personalization — their p is descriptive only. KW q is a rank-based check ' +
+            'on within-collection-centered values; trust it over the ANOVA q when ' +
+            'groups are small or skewed. The PERMANOVA table runs on ' +
+            'within-collection-centered profiles, never mixing different variables’ ' +
+            'PCA bases; its permutation is not restricted within collections, so read ' +
+            'its p as slightly optimistic.',
     },
 ];
 
@@ -1252,17 +1298,26 @@ function renderGroupStats(data) {
         return out + `</tbody></table>`;
     };
 
+    // Each panel's result summary sits under its own heading, next to its
+    // explanatory intro — not pooled into one caption below all the tables.
+    const highlights = {
+        personalization: personalizationHighlight(data, dname),
+        comparison: comparisonHighlight(data, dname),
+    };
+
     const renderPanel = (panel) => {
         const specs = GROUP_STATS_TABLES.filter(s => s.panel === panel.key);
+        const highlight = highlights[panel.key];
         return `<h2 class="text-h2 corr-panel-title">${escapeHtml(panel.title)}</h2>` +
             `<p class="text-xs corr-panel-intro">${panel.intro}</p>` +
+            (highlight ? `<p class="corr-panel-highlight">${highlight}</p>` : '') +
             specs.map(renderTable).join('');
     };
 
     plotDiv.innerHTML = `<div class="corr-table-wrap">` +
         GROUP_STATS_PANELS.map(renderPanel).join('') + `</div>`;
 
-    renderGroupStatsCaption(data, schemaMap);
+    setCaption('');
 }
 
 
@@ -1277,30 +1332,32 @@ function varianceMagnitude(value) {
 }
 
 
-function renderGroupStatsCaption(data, schemaMap) {
-    const dname = (c) => (schemaMap[c] && schemaMap[c].display_name) ? schemaMap[c].display_name : c;
-    const parts = [];
-
-    // Personalization headline: the largest ICC.
+// Result summary for the personalization panel: the largest ICC.
+function personalizationHighlight(data, dname) {
     const pers = data.personalization || [];
     const hasEta = (r) => r && r.eta2 !== null && r.eta2 !== undefined && isFinite(r.eta2);
     const topPers = pers.filter(hasEta).reduce(
         (best, r) => (best === null || r.eta2 > best.eta2 ? r : best), null);
-    if (topPers) {
-        parts.push(`Personalization: at its strongest, ` +
-            `${(topPers.eta2 * 100).toFixed(0)}% of the day-to-day variation in ` +
-            `<b>${escapeHtml(dname(topPers.component))}</b> lies between the ` +
-            `${(data.n_collections || topPers.levels).toLocaleString()} collections ` +
-            `(a ${varianceMagnitude(topPers.eta2)} effect).`);
-    }
+    if (!topPers) return '';
+    return `At its strongest, ` +
+        `${(topPers.eta2 * 100).toFixed(0)}% of the day-to-day variation in ` +
+        `<b>${escapeHtml(dname(topPers.component))}</b> lies between the ` +
+        `${(data.n_collections || topPers.levels).toLocaleString()} collections ` +
+        `(a ${varianceMagnitude(topPers.eta2)} effect).`;
+}
 
-    // Comparison headline: largest partial omega² among significant,
-    // non-nested rows (nested rows have no valid q by design).
+
+// Result summary for the comparison panel: significant-test count, the
+// largest partial omega², the PERMANOVA families, and — when the study has
+// few collections — the standing non-independence caveat.
+function comparisonHighlight(data, dname) {
+    const parts = [];
+
     const anova = data.anova || [];
     const testable = anova.filter(r => !r.nested_in_collection);
     const sigAnova = testable.filter(r => r.q !== null && r.q !== undefined && r.q < 0.05);
     if (testable.length) {
-        parts.push(`Within feeds: ${sigAnova.length} of ${testable.length} comparison × ` +
+        parts.push(`${sigAnova.length} of ${testable.length} comparison × ` +
             `variable tests are significant after correction (q < .05).`);
         const hasOmega = (r) => r && r.omega2 !== null && r.omega2 !== undefined && isFinite(r.omega2);
         const pool = (sigAnova.length ? sigAnova : testable).filter(hasOmega);
@@ -1308,7 +1365,7 @@ function renderGroupStatsCaption(data, schemaMap) {
             ? pool.reduce((best, r) => (r.omega2 > best.omega2 ? r : best))
             : null;
         if (top && top.omega2 > 0) {
-            parts.push(`Largest within-feed effect: <b>${escapeHtml(dname(top.factor))}</b> explains ` +
+            parts.push(`Largest effect: <b>${escapeHtml(dname(top.factor))}</b> explains ` +
                 `${(top.omega2 * 100).toFixed(0)}% of the within-feed variation in ` +
                 `<b>${escapeHtml(dname(top.component))}</b> ` +
                 `(a ${varianceMagnitude(top.omega2)} effect, ${formatP(top.q)} after correction).`);
@@ -1319,23 +1376,15 @@ function renderGroupStatsCaption(data, schemaMap) {
     const sigPerma = perma.filter(r => r.q !== null && r.q !== undefined && r.q < 0.05);
     if (sigPerma.length) {
         const fams = [...new Set(sigPerma.map(r => `${dname(r.family)} (by ${dname(r.factor)})`))].slice(0, 4);
-        parts.push(`Whole-profile differences within feeds (PERMANOVA): ` +
+        parts.push(`Whole-profile differences (PERMANOVA): ` +
             `${fams.map(escapeHtml).join('; ')}${sigPerma.length > 4 ? ' and more' : ''}.`);
     } else if (perma.length) {
-        parts.push('No variable family shows a significant within-feed whole-profile difference after correction.');
+        parts.push('No variable family shows a significant whole-profile difference after correction.');
     }
-
-    parts.push('<span class="text-xs">Comparison tests are blocked on collection: they ask ' +
-        'whether days <i>within the same feed</i> differ, after removing feed-to-feed ' +
-        'differences, and quote partial ω² (.01 small, .06 medium, .14 large). † rows are ' +
-        'constant within each collection and cannot be separated from personalization. ' +
-        'KW q = rank-based check on within-collection-centered values — trust it over the ' +
-        'ANOVA q when groups are small or skewed. PERMANOVA compares each variable\'s whole ' +
-        'component profile, never mixing different variables\' PCA bases.</span>');
 
     const caveat = independenceCaveat();
     if (caveat) parts.push(caveat);
-    setCaption(parts.join(' '));
+    return parts.join(' ');
 }
 
 
@@ -1356,7 +1405,7 @@ function independenceCaveat() {
 
 // --- Scatter caption (plain-language summary of the server statistics) ---
 
-function renderScatterCaption(stats, xTitle, yTitle, isCentered, showStats, payload) {
+function renderScatterCaption(stats, xTitle, yTitle, isCentered, showStats, payload, colorLabel) {
     if (!showStats) {
         setCaption('');
         return;
@@ -1380,16 +1429,29 @@ function renderScatterCaption(stats, xTitle, yTitle, isCentered, showStats, payl
         parts.push('<span class="corr-caption-warning">Small sample — fewer than 30 groups; ' +
             'interpret with caution.</span>');
     }
-    // Below the collection threshold, complement the pooled slope with each
-    // collection's own: agreeing slopes back the pooled claim, disagreeing
-    // ones expose it as a mixture. Display names come from the anonymised map.
+    // Per-series slopes complement the pooled line: agreeing slopes back the
+    // pooled claim, disagreeing ones expose it as a mixture. With a colour
+    // split active, list every series (matching the drawn per-series lines);
+    // otherwise fall back to per-collection slopes under the small-study
+    // caveat. Display names come from the anonymised map.
     const caveat = independenceCaveat();
-    const slopes = payload?.per_collection_slopes || [];
-    if (caveat && slopes.length > 1) {
-        const displayMap = pcaData.metadata?.display_ids || {};
-        const label = (cid) => displayMap[cid] || cid;
-        const items = slopes.map(s =>
-            `${escapeHtml(label(s.collection_id))} ${s.slope.toFixed(2)} (n=${s.n})`);
+    const displayMap = pcaData.metadata?.display_ids || {};
+    const seriesRegs = payload?.per_group_regressions || [];
+    const collSlopes = payload?.per_collection_slopes || [];
+    if (seriesRegs.length > 1) {
+        const label = (g) => (colorLabel === 'collection_id' && displayMap[g]) ? displayMap[g] : g;
+        const items = seriesRegs.map(r =>
+            `${escapeHtml(label(r.group))} ${r.slope.toFixed(2)} (n=${r.n})`);
+        parts.push(`Per-series slopes: ${items.join('; ')} — if these disagree, ` +
+            `the pooled line mixes different relationships.`);
+        parts.push('<span class="text-xs">Each series\' dotted line is fitted on the ' +
+            'full data for that series; use the legend to show or hide series and ' +
+            'their lines. The pooled line and readout always describe all groups, ' +
+            'including any series hidden via the legend — they are never re-fitted ' +
+            'to the visible subset.</span>');
+    } else if (caveat && collSlopes.length > 1) {
+        const items = collSlopes.map(s =>
+            `${escapeHtml(displayMap[s.collection_id] || s.collection_id)} ${s.slope.toFixed(2)} (n=${s.n})`);
         parts.push(`Per-collection slopes: ${items.join('; ')} — if these disagree, ` +
             `the pooled line mixes different relationships.`);
     }
