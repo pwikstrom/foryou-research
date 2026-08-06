@@ -17,6 +17,7 @@ from fyp.fyp_config import (
     QUEUE_ANNOTATOR_SCRIPT,
     QUEUE_SCRAPER_SCRIPT,
     RECODE_REFRESH_STUDIES_SCRIPT,
+    SESSIONS_REFRESH_SCRIPT,
     TIMELINES_REFRESH_SCRIPT,
     VIDEO_MAP_REFRESH_SCRIPT,
 )
@@ -77,6 +78,7 @@ QUEUE_RETRY_SAFE: set[str] = {
     "study_refresh",
     "timelines_refresh",
     "sequence_refresh",
+    "sessions_refresh",
     "collection_metadata_refresh",
     "video_map_refresh",
     "retokenise_hashtags",
@@ -202,6 +204,7 @@ def api_start(name):
         "consolidate_enrichment": CONSOLIDATE_ENRICHMENT_SCRIPT,
         "embeddings_refresh": EMBEDDINGS_REFRESH_SCRIPT,
         "video_map_refresh": VIDEO_MAP_REFRESH_SCRIPT,
+        "sessions_refresh": SESSIONS_REFRESH_SCRIPT,
         "demo_dataset": DEMO_DATASET_SCRIPT,
     }
     
@@ -479,6 +482,7 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_recode_refresh_studies import run_recode_refresh_studies
     from web_interface.run_retokenise_hashtags import run_retokenise_hashtags
     from web_interface.run_sequence_refresh import run_sequence_refresh
+    from web_interface.run_sessions_refresh import run_sessions_refresh
     from web_interface.run_study_refresh import run_study_refresh
     from web_interface.run_timelines_refresh import run_timelines_refresh
     from web_interface.run_video_map_refresh import run_video_map_refresh
@@ -503,6 +507,7 @@ def _ensure_task_functions_loaded() -> None:
         "collection_delete": run_collection_delete,
         "benchmark_parquet_read": run_benchmark_parquet_read,
         "sequence_refresh": run_sequence_refresh,
+        "sessions_refresh": run_sessions_refresh,
         "embeddings_refresh": run_embeddings_refresh,
         "video_map_refresh": run_video_map_refresh,
         "retokenise_hashtags": run_retokenise_hashtags,

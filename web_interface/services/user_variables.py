@@ -130,6 +130,10 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
                         and f"timeline_{cid_clean}_day.parquet" in cache_files
                         for cid in selected
                     )
+                    # The sessions artifact is global (all collections) — the
+                    # tab enables everywhere once it exists and shows a
+                    # per-study empty state when no sessions match.
+                    stats['has_sessions'] = "sessions_index.parquet" in cache_files
                     # Synthetic demo studies are flagged so the study picker
                     # never auto-selects them over a real study.
                     stats['synthetic'] = bool(study_config.get('SYNTHETIC'))

@@ -819,6 +819,27 @@
   ]
  ],
  [
+  "/api/sessions/detail",
+  "sessions_bp.api_sessions_detail",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/sessions/overview",
+  "sessions_bp.api_sessions_overview",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/sessions/status",
+  "sessions_bp.api_sessions_status",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/start/<name>",
   "process_bp.api_start",
   [

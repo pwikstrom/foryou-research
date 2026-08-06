@@ -46,6 +46,7 @@ TIMELINES_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_timelines_refre
 RECODE_REFRESH_STUDIES_SCRIPT = PROJECT_ROOT / "web_interface" / "run_recode_refresh_studies.py"
 PCA_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_pca_refresh.py"
 SEQUENCE_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_sequence_refresh.py"
+SESSIONS_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_sessions_refresh.py"
 EMBEDDINGS_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_embeddings_refresh.py"
 VIDEO_MAP_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_video_map_refresh.py"
 CONSOLIDATE_ENRICHMENT_SCRIPT = PROJECT_ROOT / "web_interface" / "run_consolidate_enrichment.py"

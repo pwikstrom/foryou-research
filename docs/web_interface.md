@@ -18,6 +18,7 @@ blueprints from `web_interface/routes/`:
 | `api_correlations_routes.py` | Correlations tab |
 | `api_collections_routes.py` | collection stats + annotation API |
 | `api_semantic_space_routes.py` | Semantic Space tab (embedding map) |
+| `api_sessions_routes.py` | Sessions tab (session-quality index + focus episodes) |
 | `management/` (package; `management_routes.py` is a compatibility shim) | Data Management + admin: studies, collections, enrichment queues, contracts, schema, ingestion — split into per-domain submodules all registering on the same blueprint |
 | `human_eval_routes.py` | human annotation input (coding, votes, invitations) |
 | `process_routes.py` | background-process control + the CSRF-exempt `internal_bp` that receives Cloud Tasks pushes at `/internal/run-task/<name>` |

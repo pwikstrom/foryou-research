@@ -28,6 +28,7 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.video_analysis",                   "label": "Video Analysis"},
     {"key": "tab.correlations",                     "label": "Correlations"},
     {"key": "tab.semantic_space",                   "label": "Semantic Space"},
+    {"key": "tab.sessions",                         "label": "Sessions"},
     {"key": "tab.my_stuff.my_studies",              "label": "My stuff — My Studies"},
     {"key": "tab.my_stuff.tasks",                   "label": "My stuff — My Tasks"},
     {"key": "tab.my_stuff.preferences",             "label": "My stuff — Preferences"},
@@ -76,6 +77,7 @@ DEFAULT_NON_ADMIN_PERMISSIONS: list[str] = [
     "tab.video_analysis",
     "tab.correlations",
     "tab.semantic_space",
+    "tab.sessions",
     "tab.my_stuff.my_studies",
     "tab.my_stuff.tasks",
     "tab.my_stuff.preferences",
@@ -88,8 +90,10 @@ DEFAULT_NON_ADMIN_PERMISSIONS: list[str] = [
 # plus the personal My-stuff pages. Deliberately excluded: tab.semantic_space
 # (the embedding map is corpus-global, so any holder sees the *real* corpus,
 # not just shared studies — grant per-installation if that is acceptable),
-# every tab.data_management.* / tab.admin.* key, and feature.annotation_votes
-# (votes are demand signals feeding the paid annotation queue).
+# tab.sessions (chronological session sequences are the platform's most
+# re-identifying view of a donor), every tab.data_management.* / tab.admin.*
+# key, and feature.annotation_votes (votes are demand signals feeding the paid
+# annotation queue).
 STUDENT_PERMISSIONS: list[str] = [
     "tab.explore",
     "tab.timelines",

@@ -1,0 +1,65 @@
+<div id="sessions" class="tab-pane">
+    <div class="control-bar">
+        <span id="sess-status" class="text-sm" style="color: var(--control-bar-info);">Loading sessions…</span>
+    </div>
+
+    <!-- Freshness banner: artifact missing / rebuild running / model mismatch. -->
+    <div id="sess-banner" class="text-sm" style="display: none; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 4px; margin-bottom: 10px; background: var(--color-bg-elevated); border: 1px solid var(--color-border);">
+        <span id="sess-banner-text" style="color: var(--color-text-secondary);"></span>
+    </div>
+
+    <div style="display: flex; gap: 16px; align-items: stretch; height: calc(100vh - 150px);">
+
+        <!-- Left rail: session table (sort by clicking column headings) -->
+        <div class="panel" style="width: 460px; min-width: 380px; display: flex; flex-direction: column; padding: 0;">
+            <div id="sess-list-summary" class="text-xs" style="padding: 6px 14px; color: var(--color-text-tertiary); border-bottom: 1px solid var(--color-border-subtle);"></div>
+            <div id="sess-list" style="flex: 1; overflow-y: auto;"></div>
+        </div>
+
+        <!-- Main: selected session detail -->
+        <div class="panel" style="flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 0; overflow-y: auto;">
+            <div id="sess-detail-empty" class="text-sm" style="padding: 40px; color: var(--color-text-muted);">
+                Select a session on the left to inspect its play-by-play sequence and focus episodes.
+            </div>
+            <div id="sess-detail" style="display: none; flex-direction: column; gap: 14px; padding: 14px;">
+                <div id="sess-detail-header"></div>
+                <div>
+                    <div class="text-sm font-medium" style="color: var(--color-text-secondary); margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                        Session strip
+                        <span class="meta-tooltip text-xs" data-tooltip="A real-time axis across the session: each mark starts where its play started, and its WIDTH is how long that video was watched — so an unbroken run of watching fills the strip, and gaps are pauses. Height is constant. Coloured marks (and the outlined bands behind them) are detected binges; grey marks are plays whose video has no embedding."
+                              style="color: var(--color-text-muted); cursor: help;">ⓘ</span>
+                    </div>
+                    <div id="sess-strip" style="position: relative;"></div>
+                </div>
+                <!-- Sequence selector column + shared single-video player -->
+                <div style="display: flex; gap: 14px; align-items: stretch; min-height: 0;">
+                    <div class="sess-seq-list" style="width: 300px; min-width: 250px; display: flex; flex-direction: column; gap: 6px;">
+                        <div class="text-sm font-medium" style="color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px;">
+                            Binges
+                            <span class="meta-tooltip text-xs" data-tooltip="A binge is a maximal run of 4+ distinct videos (over 3+ minutes) within the session where each next video stays semantically close to the running centre of the previous ones. Rewatches extend a binge but don't count as new videos."
+                                  style="color: var(--color-text-muted); cursor: help;">ⓘ</span>
+                        </div>
+                        <div id="sess-episode-chips" style="display: flex; flex-direction: column; gap: 6px;"></div>
+                        <div class="text-sm font-medium" style="color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px; margin-top: 8px;">
+                            Low-entropy sequences
+                            <span class="meta-tooltip text-xs" data-tooltip="The session's most semantically homogeneous stretches: up to 3 non-overlapping windows of 6 consecutive distinct embedded videos, ranked by the average pairwise distance between their content embeddings (the best one is the session's score in the table). Because all windows are the same size, their spectral entropy is directly comparable — 'low entropy' means the content spans few independent semantic directions. Found by exhaustive search, independent of the binge detector, so they can confirm a binge or reveal a focused stretch it missed."
+                                  style="color: var(--color-text-muted); cursor: help;">ⓘ</span>
+                        </div>
+                        <div id="sess-window-chips" style="display: flex; flex-direction: column; gap: 6px;"></div>
+                    </div>
+                    <div id="sess-player-pane" class="sess-player-pane" style="flex: 1; min-width: 0;"></div>
+                </div>
+                <div>
+                    <div class="text-sm font-medium" style="color: var(--color-text-secondary); margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
+                        Full play sequence
+                        <button id="sess-playlist-toggle" class="btn-discreet text-xs" style="padding: 2px 8px;">Show</button>
+                    </div>
+                    <div id="sess-playlist" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shared JS-positioned tooltip for the SVG strip -->
+    <div id="sess-strip-tooltip" class="text-xs" style="display: none; position: fixed; z-index: 1000; max-width: 320px; padding: 6px 9px; border-radius: 4px; background: var(--color-bg-elevated); border: 1px solid var(--color-border); color: var(--color-text-primary); pointer-events: none; box-shadow: var(--shadow-md);"></div>
+</div>

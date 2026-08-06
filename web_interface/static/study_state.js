@@ -67,6 +67,7 @@ async function _showLargeStudyConfirm(studyName, uniqueVideos) {
 const _GATED_TABS = [
     { tab: 'correlations', flag: 'has_pca' },
     { tab: 'timelines', flag: 'has_timelines' },
+    { tab: 'sessions', flag: 'has_sessions' },
 ];
 
 function _findTabButton(tabName) {

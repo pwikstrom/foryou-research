@@ -1531,6 +1531,13 @@ function openTab(evt, tabName) {
         initSemanticSpace();
     }
 
+    // Sessions - lazy init on first open; pause its episode players on tab-away
+    if (tabName !== 'sessions') {
+        if (typeof pauseSessionsVideos === 'function') pauseSessionsVideos();
+    } else if (typeof initSessions === 'function') {
+        initSessions();
+    }
+
     // Trigger window resize so any charts (Plotly, etc.) can recalculate their width now that their container is visible
     setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
@@ -1634,6 +1641,7 @@ const _TAB_TITLE_MAP = {
     video_analysis: 'Video Analysis',
     correlations: 'Correlations',
     semantic_space: 'Semantic Space',
+    sessions: 'Sessions',
     my_stuff: 'My stuff',
     data_management: 'Data Pipeline',
     admin: 'Admin'
