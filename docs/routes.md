@@ -29,6 +29,7 @@ python scripts/gen_route_inventory.py
 | correlations_bp | `/api/correlations/correlation_matrix` | POST | `correlations_bp.api_pca_correlation_matrix` |
 | correlations_bp | `/api/correlations/data` | POST | `correlations_bp.api_pca_data` |
 | correlations_bp | `/api/correlations/group_stats` | POST | `correlations_bp.api_correlations_group_stats` |
+| correlations_bp | `/api/correlations/interpret` | POST | `correlations_bp.api_correlations_interpret` |
 | correlations_bp | `/api/correlations/metadata` | POST | `correlations_bp.api_pca_metadata` |
 | correlations_bp | `/api/correlations/status` | GET | `correlations_bp.api_correlations_status` |
 | explorer_bp | `/api/explore/filter` | POST | `explorer_bp.api_explorer_filter` |
@@ -158,4 +159,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-147 routes total.
+148 routes total.

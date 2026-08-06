@@ -16,10 +16,10 @@ never an individual video.**
 
 The tab groups each 
 collection's annotated videos by calendar day and averages them. Days with fewer than 10 annotated videos are dropped
-(the threshold is configurable; the banner at the top of the tab always states
-the current value). The banner restates this
-constantly — e.g. *"208 groups covering 34,269 videos, each with at least 10 videos"* —
-because it is the single most common misreading of the tab: a correlation of
+(the threshold is configurable). Every view's collapsible **"What is this?"**
+explainer opens with the study's live numbers — e.g. *"208 groups covering
+34,269 videos, each with at least 10 videos"* — because the unit of analysis
+is the single most common misreading of the tab: a correlation of
 0.5 here means day-level feed profiles co-vary, not that individual videos do.
 
 Why day-level? Feeds are noisy at the single-video level; a day of viewing is
@@ -240,17 +240,22 @@ study's groups (never just the plotted subsample) and prints the full readout:
 - **p** — the significance of the linear association.
 - **n** — the number of groups behind the numbers.
 
-A plain-language caption restates the result ("a moderate negative
-association…", using the conventional |r| bands: <.1 negligible, <.3 weak,
-<.5 moderate, ≥.5 strong) and warns when n < 30. The caption also reminds you
-that the line assumes linearity — look at the cloud before trusting it.
+A plain-language highlight above the plot restates the result ("a moderate
+negative association…", using the conventional |r| bands: <.1 negligible,
+<.3 weak, <.5 moderate, ≥.5 strong) and warns when n < 30. It also reminds
+you that the line assumes linearity — look at the cloud before trusting it.
+The **"What is this?"** link right after it expands a longer plain-language
+explainer of the whole view (the unit of analysis with the study's live
+numbers, the variable kinds, and what each control does).
 
 **Per-series lines — the legend is the honest filter.** When a colour split
 is active (and the colour variable has at most 12 series, configurable), the
 Regression toggle also draws **each series' own dotted line**, fitted on the
 full data for that series, and the caption lists every series' slope.
 Clicking a series in the legend hides its dots *and* its line (and ellipse)
-together — so you can visually isolate any subset. What deliberately does
+together — so you can visually isolate any subset. The axis ranges are fixed
+to the full set of series, so hiding series never rescales the frame — what
+you see stays comparable. What deliberately does
 **not** happen: the pooled line and readout are never re-fitted to the
 visible subset. A pooled r/p over a hand-picked selection of series would be
 an unrecorded sampling decision — exactly what §3 removed the filter panel to
@@ -347,18 +352,45 @@ The all-pairs correlation matrix over the study's groups.
 
 ## 7. The Group differences view
 
-Two panels, because the view answers two statistically different questions.
-Like the rest of the tab it is whole-study; centering and personal variable
-preferences do not apply.
+Two bordered panels, because the view answers two statistically different
+questions. Like the rest of the tab it is whole-study; centering and personal
+variable preferences do not apply. Each of the four tables carries its own
+collapsible **"What does this table show?"** explainer, and the view-level
+"What is this?" explainer covers where the variables come from (the data
+contracts and their roles) and why the lists change only with the pipeline,
+never with a UI setting.
 
-### 7.1 Panel one — "How personalized are the feeds?"
+The guide's older vocabulary called panel one "personalization"; the UI now
+speaks of **between-collection differences**, because a collection is any
+set of timestamped feed videos — one donor's feed, but equally a scrape
+session or any other capture — so "personalized" presumes an interpretation
+the data may not carry. When your collections *are* individual donors' feeds,
+reading strong between-collection differences as personalization is exactly
+right — but that is your interpretive step, not the table's.
+
+### 7.0 The Key findings box
+
+The view opens with a single **Key findings** report (with the group counts
+in its header): the strongest between-collection difference and how many
+variables show large ones (η² ≥ .14), the strongest whole-profile separation,
+the within-collection significant-test count and largest effect, and the
+standing caveats. Below it sits an optional **"Ask AI to interpret these
+findings"** button: it sends a digest of the precomputed statistics (never
+raw data) to the instance's configured Gemini model and returns a short
+plain-language interpretation, prompted to stay strictly sample-bound — no
+causal claims, no population or platform generalizations. It is a reading
+aid, clearly disclaimed as AI-generated: check it against the tables before
+relying on it, and never cite it as a result.
+
+### 7.1 Panel one — "How distinct are the collections?"
 
 One row per variable: a **variance decomposition** on Collection ID. The η²
 here reads as an **intraclass correlation (ICC)**: the share of a variable's
-day-to-day variance that lies *between* collections. 0 means the collections'
-feeds are statistically interchangeable on that variable; 0.6 means most
-daily variation is "which feed is this?" rather than "which day is it?" —
-personalization made a number. Quote ω² (the less optimistic twin) in papers.
+day-to-day variance that lies *between* collections. 0 means the collections
+are statistically interchangeable on that variable; 0.6 means most daily
+variation is "which collection is this?" rather than "which day is it?". ω²
+is the same quantity with a small-sample correction — slightly lower but more
+robust.
 
 **This panel deliberately shows no p-values.** With hundreds of
 serially-dependent days per collection, every such test comes out "p ≈ 0"
@@ -366,18 +398,19 @@ regardless of scientific interest — printing stars would only invite
 misreading. The effect size *is* the finding. (The companion PERMANOVA table
 asks the same question at the whole-profile level; rank it by pseudo-F.)
 
-### 7.2 Panel two — "Within-feed comparisons (blocked on collection)"
+### 7.2 Panel two — "Within-collection comparisons (collection differences removed first)"
 
 Does a comparison variable (weekend, weekday, …) move a variable *inside the
-same feed*? Each test is an ANOVA **blocked on collection**: collection
+same collection*? Each test is an ANOVA **blocked on collection**: collection
 differences are removed into their own term first, so they neither masquerade
 as a comparison effect nor bloat the error term (in the old pooled design a
-strongly personalized study systematically *understated* every other effect).
+study with strong between-collection differences systematically *understated*
+every other effect).
 
 | Column | Meaning |
 |---|---|
-| **η²ₚ (partial eta-squared)** | Share of the *within-feed* variance the comparison explains, after blocking. The effect-size column — sort by it, read it first (.01 small, .06 medium, .14 large; the **Effect** column applies the labels). |
-| **ω²ₚ (partial omega-squared)** | The less-biased partial η²; quote this one. Slightly negative just means "indistinguishable from zero". |
+| **η²ₚ (partial eta-squared)** | Share of the *within-collection* variance the comparison explains, after blocking. The effect-size column — sort by it, read it first (.01 small, .06 medium, .14 large; the **Effect** column applies the labels). |
+| **ω²ₚ (partial omega-squared)** | The less-biased partial η² — slightly lower but more robust. Slightly negative just means "indistinguishable from zero". |
 | **F, p** | The blocked test statistic and its significance. |
 | **q** | BH-adjusted significance across the table's testable rows — use this, not p. |
 | **KW q** | The same comparison as a Kruskal–Wallis test on within-collection-centered values (a rank-based approximation of the blocked test). Trust it over q when groups are small or skewed; disagreement is a warning. |
@@ -385,19 +418,22 @@ strongly personalized study systematically *understated* every other effect).
 
 **† — nested comparisons.** A variable constant within every collection
 (platform, when each collection donates from one platform) *cannot* be
-blocked: it is statistically inseparable from personalization, and its
-comparison has only as many independent units as there are collections. Such
-rows are marked †, computed one-way, and shown **without q** — read their p
-as descriptive, never confirmatory.
+blocked: it is statistically inseparable from the overall between-collection
+differences, and its comparison has only as many independent units as there
+are collections. Such rows are marked †, computed one-way, and shown
+**without q** — read their p as descriptive, never confirmatory.
 
 ### 7.3 PERMANOVA — "Do whole variable profiles differ?"
 
 Single components can miss distributed differences. PERMANOVA asks, per
 variable family: does the grouping separate day-profiles across *all* of that
-variable's components at once? It appears in both panels: on raw profiles for
-Collection ID (profile-level personalization), and on
-**within-collection-centered** profiles for the comparison variables (do
-days differ inside feeds?). The pseudo-F is tested by permutation (999
+variable's components at once? Only variables whose PCA produced two or more
+components appear as families — a single-number variable (a day average, an
+entropy, a share of feed) has no multi-dimensional profile to test and is
+fully covered by the per-variable tables. It appears in both panels: on raw
+profiles for Collection ID (profile-level separation between collections),
+and on **within-collection-centered** profiles for the comparison variables
+(do days differ inside collections?). The pseudo-F is tested by permutation (999
 shuffles), with BH-adjusted q per table, and never mixes components from
 different variables' PCA spaces. One honesty note: the permutation shuffles
 days freely rather than within collections (a strata-restricted permutation
@@ -443,13 +479,14 @@ is future work), so under strong day-to-day dependence its p runs optimistic
 
 ## 9. Recipes: five research questions, knob by knob
 
-**Q1 — How personalized are the feeds?**
-Group differences → the **personalization panel**, sorted by η² (ICC): high
-values on content families = strongly personalized feeds; the panel's
-PERMANOVA table gives the same reading at whole-profile level (rank by
-pseudo-F). Complement visually: Scatter, any content C0 × another, Colour by
-Collection ID, Ellipses on — separated ellipses are personalization you can
-see.
+**Q1 — How personalized are the feeds?** (a valid reading when your
+collections are individual donors' feeds — see §7)
+Group differences → the **"How distinct are the collections?" panel**, sorted
+by η² (ICC): high values on content families = strongly differentiated feeds;
+the panel's PERMANOVA table gives the same reading at whole-profile level
+(rank by pseudo-F). Complement visually: Scatter, any content C0 × another,
+Colour by Collection ID, Ellipses on — separated ellipses are
+between-collection differences you can see.
 
 **Q2 — Does intensity narrow the feed?**
 Scatter: X = *Videos watched (day)*, Y = a content entropy. Regression on.
@@ -466,7 +503,7 @@ trend content is systematically fresher.
 **Q4 — Who gets the consequential content?**
 Scatter: Y = *Political? (score 0-1)*, X = another variable; Colour by
 Collection ID (for a time window, define a sub-study over that period). Group
-differences: the personalization panel's political/sensitivity rows quantify
+differences: the distinctness panel's political/sensitivity rows quantify
 between-collection exposure inequality.
 
 **Q5 — Does an association hold for everyone?**
