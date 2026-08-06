@@ -105,6 +105,13 @@
   ]
  ],
  [
+  "/api/correlations/interpret",
+  "correlations_bp.api_correlations_interpret",
+  [
+   "POST"
+  ]
+ ],
+ [
   "/api/correlations/metadata",
   "correlations_bp.api_pca_metadata",
   [

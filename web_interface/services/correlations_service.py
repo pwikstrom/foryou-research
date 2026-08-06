@@ -896,3 +896,157 @@ def build_matrix_payload(df: pd.DataFrame, study: str,
         "method": method,
         "centered": centered,
     }, None
+
+
+
+
+
+# Cached GenAI client for the Group-differences AI interpretation. A text-only
+# generation call, so it uses the configured generation endpoint (same pattern
+# as niche naming in fyp/analysis/video_map.py).
+_interp_client_cache = None
+
+
+def _interp_client():
+    """Return a cached GenAI client at the generation endpoint."""
+    global _interp_client_cache
+    if _interp_client_cache is None:
+        from fyp.core import gemini_client
+        _interp_client_cache = gemini_client.make_client(
+            location=fyp_cf["machine"]["gemini"]["location"])
+    return _interp_client_cache
+
+
+
+
+
+
+def interpretation_available() -> bool:
+    """Whether a usable Gemini mode is configured for AI interpretation."""
+    from fyp.core import gemini_client
+
+    mode, _ = gemini_client.gemini_mode()
+    return mode is not None
+
+
+
+
+
+
+def _interp_findings_text(stats: dict, dname) -> str:
+    """Compact plain-text digest of the group-stats artifact for the prompt.
+
+    Top rows only (the model interprets headline findings, not the full
+    sweep); every variable is passed through its display name.
+    """
+    lines = [
+        f"Study groups: {stats.get('n_groups')} collection-days across "
+        f"{stats.get('n_collections')} collections.",
+        "",
+        "Between-collection differences per variable (eta-squared = ICC, "
+        "share of day-to-day variance lying between collections):",
+    ]
+    pers = [r for r in (stats.get("personalization") or [])
+            if isinstance(r.get("eta2"), (int, float))]
+    for r in sorted(pers, key=lambda r: r["eta2"], reverse=True)[:10]:
+        lines.append(f"- {dname(r['component'])}: eta2={r['eta2']:.2f} ({r.get('magnitude')})")
+
+    pp = [r for r in (stats.get("permanova_personalization") or [])
+          if isinstance(r.get("pseudo_F"), (int, float))]
+    if pp:
+        lines.append("")
+        lines.append("Whole-profile separation between collections (PERMANOVA):")
+        for r in sorted(pp, key=lambda r: r["pseudo_F"], reverse=True)[:5]:
+            lines.append(f"- {dname(r['family'])}: pseudo-F={r['pseudo_F']:.1f}")
+
+    anova = [r for r in (stats.get("anova") or []) if not r.get("nested_in_collection")]
+    sig = [r for r in anova
+           if isinstance(r.get("q"), (int, float)) and r["q"] < 0.05
+           and isinstance(r.get("omega2"), (int, float))]
+    lines.append("")
+    lines.append(f"Within-collection comparisons (collection differences removed): "
+                 f"{len(sig)} of {len(anova)} tests significant at q<.05.")
+    for r in sorted(sig, key=lambda r: r["omega2"], reverse=True)[:10]:
+        lines.append(f"- {dname(r['factor'])} -> {dname(r['component'])}: "
+                     f"partial omega2={r['omega2']:.3f}, q={r['q']:.3f}")
+
+    perma = [r for r in (stats.get("permanova") or []) if not r.get("nested_in_collection")]
+    sig_perma = [r for r in perma if isinstance(r.get("q"), (int, float)) and r["q"] < 0.05]
+    if perma:
+        lines.append("")
+        lines.append("Whole-profile differences within collections (PERMANOVA, "
+                     f"within-collection centered): {len(sig_perma)} of {len(perma)} "
+                     "significant at q<.05.")
+        for r in sig_perma[:8]:
+            lines.append(f"- {dname(r['family'])} by {dname(r['factor'])}: "
+                         f"pseudo-F={r['pseudo_F']:.1f}, q={r['q']:.3f}")
+    return "\n".join(lines)
+
+
+
+
+
+
+def build_interpretation(study: str) -> tuple[str | None, str | None]:
+    """AI-generated plain-language interpretation of a study's group stats.
+
+    Returns ``(text, error)`` — exactly one is non-None. The findings digest
+    is built from the precomputed artifact (no raw data leaves the server)
+    and sent to the configured Gemini generation model.
+    """
+    if not interpretation_available():
+        return None, ("AI interpretation is not available: no Gemini model is "
+                      "configured on this instance.")
+    stats = load_group_stats(study)
+    if not isinstance(stats, dict) or stats.get("version") != 2:
+        return None, "Group statistics are not computed (or outdated) for this study."
+
+    named_cols = ({r.get("component") for r in stats.get("personalization") or []}
+                  | {r.get("component") for r in stats.get("anova") or []}
+                  | {r.get("family") for r in (stats.get("permanova") or [])
+                     + (stats.get("permanova_personalization") or [])}
+                  | {r.get("factor") for r in (stats.get("anova") or [])
+                     + (stats.get("permanova") or [])})
+    schema_map, _ = _build_schema_map(sorted(c for c in named_cols if c))
+    dname = lambda c: schema_map.get(c, {}).get("display_name", c)  # noqa: E731
+
+    findings = _interp_findings_text(stats, dname)
+    prompt = (
+        "You are helping a social-media researcher read a statistics page. The data: "
+        "each observation is a 'collection-day' — all videos in one collection (a set "
+        "of timestamped feed videos, not necessarily one person) on one calendar day, "
+        "averaged. Variables come from AI annotation of video content, scraped video "
+        "metadata, and viewing activity. '(C0)' etc. are PCA components of a "
+        "categorical variable, '(entropy)' is diversity, '(share of feed)' is a yes/no "
+        "variable's daily share.\n\n"
+        "Write a short plain-language interpretation (120-200 words, for an "
+        "undergraduate) of the findings below. Structure: 1-2 sentences on how much "
+        "the collections differ from each other and on what; 1-2 sentences on what "
+        "moves within collections; one closing sentence on limits. Rules: no causal "
+        "claims (associations only); days within a collection are not independent, so "
+        "treat significance as descriptive; do not invent numbers not present below; "
+        "no markdown headings or bullet lists — flowing prose only.\n\n"
+        f"FINDINGS\n{findings}"
+    )
+
+    try:
+        import google.genai.types as genai_types
+
+        model = fyp_cf["machine"]["gemini"]["model"]
+        # Hard output cap backing the prompt's 120-200-word ask (~400 tokens
+        # leaves room to finish a sentence); thinking off — this is a short
+        # summary of numbers already computed, not a reasoning task.
+        gen_config = genai_types.GenerateContentConfig(
+            max_output_tokens=400,
+            temperature=0.3,
+            thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+        )
+        resp = _interp_client().models.generate_content(
+            model=model, contents=prompt, config=gen_config)
+        text = (getattr(resp, "text", None) or "").strip()
+        if not text:
+            return None, "The model returned an empty interpretation. Try again."
+        return text, None
+    except Exception as e:
+        logger.warning(f"Group-stats interpretation failed for {study}: {e}")
+        return None, "AI interpretation failed. See the server log for details."

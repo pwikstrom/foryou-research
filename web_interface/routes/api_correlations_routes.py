@@ -150,6 +150,37 @@ def api_correlations_group_stats():
 
 
 
+@correlations_bp.route('/api/correlations/interpret', methods=['POST'])
+@permission_required('tab.correlations')
+def api_correlations_interpret():
+    """AI-generated plain-language interpretation of the group-stats artifact.
+
+    On demand only (a button on the Group-differences view); the findings
+    digest is built server-side from the precomputed artifact and sent to the
+    configured Gemini generation model. Returns 503 when no model is
+    configured so the UI can say so instead of failing silently.
+    """
+    data = request.json or {}
+    study = data.get("study")
+    if not study:
+        return jsonify({"error": "No study"}), 400
+
+    denied = _study_access_error(study)
+    if denied is not None:
+        return denied
+
+    text, error = correlations_service.build_interpretation(study)
+    if text is None:
+        status = 503 if 'not available' in (error or '') else 400
+        return jsonify({"error": error}), status
+
+    return jsonify({"text": text})
+
+
+
+
+
+
 @correlations_bp.route('/api/correlations/status', methods=['GET'])
 @permission_required('tab.correlations')
 def api_correlations_status():
