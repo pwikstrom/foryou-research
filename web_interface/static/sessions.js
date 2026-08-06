@@ -1,0 +1,767 @@
+// Sessions tab — session-quality explorer + binge / low-entropy-sequence inspector.
+//
+// Left rail: the active study's sessions as a sticky-header table, sortable by
+// clicking column headings. Main pane: the selected session's play-by-play
+// strip (SVG; solid binge bands, dashed low-entropy-sequence bands,
+// dwell-width play marks), a sequence selector column (binges + low-entropy
+// sequences as stacked entries), and ONE shared video player the researcher
+// steps through the selected sequence with — metadata (niche, story, author,
+// …) and the Video Analysis drill-down sit under the player. All data comes
+// from /api/sessions/*; playback reuses /api/video/<study>/<item_id>.
+
+let _sessLoaded = false;
+
+const sessState = {
+    study: null,
+    overview: null,      // last overview payload
+    detail: null,        // last detail payload
+    selected: null,      // {collection_id, session_id}
+    activeSeq: null,     // {kind: 'binge'|'window', idx, pos}
+    sort: { key: 'min_window_cosdist', order: 'asc' },
+};
+
+// Session-table columns. `key` is the server-side sort key (null = not
+// sortable); `defaultOrder` is the direction a first click applies.
+const SESS_COLUMNS = [
+    { key: null, label: 'Collection' },
+    { key: 'start_ts', label: 'Start', defaultOrder: 'desc' },
+    { key: 'duration_min', label: 'Length', defaultOrder: 'desc' },
+    { key: 'n_plays', label: 'Plays', defaultOrder: 'desc' },
+    { key: 'coverage_embedded', label: 'Coverage', defaultOrder: 'desc',
+      tooltip: 'Share of the session’s distinct videos with a semantic embedding. '
+        + 'Low-coverage sessions can look artificially homogeneous — the entropy '
+        + 'score only sees the embedded subset.' },
+    { key: 'min_window_cosdist', label: 'Low entropy', defaultOrder: 'asc',
+      tooltip: 'The session’s best low-entropy sequence: the smallest average pairwise '
+        + 'embedding distance over any 6 consecutive distinct embedded videos. '
+        + '0 = near-identical content, ~0.9+ = unrelated. Lower = a more homogeneous '
+        + 'stretch existed. Click the header to rank sessions by it.' },
+    { key: 'n_episodes', label: 'Binges', defaultOrder: 'desc' },
+];
+
+
+
+
+function initSessions() {
+    if (_sessLoaded) { return; }
+    _sessLoaded = true;
+
+    window.studyState.ready.then(() => {
+        sessState.study = window.studyState.current;
+        sessLoadStatus();
+        sessLoadOverview();
+    });
+    document.addEventListener('study:changed', (ev) => {
+        if (!_sessLoaded) { return; }
+        sessState.study = ev.detail.study;
+        sessClearDetail();
+        sessLoadOverview();
+    });
+}
+
+
+
+
+function pauseSessionsVideos() {
+    document.querySelectorAll('#sessions video').forEach(v => {
+        try { v.pause(); } catch (e) { /* detached element */ }
+    });
+}
+
+
+
+
+async function sessLoadStatus() {
+    try {
+        const resp = await fetch('/api/sessions/status');
+        if (!resp.ok) { return; }
+        const st = await resp.json();
+        const banner = document.getElementById('sess-banner');
+        const text = document.getElementById('sess-banner-text');
+        let msg = '';
+        if (!st.artifact_exists) {
+            msg = 'The sessions index has not been built yet. An admin can build it from '
+                + 'Data Pipeline → Refresh Caches → Sessions (embeddings must exist first).';
+        } else if (st.refresh_running) {
+            msg = 'The sessions index is being rebuilt — results below may be replaced shortly.';
+        } else if (st.model_mismatch) {
+            msg = `The sessions index was built with a different embedding model (${st.meta && st.meta.embedding_model}) `
+                + `than the active backend (${st.active_embedding_model}). Rebuild it to reflect the current model.`;
+        }
+        if (msg) {
+            text.textContent = msg;
+            banner.style.display = 'flex';
+        } else {
+            banner.style.display = 'none';
+        }
+    } catch (e) { /* status is informational only */ }
+}
+
+
+
+
+function sessSortBy(key, defaultOrder) {
+    if (!key) { return; }
+    if (sessState.sort.key === key) {
+        sessState.sort.order = sessState.sort.order === 'asc' ? 'desc' : 'asc';
+    } else {
+        sessState.sort = { key, order: defaultOrder || 'asc' };
+    }
+    sessLoadOverview();
+}
+
+
+
+
+async function sessLoadOverview() {
+    const study = sessState.study;
+    const listEl = document.getElementById('sess-list');
+    const statusEl = document.getElementById('sess-status');
+    if (!study) {
+        statusEl.textContent = 'No study selected.';
+        return;
+    }
+    statusEl.textContent = 'Loading sessions…';
+    // No quality floors — the researcher ranks sessions via the table headers
+    // (the Coverage column carries the data-quality signal).
+    const qs = new URLSearchParams({
+        study, min_coverage: '0', min_emb_plays: '0', min_plays: '0',
+        sort: sessState.sort.key, order: sessState.sort.order,
+    });
+    try {
+        const resp = await fetch(`/api/sessions/overview?${qs}`);
+        const data = await resp.json();
+        if (!resp.ok) {
+            listEl.innerHTML = '';
+            document.getElementById('sess-list-summary').textContent = '';
+            statusEl.textContent = data.error || 'Failed to load sessions.';
+            return;
+        }
+        sessState.overview = data;
+        sessRenderList(data);
+        statusEl.textContent = `${data.total_in_study.toLocaleString()} session(s) in this study.`;
+    } catch (e) {
+        statusEl.textContent = 'Failed to load sessions.';
+    }
+}
+
+
+
+
+function sessFmtMinutes(m) {
+    if (m == null) { return '–'; }
+    if (m < 60) { return `${Math.round(m)} min`; }
+    return `${Math.floor(m / 60)}h ${Math.round(m % 60)}m`;
+}
+
+
+
+
+function sessFmtTs(ts) {
+    if (!ts) { return '–'; }
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) { return String(ts).slice(0, 16); }
+    return d.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+    });
+}
+
+
+
+
+function sessRenderList(data) {
+    const listEl = document.getElementById('sess-list');
+    const summary = document.getElementById('sess-list-summary');
+    listEl.innerHTML = '';
+    summary.textContent = !data.sessions.length ? ''
+        : (data.returned < data.total_matching
+            ? `Showing the top ${data.returned} of ${data.total_matching.toLocaleString()} sessions — click a column heading to re-rank.`
+            : `Showing all ${data.returned} session(s).`);
+
+    const table = document.createElement('table');
+    table.className = 'sess-table';
+
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    for (const col of SESS_COLUMNS) {
+        const th = document.createElement('th');
+        th.className = 'text-xs';
+        const sorted = col.key && sessState.sort.key === col.key;
+        const arrow = sorted ? (sessState.sort.order === 'asc' ? ' ▲' : ' ▼') : '';
+        const label = `${escapeHtml(col.label)}${arrow}`;
+        th.innerHTML = col.tooltip
+            ? `<span class="meta-tooltip tooltip-below" data-tooltip="${escapeHtml(col.tooltip)}">${label}</span>`
+            : label;
+        if (col.key) {
+            th.classList.add('sortable');
+            if (sorted) { th.classList.add('sorted'); }
+            th.addEventListener('click', () => sessSortBy(col.key, col.defaultOrder));
+        }
+        headRow.appendChild(th);
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    if (!data.sessions.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-sm" style="padding: 20px; color: var(--color-text-muted);">'
+            + 'No sessions in this study.</td></tr>';
+    }
+    for (const s of data.sessions) {
+        const tr = document.createElement('tr');
+        tr.dataset.cid = s.collection_id;
+        tr.dataset.sid = s.session_id;
+        const score = (s.min_window_cosdist == null) ? '–' : s.min_window_cosdist.toFixed(3);
+        const covPct = Math.round((s.coverage_embedded || 0) * 100);
+        tr.innerHTML = `
+            <td class="text-xs font-medium">${escapeHtml(s.collection_label || s.collection_id)}</td>
+            <td class="text-xs" style="white-space: nowrap; color: var(--color-text-tertiary);">${escapeHtml(sessFmtTs(s.start_ts))}</td>
+            <td class="text-xs" style="white-space: nowrap;">${sessFmtMinutes(s.duration_min)}</td>
+            <td class="text-xs">${s.n_plays}</td>
+            <td><span class="sess-cov-bar meta-tooltip" data-tooltip="${covPct}% of distinct videos embedded"><span class="sess-cov-fill" style="width: ${covPct}%;"></span></span></td>
+            <td class="text-xs">${score}</td>
+            <td class="text-xs">${s.n_episodes ? `<span style="color: var(--color-accent);" class="font-medium">${s.n_episodes}</span>` : '<span style="color: var(--color-text-muted);">–</span>'}</td>`;
+        tr.addEventListener('click', () => sessSelect(s.collection_id, s.session_id, tr));
+        tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    listEl.appendChild(table);
+}
+
+
+
+
+function sessClearDetail() {
+    pauseSessionsVideos();
+    sessState.detail = null;
+    sessState.selected = null;
+    sessState.activeSeq = null;
+    document.getElementById('sess-detail').style.display = 'none';
+    document.getElementById('sess-detail-empty').style.display = 'block';
+    document.querySelectorAll('#sess-list tr.active').forEach(r => r.classList.remove('active'));
+}
+
+
+
+
+async function sessSelect(collectionId, sessionId, rowEl) {
+    pauseSessionsVideos();
+    document.querySelectorAll('#sess-list tr.active').forEach(r => r.classList.remove('active'));
+    if (rowEl) { rowEl.classList.add('active'); }
+    sessState.selected = { collection_id: collectionId, session_id: sessionId };
+
+    const emptyEl = document.getElementById('sess-detail-empty');
+    const detailEl = document.getElementById('sess-detail');
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = 'Loading session…';
+    detailEl.style.display = 'none';
+
+    const qs = new URLSearchParams({
+        study: sessState.study, collection_id: collectionId, session_id: sessionId,
+    });
+    try {
+        const resp = await fetch(`/api/sessions/detail?${qs}`);
+        const data = await resp.json();
+        if (!resp.ok) {
+            emptyEl.textContent = data.error || 'Failed to load the session.';
+            return;
+        }
+        // A slow response for a previously-selected session must not clobber
+        // the current selection.
+        if (!sessState.selected || sessState.selected.session_id !== sessionId) { return; }
+        sessState.detail = data;
+        sessState.activeSeq = null;
+        emptyEl.style.display = 'none';
+        detailEl.style.display = 'flex';
+        sessRenderDetailHeader(data);
+        sessRenderStrip(data);
+        sessRenderSeqList(data);
+        // Auto-activate the top binge (or, failing that, the top low-entropy
+        // sequence) THROUGH the selector so its entry is visibly focused too.
+        if (data.episodes.length) {
+            sessSelectSeq('binge', data.episodes[0].episode_idx, 0);
+        } else if (data.windows && data.windows.length) {
+            sessSelectSeq('window', data.windows[0].window_idx, 0);
+        } else {
+            sessRenderPlayer();
+        }
+        sessRenderPlaylist(data);
+    } catch (e) {
+        emptyEl.textContent = 'Failed to load the session.';
+    }
+}
+
+
+
+
+function sessRenderDetailHeader(data) {
+    const s = data.session;
+    const el = document.getElementById('sess-detail-header');
+    const score = (s.min_window_cosdist == null) ? '–' : s.min_window_cosdist.toFixed(3);
+    const stats = [
+        `${sessFmtTs(s.start_ts)} → ${sessFmtTs(s.end_ts)}`,
+        sessFmtMinutes(s.duration_min),
+        `${s.n_plays} plays (${s.n_distinct} distinct)`,
+        `coverage ${(100 * (s.coverage_embedded || 0)).toFixed(0)}% embedded / ${(100 * (s.coverage_annotated || 0)).toFixed(0)}% annotated / ${(100 * (s.coverage_scraped || 0)).toFixed(0)}% scraped`,
+        `low-entropy min ${score}`,
+        s.dominant_niche ? `mostly “${escapeHtml(s.dominant_niche)}”` : null,
+    ].filter(Boolean);
+    el.innerHTML = `
+        <div class="text-h3 font-semibold" style="margin-bottom: 2px;">${escapeHtml(s.collection_label || s.collection_id)}</div>
+        <div class="text-xs" style="color: var(--color-text-tertiary);">${stats.join(' · ')}</div>`;
+}
+
+
+
+
+// Distinct band colours per binge, cycled. Read from the palette tokens so
+// both themes stay legible.
+function sessEpisodeColor(i) {
+    const tokens = ['--color-accent', '--color-success', '--color-warning', '--color-info'];
+    const name = tokens[i % tokens.length];
+    const v = getCSSVar(name);
+    return v || getCSSVar('--color-accent') || '#5B7E98';
+}
+
+
+
+
+function sessRenderStrip(data) {
+    const host = document.getElementById('sess-strip');
+    host.innerHTML = '';
+    const plays = data.plays;
+    if (!plays.length) {
+        host.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted);">No plays.</div>';
+        return;
+    }
+
+    const W = Math.max(host.clientWidth || 800, 400);
+    const H = 84;
+    const PAD = 6;
+    const BAR_H = 48;
+    const t0 = new Date(plays[0].ts).getTime();
+    const t1 = new Date(plays[plays.length - 1].ts).getTime();
+    const span = Math.max(t1 - t0, 1);
+    const x = (ts) => PAD + ((new Date(ts).getTime() - t0) / span) * (W - 2 * PAD);
+
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.style.display = 'block';
+
+    // Binge bands behind the marks: a faint fill + an outline, so the play
+    // marks inside stay legible against them.
+    for (const ep of data.episodes) {
+        const rect = document.createElementNS(svgNS, 'rect');
+        const x0 = x(ep.start_ts);
+        const x1 = x(ep.end_ts);
+        rect.setAttribute('x', x0);
+        rect.setAttribute('y', 4);
+        rect.setAttribute('width', Math.max(x1 - x0, 3));
+        rect.setAttribute('height', H - 22);
+        rect.setAttribute('rx', 3);
+        rect.setAttribute('fill', sessEpisodeColor(ep.episode_idx));
+        rect.setAttribute('fill-opacity', '0.10');
+        rect.setAttribute('stroke', sessEpisodeColor(ep.episode_idx));
+        rect.setAttribute('stroke-opacity', '0.55');
+        rect.style.cursor = 'pointer';
+        rect.addEventListener('click', () => sessSelectSeq('binge', ep.episode_idx, 0));
+        svg.appendChild(rect);
+    }
+
+    // Low-entropy sequence bands: dashed outlines (no fill), slightly taller
+    // than the binge bands so the two band kinds never merge visually. They
+    // are detector-independent of binges and may overlap them.
+    for (const w of (data.windows || [])) {
+        const rect = document.createElementNS(svgNS, 'rect');
+        const x0 = x(w.start_ts);
+        const x1 = x(w.end_ts);
+        rect.setAttribute('x', x0);
+        rect.setAttribute('y', 1);
+        rect.setAttribute('width', Math.max(x1 - x0, 3));
+        rect.setAttribute('height', H - 14);
+        rect.setAttribute('rx', 3);
+        rect.setAttribute('fill', 'none');
+        rect.setAttribute('stroke', getCSSVar('--color-text-secondary'));
+        rect.setAttribute('stroke-dasharray', '4 3');
+        rect.setAttribute('stroke-width', '1.2');
+        rect.style.cursor = 'pointer';
+        rect.addEventListener('click', () => sessSelectSeq('window', w.window_idx, 0));
+        svg.appendChild(rect);
+    }
+
+    // One mark per play, laid out on a real-time axis: x = when it started,
+    // width = how long it was watched (capped at the next play's start so
+    // marks never overlap). Height is constant — watch time is already the
+    // width, and colour carries binge membership / embedding status.
+    const tooltip = document.getElementById('sess-strip-tooltip');
+    for (let i = 0; i < plays.length; i++) {
+        const p = plays[i];
+        const mark = document.createElementNS(svgNS, 'rect');
+        const px = x(p.ts);
+        const dwellMs = (p.dwell_s || 0) * 1000;
+        let endPx = PAD + ((new Date(p.ts).getTime() + dwellMs - t0) / span) * (W - 2 * PAD);
+        if (i + 1 < plays.length) { endPx = Math.min(endPx, x(plays[i + 1].ts)); }
+        const w = Math.max(endPx - px, 2);
+        mark.setAttribute('x', px);
+        mark.setAttribute('y', H - 16 - BAR_H);
+        mark.setAttribute('width', w);
+        mark.setAttribute('height', BAR_H);
+        mark.setAttribute('rx', 1);
+        const color = (p.episode_idx != null)
+            ? sessEpisodeColor(p.episode_idx)
+            : (p.embedded ? getCSSVar('--color-text-secondary') : getCSSVar('--color-border'));
+        mark.setAttribute('fill', color);
+        mark.setAttribute('fill-opacity', p.episode_idx != null ? '1' : '0.85');
+        mark.style.cursor = 'pointer';
+        mark.addEventListener('mouseenter', (ev) => {
+            const bits = [
+                p.niche_name ? `<b>${escapeHtml(p.niche_name)}</b>` : '<i>no niche</i>',
+                p.story ? escapeHtml(p.story.slice(0, 160)) : null,
+                `${sessFmtTs(p.ts)} · dwell ${p.dwell_s != null ? Math.round(p.dwell_s) + 's' : '–'}`,
+                p.embedded ? null : 'not embedded',
+                (p.episode_idx != null) ? `binge ${p.episode_idx + 1}` : null,
+            ].filter(Boolean);
+            tooltip.innerHTML = bits.join('<br>');
+            tooltip.style.display = 'block';
+            const tx = Math.min(ev.clientX + 14, window.innerWidth - 340);
+            tooltip.style.left = `${tx}px`;
+            tooltip.style.top = `${ev.clientY + 14}px`;
+        });
+        mark.addEventListener('mouseleave', () => {
+            tooltip.style.display = 'none';
+        });
+        mark.addEventListener('click', () => {
+            if (p.episode_idx != null) {
+                const ep = sessState.detail.episodes.find(e => e.episode_idx === p.episode_idx);
+                const pos = ep ? Math.max(0, ep.members.findIndex(m => m.item_id === p.item_id)) : 0;
+                sessSelectSeq('binge', p.episode_idx, pos);
+            }
+        });
+        svg.appendChild(mark);
+    }
+
+    // Time axis labels.
+    const mk = (px, anchor, txt) => {
+        const t = document.createElementNS(svgNS, 'text');
+        t.setAttribute('x', px);
+        t.setAttribute('y', H - 3);
+        t.setAttribute('text-anchor', anchor);
+        t.setAttribute('fill', getCSSVar('--color-text-tertiary'));
+        t.setAttribute('font-size', '10');
+        t.setAttribute('font-family', getCSSVar('--font-sans'));
+        t.textContent = txt;
+        svg.appendChild(t);
+    };
+    mk(PAD, 'start', sessFmtTs(plays[0].ts));
+    mk(W - PAD, 'end', sessFmtTs(plays[plays.length - 1].ts));
+
+    host.appendChild(svg);
+}
+
+
+
+
+function sessRenderSeqList(data) {
+    const epHost = document.getElementById('sess-episode-chips');
+    const winHost = document.getElementById('sess-window-chips');
+    epHost.innerHTML = '';
+    winHost.innerHTML = '';
+
+    if (!data.episodes.length) {
+        epHost.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted);">'
+            + 'No binges detected in this session.</div>';
+    }
+    for (const ep of data.episodes) {
+        const kind = (ep.straightness != null && ep.straightness >= 0.5) ? 'drifting' : 'stationary';
+        const entry = document.createElement('button');
+        entry.type = 'button';
+        entry.className = 'sess-chip sess-seq-entry';
+        entry.dataset.seq = `binge:${ep.episode_idx}`;
+        entry.innerHTML = `
+            <span class="text-sm font-medium" style="color: ${sessEpisodeColor(ep.episode_idx)};">
+                Binge ${ep.episode_idx + 1} · ${escapeHtml(ep.dominant_niche || 'mixed')}
+            </span>
+            <span class="text-xs" style="color: var(--color-text-tertiary); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <span>${ep.n_distinct} videos</span>
+                <span>${sessFmtMinutes(ep.duration_min)}</span>
+                <span class="meta-tooltip" data-tooltip="Average pairwise embedding distance across ALL ${ep.n_distinct} of this binge's videos (no best-window search). Same 0–1 scale as the low-entropy sequences, but an average over the binge's whole membership — a single loosely-matching member raises it.">avg distance ${ep.focus != null ? ep.focus.toFixed(3) : '–'}</span>
+                <span class="sess-badge text-xxs meta-tooltip" data-tooltip="${kind === 'drifting' ? 'Drifting binge: each video is close to the last, but the content travels — it ends somewhere semantically different from where it began (the rabbit-hole shape).' : 'Stationary binge: the viewer dwells inside one semantic neighbourhood — content circles the same topic.'}">${kind}</span>
+            </span>`;
+        entry.addEventListener('click', () => sessSelectSeq('binge', ep.episode_idx, 0));
+        epHost.appendChild(entry);
+    }
+
+    const windows = data.windows || [];
+    if (!windows.length) {
+        winHost.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted);">'
+            + 'None — the session has fewer than 6 distinct embedded videos.</div>';
+    }
+    for (const w of windows) {
+        const entry = document.createElement('button');
+        entry.type = 'button';
+        entry.className = 'sess-chip sess-chip--seq sess-seq-entry';
+        entry.dataset.seq = `window:${w.window_idx}`;
+        entry.innerHTML = `
+            <span class="text-sm font-medium" style="color: var(--color-text-secondary);">
+                Sequence ${w.window_idx + 1} · ${escapeHtml(w.dominant_niche || 'mixed')}
+            </span>
+            <span class="text-xs" style="color: var(--color-text-tertiary); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <span>${w.n_distinct} videos</span>
+                <span>${sessFmtMinutes(w.duration_min)}</span>
+                <span class="meta-tooltip" data-tooltip="Average pairwise embedding distance between this window's 6 videos — the rank key. Sequence 1 is the session's score in the table.">distance ${w.mean_cosdist != null ? w.mean_cosdist.toFixed(3) : '–'}</span>
+                <span class="meta-tooltip" data-tooltip="Normalised spectral entropy of the same 6 videos (0 = all content along one semantic direction, 1 = maximally spread). Comparable across windows because they are all the same size.">entropy ${w.entropy_norm != null ? w.entropy_norm.toFixed(2) : '–'}</span>
+            </span>`;
+        entry.addEventListener('click', () => sessSelectSeq('window', w.window_idx, 0));
+        winHost.appendChild(entry);
+    }
+}
+
+
+
+
+// How many plays immediately before/after a sequence the player offers as
+// clearly-marked context (mirrors [sessions] context_plays in config.toml).
+const SESS_CONTEXT_PLAYS = 3;
+
+
+
+
+// Build the full step list for one sequence: up to SESS_CONTEXT_PLAYS session
+// plays before the first member, the members themselves, and up to
+// SESS_CONTEXT_PLAYS plays after the last member. Context steps are what the
+// donor actually saw around the sequence — explicitly NOT part of it.
+function sessBuildSteps(kind, idx) {
+    const d = sessState.detail;
+    if (!d) { return null; }
+    const src = kind === 'binge'
+        ? d.episodes.find(e => e.episode_idx === idx)
+        : (d.windows || []).find(w => w.window_idx === idx);
+    if (!src || !src.members.length) { return null; }
+    const plays = d.plays;
+
+    const findPlayIdx = (member, fromEnd) => {
+        if (fromEnd) {
+            for (let i = plays.length - 1; i >= 0; i--) {
+                if (plays[i].item_id === member.item_id && plays[i].ts === member.ts) { return i; }
+            }
+        } else {
+            for (let i = 0; i < plays.length; i++) {
+                if (plays[i].item_id === member.item_id && plays[i].ts === member.ts) { return i; }
+            }
+        }
+        return -1;
+    };
+    const firstIdx = findPlayIdx(src.members[0], false);
+    const lastIdx = findPlayIdx(src.members[src.members.length - 1], true);
+
+    const steps = [];
+    if (firstIdx > 0) {
+        const before = plays.slice(Math.max(0, firstIdx - SESS_CONTEXT_PLAYS), firstIdx);
+        before.forEach((p, i) => steps.push({
+            context: 'before', offset: before.length - i,
+            item_id: p.item_id, ts: p.ts, dwell_s: p.dwell_s,
+        }));
+    }
+    const memberStart = steps.length;
+    for (const m of src.members) { steps.push({ context: null, ...m }); }
+    if (lastIdx >= 0 && lastIdx + 1 < plays.length) {
+        const after = plays.slice(lastIdx + 1, lastIdx + 1 + SESS_CONTEXT_PLAYS);
+        after.forEach((p, i) => steps.push({
+            context: 'after', offset: i + 1,
+            item_id: p.item_id, ts: p.ts, dwell_s: p.dwell_s,
+        }));
+    }
+    return { steps, memberStart, memberCount: src.members.length };
+}
+
+
+
+
+function sessSelectSeq(kind, idx, memberPos) {
+    pauseSessionsVideos();
+    const built = sessBuildSteps(kind, idx);
+    if (!built) { return; }
+    sessState.activeSeq = {
+        kind, idx, ...built,
+        pos: built.memberStart + Math.min(memberPos || 0, built.memberCount - 1),
+    };
+    document.querySelectorAll('.sess-seq-entry').forEach(c =>
+        c.classList.toggle('active', c.dataset.seq === `${kind}:${idx}`));
+    sessRenderPlayer();
+}
+
+
+
+
+function sessStep(delta) {
+    const a = sessState.activeSeq;
+    if (!a || !a.steps) { return; }
+    const pos = Math.min(Math.max(a.pos + delta, 0), a.steps.length - 1);
+    if (pos === a.pos) { return; }
+    a.pos = pos;
+    sessRenderPlayer(true);
+}
+
+
+
+
+// Render the shared player pane for the active step: the video (auto-created;
+// the same component for binges and low-entropy sequences), triangle
+// prev/next stepping across context + members, and metadata below. Context
+// steps are unmistakably flagged: dashed warning border, a banner, and a
+// "before/after" position label instead of the member count.
+function sessRenderPlayer(autoplay) {
+    const pane = document.getElementById('sess-player-pane');
+    const a = sessState.activeSeq;
+    if (!a || !a.steps || !a.steps.length) {
+        pane.classList.remove('is-context');
+        pane.innerHTML = '<div class="text-sm" style="padding: 24px; color: var(--color-text-muted);">'
+            + 'Select a binge or low-entropy sequence to inspect its videos.</div>';
+        return;
+    }
+    pauseSessionsVideos();
+    const m = a.steps[a.pos];
+    const isContext = !!m.context;
+    const playsById = {};
+    for (const p of sessState.detail.plays) { playsById[p.item_id] = p; }
+    const play = playsById[m.item_id] || {};
+    const seqLabel = a.kind === 'binge' ? `Binge ${a.idx + 1}` : `Sequence ${a.idx + 1}`;
+    const seqColor = a.kind === 'binge' ? sessEpisodeColor(a.idx) : 'var(--color-text-secondary)';
+
+    const posLabel = isContext
+        ? `${m.offset} ${m.context === 'before' ? 'before' : 'after'}`
+        : `${a.pos - a.memberStart + 1} / ${a.memberCount}`;
+    const banner = isContext
+        ? `<div class="sess-context-banner text-xs">CONTEXT — this video is <b>not part of ${seqLabel}</b>; `
+          + `the donor watched it ${m.offset} play${m.offset > 1 ? 's' : ''} ${m.context === 'before' ? 'before the sequence began' : 'after it ended'}.</div>`
+        : '';
+
+    pane.classList.toggle('is-context', isContext);
+    pane.innerHTML = `
+        <div class="sess-player-head text-sm">
+            <span class="font-medium" style="color: ${seqColor};">${seqLabel}${isContext ? ' <span class="sess-badge text-xxs">context</span>' : ''}</span>
+            <span class="sess-player-nav">
+                <button type="button" class="btn-discreet" id="sess-prev" aria-label="Previous video" ${a.pos === 0 ? 'disabled' : ''}>◀</button>
+                <span class="text-xs" style="color: var(--color-text-tertiary);">${posLabel}</span>
+                <button type="button" class="btn-discreet" id="sess-next" aria-label="Next video" ${a.pos === a.steps.length - 1 ? 'disabled' : ''}>▶</button>
+            </span>
+        </div>
+        ${banner}
+        <div class="sess-player-media" id="sess-player-media"></div>
+        <div class="sess-player-meta" id="sess-player-meta"></div>`;
+
+    document.getElementById('sess-prev').addEventListener('click', () => sessStep(-1));
+    document.getElementById('sess-next').addEventListener('click', () => sessStep(1));
+
+    // Media slot: create the <video> immediately when the item is streamable —
+    // stepping is the whole interaction, an extra click per step would grate.
+    const media = document.getElementById('sess-player-media');
+    if (play.streamable) {
+        const video = document.createElement('video');
+        video.controls = true;
+        video.playsInline = true;
+        video.preload = 'metadata';
+        const q = play.platform ? `?platform=${encodeURIComponent(play.platform)}` : '';
+        video.src = `/api/video/${encodeURIComponent(sessState.study)}/${encodeURIComponent(m.item_id)}${q}`;
+        video.addEventListener('error', () => {
+            media.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted); padding: 12px; text-align: center;">'
+                + 'Media could not be loaded (not available in this environment).</div>';
+        });
+        media.appendChild(video);
+        if (autoplay) { video.play().catch(() => { /* user presses play */ }); }
+    } else {
+        media.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted); padding: 24px; text-align: center;">'
+            + 'Media not available in this study — metadata only.</div>';
+    }
+
+    // Metadata below the player: sequence context + annotation fields.
+    const rows = [];
+    const add = (label, value, tooltip) => {
+        if (value == null || value === '') { return; }
+        const lbl = tooltip
+            ? `<span class="meta-tooltip" data-tooltip="${escapeHtml(tooltip)}">${escapeHtml(label)}</span>`
+            : escapeHtml(label);
+        rows.push(`<div class="sess-meta-row"><span class="sess-meta-label text-xs">${lbl}</span>`
+            + `<span class="text-xs">${value}</span></div>`);
+    };
+    add('Niche', play.niche_name ? escapeHtml(play.niche_name) : null);
+    add('Category', play.category ? escapeHtml(play.category) : null);
+    add('Creator', play.author ? escapeHtml(play.author) : null);
+    add('Watched', m.dwell_s != null ? `${Math.round(m.dwell_s)}s` : null);
+    add('Played at', escapeHtml(sessFmtTs(m.ts)));
+    if (a.kind === 'binge' && !isContext) {
+        add('Δ distance',
+            m.rolling_cosdist != null ? m.rolling_cosdist.toFixed(3) : 'start of binge',
+            'Semantic distance from the running centre of the binge so far — how tightly this video continued the thread.');
+    }
+    add('Political', play.political_score != null ? play.political_score.toFixed(2) : null);
+    add('Sensitivity', play.sensitivity_score != null ? play.sensitivity_score.toFixed(2) : null);
+    add('Story', play.story ? escapeHtml(play.story) : null);
+
+    document.getElementById('sess-player-meta').innerHTML = `
+        ${rows.join('')}
+        <div style="margin-top: 8px;">
+            <button type="button" class="btn-discreet text-xs" id="sess-open-va" style="padding: 3px 10px;">Open in Video Analysis</button>
+        </div>`;
+    document.getElementById('sess-open-va').addEventListener('click', () =>
+        sessOpenInVideoAnalysis(m.item_id, play.platform));
+}
+
+
+
+
+// Same drill-down contract Explore / Semantic Space use (consumed by
+// checkPendingDrillDown in video_analysis.js, 5s freshness window).
+function sessOpenInVideoAnalysis(itemId, platform) {
+    pauseSessionsVideos();
+    const study = sessState.study;
+    const platformUrl = (typeof fypPlatformUrl === 'function') ? fypPlatformUrl(platform, itemId) : null;
+    window._pendingDrillDown = {
+        filters: {},
+        searchQuery: '',
+        itemId: itemId,
+        platformUrl: platformUrl,
+        missNotice: `That video isn't in "${study}".`,
+        timestamp: Date.now(),
+    };
+    const tabBtn = document.querySelector('.tab-button[onclick*="video_analysis"]');
+    if (tabBtn) {
+        tabBtn.click();
+    } else if (platformUrl) {
+        window._pendingDrillDown = null;
+        window.open(platformUrl, '_blank', 'noopener');
+    }
+}
+
+
+
+
+function sessRenderPlaylist(data) {
+    const el = document.getElementById('sess-playlist');
+    if (!data.plays.length) { el.innerHTML = ''; return; }
+    const rows = data.plays.map(p => `
+        <tr class="sess-play-row${p.episode_idx != null ? ' in-episode' : ''}">
+            <td class="text-xs" style="color: var(--color-text-tertiary); white-space: nowrap;">${p.seq + 1}</td>
+            <td class="text-xs" style="white-space: nowrap;">${escapeHtml(sessFmtTs(p.ts))}</td>
+            <td class="text-xs" style="white-space: nowrap;">${p.dwell_s != null ? Math.round(p.dwell_s) + 's' : '–'}</td>
+            <td class="text-xs">${p.niche_name ? escapeHtml(p.niche_name) : '<span style="color: var(--color-text-muted);">–</span>'}</td>
+            <td class="text-xs" style="color: var(--color-text-tertiary);">${p.story ? escapeHtml(p.story.slice(0, 120)) : ''}</td>
+            <td class="text-xs" style="white-space: nowrap;">${p.episode_idx != null ? `<span style="color: ${sessEpisodeColor(p.episode_idx)};">binge ${p.episode_idx + 1}</span>` : ''}</td>
+        </tr>`).join('');
+    el.innerHTML = `
+        <div style="max-height: 420px; overflow-y: auto; border: 1px solid var(--color-border-subtle); border-radius: 4px;">
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr class="text-xs" style="color: var(--color-text-secondary); text-align: left; position: sticky; top: 0; background: var(--table-header-bg);">
+                        <th style="padding: 4px 8px;">#</th><th style="padding: 4px 8px;">Time</th>
+                        <th style="padding: 4px 8px;">Dwell</th><th style="padding: 4px 8px;">Niche</th>
+                        <th style="padding: 4px 8px;"><span class="meta-tooltip tooltip-below" data-tooltip="The machine annotation's 'video story' summary of the video's content. Blank when the video has no active machine annotation (e.g. never scraped/annotated).">Story</span></th><th style="padding: 4px 8px;"><span class="meta-tooltip tooltip-below tooltip-right-anchored" data-tooltip="Which binge this play belongs to, matching the coloured bands in the strip above. Blank = not part of any detected binge — including plays that merely happened during one's time span but were semantically unrelated (or unembedded).">Binge</span></th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+}

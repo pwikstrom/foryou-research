@@ -605,7 +605,11 @@ def api_video_stream(study, item_id):
         if not _eval_stream_allowed(item_id):
             return jsonify({"error": "Access denied"}), 403
     else:
-        if not user_has_permission(current_user, 'tab.video_analysis'):
+        # The Sessions tab embeds the same per-item stream in its episode
+        # cards, so either tab permission grants playback (the study-access +
+        # item-membership checks below still apply unchanged).
+        if not (user_has_permission(current_user, 'tab.video_analysis')
+                or user_has_permission(current_user, 'tab.sessions')):
             return jsonify({"error": "Access denied"}), 403
 
         denied = study_access_error(study)

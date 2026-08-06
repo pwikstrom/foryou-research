@@ -315,7 +315,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
 
     reporter.update_progress(78, "Assigning session ids...")
     _t_phase = time.perf_counter()
-    main_collection.add_session_ids(gap_threshold_s=900)
+    main_collection.add_session_ids()
     _t_sess = time.perf_counter() - _t_phase
     reporter.log(f"Assigned session ids ({_t_sess:.1f}s)")
 

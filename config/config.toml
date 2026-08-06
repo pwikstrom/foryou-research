@@ -196,6 +196,38 @@ local_media = "~/fyp_local/media"
 
 
 ##########################################################################################
+# sessions — viewing-session identification + Sessions-tab analysis parameters
+##########################################################################################
+[sessions]
+
+# Inter-activity gap (seconds) that closes a viewing session ("sitting") at
+# ingest. Applied when session_ids are assigned during an ingest refresh —
+# changing it only affects rows (re)ingested afterwards, and the Sessions
+# artifacts must be rebuilt to match.
+session_gap_s = 900
+
+# Binge (focus-episode) segmentation, applied by the sessions_refresh worker.
+# A binge grows while the next distinct embedded video's mean cosine distance
+# to the centroid of the last binge_mem members stays <= binge_cut; it is kept
+# if it spans >= binge_min_videos distinct videos over >= binge_min_minutes.
+binge_cut = 0.5
+binge_mem = 6
+binge_min_videos = 4
+binge_min_minutes = 3.0
+
+# Low-entropy sequences: sliding windows of window_n consecutive distinct
+# embedded videos; up to max_windows non-overlapping windows with the smallest
+# mean pairwise distance are kept per session.
+window_n = 6
+max_windows = 3
+
+# How many plays immediately before/after a selected binge or low-entropy
+# sequence the Sessions-tab player offers as (clearly marked) context.
+context_plays = 3
+
+
+
+##########################################################################################
 # misc
 ##########################################################################################
 [misc]

@@ -147,6 +147,9 @@ python scripts/gen_route_inventory.py
 | semantic_space_bp | `/api/semantic_space/map` | GET | `semantic_space_bp.api_semantic_space_map` |
 | semantic_space_bp | `/api/semantic_space/status` | GET | `semantic_space_bp.api_semantic_space_status` |
 | semantic_space_bp | `/api/semantic_space/trajectory` | GET | `semantic_space_bp.api_semantic_space_trajectory` |
+| sessions_bp | `/api/sessions/detail` | GET | `sessions_bp.api_sessions_detail` |
+| sessions_bp | `/api/sessions/overview` | GET | `sessions_bp.api_sessions_overview` |
+| sessions_bp | `/api/sessions/status` | GET | `sessions_bp.api_sessions_status` |
 | timelines_bp | `/api/timelines/collections` | POST | `timelines_bp.api_timeline_collections` |
 | timelines_bp | `/api/timelines/data` | POST | `timelines_bp.api_timeline_data` |
 | timelines_bp | `/api/timelines/vote_annotation` | POST | `timelines_bp.api_save_annotation_vote` |
@@ -159,4 +162,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-148 routes total.
+151 routes total.

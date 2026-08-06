@@ -4777,3 +4777,293 @@ body:has(.public-page) {
         outline: none;
     }
 }
+
+
+/* ============================================================
+   Sessions tab — session list, strip, episode inspector
+   ============================================================ */
+
+.sess-row {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.sess-row:hover { background: var(--color-bg-elevated); }
+
+.sess-row.active {
+    background: var(--color-bg-elevated);
+    border-left: 3px solid var(--color-accent);
+    padding-left: 11px;
+}
+
+.sess-row-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.sess-row-metrics {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    color: var(--color-text-tertiary);
+}
+
+/* Thin horizontal coverage bar inside a list row */
+.sess-cov-bar {
+    width: 64px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--color-border-subtle);
+    overflow: hidden;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.sess-cov-fill {
+    display: block;
+    height: 100%;
+    background: var(--color-accent);
+}
+
+/* Episode selector chips */
+.sess-chip {
+    padding: 5px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg-surface);
+    cursor: pointer;
+    display: inline-flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sess-chip:hover { background: var(--color-bg-elevated); }
+
+.sess-chip.active {
+    border-color: var(--color-accent);
+    background: var(--color-bg-elevated);
+}
+
+.sess-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border-subtle);
+    color: var(--color-text-secondary);
+}
+
+/* Horizontally-scrollable row of episode member cards */
+.sess-cards-row {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 6px 2px 10px 2px;
+}
+
+.sess-card {
+    flex: 0 0 190px;
+    width: 190px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-bg-surface);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.sess-card.highlight { border-color: var(--color-accent); }
+
+.sess-card-media {
+    position: relative;
+    width: 100%;
+    height: 280px;
+    background: var(--color-bg-elevated);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sess-card-media video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: var(--color-bg-elevated);
+}
+
+.sess-card-play {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+}
+
+.sess-card-play span {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-sm);
+}
+
+.sess-card-meta {
+    padding: 7px 9px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.sess-card-story {
+    color: var(--color-text-tertiary);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Full play-sequence table rows */
+.sess-play-row { border-bottom: 1px solid var(--color-border-subtle); }
+.sess-play-row td { padding: 3px 8px; vertical-align: top; }
+.sess-play-row.in-episode { background: var(--color-bg-elevated); }
+
+
+/* Session list as a real table: sticky always-visible header, sortable
+   columns, row selection mirroring the old .sess-row states. */
+.sess-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.sess-table th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--table-header-bg);
+    color: var(--color-text-secondary);
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+    user-select: none;
+}
+
+.sess-table th.sortable { cursor: pointer; }
+.sess-table th.sortable:hover { color: var(--color-text-primary); }
+.sess-table th.sorted { color: var(--color-text-primary); }
+
+.sess-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    vertical-align: middle;
+}
+
+.sess-table tbody tr { cursor: pointer; }
+.sess-table tbody tr:hover { background: var(--color-bg-elevated); }
+
+.sess-table tbody tr.active {
+    background: var(--color-bg-elevated);
+    box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+/* Low-entropy sequence chips: dashed border mirrors the dashed strip bands. */
+.sess-chip--seq { border-style: dashed; }
+.sess-chip--seq.active {
+    border-color: var(--color-text-secondary);
+    border-style: dashed;
+}
+
+
+/* Sequence selector entries (stacked column of binge / low-entropy cards)
+   + the shared single-video player pane. */
+.sess-seq-entry {
+    width: 100%;
+    text-align: left;
+    align-items: flex-start;
+}
+
+.sess-player-pane {
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 6px;
+    background: var(--color-bg-surface);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sess-player-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.sess-player-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sess-player-media {
+    height: 420px;
+    background: var(--color-bg-elevated);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.sess-player-media video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: var(--color-bg-elevated);
+}
+
+.sess-player-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.sess-meta-row {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+}
+
+.sess-meta-label {
+    flex: 0 0 90px;
+    color: var(--color-text-tertiary);
+}
+
+
+/* Context steps in the sequence player: unmistakably NOT part of the sequence. */
+.sess-player-pane.is-context {
+    border-style: dashed;
+    border-color: var(--color-warning);
+}
+
+.sess-context-banner {
+    padding: 6px 10px;
+    border: 1px dashed var(--color-warning);
+    border-radius: 4px;
+    color: var(--color-warning);
+    background: var(--color-bg-elevated);
+}

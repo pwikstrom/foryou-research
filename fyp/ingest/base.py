@@ -326,7 +326,7 @@ def apply_cid_remap_to_metadata(
 
 
 
-def assign_session_ids(df: pd.DataFrame, gap_threshold_s: int = 900) -> pd.DataFrame:
+def assign_session_ids(df: pd.DataFrame, gap_threshold_s: int | None = None) -> pd.DataFrame:
     """Assign a persistent, globally-unique ``session_id`` to every activity.
 
     A *session* (a "phone sitting") is a maximal run of one collection's
@@ -342,12 +342,15 @@ def assign_session_ids(df: pd.DataFrame, gap_threshold_s: int = 900) -> pd.DataF
 
     Args:
         df: Activity dataframe with ``collection_id`` and ``utc_timestamp``.
-        gap_threshold_s: Maximum within-sitting gap in seconds (default 900 = 15 min).
+        gap_threshold_s: Maximum within-sitting gap in seconds. ``None`` reads
+            ``[sessions] session_gap_s`` from the config (default 900 = 15 min).
 
     Returns:
         The same dataframe with a ``session_id`` column added; original row
         order is preserved.
     """
+    if gap_threshold_s is None:
+        gap_threshold_s = int(_cf().get("sessions", {}).get("session_gap_s", 900))
     if df.empty:
         df["session_id"] = pd.Series(dtype="string[pyarrow]")
         return df
@@ -1281,10 +1284,11 @@ class ForYouBaseCollection(ABC):
 
 
 
-    def add_session_ids(self, gap_threshold_s: int = 900) -> None:
+    def add_session_ids(self, gap_threshold_s: int | None = None) -> None:
         """Assign a persistent sitting-level ``session_id`` to every activity.
 
-        Thin wrapper around :func:`assign_session_ids`. Call this *after*
+        Thin wrapper around :func:`assign_session_ids` (``None`` gap reads
+        ``[sessions] session_gap_s`` from the config). Call this *after*
         sub-collections are migrated, so the full per-collection sequence is in
         ``self.data`` (a sitting may span multiple raw files). Persisted by
         ``save_processed`` alongside the local-time features.
