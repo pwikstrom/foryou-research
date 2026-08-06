@@ -2631,20 +2631,6 @@ button.meta-tooltip:disabled {
     font-size: var(--text-xs);
 }
 
-.corr-info-wrapper {
-    margin-left: 2px;
-}
-
-.corr-info-tooltip {
-    left: 0;
-    transform: none;
-    min-width: 260px;
-    max-width: 380px;
-    padding: 8px 10px;
-    color: var(--color-text-secondary);
-    line-height: var(--leading-normal);
-}
-
 .corr-scatter-controls {
     display: flex;
     gap: 8px;
@@ -2824,10 +2810,10 @@ button.meta-tooltip:disabled {
     font-size: var(--text-xs);
 }
 
-/* Collapsed-by-default explanatory copy (per view and per table) */
+/* Collapsed-by-default explanatory copy (per view and per table). Full
+   width on purpose — a capped column looked odd beside a much wider plot. */
 .corr-explainer-body {
     margin-top: 8px;
-    max-width: 900px;
     color: var(--color-text-secondary);
     line-height: var(--leading-relaxed);
 }
@@ -2857,23 +2843,69 @@ button.meta-tooltip:disabled {
     margin: 16px 0 8px;
 }
 
-/* Group-differences panel headings + intros (personalization / comparison) */
+/* Group-differences panels: each of the two question-panels is a bordered
+   section so their separation is unmistakable. */
+.corr-table-wrap .corr-panel {
+    margin: 0 0 24px;
+    padding: 2px 16px 14px;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 6px;
+}
+
 .corr-table-wrap .corr-panel-title {
-    margin: 20px 0 4px;
+    margin: 14px 0 4px;
 }
 
 .corr-table-wrap .corr-panel-intro {
     margin: 0 0 8px;
-    max-width: 900px;
     color: var(--color-text-secondary);
 }
 
-/* Per-panel result summary (the panel's findings, under its intro) */
-.corr-table-wrap .corr-panel-highlight {
-    margin: 0 0 10px;
-    max-width: 900px;
-    font-size: var(--text-sm);
+/* Combined "Key findings" report at the top of the Group-differences page */
+.corr-table-wrap .corr-report {
+    margin: 4px 0 20px;
+    padding: 10px 14px;
+    background: var(--color-bg-elevated);
+    border-left: 3px solid var(--color-accent);
     color: var(--color-text-primary);
+}
+
+.corr-report .corr-report-title {
+    margin-bottom: 4px;
+}
+
+.corr-report ul {
+    margin: 0;
+    padding-left: 18px;
+}
+
+.corr-report li {
+    margin: 3px 0;
+    line-height: var(--leading-normal);
+}
+
+/* On-demand AI interpretation inside the Key findings box */
+.corr-report .corr-interp-actions {
+    margin: 8px 0 0;
+}
+
+.corr-report .corr-interp {
+    margin: 8px 0 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-border-subtle);
+    color: var(--color-text-secondary);
+    line-height: var(--leading-relaxed);
+}
+
+.corr-report .corr-interp-loading,
+.corr-report .corr-interp-disclaimer {
+    margin: 6px 0 0;
+    color: var(--color-text-tertiary);
+}
+
+.corr-report .corr-interp-error {
+    margin: 6px 0 0;
+    color: var(--color-warning);
 }
 
 /* Dagger marking a comparison nested in collections (hover for the caveat) */
