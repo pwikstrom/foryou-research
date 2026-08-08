@@ -18,6 +18,54 @@ def fix_surrogates(text):
 
 
 
+
+def contains_surrogates(text) -> bool:
+    """Return True when ``text`` is a str containing UTF-16 surrogate codepoints.
+
+    A lone surrogate (U+D800–U+DFFF) in a Python str cannot be encoded as
+    UTF-8, so it crashes any parquet write that reaches it.
+
+    Args:
+        text: Any value; non-str values always return False.
+
+    Returns:
+        bool: Whether ``text`` holds at least one surrogate codepoint.
+    """
+    return isinstance(text, str) and any(0xD800 <= ord(ch) <= 0xDFFF for ch in text)
+
+
+
+
+
+
+def scrub_surrogates_nested(value):
+    """Apply :func:`fix_surrogates` to every str inside a nested structure.
+
+    Recurses through dicts, lists and tuples so surrogates hiding inside
+    list-of-string cells (which ``fix_surrogates`` alone leaves untouched)
+    are repaired too. Adjacent high+low surrogate pairs are recombined into
+    the intended character; a lone surrogate becomes U+FFFD.
+
+    Args:
+        value: Any value — str, dict, list, tuple or scalar.
+
+    Returns:
+        The same structure with all contained strings surrogate-free.
+    """
+    if isinstance(value, str):
+        return fix_surrogates(value) if contains_surrogates(value) else value
+    if isinstance(value, dict):
+        return {k: scrub_surrogates_nested(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [scrub_surrogates_nested(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(scrub_surrogates_nested(v) for v in value)
+    return value
+
+
+
+
+
 def downgrade_arrow_type(pa_type: pa.DataType) -> pa.DataType:
     """Rewrite a pyarrow type to use non-``large_*`` variants recursively.
 
@@ -285,10 +333,11 @@ def convert_dtypes_to_pyarrow(df_in, verbose=False):
             if verbose:
                 logger.info(f"    [PYARROW dtypes] {col} - Fixing surrogates")
             
-            # B) Fix surrogates
+            # B) Fix surrogates (recursing into list/dict cells, where a lone
+            #    surrogate would otherwise survive to the parquet write)
             try:
                 # We apply map only if necessary to save time, but safe to just apply
-                df[col] = df[col].map(fix_surrogates)
+                df[col] = df[col].map(scrub_surrogates_nested)
                 df[col] = df[col].convert_dtypes(dtype_backend='pyarrow')
             except Exception as e:
                 if verbose:

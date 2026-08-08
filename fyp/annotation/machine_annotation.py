@@ -36,7 +36,7 @@ from fyp.annotation_schema import (
     flatten_structured,
 )
 from fyp.recode_variables import recode_events_df, recode_fuzzy_match, rename_columns
-from fyp.types import convert_dtypes_to_pyarrow
+from fyp.types import convert_dtypes_to_pyarrow, scrub_surrogates_nested
 from fyp.utils import start_monitor
 
 logger = get_logger(__name__)
@@ -1225,12 +1225,16 @@ def flatten_and_fix_machine_outputs(
                     json_response = json.loads(entry["response"])
                 except (json.JSONDecodeError, TypeError):
                     json_response = fuzzy_load_of_json_from_string(entry["response"], notebook_mode=notebook_mode)
+                # The model can emit a malformed \uD8xx escape (half an emoji);
+                # json.loads keeps it as a lone surrogate, which would crash the
+                # parquet write downstream. Scrub all strings before flattening.
+                json_response = scrub_surrogates_nested(json_response)
                 if isinstance(json_response, dict):
                     flattened_response = flatten_structured(json_response)
                 else:
                     flattened_response = None
             else:
-                json_response = fuzzy_load_of_json_from_string(entry['response'], notebook_mode = notebook_mode)
+                json_response = scrub_surrogates_nested(fuzzy_load_of_json_from_string(entry['response'], notebook_mode = notebook_mode))
                 flattened_response = flatten_one_machine_response(json_response, verbose = False, notebook_mode = notebook_mode)
             if type(flattened_response)==dict:
                 good_count += 1
