@@ -41,6 +41,7 @@ from .services.study_data import (  # noqa: F401
     get_search_column,
     get_study_col_types,
     get_study_collections,
+    get_study_frame_collections,
     get_study_sidecar,
     get_user_json_cached,
     invalidate_collection_tags_cache,

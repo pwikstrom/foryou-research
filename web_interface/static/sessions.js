@@ -18,7 +18,40 @@ const sessState = {
     selected: null,      // {collection_id, session_id}
     activeSeq: null,     // {kind: 'binge'|'window', idx, pos}
     sort: { key: 'min_window_cosdist', order: 'asc' },
+    params: null,        // effective [sessions] limits, from /api/sessions/overview
 };
+
+
+
+
+// The [sessions] limits the copy below quotes. Server-supplied (the artifact's
+// own build parameters + the live context_plays); these are only the fallbacks
+// for a payload that predates the `params` key.
+const SESS_PARAM_FALLBACKS = {
+    min_videos: 4, min_minutes: 3, window_n: 6, max_windows: 3, context_plays: 3,
+};
+
+
+
+
+function sessNum(value, fallback) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+
+
+
+// Effective limits — never read a hardcoded number in the UI, or the tab lies
+// about its own artifact the moment an admin edits config.toml.
+function sessParams() {
+    const p = sessState.params || {};
+    const out = {};
+    for (const [key, fallback] of Object.entries(SESS_PARAM_FALLBACKS)) {
+        out[key] = sessNum(p[key], fallback);
+    }
+    return out;
+}
 
 // Session-table columns. `key` is the server-side sort key (null = not
 // sortable); `defaultOrder` is the direction a first click applies.
@@ -32,8 +65,8 @@ const SESS_COLUMNS = [
         + 'Low-coverage sessions can look artificially homogeneous — the entropy '
         + 'score only sees the embedded subset.' },
     { key: 'min_window_cosdist', label: 'Low entropy', defaultOrder: 'asc',
-      tooltip: 'The session’s best low-entropy sequence: the smallest average pairwise '
-        + 'embedding distance over any 6 consecutive distinct embedded videos. '
+      tooltip: (p) => 'The session’s best low-entropy sequence: the smallest average pairwise '
+        + `embedding distance over any ${p.window_n} consecutive distinct embedded videos. `
         + '0 = near-identical content, ~0.9+ = unrelated. Lower = a more homogeneous '
         + 'stretch existed. Click the header to rank sessions by it.' },
     { key: 'n_episodes', label: 'Binges', defaultOrder: 'desc' },
@@ -123,9 +156,11 @@ async function sessLoadOverview() {
     }
     statusEl.textContent = 'Loading sessions…';
     // No quality floors — the researcher ranks sessions via the table headers
-    // (the Coverage column carries the data-quality signal).
+    // (the Coverage column carries the data-quality signal). min_plays and
+    // min_session_minutes are deliberately NOT sent, so the [sessions] config
+    // floors apply; the status line then reports what they removed.
     const qs = new URLSearchParams({
-        study, min_coverage: '0', min_emb_plays: '0', min_plays: '0',
+        study, min_coverage: '0', min_emb_plays: '0',
         sort: sessState.sort.key, order: sessState.sort.order,
     });
     try {
@@ -138,10 +173,64 @@ async function sessLoadOverview() {
             return;
         }
         sessState.overview = data;
+        sessState.params = data.params || null;
+        sessApplyParamCopy();
         sessRenderList(data);
-        statusEl.textContent = `${data.total_in_study.toLocaleString()} session(s) in this study.`;
+        statusEl.textContent = sessStatusLine(data);
     } catch (e) {
         statusEl.textContent = 'Failed to load sessions.';
+    }
+}
+
+
+
+
+// "N sessions in this study" — plus, when the [sessions] list floors actually
+// removed something, how many and on what rule. A count the researcher can't
+// reconcile with the rows on screen is worse than no count.
+function sessStatusLine(data) {
+    const total = sessNum(data.total_in_study, 0);
+    const above = sessNum(data.total_above_floors, total);
+    const hidden = Math.max(total - above, 0);
+    if (!hidden) {
+        return `${total.toLocaleString()} session(s) in this study.`;
+    }
+    const floors = data.floors || {};
+    const rules = [];
+    if (sessNum(floors.min_plays, 0) > 0) {
+        rules.push(`${floors.min_plays} plays`);
+    }
+    if (sessNum(floors.min_session_minutes, 0) > 0) {
+        rules.push(`${floors.min_session_minutes} min`);
+    }
+    const rule = rules.length ? ` (min ${rules.join(', ')})` : '';
+    return `${above.toLocaleString()} of ${total.toLocaleString()} session(s) in this study — `
+        + `${hidden.toLocaleString()} too short to list${rule}.`;
+}
+
+
+
+
+// Rewrite the two static section tooltips with the artifact's real limits.
+function sessApplyParamCopy() {
+    const p = sessParams();
+    const binge = document.getElementById('sess-binge-help');
+    if (binge) {
+        binge.dataset.tooltip = `A binge is a maximal run of ${p.min_videos}+ distinct videos `
+            + `(over ${p.min_minutes}+ minutes) within the session where each next video stays `
+            + 'semantically close to the running centre of the previous ones. Rewatches extend a '
+            + 'binge but don’t count as new videos.';
+    }
+    const seq = document.getElementById('sess-seq-help');
+    if (seq) {
+        seq.dataset.tooltip = 'The session’s most semantically homogeneous stretches: up to '
+            + `${p.max_windows} non-overlapping windows of ${p.window_n} consecutive distinct `
+            + 'embedded videos, ranked by the average pairwise distance between their content '
+            + 'embeddings (the best one is the session’s score in the table). Because all windows '
+            + 'are the same size, their spectral entropy is directly comparable — “low entropy” '
+            + 'means the content spans few independent semantic directions. Found by exhaustive '
+            + 'search, independent of the binge detector, so they can confirm a binge or reveal a '
+            + 'focused stretch it missed.';
     }
 }
 
@@ -184,14 +273,16 @@ function sessRenderList(data) {
 
     const thead = document.createElement('thead');
     const headRow = document.createElement('tr');
+    const params = sessParams();
     for (const col of SESS_COLUMNS) {
         const th = document.createElement('th');
         th.className = 'text-xs';
         const sorted = col.key && sessState.sort.key === col.key;
         const arrow = sorted ? (sessState.sort.order === 'asc' ? ' ▲' : ' ▼') : '';
         const label = `${escapeHtml(col.label)}${arrow}`;
-        th.innerHTML = col.tooltip
-            ? `<span class="meta-tooltip tooltip-below" data-tooltip="${escapeHtml(col.tooltip)}">${label}</span>`
+        const tooltip = (typeof col.tooltip === 'function') ? col.tooltip(params) : col.tooltip;
+        th.innerHTML = tooltip
+            ? `<span class="meta-tooltip tooltip-below" data-tooltip="${escapeHtml(tooltip)}">${label}</span>`
             : label;
         if (col.key) {
             th.classList.add('sortable');
@@ -497,7 +588,7 @@ function sessRenderSeqList(data) {
     const windows = data.windows || [];
     if (!windows.length) {
         winHost.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted);">'
-            + 'None — the session has fewer than 6 distinct embedded videos.</div>';
+            + `None — the session has fewer than ${sessParams().window_n} distinct embedded videos.</div>`;
     }
     for (const w of windows) {
         const entry = document.createElement('button');
@@ -511,8 +602,8 @@ function sessRenderSeqList(data) {
             <span class="text-xs" style="color: var(--color-text-tertiary); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                 <span>${w.n_distinct} videos</span>
                 <span>${sessFmtMinutes(w.duration_min)}</span>
-                <span class="meta-tooltip" data-tooltip="Average pairwise embedding distance between this window's 6 videos — the rank key. Sequence 1 is the session's score in the table.">distance ${w.mean_cosdist != null ? w.mean_cosdist.toFixed(3) : '–'}</span>
-                <span class="meta-tooltip" data-tooltip="Normalised spectral entropy of the same 6 videos (0 = all content along one semantic direction, 1 = maximally spread). Comparable across windows because they are all the same size.">entropy ${w.entropy_norm != null ? w.entropy_norm.toFixed(2) : '–'}</span>
+                <span class="meta-tooltip" data-tooltip="Average pairwise embedding distance between this window's ${w.n_distinct} videos — the rank key. Sequence 1 is the session's score in the table.">distance ${w.mean_cosdist != null ? w.mean_cosdist.toFixed(3) : '–'}</span>
+                <span class="meta-tooltip" data-tooltip="Normalised spectral entropy of the same ${w.n_distinct} videos (0 = all content along one semantic direction, 1 = maximally spread). Comparable across windows because they are all the same size.">entropy ${w.entropy_norm != null ? w.entropy_norm.toFixed(2) : '–'}</span>
             </span>`;
         entry.addEventListener('click', () => sessSelectSeq('window', w.window_idx, 0));
         winHost.appendChild(entry);
@@ -522,20 +613,14 @@ function sessRenderSeqList(data) {
 
 
 
-// How many plays immediately before/after a sequence the player offers as
-// clearly-marked context (mirrors [sessions] context_plays in config.toml).
-const SESS_CONTEXT_PLAYS = 3;
-
-
-
-
-// Build the full step list for one sequence: up to SESS_CONTEXT_PLAYS session
-// plays before the first member, the members themselves, and up to
-// SESS_CONTEXT_PLAYS plays after the last member. Context steps are what the
-// donor actually saw around the sequence — explicitly NOT part of it.
+// Build the full step list for one sequence: up to [sessions] context_plays
+// session plays before the first member, the members themselves, and up to
+// context_plays plays after the last member. Context steps are what the donor
+// actually saw around the sequence — explicitly NOT part of it.
 function sessBuildSteps(kind, idx) {
     const d = sessState.detail;
     if (!d) { return null; }
+    const contextPlays = sessParams().context_plays;
     const src = kind === 'binge'
         ? d.episodes.find(e => e.episode_idx === idx)
         : (d.windows || []).find(w => w.window_idx === idx);
@@ -558,8 +643,8 @@ function sessBuildSteps(kind, idx) {
     const lastIdx = findPlayIdx(src.members[src.members.length - 1], true);
 
     const steps = [];
-    if (firstIdx > 0) {
-        const before = plays.slice(Math.max(0, firstIdx - SESS_CONTEXT_PLAYS), firstIdx);
+    if (firstIdx > 0 && contextPlays > 0) {
+        const before = plays.slice(Math.max(0, firstIdx - contextPlays), firstIdx);
         before.forEach((p, i) => steps.push({
             context: 'before', offset: before.length - i,
             item_id: p.item_id, ts: p.ts, dwell_s: p.dwell_s,
@@ -567,8 +652,8 @@ function sessBuildSteps(kind, idx) {
     }
     const memberStart = steps.length;
     for (const m of src.members) { steps.push({ context: null, ...m }); }
-    if (lastIdx >= 0 && lastIdx + 1 < plays.length) {
-        const after = plays.slice(lastIdx + 1, lastIdx + 1 + SESS_CONTEXT_PLAYS);
+    if (contextPlays > 0 && lastIdx >= 0 && lastIdx + 1 < plays.length) {
+        const after = plays.slice(lastIdx + 1, lastIdx + 1 + contextPlays);
         after.forEach((p, i) => steps.push({
             context: 'after', offset: i + 1,
             item_id: p.item_id, ts: p.ts, dwell_s: p.dwell_s,

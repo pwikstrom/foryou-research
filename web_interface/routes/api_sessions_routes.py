@@ -5,8 +5,9 @@ Serves the artifacts built by the ``sessions_refresh`` worker
 index, a per-session detail payload (the full play sequence + detected focus
 episodes with their ordered members), and a lightweight freshness/status
 signal. The artifacts are global (all collections); every request is scoped to
-the caller's study — a session is only visible when its collection belongs to
-the requested, accessible study.
+the caller's study — a session is only visible when its collection is one the
+requested, accessible study actually contains (see :func:`_study_collection_ids`:
+selected AND present in the study's built frame).
 
 No embedding vectors are ever touched here: all entropy/focus numbers were
 precomputed into the artifacts, and per-item flags come from cheap id-set
@@ -21,7 +22,12 @@ from flask import Blueprint, jsonify, request
 import fyp.data_io as data_io
 import fyp.embeddings as embeddings
 from fyp.analysis import session_explorer
-from web_interface.data_service import get_study_collections, load_display_id_map
+from fyp.fyp_config import fyp_cf
+from web_interface.data_service import (
+    get_study_collections,
+    get_study_frame_collections,
+    load_display_id_map,
+)
 
 from ._access import study_access_error
 from ..permissions import permission_required
@@ -36,6 +42,21 @@ DEFAULT_MIN_COVERAGE = 0.5
 DEFAULT_MIN_EMB_PLAYS = 5
 OVERVIEW_LIMIT_DEFAULT = 200
 OVERVIEW_LIMIT_MAX = 1000
+
+# ``[sessions] context_plays``: how many plays either side of a binge / sequence
+# the player offers as (clearly marked) context. Unlike the segmentation
+# parameters this one is not baked into the artifact — it is read live and sent
+# to the client with every overview.
+DEFAULT_CONTEXT_PLAYS = 3
+
+# ``[sessions] min_session_plays`` / ``min_session_minutes``: the floors below
+# which a session is not listed at all. These constants are the fallbacks for a
+# config that omits the keys, and are deliberately the structurally safe pair —
+# nothing can be detected below ``binge_min_videos``, and a short session can
+# still carry a genuine low-entropy sequence. The committed config sets the
+# instance's actual (stricter) research values.
+DEFAULT_MIN_SESSION_PLAYS = 4
+DEFAULT_MIN_SESSION_MINUTES = 0.0
 
 # Columns the overview endpoint returns per session row.
 _OVERVIEW_COLS = [
@@ -191,9 +212,82 @@ def _story_map(item_ids: set[str]) -> dict[str, str]:
 
 
 def _study_collection_ids(study: str) -> set[str]:
-    """Collection ids belonging to ``study`` (already access-checked)."""
-    return {str(d.get("collection_id")) for d in get_study_collections(study)
-            if d.get("collection_id")}
+    """Collection ids whose sessions belong to ``study`` (already access-checked).
+
+    The study's ``SELECTED_COLLECTIONS`` alone is not the study: a selected
+    collection can be dropped from the built dataset entirely by the study's
+    date window or its group/activity-count thresholds, and it then appears
+    nowhere else in the app. The sessions artifacts are global — built over
+    every collection's unsampled activity — so without the intersection the
+    tab lists sessions from collections the study does not contain.
+
+    Falls back to the raw selection when the study has never been built (no
+    frame to intersect against), which is the only honest answer there.
+    """
+    selected = {str(d.get("collection_id")) for d in get_study_collections(study)
+                if d.get("collection_id")}
+    in_frame = get_study_frame_collections(study)
+    if in_frame is None:
+        return selected
+    return selected & in_frame
+
+
+
+
+def _sessions_config() -> dict:
+    """The live ``[sessions]`` config block (always a dict)."""
+    cfg = fyp_cf.get("sessions", {})
+    return cfg if isinstance(cfg, dict) else {}
+
+
+
+
+def _context_plays() -> int:
+    """``[sessions] context_plays`` from the live config (non-negative)."""
+    try:
+        return max(int(_sessions_config().get("context_plays", DEFAULT_CONTEXT_PLAYS)), 0)
+    except (TypeError, ValueError):
+        return DEFAULT_CONTEXT_PLAYS
+
+
+
+
+def _session_floors() -> dict:
+    """``[sessions]`` list floors from the live config (non-negative).
+
+    Applied at query time, so a config edit takes effect on the next request
+    with no artifact rebuild — the index itself stays complete and every
+    excluded session is still counted in ``total_in_study``.
+    """
+    cfg = _sessions_config()
+    try:
+        plays = max(int(cfg.get("min_session_plays", DEFAULT_MIN_SESSION_PLAYS)), 0)
+    except (TypeError, ValueError):
+        plays = DEFAULT_MIN_SESSION_PLAYS
+    try:
+        minutes = max(float(cfg.get("min_session_minutes", DEFAULT_MIN_SESSION_MINUTES)), 0.0)
+    except (TypeError, ValueError):
+        minutes = DEFAULT_MIN_SESSION_MINUTES
+    return {"min_plays": plays, "min_session_minutes": minutes}
+
+
+
+
+def _display_params(meta: dict | None) -> dict:
+    """The limits the tab must describe to the researcher.
+
+    Segmentation/window values come from the artifact's own provenance — they
+    describe the binges and sequences actually on screen, which a later config
+    edit does not retroactively change — and fall back to the live config only
+    for keys an older artifact never recorded. ``context_plays`` is a pure
+    display knob, so it is always live.
+    """
+    params = dict(session_explorer.default_params())
+    built = (meta or {}).get("params")
+    if isinstance(built, dict):
+        params.update({k: v for k, v in built.items() if k in params})
+    params["context_plays"] = _context_plays()
+    return params
 
 
 
@@ -220,9 +314,15 @@ def api_sessions_overview():
     """Filterable, sortable session table scoped to one study.
 
     Query params: ``study`` (required), ``min_coverage`` (embedded coverage
-    floor), ``min_emb_plays``, ``min_plays``, ``sort`` (one of the index
-    metrics; default ``min_window_cosdist``), ``order`` (``asc``/``desc``),
-    ``limit``.
+    floor), ``min_emb_plays``, ``min_plays``, ``min_session_minutes``, ``sort``
+    (one of the index metrics; default ``min_window_cosdist``), ``order``
+    (``asc``/``desc``), ``limit``.
+
+    ``min_plays`` and ``min_session_minutes`` default to the ``[sessions]``
+    config floors (``min_session_plays`` / ``min_session_minutes``) — the
+    query param is the per-request override, e.g. ``min_plays=0`` to see
+    everything. Excluded sessions still count towards ``total_in_study``, so
+    the caller can always say how many the floors removed.
     """
     study = (request.args.get('study') or '').strip()
     if not study:
@@ -238,10 +338,13 @@ def api_sessions_overview():
                      "'sessions_refresh' task to generate it."
         }), 404
 
+    floors = _session_floors()
     try:
         min_coverage = float(request.args.get('min_coverage', DEFAULT_MIN_COVERAGE))
         min_emb = int(request.args.get('min_emb_plays', DEFAULT_MIN_EMB_PLAYS))
-        min_plays = int(request.args.get('min_plays', 0))
+        min_plays = int(request.args.get('min_plays', floors["min_plays"]))
+        min_minutes = float(request.args.get('min_session_minutes',
+                                             floors["min_session_minutes"]))
         limit = min(int(request.args.get('limit', OVERVIEW_LIMIT_DEFAULT)), OVERVIEW_LIMIT_MAX)
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid numeric filter"}), 400
@@ -253,10 +356,16 @@ def api_sessions_overview():
     cids = _study_collection_ids(study)
     df = index[index["collection_id"].isin(cids)]
     total_in_study = int(len(df))
+    # The list floors are separated from the quality floors so the client can
+    # report "N too short to list" without conflating it with coverage.
+    df = df[
+        (df["n_plays"].fillna(0) >= min_plays)
+        & (df["duration_min"].fillna(0) >= min_minutes)
+    ]
+    total_above_floors = int(len(df))
     df = df[
         (df["coverage_embedded"].fillna(0) >= min_coverage)
         & (df["n_embedded"].fillna(0) >= min_emb)
-        & (df["n_plays"].fillna(0) >= min_plays)
     ]
     total_matching = int(len(df))
     df = df.sort_values(sort, ascending=ascending, na_position='last').head(limit)
@@ -272,12 +381,17 @@ def api_sessions_overview():
     return jsonify({
         "sessions": sessions,
         "total_in_study": total_in_study,
+        "total_above_floors": total_above_floors,
         "total_matching": total_matching,
         "returned": len(sessions),
         "meta": meta,
+        "params": _display_params(meta),
+        "floors": {"min_plays": min_plays, "min_session_minutes": min_minutes},
         "defaults": {
             "min_coverage": DEFAULT_MIN_COVERAGE,
             "min_emb_plays": DEFAULT_MIN_EMB_PLAYS,
+            "min_plays": floors["min_plays"],
+            "min_session_minutes": floors["min_session_minutes"],
         },
     })
 
