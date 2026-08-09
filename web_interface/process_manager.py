@@ -708,6 +708,7 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         if status and status.get("state") == "running":
             updated_str = status.get("updated_at", "")
             is_stale = False
+            age = 0.0
             if updated_str:
                 try:
                     updated_at = datetime.fromisoformat(updated_str)
@@ -717,6 +718,29 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
                     pass
             if not is_stale:
                 return False, "Process already running"
+            # A stale 'running' status is a corpse: the run died without ever
+            # reaching the failure wrapper, which for these workers means a
+            # SIGKILL (out of memory) — no traceback, no ledger entry, so
+            # repeated silent deaths go unnoticed (pca_refresh died this way
+            # three times, 2026-08-08/09). Dead-letter it HERE: the dispatch
+            # below writes a fresh 'running' placeholder, so by the time the
+            # task runner starts, the corpse is already overwritten and
+            # unobservable from that side. Never raises.
+            try:
+                last_msg = (status.get("progress") or {}).get("message") or "—"
+                task_failures.record_failure(
+                    task=name,
+                    error=(f"Previous run found dead: status stuck at 'running' "
+                           f"with a heartbeat {age / 60:.0f} min old (last message: "
+                           f"{last_msg}). No failure was recorded by the run "
+                           f"itself — the process was most likely SIGKILLed "
+                           f"(out of memory)."),
+                    status_key=status_key,
+                    disposition=task_failures.DISPOSITION_DEAD,
+                    phase="presumed_oom",
+                )
+            except Exception as exc:
+                print(f"[{name}] stale-predecessor ledger record failed: {exc}")
 
         # Build task args from the CLI args list
         if task_args is None:
