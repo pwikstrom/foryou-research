@@ -207,7 +207,8 @@ def decode_embeddings(byte_values, dim: int | None = None) -> np.ndarray:
 
 
 def decode_embeddings_arrow(embedding_col, out: np.ndarray | None = None,
-                            offset: int = 0) -> np.ndarray:
+                            offset: int = 0,
+                            dtype=np.float32) -> np.ndarray:
     """Decode a pyarrow-backed binary embedding column into float32 rows.
 
     Fast path: every real shard stores fixed-width float16 blobs, so the
@@ -220,12 +221,15 @@ def decode_embeddings_arrow(embedding_col, out: np.ndarray | None = None,
     Args:
         embedding_col: A pandas Series with ``ArrowDtype`` (large_)binary
             values, or a pyarrow (Chunked)Array of them.
-        out: Optional preallocated ``(>= offset+n, dim)`` float32 array to
-            fill; None allocates one exactly ``(n, dim)``.
+        out: Optional preallocated ``(>= offset+n, dim)`` array to fill;
+            None allocates one exactly ``(n, dim)`` of ``dtype``.
         offset: First row of ``out`` to write.
+        dtype: Output dtype when allocating (``out``'s own dtype wins when
+            given). float16 lets the dense-sidecar compaction extract the
+            stored width without a float32 round-trip.
 
     Returns:
-        The filled float32 array (``out`` when given).
+        The filled array (``out`` when given).
     """
     arr = getattr(getattr(embedding_col, "array", None), "_pa_array", embedding_col)
     if isinstance(arr, pa.ChunkedArray):
@@ -246,15 +250,17 @@ def decode_embeddings_arrow(embedding_col, out: np.ndarray | None = None,
         data = np.frombuffer(buffers[2], dtype=np.uint8)
         flat = data[offs[0]:offs[-1]].view(np.float16).reshape(n, row_bytes // 2)
         if out is None:
-            return flat.astype(np.float32)
-        out[offset:offset + n] = flat  # implicit float16 -> float32 upcast
+            # astype always copies here, so the result never aliases the
+            # (refcounted, possibly short-lived) Arrow buffer.
+            return flat.astype(dtype)
+        out[offset:offset + n] = flat  # implicit upcast to out's dtype
         return out
 
     # Fallback: per-row decode straight into the output.
     first = next(v for v in arr if v.is_valid)
     dim = len(first.as_py()) // 2
     if out is None:
-        out = np.empty((n, dim), dtype=np.float32)
+        out = np.empty((n, dim), dtype=dtype)
         offset = 0
     for i, v in enumerate(arr):
         out[offset + i] = np.frombuffer(v.as_py(), dtype=np.float16)

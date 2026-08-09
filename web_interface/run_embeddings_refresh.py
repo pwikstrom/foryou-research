@@ -60,6 +60,16 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
     remaining = result["remaining"]
     total = result["total"]
 
+    # Keep the dense random-access sidecar (and the fingerprint-stamped corpus
+    # mean) current — O(new shards), so this is one part per batch. A derived
+    # cache must never fail the embedding run itself.
+    try:
+        from fyp.analysis import embedding_store
+
+        embedding_store.ensure_dense_store(backend.model_id(), reporter=reporter)
+    except Exception as exc:
+        reporter.log(f"Dense-store compaction failed (non-fatal): {exc}")
+
     # Captured on the first chain so progress framing stays stable as the
     # backlog shrinks across chains.
     already = total - remaining - embedded

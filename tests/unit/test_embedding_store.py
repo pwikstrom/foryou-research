@@ -1,0 +1,245 @@
+"""Dense embedding sidecar (fyp.analysis.embedding_store) invariants.
+
+Local-mode tests over a synthetic shard store: build/append round-trip, the
+append-only row-stability invariant, manifest invalidation, last-occurrence
+id dedup, the ranged-read path vs the memmap path, and corpus-mean parity
+with the full-matrix mean.
+"""
+
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+import pytest
+
+import fyp.data_io as data_io
+from fyp.analysis import embedding_store, embeddings
+
+MODEL = "test-embed-model"
+DIM = 24
+
+
+
+
+
+
+@pytest.fixture
+def store(tmp_path, monkeypatch):
+    """Point the 'recoded' location at a temp dir (local mode)."""
+    from fyp.fyp_config import fyp_cf
+
+    monkeypatch.setitem(fyp_cf["paths"], "recoded", str(tmp_path))
+    monkeypatch.setitem(fyp_cf["data_io"], "use_gcs_for_data", False)
+    return tmp_path
+
+
+
+
+
+
+def _write_shard(item_ids, matrix, model=MODEL):
+    df = pd.DataFrame({
+        "item_id": pd.array([str(i) for i in item_ids], dtype="string[pyarrow]"),
+        "embedding": pd.array(
+            pa.array([row.astype(np.float16).tobytes() for row in matrix],
+                     type=pa.large_binary()),
+            dtype=pd.ArrowDtype(pa.large_binary())),
+        "model": pd.array([model] * len(item_ids), dtype="string[pyarrow]"),
+        "dim": pd.array([matrix.shape[1]] * len(item_ids), dtype="int32[pyarrow]"),
+    })
+    name = f"{embeddings.SHARD_PREFIX}{len(item_ids)}_{abs(hash(tuple(item_ids))) % 10**8}{embeddings.SHARD_SUFFIX}"
+    data_io.save_parquet(df=df, storage_location="recoded", filename=name)
+    return name
+
+
+
+
+
+
+def _rand(n, seed):
+    return np.random.default_rng(seed).standard_normal((n, DIM)).astype(np.float16)
+
+
+
+
+
+
+def test_build_and_roundtrip(store):
+    ids = [f"vid{i:04d}" for i in range(50)]
+    mat = _rand(50, 0)
+    _write_shard(ids, mat)
+
+    manifest = embedding_store.ensure_dense_store(MODEL)
+    assert manifest["n_rows"] == 50 and manifest["dim"] == DIM
+
+    index = embedding_store.load_index(MODEL)
+    rows, found = index.lookup(ids)
+    assert found.all()
+    got = embedding_store.read_vectors(MODEL, rows, index)
+    np.testing.assert_array_equal(got, mat.astype(np.float32))
+
+    # Unknown ids report not-found without erroring.
+    rows2, found2 = index.lookup(["nope", ids[3]])
+    assert list(found2) == [False, True]
+    np.testing.assert_array_equal(
+        embedding_store.read_vectors(MODEL, rows2, index)[0],
+        mat[3].astype(np.float32))
+
+
+
+
+
+
+def test_append_only_row_stability(store):
+    """Adding a shard must never move an existing item's row (O(new) append)."""
+    ids1 = [f"a{i}" for i in range(30)]
+    _write_shard(ids1, _rand(30, 1))
+    embedding_store.ensure_dense_store(MODEL)
+    idx1 = embedding_store.load_index(MODEL)
+    rows1, _ = idx1.lookup(ids1)
+
+    ids2 = [f"b{i}" for i in range(20)]
+    _write_shard(ids2, _rand(20, 2))
+    manifest = embedding_store.ensure_dense_store(MODEL)
+    assert manifest["n_rows"] == 50
+    assert len(manifest["parts"]) == 2  # one part per shard, no rewrite
+
+    idx2 = embedding_store.load_index(MODEL)
+    rows1_after, _ = idx2.lookup(ids1)
+    np.testing.assert_array_equal(rows1, rows1_after)
+
+
+
+
+
+
+def test_idempotent_when_fresh(store):
+    _write_shard([f"x{i}" for i in range(10)], _rand(10, 3))
+    m1 = embedding_store.ensure_dense_store(MODEL)
+    m2 = embedding_store.ensure_dense_store(MODEL)
+    assert m1["built_at"] == m2["built_at"]  # second call was a no-op
+
+
+
+
+
+
+def test_last_occurrence_wins_for_duplicate_ids(store):
+    """Parity with load_directional_store's {iid: i} dict (last wins)."""
+    mat1, mat2 = _rand(3, 4), _rand(3, 5)
+    _write_shard(["dup", "u1", "u2"], mat1)
+    embedding_store.ensure_dense_store(MODEL)
+    _write_shard(["dup", "u3", "u4"], mat2)
+    embedding_store.ensure_dense_store(MODEL)
+
+    index = embedding_store.load_index(MODEL)
+    rows, found = index.lookup(["dup"])
+    assert found.all()
+    got = embedding_store.read_vectors(MODEL, rows, index)
+    np.testing.assert_array_equal(got[0], mat2[0].astype(np.float32))
+
+
+
+
+
+
+def test_mutated_shard_triggers_full_rebuild(store):
+    ids = [f"m{i}" for i in range(10)]
+    name = _write_shard(ids, _rand(10, 6))
+    embedding_store.ensure_dense_store(MODEL)
+
+    # Mutate the compacted shard (append-only invariant broken).
+    df = data_io.load_parquet_selective(storage_location="recoded", filename=name)
+    data_io.save_parquet(df=df.iloc[:5], storage_location="recoded", filename=name)
+
+    manifest = embedding_store.ensure_dense_store(MODEL)
+    assert manifest["n_rows"] == 5
+    index = embedding_store.load_index(MODEL)
+    _, found = index.lookup(ids[:5])
+    assert found.all()
+
+
+
+
+
+
+def test_corpus_mean_matches_full_matrix_and_fingerprint_gates(store):
+    ids = [f"c{i}" for i in range(40)]
+    mat = _rand(40, 7)
+    _write_shard(ids[:25], mat[:25])
+    _write_shard(ids[25:], mat[25:])
+    embedding_store.ensure_dense_store(MODEL)
+
+    fp = embedding_store.store_fingerprint()
+    mean, count, got_fp = embedding_store.get_corpus_mean(MODEL, expected_fp=fp)
+    assert count == 40 and got_fp == fp
+    np.testing.assert_allclose(
+        mean, mat.astype(np.float32).mean(axis=0, dtype=np.float64), atol=1e-6)
+
+    # A stale mean (fingerprint mismatch) must be refused.
+    assert embedding_store.load_corpus_mean(MODEL, expected_fp="different") is None
+
+    # A consumer pinned to the old fingerprint must see drift after a change.
+    _write_shard(["late1"], _rand(1, 8))
+    with pytest.raises(embedding_store.CorpusMeanDrift):
+        embedding_store.get_corpus_mean(MODEL, expected_fp=fp)
+
+
+
+
+
+
+def test_ranged_read_path_matches_memmap(store, monkeypatch):
+    """Force the GCS branch onto local files: byte ranges == memmap."""
+    ids = [f"r{i:03d}" for i in range(64)]
+    mat = _rand(64, 9)
+    _write_shard(ids, mat)
+    embedding_store.ensure_dense_store(MODEL)
+    index = embedding_store.load_index(MODEL)
+
+    picks = ["r003", "r001", "r050", "r002", "r063", "r030"]
+    rows, found = index.lookup(picks)
+    assert found.all()
+    via_memmap = embedding_store.read_vectors(MODEL, rows, index)
+
+    # Route the part read through the ranged branch: force mode='gcs' for the
+    # part file and serve the byte ranges from the local file, so the
+    # coalescing + slicing logic is exercised end to end.
+    real_resolve = data_io._resolve_paths
+    real_ranges = data_io.read_byte_ranges
+
+    def _fake_resolve(loc, fn):
+        primary, secondary, mode, blob = real_resolve(loc, fn)
+        if fn.startswith(embedding_store.DENSE_BLOB_PREFIX):
+            return primary, secondary, 'gcs', blob
+        return primary, secondary, mode, blob
+
+    def _local_ranges(storage_location="cache", filename="", ranges=None, **kw):
+        path = real_resolve(storage_location, filename)[0]
+        out = []
+        with open(path, 'rb') as f:
+            for off, length in ranges:
+                f.seek(off)
+                out.append(f.read(length))
+        return out
+
+    monkeypatch.setattr(data_io, "_resolve_paths", _fake_resolve)
+    monkeypatch.setattr(data_io, "read_byte_ranges", _local_ranges)
+    via_ranges = embedding_store.read_vectors(MODEL, rows, index,
+                                              coalesce_bytes=DIM * 2 * 4)
+    np.testing.assert_array_equal(via_memmap, via_ranges)
+    expected = mat[[int(p[1:]) for p in picks]].astype(np.float32)
+    np.testing.assert_array_equal(via_memmap, expected)
+
+
+
+
+
+
+def test_other_models_rows_are_excluded(store):
+    _write_shard(["mine1", "mine2"], _rand(2, 10), model=MODEL)
+    _write_shard(["other1"], _rand(1, 11), model="other-model")
+    manifest = embedding_store.ensure_dense_store(MODEL)
+    assert manifest["n_rows"] == 2
+    index = embedding_store.load_index(MODEL)
+    _, found = index.lookup(["other1"])
+    assert not found.any()

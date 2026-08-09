@@ -40,7 +40,7 @@ import pandas as pd
 import pyarrow as pa
 
 import fyp.data_io as data_io
-from fyp.analysis import embeddings, entropy_metrics
+from fyp.analysis import embedding_store, embeddings, entropy_metrics
 from fyp.logging_setup import get_logger
 from fyp.organize_datasets import COLLECTIONS_LABEL
 
@@ -100,45 +100,30 @@ def default_params() -> dict:
 
 def _corpus_mean_filename(model: str) -> str:
     """Return the per-model corpus-mean cache filename (filesystem-safe)."""
-    safe = "".join(c if (c.isalnum() or c in "._-") else "_" for c in model)
-    return f"{CORPUS_MEAN_PREFIX}{safe}.json"
+    return embedding_store.corpus_mean_filename(model)
 
 
 
 
 def save_corpus_mean(model: str, mean: np.ndarray, count: int) -> None:
-    """Persist the corpus mean for ``model`` as JSON in the recoded store.
+    """Persist the corpus mean for ``model`` (delegates to embedding_store).
+
+    Kept for API compatibility; the persistence (incl. the optional
+    store-fingerprint stamp) is owned by :mod:`fyp.analysis.embedding_store`.
 
     Args:
         model: Embedding model id the mean was computed over.
         mean: The ``(d,)`` mean vector.
         count: Number of vectors the mean was computed over (provenance).
     """
-    data_io.save_json(
-        data={
-            "model": model,
-            "dim": int(mean.shape[0]),
-            "count": int(count),
-            "mean": [float(v) for v in mean],
-        },
-        storage_location=embeddings.STORE_LOCATION,
-        filename=_corpus_mean_filename(model),
-    )
+    embedding_store.save_corpus_mean(model, mean, count)
 
 
 
 
 def load_corpus_mean(model: str) -> np.ndarray | None:
     """Load the cached corpus mean for ``model``, or None when absent."""
-    fname = _corpus_mean_filename(model)
-    if not data_io.exists(storage_location=embeddings.STORE_LOCATION, filename=fname):
-        return None
-    payload = data_io.load_json(
-        storage_location=embeddings.STORE_LOCATION, filename=fname,
-    )
-    if not payload or payload.get("model") != model or not payload.get("mean"):
-        return None
-    return np.asarray(payload["mean"], dtype=np.float64)
+    return embedding_store.load_corpus_mean(model)
 
 
 
