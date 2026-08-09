@@ -1032,14 +1032,30 @@ def sweep_stale_run_files(current_run_id: str) -> None:
 
 
 def publish_artifacts(run_id: str, n_chunks: int, expected: dict,
-                      meta: dict, reporter=None) -> dict:
+                      meta: dict, reporter=None,
+                      covered_collections: int | None = None,
+                      total_collections: int | None = None) -> dict:
     """Concatenate the run's shards into the three artifact files + meta.
 
     Publish order matters: ``sessions_index.parquet`` LAST — its size:mtime
     fingerprint is the tab's freshness gate, so episodes/windows must land
     first or the index would briefly advertise sessions whose detail rows
-    don't exist yet. Shards are deleted only after every concat's row count
-    matched the progress totals.
+    don't exist yet. Shards are deleted only after every check below passed.
+
+    Three independent completeness checks, because they fail differently:
+
+    * **Coverage** (``covered_collections`` vs ``total_collections``) — the run
+      must have segmented every collection discovery found. This is the one
+      that matters under duplicate chains: a Cloud Tasks retry re-delivers the
+      same task_args, so concurrent chains share a ``run_id``. The first to
+      finish publishes and deletes BOTH the shards and the progress file, so a
+      trailing chain rebuilds a progress file covering only its remaining
+      chunks and then agrees with its own truncated shard set. Row counts are
+      self-consistent in that case and wave it through — a half-corpus artifact
+      silently replacing a complete one (observed in prod 2026-08-09).
+      Coverage cannot be reset that way.
+    * **Shard-set completeness** — every chunk 0..n_chunks-1 must be present.
+    * **Row counts** (``expected``) — catches a shard that failed to write.
 
     Args:
         run_id: The run whose shards to publish.
@@ -1047,17 +1063,38 @@ def publish_artifacts(run_id: str, n_chunks: int, expected: dict,
         expected: ``{"sessions": n, "episodes": n, "windows": n}`` totals.
         meta: The ``sessions_meta.json`` payload (counts already in it).
         reporter: Optional status reporter.
+        covered_collections: Collections actually segmented by this run.
+        total_collections: Collections discovery found at link 0.
 
     Returns:
         ``meta`` (persisted).
+
+    Raises:
+        RuntimeError: when the run is incomplete or a row count disagrees.
+            Shards are left for inspection and nothing is published, so the
+            previous artifacts stay intact.
     """
+    if (covered_collections is not None and total_collections is not None
+            and int(covered_collections) != int(total_collections)):
+        raise RuntimeError(
+            f"publish: run {run_id} covered {covered_collections} of "
+            f"{total_collections} collections — refusing to publish a partial "
+            f"artifact (a concurrent chain sharing this run_id most likely "
+            f"published and cleaned up first). Shards kept for inspection.")
+
     for kind, final in (("episodes", EPISODES_FILE), ("windows", WINDOWS_FILE),
                         ("sessions", SESSIONS_FILE)):
-        shards = [shard_filename(kind, run_id, k) for k in range(n_chunks)]
-        shards = [s for s in shards
+        all_shards = [shard_filename(kind, run_id, k) for k in range(n_chunks)]
+        shards = [s for s in all_shards
                   if data_io.exists(storage_location=ARTIFACT_LOCATION, filename=s)]
         if not shards:
             raise RuntimeError(f"publish: no '{kind}' shards found for run {run_id}")
+        if len(shards) != len(all_shards):
+            raise RuntimeError(
+                f"publish: run {run_id} has an incomplete '{kind}' shard set "
+                f"({len(all_shards) - len(shards)} of {n_chunks} missing) — "
+                f"refusing to publish. Another chain sharing this run_id most "
+                f"likely published first.")
         n = data_io.concat_parquet_files(
             src_storage_location=ARTIFACT_LOCATION, src_filenames=shards,
             dst_storage_location=ARTIFACT_LOCATION, dst_filename=final)

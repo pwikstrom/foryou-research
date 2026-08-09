@@ -269,6 +269,56 @@ def test_retry_of_a_link_does_not_duplicate_rows(corpus):
 
 
 
+def test_trailing_duplicate_chain_cannot_clobber_a_published_artifact(corpus):
+    """The prod incident of 2026-08-09, reproduced.
+
+    A Cloud Tasks retry re-delivers the SAME task_args, so duplicate chains
+    share a run_id. The first to finish publishes and deletes both the shards
+    and the progress file; the trailing chain then rebuilds a progress file
+    covering only its remaining chunks and agrees with its own truncated shard
+    set. Row-count verification alone waves that through and a partial
+    artifact silently replaces a complete one.
+    """
+    # Chain A runs to completion and publishes all 3 collections.
+    reporter = FakeReporter()
+    args: dict = {"batch_size": 1}
+    first_link_args = None
+    while True:
+        chain = worker.run_sessions_refresh(reporter, args)
+        if first_link_args is None and chain:
+            first_link_args = dict(chain["next_task_args"])
+        if not chain:
+            break
+        args = chain["next_task_args"]
+
+    good = _read_artifacts()
+    good_meta = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    assert good_meta["n_collections"] == 3
+
+    # Chain B resumes from link 1 with the SAME run_id, after A already
+    # published and swept. It covers only collections 2..3 — never 1.
+    trailing = FakeReporter()
+    args = first_link_args
+    with pytest.raises(RuntimeError) as excinfo:
+        while True:
+            chain = worker.run_sessions_refresh(trailing, args)
+            if not chain:
+                break
+            args = chain["next_task_args"]
+    assert "collections" in str(excinfo.value) or "incomplete shard set" in str(excinfo.value)
+
+    # The complete artifact is untouched.
+    after = _read_artifacts()
+    for kind in ("sessions", "episodes", "windows"):
+        pd.testing.assert_frame_equal(good[kind], after[kind])
+    assert data_io.load_json(storage_location="cache",
+                             filename=se.META_FILE)["n_collections"] == 3
+
+
+
+
+
+
 def test_corpus_drift_restarts_chain_bounded(corpus, monkeypatch):
     reporter = FakeReporter()
     chain = worker.run_sessions_refresh(reporter, {"batch_size": 1})

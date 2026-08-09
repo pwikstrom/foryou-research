@@ -183,6 +183,10 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         chunks[str(chunk)] = {
             "sessions": len(srows), "episodes": len(erows),
             "windows": len(wrows), "plays": stats["n_plays"],
+            # Per-chunk collection count: summed at publish and compared to
+            # what discovery found, so a run that only covered part of the
+            # corpus can never publish (see publish_artifacts).
+            "collections": len(batch),
         }
         return progress
 
@@ -191,7 +195,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         filename=_progress_filename(run_id), mutate=_mutate, default=None)
     progress = {
         key: sum(entry.get(key, 0) for entry in progress_raw["chunks"].values())
-        for key in ("sessions", "episodes", "windows", "plays")
+        for key in ("sessions", "episodes", "windows", "plays", "collections")
     }
 
     done = total - len(rest)
@@ -253,7 +257,9 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         expected={"sessions": progress["sessions"],
                   "episodes": progress["episodes"],
                   "windows": progress["windows"]},
-        meta=meta, reporter=reporter)
+        meta=meta, reporter=reporter,
+        covered_collections=progress["collections"],
+        total_collections=total)
     data_io.remove(storage_location=session_explorer.ARTIFACT_LOCATION,
                    filename=_progress_filename(run_id))
 
