@@ -607,6 +607,52 @@ def _pipeline_actor(task_args: dict, parent: str) -> str:
 
 
 
+# A status heartbeat older than this marks the run as dead — the same 600 s
+# rule /api/status and _is_worker_running apply.
+_STALE_HEARTBEAT_SECONDS = 600
+
+
+def _ledger_stale_predecessor(name: str, status_key: str) -> None:
+    """Dead-letter a prior run that died without a failure record (OOM SIGKILL).
+
+    A SIGKILL bypasses the failure wrapper entirely: no ``task_failures``
+    entry is written and the status file stays ``state="running"`` with a
+    frozen heartbeat — the UI's stale rule shows it as dead, but the
+    dead-letter ledger doesn't, so repeated silent deaths are easy to miss
+    (this happened twice with pca_refresh, 2026-08-08/09). Called when a NEW
+    run of the same key starts (chunk 0): if the previous status is a stale
+    ``running`` corpse, record it before ``reporter.start()`` overwrites it.
+    Never raises — bookkeeping must not block the new run.
+    """
+    try:
+        prior = read_task_status(status_key)
+        if not prior or prior.get("state") != "running":
+            return
+        updated_str = prior.get("updated_at") or ""
+        try:
+            age = (datetime.now(UTC)
+                   - datetime.fromisoformat(updated_str)).total_seconds()
+        except (ValueError, TypeError):
+            return  # malformed heartbeat: can't prove it's a corpse
+        if age <= _STALE_HEARTBEAT_SECONDS:
+            return
+        task_failures.record_failure(
+            task=name,
+            error=(f"Previous run found dead: status stuck at 'running' with a "
+                   f"heartbeat {age / 60:.0f} min old (last message: "
+                   f"{prior.get('message') or '—'!s}). No failure was recorded "
+                   f"by the run itself — the process was most likely "
+                   f"SIGKILLed (out of memory)."),
+            status_key=status_key,
+            disposition=task_failures.DISPOSITION_DEAD,
+            phase="presumed_oom",
+        )
+    except Exception as exc:
+        print(f"[{name}] stale-predecessor ledger check failed: {exc}")
+
+
+
+
 def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bool:
     """Execute a task function and update process_stats on completion.
 
@@ -685,6 +731,7 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
     if task_args.get("chunk_index", 0) > 0 or task_args.get("phase") == "poll":
         reporter.resume()
     else:
+        _ledger_stale_predecessor(name, status_key)
         reporter.start()
     # resume() replaces _status wholesale from the prior chain link, so re-assert
     # the surface args (a prior link wrote them, but be explicit) — a no-op write

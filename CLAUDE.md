@@ -90,6 +90,7 @@ fyp_main_v02/
 │   │   ├── data_io.py           # Unified I/O (local + GCS, parquet, JSON, ndjson); runtime register_location() + local_copy()/release_local_copy() (temp-file zip/binary reader)
 │   │   ├── types.py             # PyArrow dtype helpers and conversion
 │   │   ├── polars_ops.py        # Polars helpers for expensive pandas ops at scale
+│   │   ├── memory.py            # Shared RSS/peak probes + mem_probe() context manager ([<TAG>][MEM] log lines)
 │   │   ├── utils.py             # Shared utility functions (incl. repair_mojibake() + read_zip_members()/read_zip_member())
 │   │   ├── media_paths.py       # Platform-aware media object paths ({prefix}/{platform}/{id}.mp4) + reader-side resolve_media() fallback to the legacy flat path
 │   │   ├── logging_setup.py     # get_logger(): stdout logging, bare %(message)s, level from FYP_LOG_LEVEL
@@ -134,6 +135,7 @@ fyp_main_v02/
 │       ├── calc_collection_stats.py  # Donation-level statistics
 │       ├── activity_analysis.py # Activity-based analysis
 │       ├── embeddings.py        # Dense semantic embeddings for annotated videos (model-scoped shard store, backend-dispatched)
+│       ├── embedding_store.py   # Random-access dense sidecar over the shards: per-model float16 parts + id→row index + fingerprint-stamped corpus mean (memmap local / ranged reads GCS)
 │       ├── embedding_backends/  # EmbeddingBackend ABC + registry: gemini (default) / qwen_local (Qwen3-Embedding via sentence-transformers)
 │       ├── niche_detection.py   # Data-driven micro-genre ("niche") detection from annotation text
 │       ├── video_map.py         # Cluster video embeddings into niches + 2D semantic map (+ video_map_meta.json provenance; term-based niche naming when Gemini is absent)
@@ -178,7 +180,7 @@ fyp_main_v02/
 │   ├── run_embeddings_refresh.py   # Embed not-yet-embedded annotated videos (Cloud Task)
 │   ├── run_video_map_refresh.py    # Cluster embedding store into niches + 2D map (Cloud Task)
 │   ├── run_sequence_refresh.py  # Refresh sequence-analysis artifacts (Cloud Task)
-│   ├── run_sessions_refresh.py  # Build the Sessions tab's session index + focus-episode artifacts (Cloud Task)
+│   ├── run_sessions_refresh.py  # Build the Sessions tab's session index + focus-episode artifacts (self-chaining Cloud Task; O(batch) memory, per-link shards, corpus-mean drift guard)
 │   ├── run_benchmark_parquet_read.py  # Benchmark parquet read paths (Cloud Task)
 │   ├── run_queue_annotator_batch.py   # Batch-mode Gemini annotation (Cloud Task)
 │   ├── run_ab_eval.py           # Prompt A/B eval run (Cloud Task)
