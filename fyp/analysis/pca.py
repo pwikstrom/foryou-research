@@ -8,6 +8,7 @@ from typing import Literal, Union
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+from scipy import sparse as scipy_sparse
 from scipy.spatial.distance import pdist as scipy_pdist
 from scipy.spatial.distance import squareform as scipy_squareform
 from sklearn.decomposition import PCA
@@ -44,6 +45,24 @@ def _cf():
 # (computed per group at build time, attached after scaling so it never enters
 # the PCA basis); its var_schema metadata is declared in the derived contract.
 VIDEOS_WATCHED_COL = "videos_watched"
+
+
+# Cardinality gate for the dense group x category crosstab. At or below this
+# the historical dense path runs untouched (byte-identical outputs); above it
+# the exact high-cardinality path applies: surviving categories are chosen
+# against the TRUE total before any dense frame is built, and the
+# full-distribution statistics (entropy, top1, PC interpretation) come from
+# long-format/sparse computations instead of the dense frame. A free-text-ish
+# categorical (main_activity, ~98k distinct values) made the dense crosstab
+# 13,840 x 91,799 x 8 B = 10.2 GB — doubled by the astype(float) — which
+# OOM-killed the 32 GB task runner on 2026-08-08/09.
+DENSE_CATEGORY_LIMIT = 1000
+
+# Degenerate backstop for the high-cardinality path: when NO category clears
+# `drop_rare_globally_below`, keep this many most-frequent categories instead
+# of all of them (the dense path's keep-everything fallback would rebuild the
+# very matrix this path exists to avoid).
+RARE_FALLBACK_TOP_N = 200
 
 
 def contract_numeric_transforms() -> dict[str, str]:
@@ -396,10 +415,37 @@ def interpret_axes_with_categories(
     corr_matrix = (P_scaled.T @ F_scaled) / (N - 1)
 
     # 4. Extract top correlations per component
-    for col in feat.columns:
+    return _interpretation_from_corr(corr_matrix, feat.columns, top=top, cutoff=cutoff)
+
+
+
+
+def _interpretation_from_corr(corr_matrix, feat_columns, top=5, cutoff=None) -> dict:
+    """Build the per-component interpretation dict from a correlation matrix.
+
+    The selection logic extracted verbatim from
+    :func:`interpret_axes_with_categories`, shared with the high-cardinality
+    path (which computes ``corr_matrix`` sparsely) so both paths pick and
+    format the same categories the same way.
+
+    Args:
+        corr_matrix: Categories × components correlation DataFrame.
+        feat_columns: Component column names to report on.
+        top: Number of top categories per direction.
+        cutoff: Minimum |correlation|; None -> the [correlations] config value.
+
+    Returns:
+        Dict ``{component: {"top_positive": str, "top_negative": str,
+        "top_positive_cat": str|None, "top_negative_cat": str|None}}``.
+    """
+    if cutoff is None:
+        cutoff = float(_cf().get("correlations", {}).get("interpretation_cutoff", 0.2))
+
+    out = {}
+    for col in feat_columns:
         # Get correlations for this PC, drop NaNs (from constant columns)
         corrs = corr_matrix[col].dropna()
-        
+
         # Top Positive
         top_pos = corrs.sort_values(ascending=False).head(top).items()
         top_pos = [(cat, cor) for cat, cor in top_pos if cor > cutoff and cat not in [_cf()["labels"]["OTHER_THINGS"]]]
@@ -413,8 +459,48 @@ def interpret_axes_with_categories(
         top_neg_cat = top_neg[0][0] if top_neg else None
 
         out[col] = {"top_positive": top_pos_str, "top_negative": top_neg_str, "top_positive_cat": top_pos_cat, "top_negative_cat": top_neg_cat}
-        
+
     return out
+
+
+
+
+def _sparse_corr_with_components(S, categories, feat) -> pd.DataFrame:
+    """Pearson correlation of every category's probability series with each PC.
+
+    Sparse counterpart of the dense standardize-and-multiply in
+    :func:`interpret_axes_with_categories` — same ddof=1 convention, same
+    NaN-for-constant-columns behaviour — computed without ever materialising
+    the groups × categories probability frame.
+
+    Args:
+        S: ``(n_groups, n_categories)`` sparse matrix of full-denominator
+            category probabilities (rows aligned to ``feat.index``).
+        categories: Column labels for ``S`` (the shortened category names).
+        feat: Groups × components DataFrame (the PC scores).
+
+    Returns:
+        Categories × components correlation DataFrame (NaN where a category's
+        or a component's variance is zero).
+    """
+    F = feat.to_numpy(dtype=float)
+    n = F.shape[0]
+    f_mean = F.mean(axis=0)
+    f_std = F.std(axis=0, ddof=1)
+
+    col_sum = np.asarray(S.sum(axis=0)).ravel()
+    col_sumsq = np.asarray(S.multiply(S).sum(axis=0)).ravel()
+    p_mean = col_sum / n
+    p_var = (col_sumsq - n * p_mean**2) / (n - 1)
+    p_std = np.sqrt(np.clip(p_var, 0.0, None))
+
+    cross = np.asarray(S.T @ F)  # (C, k): sum over groups of p * f
+    cov = (cross - np.outer(p_mean, f_mean) * n) / (n - 1)
+    denom = np.outer(p_std, f_std)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        corr = cov / denom
+    corr[denom == 0] = np.nan
+    return pd.DataFrame(corr, index=pd.Index(categories), columns=feat.columns)
 
 
 
@@ -456,9 +542,29 @@ def transform_category_column_to_counts_df(
     some_events,
     the_column = None,
     grouping_factors: list = None,
+    drop_rare_globally_below: float = None,
 ):
+    """Group × category counts frame for one categorical feature.
+
+    Args:
+        some_events: The study's recoded events frame.
+        the_column: The categorical column (scalar or list-valued).
+        grouping_factors: Grouping columns (sorted internally).
+        drop_rare_globally_below: The rare-category threshold the downstream
+            :func:`_prepare_probability_matrix` will apply. When provided and
+            the column exceeds :data:`DENSE_CATEGORY_LIMIT` distinct string
+            categories, the dense frame is built for the surviving categories
+            only — selected against the TRUE total, so the survivor set is
+            identical to what the downstream drop would have kept — and the
+            full-distribution statistics ride along in
+            ``counts_df.attrs["pca_full_dist"]``. None keeps the historical
+            all-categories dense frame.
+
+    Returns:
+        Float counts DataFrame (groups × categories, shortened column names).
+    """
     if the_column is None:
-        raise ValueError("No column provided") 
+        raise ValueError("No column provided")
     if grouping_factors is None:
         raise ValueError("No selected factors provided")
 
@@ -510,6 +616,22 @@ def transform_category_column_to_counts_df(
     if df_exploded.empty:
          return pd.DataFrame(index=some_events.set_index(grouping_factors).index.unique())
 
+    # 2b. High-cardinality gate. A free-text-ish categorical can carry tens of
+    # thousands of near-unique values; the dense crosstab below costs
+    # groups × categories × 8 B (doubled by the astype) and OOM-killed the
+    # task runner. Above DENSE_CATEGORY_LIMIT the exact sparse path builds the
+    # dense frame only for the categories the downstream rare-drop would keep.
+    if drop_rare_globally_below is not None and drop_rare_globally_below > 0:
+        col_vals = df_exploded[the_column]
+        vc = col_vals.value_counts()
+        stringy = pd.api.types.is_string_dtype(col_vals.dtype) or (
+            col_vals.dtype == object
+            and all(isinstance(x, str) for x in vc.index))
+        if stringy and len(vc) > DENSE_CATEGORY_LIMIT:
+            return _high_cardinality_counts_df(
+                df_exploded, the_column, grouping_factors, vc,
+                drop_rare_globally_below, _shorten_strings)
+
     # 3. Crosstab / Pivot
     # groupby factors + category column -> size -> unstack
     # Using crosstab is generally cleaner for frequency counts.
@@ -532,7 +654,142 @@ def transform_category_column_to_counts_df(
 
     # 4. Shorten column names (keep existing logic helper)
     counts_df.columns = _shorten_strings(counts_df.columns)
-    
+
+    return counts_df
+
+
+
+
+def _high_cardinality_counts_df(df_exploded, the_column, grouping_factors, vc,
+                                drop_rare_globally_below, shorten) -> pd.DataFrame:
+    """Survivors-only dense counts frame + exact full-distribution sidecar.
+
+    The historical path built the dense crosstab over ALL categories and let
+    `_prepare_probability_matrix` drop the rare ones afterwards. This path
+    picks the identical survivor set FIRST — the threshold is applied against
+    the true total, so any category clearing it here also clears it against
+    the (smaller) survivors-only total downstream, making the downstream drop
+    a no-op — and never materialises the full matrix.
+
+    The consumers that genuinely need the full distribution (entropy, the
+    ``top1`` modal category, PC sign-fixing and axis interpretation, the
+    ``_raw`` probability columns) get exact equivalents computed from
+    long-format counts and a sparse probability matrix, attached as
+    ``counts_df.attrs["pca_full_dist"]``:
+
+    * ``n_categories`` — total distinct categories (drives the <2-category
+      early exit, which must consider the FULL cardinality).
+    * ``entropy`` — per-group Shannon entropy over the full distribution.
+    * ``top1`` — per-group modal category (shortened name; ties break to the
+      lexicographically-first original name, matching dense ``idxmax``).
+    * ``sparse_probs`` — groups × all-categories CSR of full-denominator
+      probabilities, rows aligned to the returned frame's index.
+    * ``categories`` — the shortened labels for ``sparse_probs``'s columns.
+
+    Category names are shortened against the FULL category list (not just the
+    survivors), so labels match what the all-categories dense path published.
+
+    Args:
+        df_exploded: The exploded (column, factors) frame.
+        the_column: The categorical column name.
+        grouping_factors: Sorted grouping columns.
+        vc: ``df_exploded[the_column].value_counts()`` (NaN excluded).
+        drop_rare_globally_below: Rare-category mass threshold.
+        shorten: The caller's ``_shorten_strings`` helper.
+
+    Returns:
+        Float counts DataFrame over surviving categories, indexed by every
+        group (groups with no surviving observations appear as all-zero rows,
+        exactly as the downstream column-drop left them).
+    """
+    total = float(vc.sum())
+
+    # Deterministic order: count desc, then original name asc for ties.
+    mass = vc.sort_index(kind="stable").sort_values(ascending=False, kind="stable")
+    survivors = mass[mass / total >= drop_rare_globally_below]
+    if len(survivors) == 0:
+        # Degenerate backstop (A4): nothing clears the threshold. The dense
+        # path's keep-everything fallback would rebuild the full matrix; keep
+        # a bounded head instead.
+        logger.warning(
+            f"    [PCA] {the_column}: no category reaches "
+            f"{drop_rare_globally_below:.2%} of {int(total):,} observations — "
+            f"keeping the {RARE_FALLBACK_TOP_N} most frequent of {len(mass):,}.")
+        survivors = mass.iloc[:RARE_FALLBACK_TOP_N]
+    elif len(survivors) > DENSE_CATEGORY_LIMIT:
+        logger.warning(
+            f"    [PCA] {the_column}: {len(survivors):,} categories clear the "
+            f"{drop_rare_globally_below:.2%} threshold — capping the dense frame "
+            f"at the {DENSE_CATEGORY_LIMIT:,} most frequent.")
+        survivors = survivors.iloc[:DENSE_CATEGORY_LIMIT]
+    logger.info(
+        f"    [PCA] {the_column}: {len(vc):,} categories -> "
+        f"{len(survivors)} survive the {drop_rare_globally_below:.2%} filter "
+        f"({float(survivors.sum()) / total:.1%} of observations).")
+
+    # Shorten against the FULL sorted category list — the historical dense
+    # path shortened all-columns-at-once, and collision-driven extension means
+    # a survivor's short name depends on the whole list.
+    all_cats_sorted = sorted(str(c) for c in vc.index)
+    short_map = dict(zip(all_cats_sorted, shorten(all_cats_sorted)))
+
+    # Full group index (factor rows with a NaN category never reach the
+    # crosstab, so filter first). The degenerate one-column crosstab is the
+    # cheapest way to get the exact index object — same dtypes, same sort,
+    # same MultiIndex shape — the full crosstab would have had.
+    dfe = df_exploded[df_exploded[the_column].notna()]
+    full_index = pd.crosstab(
+        index=[dfe[c] for c in grouping_factors],
+        columns=[pd.Series("_", index=dfe.index)],
+    ).index
+
+    # Dense frame for the survivors only, via the same crosstab machinery.
+    sub = dfe[dfe[the_column].isin(set(survivors.index))]
+    counts_df = pd.crosstab(
+        index=[sub[c] for c in grouping_factors],
+        columns=[sub[the_column]],
+    )
+    counts_df = counts_df.astype(float)
+    counts_df = counts_df.reindex(full_index, fill_value=0.0)
+    counts_df.columns = [short_map[str(c)] for c in counts_df.columns]
+
+    # Exact full-distribution statistics from long-format counts.
+    long = (dfe.groupby(grouping_factors + [the_column]).size()
+            .rename("n").reset_index())
+    long["_total"] = long.groupby(grouping_factors)["n"].transform("sum")
+    p = long["n"].astype("float64") / long["_total"].astype("float64")
+
+    if len(grouping_factors) > 1:
+        group_keys = pd.MultiIndex.from_frame(long[grouping_factors])
+    else:
+        group_keys = pd.Index(long[grouping_factors[0]])
+
+    entropy = (-(p * np.log2(p))).groupby(group_keys).sum()
+    entropy = entropy.reindex(full_index)
+
+    # Modal category: max count, ties to the first category in dense column
+    # order (sorted original names) — the tie-break idxmax used.
+    ordered = long.assign(_orig=long[the_column].astype(str)).sort_values(
+        ["n", "_orig"], ascending=[False, True], kind="stable")
+    top1 = (ordered.drop_duplicates(subset=grouping_factors, keep="first")
+            .set_index(grouping_factors)[the_column].astype(str).map(short_map))
+    top1 = top1.reindex(full_index)
+
+    # Sparse full-denominator probability matrix (groups × all categories).
+    row_codes = full_index.get_indexer(group_keys)
+    cat_codes = pd.Categorical(
+        long[the_column].astype(str), categories=all_cats_sorted).codes
+    sparse_probs = scipy_sparse.csr_matrix(
+        (p.to_numpy(), (row_codes, cat_codes)),
+        shape=(len(full_index), len(all_cats_sorted)))
+
+    counts_df.attrs["pca_full_dist"] = {
+        "n_categories": len(vc),
+        "entropy": entropy,
+        "top1": top1,
+        "sparse_probs": sparse_probs,
+        "categories": [short_map[c] for c in all_cats_sorted],
+    }
     return counts_df
 
 
@@ -640,12 +897,26 @@ def transform_categories_to_components_and_diversity(
 
     if counts_df is None:
         raise ValueError("counts_df must be provided")
-    
 
-    entropy_and_dominance = calc_entropy_and_dominance(counts_df, 1)
+    # High-cardinality sidecar (see _high_cardinality_counts_df): when present,
+    # the frame holds only the surviving categories and the full-distribution
+    # statistics ride in attrs — entropy/top1/interpretation must come from
+    # there, not from the (truncated) dense frame.
+    full_dist = counts_df.attrs.get("pca_full_dist")
 
-    # Check validation - if there is only 1 category, we can't do PCA
-    if counts_df.shape[1] < 2:
+    if full_dist is not None:
+        entropy_and_dominance = {"entropy": full_dist["entropy"]}
+    else:
+        entropy_and_dominance = calc_entropy_and_dominance(counts_df, 1)
+
+    # Check validation - if there is only 1 category, we can't do PCA.
+    # The gate is on the variable's TOTAL cardinality: a high-cardinality
+    # variable whose dense frame shrank to one surviving column still takes
+    # the PCA path, exactly as the all-categories frame did after the
+    # downstream rare-drop.
+    n_total_categories = (full_dist["n_categories"] if full_dist is not None
+                          else counts_df.shape[1])
+    if n_total_categories < 2:
         if verbose:
             print(f"Skipping PCA for {counts_df.shape[1]} category. Returning 0-variance component.")
         
@@ -720,24 +991,52 @@ def transform_categories_to_components_and_diversity(
 
     # Resolve PCA sign ambiguity (eigenvectors can point in either +/- direction arbitrarily)
     # For dichotomous variables specifically, we want "yes" to be the positive/top direction.
-    probs = counts_df.div(counts_df.sum(axis=1), axis=0).fillna(0.0)
-    for i, col in enumerate(pc_df.columns):
+    if full_dist is not None:
+        # One sparse correlation pass serves both the sign fix and the axis
+        # interpretation; flipping a PC negates its correlation column.
+        corr_all = _sparse_corr_with_components(
+            full_dist["sparse_probs"], full_dist["categories"], pc_df)
         target_cat = None
         for cat in ["yes", "Yes", "True", "true"]:
-            if cat in probs.columns:
+            if cat in corr_all.index:
                 target_cat = cat
                 break
-                
-        if target_cat is not None:
-            # If the vector aligned oppositely to "yes", flip it so "yes" goes UP.
-            corr = probs[target_cat].corr(pc_df[col])
-            if pd.notna(corr) and corr < -1e-5:
-                pc_df[col] *= -1
+        for col in pc_df.columns:
+            if target_cat is not None:
+                # If the vector aligned oppositely to "yes", flip it so "yes" goes UP.
+                corr = corr_all.loc[target_cat, col]
+                if pd.notna(corr) and corr < -1e-5:
+                    pc_df[col] *= -1
+                    corr_all[col] = -corr_all[col]
+        top1_series = full_dist["top1"]
+    else:
+        probs = counts_df.div(counts_df.sum(axis=1), axis=0).fillna(0.0)
+        for i, col in enumerate(pc_df.columns):
+            target_cat = None
+            for cat in ["yes", "Yes", "True", "true"]:
+                if cat in probs.columns:
+                    target_cat = cat
+                    break
 
-    result_df = pd.concat([pc_df,pd.DataFrame(entropy_and_dominance),pd.DataFrame(counts_df.T.idxmax(), columns=["top1"])],axis=1)
+            if target_cat is not None:
+                # If the vector aligned oppositely to "yes", flip it so "yes" goes UP.
+                corr = probs[target_cat].corr(pc_df[col])
+                if pd.notna(corr) and corr < -1e-5:
+                    pc_df[col] *= -1
+        top1_series = counts_df.T.idxmax()
 
-    xx = interpret_axes_with_categories(counts_df = counts_df, feat = pc_df, top = 5)
-    
+    result_df = pd.concat([pc_df,pd.DataFrame(entropy_and_dominance),top1_series.to_frame("top1")],axis=1)
+
+    if full_dist is not None:
+        if len(pc_df) < 2:
+            # Not enough groups for correlation — same shape the dense
+            # interpretation path returns in this case.
+            xx = {col: {"top_positive": [], "top_negative": []} for col in pc_df.columns}
+        else:
+            xx = _interpretation_from_corr(corr_all, pc_df.columns, top=5)
+    else:
+        xx = interpret_axes_with_categories(counts_df = counts_df, feat = pc_df, top = 5)
+
     # Pre-calculate variance percentages
     for idx, col in enumerate(pc_df.columns):
         if col in xx:
@@ -745,11 +1044,23 @@ def transform_categories_to_components_and_diversity(
 
     # Inject True 0-1 proportions for the dominant category of each component as its `_raw` absolute value
     # Only injected for components that explain exactly 100% of the variance to reduce tooltip bloat
-    probs = counts_df.div(counts_df.sum(axis=1), axis=0).fillna(0.0)
+    if full_dist is not None:
+        def _prob_series(cat):
+            # One category's full-denominator probability series from the
+            # sparse matrix — the dense probs frame is never built here.
+            j = full_dist["categories"].index(cat)
+            col_vec = np.asarray(
+                full_dist["sparse_probs"][:, j].todense()).ravel()
+            return pd.Series(col_vec, index=counts_df.index)
+    else:
+        probs = counts_df.div(counts_df.sum(axis=1), axis=0).fillna(0.0)
+
+        def _prob_series(cat):
+            return probs[cat]
     raw_prob_cols = {}
     for col in pc_df.columns:
         if col in xx and xx.get(col, {}).get("top_positive_cat") and xx[col].get("explained_variance_pct") == 100.0:
-            raw_prob_cols[f"{col}_raw"] = probs[xx[col]["top_positive_cat"]]
+            raw_prob_cols[f"{col}_raw"] = _prob_series(xx[col]["top_positive_cat"])
     
     if raw_prob_cols:
         result_df = pd.concat([result_df, pd.DataFrame(raw_prob_cols, index=result_df.index)], axis=1)
@@ -965,9 +1276,13 @@ def calculate_scaled_pca_scores(
         events_pca_scores.append(numerical_means)
 
 
-    # transform categorical features to counts dataframes
+    # transform categorical features to counts dataframes. Passing the rare
+    # threshold lets high-cardinality columns build their dense frame for the
+    # surviving categories only (see transform_category_column_to_counts_df).
     def _f1(cc):
-        return transform_category_column_to_counts_df(study_recoded_dataset, the_column=cc, grouping_factors=grouping_factors)
+        return transform_category_column_to_counts_df(
+            study_recoded_dataset, the_column=cc, grouping_factors=grouping_factors,
+            drop_rare_globally_below=drop_rare_globally_below)
     categorical_features = study_recoded_dataset[fyp_features].select_dtypes(exclude=["number"]).columns
 
     # Build each counts frame inside the loop rather than materializing them all
