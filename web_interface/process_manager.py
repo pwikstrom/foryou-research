@@ -768,11 +768,24 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             deadline = 1800
         elif name.startswith("queue_scraper_"):
             deadline = 1800
-        elif name in ("pca_refresh", "recode_refresh_studies"):
-            # Whole-study sweeps that scale with corpus size: pca_refresh
-            # regenerates every study's recoded frame + runs the group-stats
-            # sweep (~12 min at 11 studies); recode_refresh_studies is ~7 min
-            # and one growth step from the 600s cliff.
+        elif name in ("pca_refresh", "recode_refresh_studies",
+                      "sessions_refresh", "timelines_refresh",
+                      "embeddings_refresh"):
+            # Corpus-scale sweeps that run well past the 600s default.
+            #
+            # pca_refresh regenerates every study's recoded frame + runs the
+            # group-stats sweep (~26 min at 12 studies); recode_refresh_studies
+            # is ~7 min. sessions_refresh / timelines_refresh / embeddings_refresh
+            # are self-chaining: their own _DISPATCH_DEADLINE governs only the
+            # links they dispatch themselves — the INITIAL dispatch comes from
+            # here, and without this it takes the 600s default.
+            #
+            # sessions_refresh hit exactly that on its first prod run
+            # (2026-08-09): link 0 compacts the dense sidecar, streams the whole
+            # collection_id column, then segments the largest batch — over 600s,
+            # so Cloud Tasks re-dispatched it from scratch every 10 minutes.
+            # Keep this list in sync with the workers that define
+            # _DISPATCH_DEADLINE; test_dispatch_deadlines pins that.
             deadline = 1800
 
         success, msg = _dispatch_cloud_task(name, task_args,
