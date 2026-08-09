@@ -166,7 +166,10 @@ def load_directional_store(model: str, reporter=None) -> tuple[dict, np.ndarray,
     mean = mat.mean(axis=0, dtype=np.float64)
     save_corpus_mean(model, mean, len(ids))
     mat -= mean.astype(np.float32)
-    norms = np.linalg.norm(mat, axis=1, keepdims=True)
+    # Row norms via einsum: np.linalg.norm materialises a full (n, d) x*x
+    # temporary — a second matrix-sized allocation and this function's former
+    # peak; the einsum reduction allocates only the (n,) output.
+    norms = np.sqrt(np.einsum("ij,ij->i", mat, mat))[:, None]
     np.divide(mat, np.where(norms < entropy_metrics.EPS_NORM, entropy_metrics.EPS_NORM, norms), out=mat)
     return {iid: i for i, iid in enumerate(ids)}, mat, len(ids)
 
@@ -225,16 +228,27 @@ def load_video_features() -> pd.DataFrame:
 
 
 
-def enrichment_id_sets(model: str) -> dict[str, set]:
+def enrichment_id_sets(model: str, item_ids: set[str] | None = None,
+                       include_embedded: bool = True) -> dict[str, set]:
     """Return per-item enrichment-status id sets used for session coverage.
 
     Args:
         model: Embedding model id scoping the ``embedded`` set.
+        item_ids: Optional item-id subset — pushed into the parquet reads as a
+            filter so the returned sets (and their Python-string memory, ~200
+            MB unfiltered at 1M scraped ids) stay batch-sized.
+        include_embedded: When False, skip the ``embedded`` set's full shard
+            scan and return it empty. The artifact build derives that set from
+            the loaded vector matrix instead — the two must agree exactly, so
+            a second, independent scan was both wasted I/O and a consistency
+            risk.
 
     Returns:
         A dict with ``scraped``, ``downloaded``, ``annotated``, and
         ``embedded`` item-id sets.
     """
+    id_filter = ([("item_id", "in", [str(i) for i in item_ids])]
+                 if item_ids is not None else None)
     scraped: set[str] = set()
     downloaded: set[str] = set()
     if data_io.exists(storage_location=embeddings.STORE_LOCATION,
@@ -243,6 +257,7 @@ def enrichment_id_sets(model: str) -> dict[str, set]:
             storage_location=embeddings.STORE_LOCATION,
             filename=embeddings.SCRAPES_FILE,
             columns=["item_id", "scraped_ok", "video_downloaded"],
+            filters=id_filter,
         )
         if scr is not None and "item_id" in scr.columns:
             ids = scr["item_id"].astype("string")
@@ -251,7 +266,10 @@ def enrichment_id_sets(model: str) -> dict[str, set]:
             if "video_downloaded" in scr.columns:
                 downloaded = set(ids[scr["video_downloaded"] == True])
     annotated = set(embeddings.annotated_ok_item_ids())
-    embedded = embeddings.embedded_item_ids(model=model)
+    if item_ids is not None:
+        annotated &= {str(i) for i in item_ids}
+    embedded = (embeddings.embedded_item_ids(model=model)
+                if include_embedded else set())
     return {"scraped": scraped, "downloaded": downloaded,
             "annotated": annotated, "embedded": embedded}
 
@@ -284,9 +302,13 @@ def load_plays(collection_ids: list[str] | None = None) -> pd.DataFrame:
         return pd.DataFrame(columns=["collection_id", "item_id", "_ts",
                                      "play_duration", "session_id", "source_platform"])
     df = df.copy()
-    df["item_id"] = df["item_id"].astype("string")
-    df["collection_id"] = df["collection_id"].astype("string")
+    # string[pyarrow], not "string": the default python-backed StringDtype
+    # materialises one Python str per cell (+684 MB over these two columns at
+    # 4.3M plays); the arrow backing keeps them in contiguous buffers.
+    df["item_id"] = df["item_id"].astype("string[pyarrow]")
+    df["collection_id"] = df["collection_id"].astype("string[pyarrow]")
     df["_ts"] = pd.to_datetime(df["local_timestamp"], errors="coerce")
+    df = df.drop(columns=["local_timestamp"])
     df = df.dropna(subset=["_ts"])
     df["play_duration"] = pd.to_numeric(df["play_duration"], errors="coerce")
     return df
@@ -671,7 +693,11 @@ def build_collection(cid: str, plays: pd.DataFrame, id2idx: dict, U: np.ndarray,
 
     # Stable session key (isolate rows with no session_id rather than merging them).
     sess = plays["session_id"].astype("string")
-    sess = sess.where(sess.notna(), "na_" + pd.Series(plays.index, index=plays.index).astype("string"))
+    if sess.isna().any():
+        # Only build the row-indexed fallback when needed — unconditionally it
+        # allocated a full-length Python-string Series per collection that
+        # .where() then discarded (session_id is non-null in real data).
+        sess = sess.where(sess.notna(), "na_" + pd.Series(plays.index, index=plays.index).astype("string"))
     plays = plays.assign(_sess=sess)
 
     # One vectorised membership pass per collection; the per-session loop must
@@ -791,9 +817,9 @@ def build_artifacts(reporter=None, params: dict | None = None,
 
     _log("Loading video features + enrichment id sets...")
     feat = load_video_features()
-    id_sets = enrichment_id_sets(model)
     # The embedded set and the vector store must agree exactly — derive the
     # former from the loaded matrix rather than a second shard scan.
+    id_sets = enrichment_id_sets(model, include_embedded=False)
     id_sets["embedded"] = set(id2idx)
 
     _log("Loading plays...")
