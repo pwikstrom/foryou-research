@@ -36,13 +36,15 @@
                     <div class="sess-seq-list" style="width: 300px; min-width: 250px; display: flex; flex-direction: column; gap: 6px;">
                         <div class="text-sm font-medium" style="color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px;">
                             Binges
-                            <span class="meta-tooltip text-xs" data-tooltip="A binge is a maximal run of 4+ distinct videos (over 3+ minutes) within the session where each next video stays semantically close to the running centre of the previous ones. Rewatches extend a binge but don't count as new videos."
+                            <!-- data-tooltip is rewritten from the artifact's real
+                                 [sessions] limits by sessApplyParamCopy(). -->
+                            <span id="sess-binge-help" class="meta-tooltip text-xs" data-tooltip="A binge is a maximal run of 4+ distinct videos (over 3+ minutes) within the session where each next video stays semantically close to the running centre of the previous ones. Rewatches extend a binge but don't count as new videos."
                                   style="color: var(--color-text-muted); cursor: help;">ⓘ</span>
                         </div>
                         <div id="sess-episode-chips" style="display: flex; flex-direction: column; gap: 6px;"></div>
                         <div class="text-sm font-medium" style="color: var(--color-text-secondary); display: flex; align-items: center; gap: 6px; margin-top: 8px;">
                             Low-entropy sequences
-                            <span class="meta-tooltip text-xs" data-tooltip="The session's most semantically homogeneous stretches: up to 3 non-overlapping windows of 6 consecutive distinct embedded videos, ranked by the average pairwise distance between their content embeddings (the best one is the session's score in the table). Because all windows are the same size, their spectral entropy is directly comparable — 'low entropy' means the content spans few independent semantic directions. Found by exhaustive search, independent of the binge detector, so they can confirm a binge or reveal a focused stretch it missed."
+                            <span id="sess-seq-help" class="meta-tooltip text-xs" data-tooltip="The session's most semantically homogeneous stretches: up to 3 non-overlapping windows of 6 consecutive distinct embedded videos, ranked by the average pairwise distance between their content embeddings (the best one is the session's score in the table). Because all windows are the same size, their spectral entropy is directly comparable — 'low entropy' means the content spans few independent semantic directions. Found by exhaustive search, independent of the binge detector, so they can confirm a binge or reveal a focused stretch it missed."
                                   style="color: var(--color-text-muted); cursor: help;">ⓘ</span>
                         </div>
                         <div id="sess-window-chips" style="display: flex; flex-direction: column; gap: 6px;"></div>

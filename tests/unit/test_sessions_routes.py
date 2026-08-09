@@ -84,12 +84,189 @@ def patched_routes(monkeypatch):
 
     monkeypatch.setattr(mod, "study_access_error", lambda study: None)
     monkeypatch.setattr(mod, "_load_index", _index_df)
-    monkeypatch.setattr(mod, "_study_collection_ids", lambda study: {"colA", "colB"})
+    # Patch the two sources rather than _study_collection_ids itself, so every
+    # test exercises the real selected-AND-in-frame scoping.
+    monkeypatch.setattr(mod, "get_study_collections",
+                        lambda study: [{"collection_id": "colA"}, {"collection_id": "colB"}])
+    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA", "colB"})
     monkeypatch.setattr(mod, "load_display_id_map", lambda: {"colA": "Donor A"})
     monkeypatch.setattr(mod, "_load_meta", lambda: {
         "built_at": "2026-08-01T00:00:00+00:00", "embedding_model": "gemini-embedding-001",
         "params": {"cut": 0.5}})
     return mod
+
+
+
+
+
+
+def test_study_collection_ids_intersects_the_built_frame(monkeypatch):
+    """A selected collection the study's frame does not contain is not the study.
+
+    Sampling thresholds / the date window can drop a selected collection
+    entirely; the sessions artifacts are global, so without the intersection
+    its sessions would surface in a study that has none of its data.
+    """
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "get_study_collections",
+                        lambda study: [{"collection_id": c} for c in ("colA", "colB", "colC")])
+
+    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA", "colC", "colZ"})
+    assert mod._study_collection_ids("s") == {"colA", "colC"}
+
+    # Frame missing (study never built) => the raw selection, the only honest answer.
+    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: None)
+    assert mod._study_collection_ids("s") == {"colA", "colB", "colC"}
+
+    # Frame present but empty => empty, NOT a fallback to the selection.
+    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: set())
+    assert mod._study_collection_ids("s") == set()
+
+
+
+
+
+
+def test_overview_excludes_collections_outside_the_study_frame(client, patched_routes, monkeypatch):
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "get_study_collections",
+                        lambda study: [{"collection_id": c} for c in ("colA", "colB")])
+    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA"})
+
+    res = client.get("/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0")
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["total_in_study"] == 2
+    assert {s["collection_id"] for s in body["sessions"]} == {"colA"}
+
+
+
+
+
+
+def test_overview_reports_effective_limits(client, patched_routes, monkeypatch):
+    """The tab's limit copy is server-driven: built params + live context_plays."""
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "_load_meta", lambda: {
+        "built_at": "2026-08-01T00:00:00+00:00", "embedding_model": "gemini-embedding-001",
+        "params": {"cut": 0.5, "mem": 6, "min_videos": 7, "min_minutes": 9.0,
+                   "window_n": 8, "max_windows": 2}})
+    monkeypatch.setattr(mod, "_context_plays", lambda: 5)
+
+    res = client.get("/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0")
+    params = res.get_json()["params"]
+    # Artifact provenance wins for the segmentation limits...
+    assert params["min_videos"] == 7 and params["min_minutes"] == 9.0
+    assert params["window_n"] == 8 and params["max_windows"] == 2
+    # ...and the display-only knob is live.
+    assert params["context_plays"] == 5
+
+
+
+
+
+
+def test_config_floors_hide_short_sessions_but_still_count_them(client, patched_routes, monkeypatch):
+    """The [sessions] floors apply by default and are reported, not silent."""
+    import web_interface.routes.api_sessions_routes as mod
+
+    # colA__1 has 12 plays / 10 min; colA__0 has 40 / 30; colB__0 has 80 / 60.
+    monkeypatch.setattr(mod, "_session_floors",
+                        lambda: {"min_plays": 20, "min_session_minutes": 0.0})
+
+    body = client.get("/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0").get_json()
+    assert body["total_in_study"] == 3          # excluded sessions still counted
+    assert body["total_above_floors"] == 2
+    assert [s["session_id"] for s in body["sessions"]] == ["colA__0", "colB__0"]
+    assert body["floors"] == {"min_plays": 20, "min_session_minutes": 0.0}
+    assert body["defaults"]["min_plays"] == 20
+
+
+
+
+
+
+def test_minutes_floor_is_applied_independently(client, patched_routes, monkeypatch):
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "_session_floors",
+                        lambda: {"min_plays": 0, "min_session_minutes": 45.0})
+    body = client.get("/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0").get_json()
+    # Only colB__0 runs 60 minutes.
+    assert [s["session_id"] for s in body["sessions"]] == ["colB__0"]
+    assert body["total_above_floors"] == 1
+
+
+
+
+
+
+def test_query_params_override_the_config_floors(client, patched_routes, monkeypatch):
+    """`min_plays=0` must still mean "show me everything"."""
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "_session_floors",
+                        lambda: {"min_plays": 20, "min_session_minutes": 15.0})
+    body = client.get("/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0"
+                      "&min_plays=0&min_session_minutes=0").get_json()
+    assert body["total_above_floors"] == 3
+    assert body["floors"] == {"min_plays": 0, "min_session_minutes": 0.0}
+    # The config values still ride along as the defaults the UI can show.
+    assert body["defaults"]["min_session_minutes"] == 15.0
+
+
+
+
+
+
+def test_session_floors_read_config_and_reject_junk(monkeypatch):
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "_sessions_config",
+                        lambda: {"min_session_plays": 9, "min_session_minutes": 2.5})
+    assert mod._session_floors() == {"min_plays": 9, "min_session_minutes": 2.5}
+
+    # Absent keys fall back; negatives clamp; unparseable values do not 500.
+    monkeypatch.setattr(mod, "_sessions_config", lambda: {})
+    assert mod._session_floors() == {
+        "min_plays": mod.DEFAULT_MIN_SESSION_PLAYS,
+        "min_session_minutes": mod.DEFAULT_MIN_SESSION_MINUTES,
+    }
+    monkeypatch.setattr(mod, "_sessions_config",
+                        lambda: {"min_session_plays": -5, "min_session_minutes": "nope"})
+    assert mod._session_floors() == {
+        "min_plays": 0, "min_session_minutes": mod.DEFAULT_MIN_SESSION_MINUTES}
+
+
+
+
+
+
+def test_committed_config_carries_the_session_floors():
+    """The keys must exist in config.toml, or the fallbacks silently become the rule."""
+    from fyp.fyp_config import fyp_cf
+
+    cfg = fyp_cf.get("sessions", {})
+    assert "min_session_plays" in cfg and "min_session_minutes" in cfg
+    assert int(cfg["min_session_plays"]) >= 0
+    assert float(cfg["min_session_minutes"]) >= 0
+
+
+
+
+
+
+def test_display_params_fall_back_to_config_for_an_older_artifact():
+    import web_interface.routes.api_sessions_routes as mod
+    from fyp.analysis import session_explorer
+
+    assert mod._display_params(None) == {
+        **session_explorer.default_params(), "context_plays": mod._context_plays()}
+    assert mod._display_params({"params": {}})["window_n"] == \
+        session_explorer.default_params()["window_n"]
 
 
 

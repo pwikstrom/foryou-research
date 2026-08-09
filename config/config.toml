@@ -225,6 +225,23 @@ max_windows = 3
 # sequence the Sessions-tab player offers as (clearly marked) context.
 context_plays = 3
 
+# Session-list floors: a session is listed on the Sessions tab only if it has
+# at least this many plays and lasts at least this many minutes. Applied at
+# QUERY time, not at build time — the artifacts stay complete, so raising or
+# lowering these takes effect on the next page load with no rebuild, and the
+# tab always reports how many sessions the floors removed.
+#
+# These are a deliberate research choice, not a safety floor: they sit above
+# the point where the detectors can still find something, so they DO hide a
+# few real findings. Measured on the 79,150-session corpus, 10 plays + 3
+# minutes lists 64.4% of sessions and hides 1,008 of the 32,645 that carry a
+# binge or a low-entropy sequence (3.09%) — 7 of them binges. The 3-minute
+# floor accounts for most of that loss (849 sessions; the shortest sequence
+# runs 13 s). Lower to 4 / 0.0 for the structurally safe setting, which hides
+# nothing findable but keeps the 1-play, 0-minute fragments.
+min_session_plays = 10
+min_session_minutes = 3.0
+
 
 
 ##########################################################################################

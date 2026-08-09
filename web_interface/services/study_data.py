@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
+import pyarrow.compute as pa_compute
 from cachetools import LRUCache
 
 import fyp.data_io as data_io
@@ -879,6 +880,75 @@ def load_display_id_map() -> dict[str, str]:
     except Exception as e:
         print(f"Error loading display id map: {e}")
     return mapping
+
+
+
+# Collections a study's BUILT frame actually contains, keyed on that frame's
+# mtime so a refresh worker rewriting the parquet invalidates the entry.
+_frame_collections_cache = LRUCache(maxsize=8)
+_frame_collections_lock = threading.Lock()
+
+
+
+
+def get_study_frame_collections(study) -> set | None:
+    """Collection ids present in the study's built dataset, or None if unbuilt.
+
+    ``SELECTED_COLLECTIONS`` is what a study asked for; this is what it got. A
+    selected collection whose activity is entirely removed by the study's date
+    window or its group/activity-count thresholds contributes no rows, and is
+    therefore absent from Explore, Timelines and the PCA. Anything rendering
+    "the study's data" must scope to this set, not to the selection.
+
+    Read from the sidecar's ``selected_cells`` when sampling is active (already
+    cached, no extra I/O), else from the frame's ``collection_id`` column.
+
+    Args:
+        study: Study name.
+
+    Returns:
+        The set of collection ids in the study's frame, or ``None`` when that
+        frame does not exist / cannot be read — which the caller must NOT
+        confuse with a study that legitimately resolved to no collections.
+    """
+    if not study:
+        return None
+    mtime = _get_recoded_mtime(study)
+    if mtime is None:
+        return None
+
+    with _frame_collections_lock:
+        entry = _frame_collections_cache.get(study)
+        if entry is not None and entry[0] == mtime:
+            return entry[1]
+
+    cids = None
+    sidecar = get_study_sidecar(study)
+    if sidecar and sidecar.get("sampling_active"):
+        cells = sidecar.get("selected_cells")
+        if isinstance(cells, dict):
+            cids = {str(cid) for cid in cells}
+    if cids is None:
+        # One streamed pass over a dictionary-encoded column: bounded memory
+        # even on a million-row study frame (same pattern as
+        # session_explorer.discover_collections).
+        try:
+            cids = set()
+            for batch in data_io.iter_parquet_batches(
+                    storage_location="cache",
+                    filename=f"{study}_recoded.parquet",
+                    columns=["collection_id"]):
+                if batch.num_columns == 0:
+                    return None
+                cids.update(str(c) for c in pa_compute.unique(batch.column(0)).to_pylist()
+                            if c is not None)
+        except Exception:
+            return None
+
+    with _frame_collections_lock:
+        _frame_collections_cache[study] = (mtime, cids)
+    return cids
+
 
 
 
