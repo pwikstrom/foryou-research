@@ -38,6 +38,7 @@ different embedding models are never mixed.
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pa_compute
 
 import fyp.data_io as data_io
 from fyp.analysis import embedding_store, embeddings, entropy_metrics
@@ -70,6 +71,19 @@ EPISODES_FILE = "session_episodes.parquet"
 WINDOWS_FILE = "session_windows.parquet"
 META_FILE = "sessions_meta.json"
 CORPUS_MEAN_PREFIX = "embedding_corpus_mean__"
+
+# Per-link intermediate shards written by the chained build (namespaced by the
+# run id so a retry of link k overwrites its own shard) and the cross-link
+# progress accumulator. The final link concatenates the shards into the three
+# single artifact files above, so the read side never changes.
+SHARD_PREFIXES = {"sessions": "sessions_shard__", "episodes": "episodes_shard__",
+                  "windows": "windows_shard__"}
+PROGRESS_PREFIX = "sessions_progress__"
+
+# Vector budget per chain link: ~150k float32 vectors @ dim 1536 ≈ 920 MB.
+# Above it a link degrades from one batch-union load (tier 1) to
+# per-collection loads (tier 2) — always correct, collections are independent.
+MAX_VECTORS_PER_LINK = 150_000
 
 
 
@@ -150,35 +164,89 @@ def load_directional_store(model: str, reporter=None) -> tuple[dict, np.ndarray,
     mat = mat.astype(np.float32, copy=False)
     mean = mat.mean(axis=0, dtype=np.float64)
     save_corpus_mean(model, mean, len(ids))
-    mat -= mean.astype(np.float32)
-    # Row norms via einsum: np.linalg.norm materialises a full (n, d) x*x
-    # temporary — a second matrix-sized allocation and this function's former
-    # peak; the einsum reduction allocates only the (n,) output.
-    norms = np.sqrt(np.einsum("ij,ij->i", mat, mat))[:, None]
-    np.divide(mat, np.where(norms < entropy_metrics.EPS_NORM, entropy_metrics.EPS_NORM, norms), out=mat)
+    _directionalise(mat, mean)
     return {iid: i for i, iid in enumerate(ids)}, mat, len(ids)
 
 
 
 
-def load_video_features() -> pd.DataFrame:
+def _directionalise(mat: np.ndarray, corpus_mean: np.ndarray) -> np.ndarray:
+    """Corpus-mean-centre and L2-normalise ``mat`` in place.
+
+    Row norms via einsum: np.linalg.norm materialises a full (n, d) x*x
+    temporary — a second matrix-sized allocation and this pipeline's former
+    peak; the einsum reduction allocates only the (n,) output.
+    """
+    mat -= corpus_mean.astype(np.float32)
+    norms = np.sqrt(np.einsum("ij,ij->i", mat, mat))[:, None]
+    np.divide(mat, np.where(norms < entropy_metrics.EPS_NORM, entropy_metrics.EPS_NORM, norms), out=mat)
+    return mat
+
+
+
+
+def load_directional_block(model: str, item_ids: list, corpus_mean: np.ndarray,
+                           index=None) -> tuple[dict, np.ndarray]:
+    """Directional vectors for one batch of item ids, from the dense sidecar.
+
+    The batch-scoped counterpart of :func:`load_directional_store`: identical
+    maths (centre on the **global** ``corpus_mean``, then L2-normalise), but
+    only the requested rows are ever resident. Ids without a stored vector
+    are simply absent from the returned map — exactly how the full-store
+    ``id2idx`` treated them.
+
+    Args:
+        model: Embedding model id.
+        item_ids: Item ids to fetch (order defines block row order).
+        corpus_mean: The GLOBAL corpus mean (never a batch mean — a batch
+            mean silently changes every distance; see the module docstring).
+        index: The model's :class:`~fyp.analysis.embedding_store.DenseIndex`
+            (None loads it, or yields an empty block when no store exists).
+
+    Returns:
+        ``(id_to_row, U_block)`` — map of found item_id to block row, and the
+        ``(n_found, d)`` float32 directional block.
+    """
+    if index is None:
+        index = embedding_store.load_index(model)
+    if index is None or len(item_ids) == 0:
+        return {}, np.empty((0, 1), dtype=np.float32)
+    rows, found = index.lookup(item_ids)
+    if not found.any():
+        return {}, np.empty((0, index.dim), dtype=np.float32)
+    U = embedding_store.read_vectors(model, rows, index, dtype=np.float32)
+    _directionalise(U, corpus_mean)
+    found_ids = [str(i) for i, f in zip(item_ids, found) if f]
+    return {iid: i for i, iid in enumerate(found_ids)}, U
+
+
+
+
+def load_video_features(item_ids: set[str] | None = None) -> pd.DataFrame:
     """Load per-video content features for episode/session characterisation.
 
     Joins the denormalised map fields (niche, category, annotation scalars,
     story) with the scrape author handle (kept out of the embeddings, so it is
-    an independent signal for the same-/cross-author question). Loaded once for
-    the whole corpus; callers index into it per episode/session.
+    an independent signal for the same-/cross-author question). Callers index
+    into it per episode/session.
+
+    Args:
+        item_ids: Optional item-id subset pushed into both parquet reads, so a
+            batch-scoped build holds a batch-sized frame instead of the corpus.
 
     Returns:
         A DataFrame indexed by ``item_id`` with ``niche_name``, ``category``,
         ``story``, ``political_score``, ``sensitivity_score``, ``advertising``,
         and ``author``.
     """
+    id_filter = ([("item_id", "in", [str(i) for i in item_ids])]
+                 if item_ids is not None else None)
     mp = data_io.load_parquet_selective(
         storage_location=embeddings.STORE_LOCATION,
         filename="video_map.parquet",
         columns=["item_id", "niche_name", "category", "story",
                  "political_score", "sensitivity_score", "advertising"],
+        filters=id_filter,
     )
     if mp is None:
         mp = pd.DataFrame(columns=["item_id", "niche_name", "category", "story",
@@ -197,6 +265,7 @@ def load_video_features() -> pd.DataFrame:
                 storage_location=embeddings.STORE_LOCATION,
                 filename=embeddings.SCRAPES_FILE,
                 columns=["item_id", author_col],
+                filters=id_filter,
             )
         except Exception:
             auth = None
@@ -297,6 +366,43 @@ def load_plays(collection_ids: list[str] | None = None) -> pd.DataFrame:
     df = df.dropna(subset=["_ts"])
     df["play_duration"] = pd.to_numeric(df["play_duration"], errors="coerce")
     return df
+
+
+
+
+def discover_collections(collections: list[str] | None = None) -> list[tuple[str, int]]:
+    """Collections with play rows, ordered by descending play count.
+
+    One streamed pass over the ``collection_id`` column (a dictionary-encoded
+    few MB even at millions of rows). Descending order puts the biggest — the
+    most likely to blow a chain link — on link 0, where a failure is cheapest
+    to abandon; ties break on collection_id so the ordering (and therefore
+    the chain) is deterministic under Cloud Tasks retry.
+
+    Args:
+        collections: Optional allow-list of collection ids.
+
+    Returns:
+        ``[(collection_id, n_plays), ...]`` sorted by (-n_plays, id).
+    """
+    fn = f"{COLLECTIONS_LABEL}_recoded.parquet"
+    if not data_io.exists(storage_location=embeddings.STORE_LOCATION, filename=fn):
+        return []
+    allow = {str(c) for c in collections} if collections is not None else None
+    counts: dict[str, int] = {}
+    for rb in data_io.iter_parquet_batches(
+            storage_location=embeddings.STORE_LOCATION, filename=fn,
+            columns=["collection_id"],
+            filters=[("activity_type", "==", "play")], batch_size=1_048_576):
+        for entry in pa_compute.value_counts(rb.column(0)).to_pylist():
+            cid = entry["values"]
+            if cid is None:
+                continue
+            cid = str(cid)
+            if allow is not None and cid not in allow:
+                continue
+            counts[cid] = counts.get(cid, 0) + int(entry["counts"])
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
 
@@ -774,14 +880,221 @@ def _arrow_frame(rows: list[dict], schema: dict[str, pa.DataType]) -> pd.DataFra
 
 
 
+def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
+                index=None, params: dict | None = None, reporter=None,
+                max_vectors: int = MAX_VECTORS_PER_LINK):
+    """Segment one batch of collections against the dense embedding sidecar.
+
+    Peak memory is O(batch): only the batch's plays, features, id sets and
+    vectors are resident. The vectors are centred on the **global**
+    ``corpus_mean`` — never a batch mean — so any partition of the corpus
+    into batches yields identical rows (centring and normalisation are
+    per-row; everything downstream is within-session; sessions never cross a
+    collection boundary).
+
+    Args:
+        cids: The batch's collection ids.
+        model: Embedding model id.
+        corpus_mean: The global corpus mean (None when no store exists —
+            sessions still get quality rows, with no episodes/windows).
+        index: The model's DenseIndex (None: loaded here / no store).
+        params: Segmentation parameter overrides.
+        reporter: Optional status reporter (cancellation checks per
+            collection).
+        max_vectors: Tier gate — a batch whose embedded-distinct union
+            exceeds this loads vectors per collection (tier 2) instead of
+            once for the union (tier 1).
+
+    Returns:
+        ``(session_rows, episode_rows, window_rows, stats)``; all None when
+        cancelled mid-batch.
+    """
+    p = {**default_params(), **(params or {})}
+    plays = load_plays(cids)
+    stats = {"n_plays": int(len(plays)), "n_vectors": 0, "tier": 1}
+    if plays.empty:
+        return [], [], [], stats
+
+    batch_ids = [str(i) for i in plays["item_id"].drop_duplicates()]
+    feat = load_video_features(item_ids=set(batch_ids))
+    id_sets = enrichment_id_sets(model, item_ids=set(batch_ids),
+                                 include_embedded=False)
+
+    if index is None and corpus_mean is not None:
+        index = embedding_store.load_index(model)
+    if index is not None and corpus_mean is not None:
+        _, found = index.lookup(batch_ids)
+        n_union = int(found.sum())
+    else:
+        found = np.zeros(len(batch_ids), dtype=bool)
+        n_union = 0
+    stats["n_vectors"] = n_union
+    tier1 = n_union <= max_vectors
+
+    session_rows: list[dict] = []
+    episode_rows: list[dict] = []
+    window_rows: list[dict] = []
+
+    if tier1:
+        embedded_ids = [i for i, f in zip(batch_ids, found) if f]
+        id2local, U = load_directional_block(model, embedded_ids, corpus_mean,
+                                             index) if n_union else ({}, np.empty((0, 1), np.float32))
+        id_sets["embedded"] = set(id2local)
+        for cid in cids:
+            if reporter is not None and reporter.check_cancelled():
+                return None, None, None, None
+            srows, erows, wrows = build_collection(
+                cid, plays[plays["collection_id"] == cid], id2local, U,
+                feat, id_sets, p)
+            session_rows.extend(srows)
+            episode_rows.extend(erows)
+            window_rows.extend(wrows)
+    else:
+        # Tier 2: the union exceeds the budget — load and free per collection.
+        stats["tier"] = 2
+        for cid in cids:
+            if reporter is not None and reporter.check_cancelled():
+                return None, None, None, None
+            cplays = plays[plays["collection_id"] == cid]
+            c_ids = [str(i) for i in cplays["item_id"].drop_duplicates()]
+            id2local, U = load_directional_block(model, c_ids, corpus_mean, index)
+            id_sets["embedded"] = set(id2local)
+            srows, erows, wrows = build_collection(
+                cid, cplays, id2local, U, feat, id_sets, p)
+            session_rows.extend(srows)
+            episode_rows.extend(erows)
+            window_rows.extend(wrows)
+            del U, id2local
+    return session_rows, episode_rows, window_rows, stats
+
+
+
+
+def _publish_type(typ: pa.DataType) -> pa.DataType:
+    """Downgrade large_list to list for the on-disk schema.
+
+    The historical save_parquet path applied the same downgrade
+    (types.downgrade_large_arrow_columns), so on-disk files always carried
+    plain list — keep that contract for the read side. NOTE for future
+    consumers: pandas 2.2.x `explode()` silently no-ops on large_list;
+    api_sessions_routes reads member lists with `list(value)`, never explode.
+    """
+    return pa.list_(typ.value_type) if pa.types.is_large_list(typ) else typ
+
+
+
+
+def _arrow_table(rows: list[dict], schema: dict[str, pa.DataType]) -> pa.Table:
+    """Rows -> pyarrow Table in the published (list, not large_list) schema."""
+    return pa.table({
+        col: pa.array([r.get(col) for r in rows], type=_publish_type(typ))
+        for col, typ in schema.items()})
+
+
+
+
+def shard_filename(kind: str, run_id: str, chunk: int) -> str:
+    """Per-link intermediate shard name (deterministic: retries overwrite)."""
+    return f"{SHARD_PREFIXES[kind]}{run_id}__{chunk:04d}.parquet"
+
+
+
+
+def write_batch_shards(run_id: str, chunk: int, session_rows: list[dict],
+                       episode_rows: list[dict], window_rows: list[dict]) -> None:
+    """Persist one link's rows as its three deterministic shards."""
+    for kind, schema, rows in (("sessions", _SESSIONS_SCHEMA, session_rows),
+                               ("episodes", _EPISODES_SCHEMA, episode_rows),
+                               ("windows", _WINDOWS_SCHEMA, window_rows)):
+        tbl = _arrow_table(rows, schema)
+        data_io.write_parquet_stream(
+            storage_location=ARTIFACT_LOCATION,
+            filename=shard_filename(kind, run_id, chunk),
+            batches=[tbl], schema=tbl.schema)
+
+
+
+
+def sweep_stale_run_files(current_run_id: str) -> None:
+    """Remove intermediate files left by abandoned runs (other run ids)."""
+    prefixes = tuple(SHARD_PREFIXES.values()) + (PROGRESS_PREFIX,)
+    for fn in data_io.listdir(storage_location=ARTIFACT_LOCATION):
+        if not fn.startswith(prefixes):
+            continue
+        if f"__{current_run_id}__" in fn or fn.endswith(f"{current_run_id}.json"):
+            continue
+        try:
+            data_io.remove(storage_location=ARTIFACT_LOCATION, filename=fn)
+        except Exception:
+            pass
+
+
+
+
+def publish_artifacts(run_id: str, n_chunks: int, expected: dict,
+                      meta: dict, reporter=None) -> dict:
+    """Concatenate the run's shards into the three artifact files + meta.
+
+    Publish order matters: ``sessions_index.parquet`` LAST — its size:mtime
+    fingerprint is the tab's freshness gate, so episodes/windows must land
+    first or the index would briefly advertise sessions whose detail rows
+    don't exist yet. Shards are deleted only after every concat's row count
+    matched the progress totals.
+
+    Args:
+        run_id: The run whose shards to publish.
+        n_chunks: Number of links (shards per kind).
+        expected: ``{"sessions": n, "episodes": n, "windows": n}`` totals.
+        meta: The ``sessions_meta.json`` payload (counts already in it).
+        reporter: Optional status reporter.
+
+    Returns:
+        ``meta`` (persisted).
+    """
+    for kind, final in (("episodes", EPISODES_FILE), ("windows", WINDOWS_FILE),
+                        ("sessions", SESSIONS_FILE)):
+        shards = [shard_filename(kind, run_id, k) for k in range(n_chunks)]
+        shards = [s for s in shards
+                  if data_io.exists(storage_location=ARTIFACT_LOCATION, filename=s)]
+        if not shards:
+            raise RuntimeError(f"publish: no '{kind}' shards found for run {run_id}")
+        n = data_io.concat_parquet_files(
+            src_storage_location=ARTIFACT_LOCATION, src_filenames=shards,
+            dst_storage_location=ARTIFACT_LOCATION, dst_filename=final)
+        if kind in expected and n != int(expected[kind]):
+            raise RuntimeError(
+                f"publish: '{kind}' row count {n} != expected {expected[kind]} "
+                f"— shards kept for inspection, artifact NOT trusted")
+        if reporter is not None:
+            reporter.log(f"Published {final} ({n:,} rows from {len(shards)} shard(s))")
+
+    data_io.save_json(data=meta, storage_location=ARTIFACT_LOCATION, filename=META_FILE)
+    for kind in SHARD_PREFIXES:
+        for k in range(n_chunks):
+            fn = shard_filename(kind, run_id, k)
+            if data_io.exists(storage_location=ARTIFACT_LOCATION, filename=fn):
+                data_io.remove(storage_location=ARTIFACT_LOCATION, filename=fn)
+    return meta
+
+
+
+
 def build_artifacts(reporter=None, params: dict | None = None,
-                    collections: list[str] | None = None) -> dict:
+                    collections: list[str] | None = None,
+                    batch_size: int = 8,
+                    max_vectors: int = MAX_VECTORS_PER_LINK) -> dict:
     """Build and persist the session + episode artifacts for all collections.
+
+    In-process driver over :func:`build_batch` — the same batch-scoped
+    computation the chained Cloud-Task worker runs, looped locally. Peak
+    memory is O(batch), never O(corpus).
 
     Args:
         reporter: Optional status reporter (progress + cancellation).
         params: Optional parameter overrides (see :func:`default_params`).
         collections: Optional collection-id subset (None = every collection).
+        batch_size: Collections per batch.
+        max_vectors: Per-batch vector budget (see :func:`build_batch`).
 
     Returns:
         A summary dict (the persisted ``sessions_meta.json`` payload).
@@ -796,40 +1109,39 @@ def build_artifacts(reporter=None, params: dict | None = None,
     backend = embeddings.active_embedding_backend()
     model = backend.model_id()
 
-    _log(f"Loading directional embedding store (model={model})...")
-    id2idx, U, n_vectors = load_directional_store(model, reporter=reporter)
+    _log(f"Preparing dense embedding store (model={model})...")
+    try:
+        corpus_mean, n_vectors, store_fp = embedding_store.get_corpus_mean(
+            model, reporter=reporter)
+        index = embedding_store.load_index(model)
+    except (ValueError, embedding_store.CorpusMeanDrift):
+        # No vectors for this model — sessions still get quality rows.
+        corpus_mean, n_vectors, store_fp, index = None, 0, "", None
     _log(f"  {n_vectors:,} vectors")
 
-    _log("Loading video features + enrichment id sets...")
-    feat = load_video_features()
-    # The embedded set and the vector store must agree exactly — derive the
-    # former from the loaded matrix rather than a second shard scan.
-    id_sets = enrichment_id_sets(model, include_embedded=False)
-    id_sets["embedded"] = set(id2idx)
-
-    _log("Loading plays...")
-    plays = load_plays(collections)
-    if len(plays):
-        plays = plays.assign(_emb=plays["item_id"].isin(list(id2idx)))
-    cids = plays["collection_id"].drop_duplicates().tolist()
-    _log(f"  {len(plays):,} plays across {len(cids)} collections")
+    discovered = discover_collections(collections)
+    cids = [c for c, _ in discovered]
+    _log(f"  {len(cids)} collections to segment")
 
     all_sessions: list[dict] = []
     all_episodes: list[dict] = []
     all_windows: list[dict] = []
-    for i, cid in enumerate(cids):
-        if reporter is not None and reporter.check_cancelled():
+    for start in range(0, len(cids), batch_size):
+        batch = cids[start:start + batch_size]
+        srows, erows, wrows, stats = build_batch(
+            batch, model, corpus_mean, index, params=p, reporter=reporter,
+            max_vectors=max_vectors)
+        if srows is None:
             _log("Cancelled by user.")
             return {"cancelled": True}
-        srows, erows, wrows = build_collection(
-            cid, plays[plays["collection_id"] == cid], id2idx, U, feat, id_sets, p)
         all_sessions.extend(srows)
         all_episodes.extend(erows)
         all_windows.extend(wrows)
+        done = min(start + batch_size, len(cids))
         if reporter is not None:
             reporter.update_progress(
-                int(((i + 1) / max(len(cids), 1)) * 95),
-                f"Segmented {i + 1}/{len(cids)} collections "
+                int(done / max(len(cids), 1) * 95),
+                f"Segmented {done}/{len(cids)} collections "
                 f"({len(all_sessions):,} sessions, {len(all_episodes):,} episodes, "
                 f"{len(all_windows):,} windows)")
 
@@ -850,8 +1162,9 @@ def build_artifacts(reporter=None, params: dict | None = None,
     meta = {
         "built_at": pd.Timestamp.now(tz="UTC").isoformat(),
         "embedding_model": model,
-        "embedding_dim": int(U.shape[1]) if U.size else backend.dim(),
+        "embedding_dim": int(index.dim) if index is not None else backend.dim(),
         "corpus_mean_count": n_vectors,
+        "store_fingerprint": store_fp,
         "params": p,
         "n_collections": len(cids),
         "n_sessions": len(all_sessions),
