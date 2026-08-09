@@ -18,6 +18,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import gcsfs
 import pandas as pd
+import pyarrow as pa
+import pyarrow.dataset as pads
 import pyarrow.parquet as pq
 
 from fyp.types import convert_dtypes_to_pyarrow
@@ -1565,6 +1567,357 @@ def load_parquet_selective(
         logger.info(f"    [DATA_IO] Selective load: '{filename}' shape={df.shape} time={(t2-t1).total_seconds():.3f}s")
 
     return df
+
+
+
+
+# ----------------------------------------------------------------------------
+# Streaming primitives for corpus-scale workers.
+#
+# These keep peak memory at one record batch / one byte range instead of a
+# whole file. They deliberately reuse the exact local-vs-GCS plumbing the
+# eager functions use (_resolve_paths + gcsfs / _get_bucket) — never
+# local_copy(), whose temp dir is memory-backed on Cloud Run.
+# ----------------------------------------------------------------------------
+
+
+def iter_parquet_batches(
+        storage_location: str = "cache",
+        filename: str = "",
+        columns: list = None,
+        filters: list = None,
+        batch_size: int = 131_072,
+        verbose: bool = False,
+    ):
+    """Stream a parquet file as pyarrow RecordBatches.
+
+    The bounded-memory counterpart of :func:`load_parquet_selective`: the
+    same column projection and filter semantics, but yielded one record
+    batch at a time so peak memory is O(batch_size), not O(file).
+
+    Args:
+        storage_location: Named storage location (e.g. "cache", "recoded").
+        filename: Parquet file name. Must end in ".parquet".
+        columns: Optional on-disk column names to project. Requested columns
+            missing from the schema are skipped (with a notice), matching
+            :func:`load_parquet_selective`.
+        filters: Optional list-of-tuples filter expressions (same shapes
+            :func:`load_parquet_selective` accepts). Rows are filtered during
+            the scan; pushdown prunes row groups only when the file is sorted
+            on the filter column.
+        batch_size: Maximum rows per yielded RecordBatch.
+        verbose: Print a scan notice.
+
+    Yields:
+        ``pyarrow.RecordBatch`` objects (possibly empty batches are skipped).
+    """
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+    root, ext = os.path.splitext(filename)
+    if ext != '.parquet':
+        raise ValueError(f"File extension must be '.parquet', got: '{ext}'")
+    if not exists(storage_location, filename):
+        raise FileNotFoundError(f"File not found: '{filename}' in '{storage_location}'")
+
+    primary, _, mode, _ = _resolve_paths(storage_location, filename)
+    if mode == 'gcs':
+        dataset = pads.dataset(primary, format='parquet',
+                               filesystem=gcsfs.GCSFileSystem())
+    else:
+        dataset = pads.dataset(primary, format='parquet')
+
+    cols_to_read = None
+    if columns is not None:
+        existing_cols = dataset.schema.names
+        missing = [c for c in columns if c not in existing_cols]
+        cols_to_read = [c for c in columns if c in existing_cols]
+        if missing and verbose:
+            logger.info(f"    [DATA_IO] iter_parquet_batches: {len(missing)} requested column(s) not in schema, skipping: {missing}")
+        if not cols_to_read:
+            logger.warning(f" !! [DATA_IO] WARNING: iter_parquet_batches: no requested columns exist in '{filename}'")
+            return
+
+    expr = pq.filters_to_expression(filters) if filters else None
+    scanner = dataset.scanner(columns=cols_to_read, filter=expr,
+                              batch_size=batch_size)
+    if verbose:
+        logger.info(f"    [DATA_IO] Streaming '{filename}' (batch_size={batch_size:,})")
+    for batch in scanner.to_batches():
+        if batch.num_rows:
+            yield batch
+
+
+
+
+def write_parquet_stream(
+        storage_location: str = "cache",
+        filename: str = "",
+        batches=None,
+        schema: "pa.Schema" = None,
+        compression: str = "zstd",
+        compression_level: int = 5,
+        verbose: bool = False,
+    ) -> int:
+    """Write an iterable of RecordBatches/Tables as one parquet file.
+
+    The bounded-memory counterpart of :func:`save_parquet`: batches are
+    written through a ``ParquetWriter`` to a local tempfile (one batch resident
+    at a time — no frame copies), then moved into place / uploaded once.
+
+    Args:
+        storage_location: Named storage location.
+        filename: Destination parquet filename.
+        batches: Iterable of ``pyarrow.RecordBatch`` or ``pyarrow.Table``
+            objects, all matching ``schema``.
+        schema: The file schema (required — the iterable may be empty, and an
+            empty file must still carry the right columns).
+        compression: Parquet codec.
+        compression_level: Codec level.
+        verbose: Print a completion notice.
+
+    Returns:
+        The number of rows written.
+    """
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    if schema is None:
+        raise ValueError("schema is required")
+
+    primary, _, mode, blob_name = _resolve_paths(storage_location, filename)
+
+    _t_io = _time.perf_counter()
+    n_rows = 0
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
+            tmp_path = tmp.name
+        with pq.ParquetWriter(tmp_path, schema, compression=compression,
+                              compression_level=compression_level) as writer:
+            for batch in (batches or []):
+                if isinstance(batch, pa.Table):
+                    writer.write_table(batch)
+                else:
+                    writer.write_batch(batch)
+                n_rows += batch.num_rows
+        if mode == 'gcs':
+            bucket = _get_bucket()
+            if not bucket:
+                raise ValueError("GCS bucket not initialized")
+            bucket.blob(blob_name).upload_from_filename(tmp_path)
+        else:
+            os.makedirs(os.path.dirname(primary), exist_ok=True)
+            shutil.move(tmp_path, primary)
+            tmp_path = None
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+    _io_log(op="write_parquet_stream", loc=storage_location, filename=filename,
+            mode=mode, bytes_=0, t_ms=(_time.perf_counter() - _t_io) * 1000.0)
+    if verbose:
+        logger.info(f"    [DATA_IO] Streamed {n_rows:,} rows to '{filename}'")
+    return n_rows
+
+
+
+
+def concat_parquet_files(
+        src_storage_location: str = "cache",
+        src_filenames: list = None,
+        dst_storage_location: str = "cache",
+        dst_filename: str = "",
+        batch_size: int = 131_072,
+        verbose: bool = False,
+    ) -> int:
+    """Concatenate parquet files into one, at one-record-batch peak memory.
+
+    Built on :func:`iter_parquet_batches` + :func:`write_parquet_stream`.
+    All sources must share a schema (the first file's schema is used; a
+    mismatched source raises).
+
+    Args:
+        src_storage_location: Location of the source files.
+        src_filenames: Ordered source parquet filenames.
+        dst_storage_location: Destination location.
+        dst_filename: Destination parquet filename.
+        batch_size: Rows per streamed batch.
+        verbose: Print a completion notice.
+
+    Returns:
+        Total rows written.
+    """
+    if not src_filenames:
+        raise ValueError("src_filenames cannot be empty")
+
+    first_primary, _, first_mode, _ = _resolve_paths(src_storage_location, src_filenames[0])
+    if first_mode == 'gcs':
+        with gcsfs.GCSFileSystem().open(first_primary) as f:
+            schema = pq.read_schema(f)
+    else:
+        schema = pq.read_schema(first_primary)
+    # ParquetWriter compares logical schemas; the source's pandas metadata
+    # would make every later file "mismatch" spuriously.
+    schema = schema.remove_metadata()
+
+    def _all_batches():
+        for src in src_filenames:
+            for batch in iter_parquet_batches(
+                    storage_location=src_storage_location, filename=src,
+                    batch_size=batch_size):
+                yield pa.record_batch(batch.columns, schema=schema)
+
+    n_rows = write_parquet_stream(
+        storage_location=dst_storage_location, filename=dst_filename,
+        batches=_all_batches(), schema=schema, verbose=verbose)
+    if verbose:
+        logger.info(f"    [DATA_IO] Concatenated {len(src_filenames)} file(s) -> '{dst_filename}' ({n_rows:,} rows)")
+    return n_rows
+
+
+
+
+def save_bytes(data: bytes = b"", storage_location: str = "cache",
+               filename: str = "", verbose: bool = False) -> int:
+    """Save a raw binary payload to a storage location.
+
+    The binary analogue of :func:`save_text`.
+
+    Args:
+        data: The bytes to write.
+        storage_location: The storage-location key to resolve.
+        filename: The destination file.
+        verbose: When True, print diagnostic notices.
+
+    Returns:
+        The number of bytes written.
+    """
+    if data is None:
+        raise ValueError("Data cannot be None")
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+
+    primary, _, mode, blob_name = _resolve_paths(storage_location, filename)
+    _t_io = _time.perf_counter()
+    if mode == 'gcs':
+        bucket = _get_bucket()
+        if not bucket:
+            raise ValueError("GCS bucket not initialized")
+        bucket.blob(blob_name).upload_from_string(
+            bytes(data), content_type="application/octet-stream")
+    else:
+        os.makedirs(os.path.dirname(primary), exist_ok=True)
+        with open(primary, 'wb') as file:
+            file.write(data)
+    _io_log(op="save_bytes", loc=storage_location, filename=filename,
+            mode=mode, bytes_=len(data), t_ms=(_time.perf_counter() - _t_io) * 1000.0)
+    if verbose:
+        logger.info(f"    [DATA_IO] Saved {len(data):,} bytes to '{filename}'")
+    return len(data)
+
+
+
+
+def load_bytes(storage_location: str = "cache", filename: str = "",
+               start: int = None, length: int = None,
+               verbose: bool = False) -> bytes | None:
+    """Load a raw binary payload (optionally one byte range).
+
+    Args:
+        storage_location: The storage-location key to resolve.
+        filename: The file to read.
+        start: Optional first byte offset (None = start of file).
+        length: Optional number of bytes (None = to end of file).
+        verbose: When True, print diagnostic notices.
+
+    Returns:
+        The bytes, or None when the file does not exist.
+    """
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    if not exists(storage_location, filename):
+        return None
+
+    primary, _, mode, blob_name = _resolve_paths(storage_location, filename)
+    _t_io = _time.perf_counter()
+    if mode == 'gcs':
+        bucket = _get_bucket()
+        blob = bucket.blob(blob_name)
+        if start is None and length is None:
+            data = blob.download_as_bytes()
+        else:
+            s = start or 0
+            end = (s + length - 1) if length is not None else None
+            data = blob.download_as_bytes(start=s, end=end)
+    else:
+        with open(primary, 'rb') as file:
+            if start:
+                file.seek(start)
+            data = file.read(length) if length is not None else file.read()
+    _io_log(op="load_bytes", loc=storage_location, filename=filename,
+            mode=mode, bytes_=len(data), t_ms=(_time.perf_counter() - _t_io) * 1000.0)
+    if verbose:
+        logger.info(f"    [DATA_IO] Loaded {len(data):,} bytes from '{filename}'")
+    return data
+
+
+
+
+def read_byte_ranges(storage_location: str = "cache", filename: str = "",
+                     ranges: list = None, max_workers: int = 32,
+                     verbose: bool = False) -> list:
+    """Read many byte ranges from one stored object.
+
+    The random-access primitive under the dense embedding sidecar: local mode
+    is one file descriptor + ``os.pread`` per range; GCS mode fans ranged
+    GETs (``Blob.download_as_bytes(start=, end=)``) over a thread pool.
+    Callers should sort and coalesce adjacent ranges first — each range is
+    one request in GCS mode.
+
+    Args:
+        storage_location: The storage-location key to resolve.
+        filename: The file to read.
+        ranges: List of ``(offset, length)`` tuples.
+        max_workers: Thread-pool width for GCS mode.
+        verbose: When True, print a summary notice.
+
+    Returns:
+        A list of ``bytes`` objects, positionally matching ``ranges``.
+    """
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    if not ranges:
+        return []
+
+    primary, _, mode, blob_name = _resolve_paths(storage_location, filename)
+    _t_io = _time.perf_counter()
+    if mode == 'gcs':
+        bucket = _get_bucket()
+        blob = bucket.blob(blob_name)
+
+        def _one(rng):
+            off, length = rng
+            return blob.download_as_bytes(start=off, end=off + length - 1)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            out = list(ex.map(_one, ranges))
+    else:
+        # seek+read, not os.pread — the latter does not exist on Windows.
+        with open(primary, 'rb') as file:
+            out = []
+            for off, length in ranges:
+                file.seek(off)
+                out.append(file.read(length))
+    total = sum(len(b) for b in out)
+    _io_log(op="read_byte_ranges", loc=storage_location, filename=filename,
+            mode=mode, bytes_=total, t_ms=(_time.perf_counter() - _t_io) * 1000.0)
+    if verbose:
+        logger.info(f"    [DATA_IO] Read {len(ranges)} range(s), {total:,} bytes from '{filename}'")
+    return out
 
 
 

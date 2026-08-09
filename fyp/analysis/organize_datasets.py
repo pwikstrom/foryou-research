@@ -3,29 +3,33 @@ import datetime as _dt
 import hashlib
 import json
 import re
-import sys as _sys
 import time as _time
-
-try:
-    import resource as _resource
-except ImportError:
-    _resource = None
+from collections.abc import Callable
 from copy import deepcopy
-from typing import Callable
 
 import numpy as np
 import pandas as pd
-import psutil as _psutil
 
-import fyp.data_io as data_io
-from fyp.logging_setup import get_logger
 import fyp.annotation_versioning as annotation_versioning
-from fyp.machine_annotation import consolidate_and_save_refined_annotations
+import fyp.data_io as data_io
 from fyp import scrape_contract as _scrape_contract
+from fyp.logging_setup import get_logger
+from fyp.machine_annotation import consolidate_and_save_refined_annotations
+
+# Shared memory-probe implementations (fyp.core.memory); the module-private
+# aliases keep this file's many existing call sites and the
+# [RECODE][MEM]/[ENRICH PATCH][MEM] log lines unchanged.
+from fyp.memory import df_size_mb as _df_size_mb
+from fyp.memory import peak_rss_mb as _peak_rss_mb
+from fyp.memory import rss_mb as _rss_mb
 from fyp.polars_ops import fast_join
-from fyp.utils import parse_extra_data_tokens
-from fyp.recode_variables import compute_var_schema_hash, derive_australian_relevance, get_grouping_factors_from_var_schema
+from fyp.recode_variables import (
+    compute_var_schema_hash,
+    derive_australian_relevance,
+    get_grouping_factors_from_var_schema,
+)
 from fyp.scrape import consolidate_and_save_scrape_data, load_failed_scrapes
+from fyp.utils import parse_extra_data_tokens
 
 logger = get_logger(__name__)
 from fyp.studies import init_study_defs
@@ -69,44 +73,6 @@ def parse_sample_threshold(value, default: int, uncapped: bool = False) -> int:
         return default
 
 
-# ----------------------------------------------------------------------------
-# Memory-profiling helpers for the merge hot path.
-#
-# Cloud Run enforces container memory via cgroups; process RSS is a good proxy
-# for what the container reports against the 32 GB limit on fyp-task-runner.
-# We use psutil for current RSS (cross-platform, bytes) and `getrusage` for
-# the watermark since process start (KB on Linux, bytes on macOS). Windows has
-# no `resource` module, so there the watermark comes from psutil's Windows-only
-# `peak_wset` field instead.
-# ----------------------------------------------------------------------------
-_MEM_PROCESS = _psutil.Process()
-_RU_MAXRSS_DIVISOR_TO_MB = (
-    1024 * 1024 if _sys.platform == "darwin" else 1024
-)
-
-
-
-
-
-def _rss_mb() -> float:
-    """Current process resident-set size in MB."""
-    return _MEM_PROCESS.memory_info().rss / (1024 * 1024)
-
-
-
-
-
-def _peak_rss_mb() -> float:
-    """High-water-mark RSS of this process since startup, in MB."""
-    if _resource is not None:
-        return (
-            _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
-            / _RU_MAXRSS_DIVISOR_TO_MB
-        )
-    # Windows: `resource` is unavailable; psutil exposes the peak working set.
-    mem = _MEM_PROCESS.memory_info()
-    peak_bytes = getattr(mem, "peak_wset", None) or mem.rss
-    return peak_bytes / (1024 * 1024)
 
 def _cf():
     """Lazy fyp_config config-dict accessor (breaks the import cycle)."""
@@ -510,13 +476,6 @@ def plan_refresh(study_name: str, verbose: bool = False) -> dict:
 
     # Phase 4 will add the video-set delta patch here. For now, anything else => full rebuild.
     return {"action": "full_rebuild", "reasons": reasons, "changed": changed, **bundle}
-
-
-
-
-def _df_size_mb(df: pd.DataFrame) -> float:
-    """Return DataFrame memory usage in megabytes."""
-    return df.memory_usage(deep=True).sum() / (1024**2)
 
 
 

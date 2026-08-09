@@ -184,15 +184,87 @@ def decode_embeddings(byte_values, dim: int | None = None) -> np.ndarray:
 
     Args:
         byte_values: Iterable of ``bytes`` (the stored ``embedding`` column).
-        dim: Vector dimensionality (kept for documentation/validation — the
-            float16 rows carry their own length; None accepts whatever the
-            bytes decode to).
+        dim: Vector dimensionality; None takes it from the first row.
 
     Returns:
         A float32 array of shape ``(n, dim)``.
     """
-    rows = [np.frombuffer(b, dtype=np.float16) for b in byte_values]
-    return np.vstack(rows).astype(np.float32)
+    byte_values = list(byte_values)
+    if not byte_values:
+        return np.empty((0, dim or 0), dtype=np.float32)
+    if dim is None:
+        dim = len(byte_values[0]) // 2
+    # Preallocate-and-fill: the historical list-of-rows -> vstack -> astype
+    # chain held ~3.6x the result transiently.
+    out = np.empty((len(byte_values), dim), dtype=np.float32)
+    for i, b in enumerate(byte_values):
+        out[i] = np.frombuffer(b, dtype=np.float16)
+    return out
+
+
+
+
+
+
+def decode_embeddings_arrow(embedding_col, out: np.ndarray | None = None,
+                            offset: int = 0,
+                            dtype=np.float32) -> np.ndarray:
+    """Decode a pyarrow-backed binary embedding column into float32 rows.
+
+    Fast path: every real shard stores fixed-width float16 blobs, so the
+    Arrow ``large_binary`` offsets are uniform and the whole column is one
+    zero-copy ``frombuffer``/``reshape`` view upcast directly into the output
+    — no per-row bytes objects, no intermediate matrix. Non-uniform offsets
+    (never observed; a hypothetical mixed-dim shard) fall back to a per-row
+    loop that still writes straight into the output.
+
+    Args:
+        embedding_col: A pandas Series with ``ArrowDtype`` (large_)binary
+            values, or a pyarrow (Chunked)Array of them.
+        out: Optional preallocated ``(>= offset+n, dim)`` array to fill;
+            None allocates one exactly ``(n, dim)`` of ``dtype``.
+        offset: First row of ``out`` to write.
+        dtype: Output dtype when allocating (``out``'s own dtype wins when
+            given). float16 lets the dense-sidecar compaction extract the
+            stored width without a float32 round-trip.
+
+    Returns:
+        The filled array (``out`` when given).
+    """
+    arr = getattr(getattr(embedding_col, "array", None), "_pa_array", embedding_col)
+    if isinstance(arr, pa.ChunkedArray):
+        arr = arr.combine_chunks()
+    n = len(arr)
+    if n == 0:
+        return out if out is not None else np.empty((0, 0), dtype=np.float32)
+
+    buffers = arr.buffers()
+    validity = buffers[0]
+    offsets_dtype = np.int64 if pa.types.is_large_binary(arr.type) else np.int32
+    offs = np.frombuffer(buffers[1], dtype=offsets_dtype)[arr.offset:arr.offset + n + 1]
+    row_bytes = int(offs[1] - offs[0]) if n else 0
+    uniform = (validity is None and row_bytes > 0 and row_bytes % 2 == 0
+               and bool(np.all(np.diff(offs) == row_bytes)))
+
+    if uniform:
+        data = np.frombuffer(buffers[2], dtype=np.uint8)
+        flat = data[offs[0]:offs[-1]].view(np.float16).reshape(n, row_bytes // 2)
+        if out is None:
+            # astype always copies here, so the result never aliases the
+            # (refcounted, possibly short-lived) Arrow buffer.
+            return flat.astype(dtype)
+        out[offset:offset + n] = flat  # implicit upcast to out's dtype
+        return out
+
+    # Fallback: per-row decode straight into the output.
+    first = next(v for v in arr if v.is_valid)
+    dim = len(first.as_py()) // 2
+    if out is None:
+        out = np.empty((n, dim), dtype=dtype)
+        offset = 0
+    for i, v in enumerate(arr):
+        out[offset + i] = np.frombuffer(v.as_py(), dtype=np.float16)
+    return out
 
 
 
@@ -433,12 +505,17 @@ def load_embeddings(reporter=None, model: str | None = None) -> tuple[list[str],
     if not shards:
         return [], np.empty((0, empty_dim), dtype=np.float32)
 
+    # Pass 1 — sizes and ids only (a few MB even at millions of rows), so the
+    # result matrix can be preallocated once. The historical accumulate-then-
+    # vstack held every per-shard matrix AND the concatenated result at the
+    # return (exactly 2x), on top of a ~3.6x per-shard decode transient.
     ids: list[str] = []
-    parts: list[np.ndarray] = []
+    plan: list[tuple[str, int]] = []
+    dim: int | None = None
     for shard in shards:
         df = data_io.load_parquet_selective(
             storage_location=STORE_LOCATION, filename=shard,
-            columns=["item_id", "embedding", "model"],
+            columns=["item_id", "model", "dim"],
         )
         if df is None or len(df) == 0:
             continue
@@ -446,10 +523,35 @@ def load_embeddings(reporter=None, model: str | None = None) -> tuple[list[str],
         if len(df) == 0:
             continue
         ids.extend(df["item_id"].astype("string").tolist())
-        parts.append(decode_embeddings(df["embedding"].tolist()))
-        if reporter is not None:
-            reporter.log(f"Loaded shard {shard} ({len(df):,} rows)")
+        plan.append((shard, len(df)))
+        if dim is None and "dim" in df.columns:
+            dim = int(df["dim"].iloc[0])
 
-    if not parts:
+    if not plan:
         return [], np.empty((0, empty_dim), dtype=np.float32)
-    return ids, np.vstack(parts)
+    if dim is None:
+        # Hypothetical pre-`dim`-column shard: derive the width from one row.
+        probe = data_io.load_parquet_selective(
+            storage_location=STORE_LOCATION, filename=plan[0][0],
+            columns=["embedding", "model"],
+        )
+        probe = probe[_model_mask(probe, model)]
+        dim = len(probe["embedding"].iloc[0]) // 2
+        del probe
+
+    # Pass 2 — decode each shard's vectors straight into the preallocated
+    # matrix (zero-copy Arrow view on the uniform-offset fast path).
+    out = np.empty((len(ids), dim), dtype=np.float32)
+    row = 0
+    for shard, n_rows in plan:
+        df = data_io.load_parquet_selective(
+            storage_location=STORE_LOCATION, filename=shard,
+            columns=["embedding", "model"],
+        )
+        df = df[_model_mask(df, model)]
+        decode_embeddings_arrow(df["embedding"], out=out, offset=row)
+        row += n_rows
+        del df
+        if reporter is not None:
+            reporter.log(f"Loaded shard {shard} ({n_rows:,} rows)")
+    return ids, out
