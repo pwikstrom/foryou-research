@@ -191,11 +191,22 @@
     </div>
 
     <!-- Log Modal -->
-    <div id="log-modal-overlay" class="stop-confirm-overlay" style="align-items: flex-start; padding-top: 8vh;">
+    <div id="log-modal-overlay" class="stop-confirm-overlay" style="align-items: flex-start; padding-top: 8vh;"
+         onclick="_logModalBackdropClick(event)">
         <div class="log-modal-card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <span id="log-modal-title" class="font-bold text-sm">Process Log</span>
                 <button class="btn-discreet text-xs" onclick="closeLogModal()">&times;</button>
+            </div>
+            <div class="log-modal-toolbar">
+                <select id="log-modal-run" class="text-xs"
+                        onchange="selectLogRun(this.value)"
+                        title="Earlier runs of this process"></select>
+                <input id="log-modal-filter" type="text" class="text-xs"
+                       placeholder="Filter lines…" oninput="filterLogModal()">
+                <button class="btn-discreet text-xs" onclick="copyLogModal()">Copy</button>
+                <button class="btn-discreet text-xs" onclick="downloadLogModal()">Download</button>
+                <button class="btn-discreet text-xs" onclick="clearLogHistory()">Clear history</button>
             </div>
             <div id="log-modal-content" class="log-modal-body font-mono text-xs"></div>
         </div>

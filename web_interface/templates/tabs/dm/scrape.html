@@ -91,7 +91,9 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
             <span id="{{ proc }}-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
             <span id="{{ proc }}-threads" class="text-xs" style="color: var(--color-text-tertiary); display: none;"></span>
+            {% if current_user.is_admin() %}
             <a class="text-xs view-log-link" onclick="openLogModal('{{ proc }}', 'Scraper ({{ platform }})')">View Log</a>
+            {% endif %}
         </div>
     </div>
     {% endfor %}

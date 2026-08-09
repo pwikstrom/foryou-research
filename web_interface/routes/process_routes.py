@@ -6,7 +6,8 @@ from flask_login import current_user, login_required
 
 import fyp.data_io as data_io
 import web_interface.auth as auth
-from web_interface import activity_log, task_failures
+from fyp.core import logging_setup
+from web_interface import activity_log, run_logs, task_failures
 from fyp.fyp_config import (
     CONSOLIDATE_ENRICHMENT_SCRIPT,
     DEMO_DATASET_SCRIPT,
@@ -208,7 +209,8 @@ def api_start(name):
         "demo_dataset": DEMO_DATASET_SCRIPT,
     }
     
-    success, msg = start_process(name, script_map[name], args, study_name=study_name)
+    success, msg = start_process(name, script_map[name], args, study_name=study_name,
+                                 started_by=getattr(current_user, "username", ""))
     if success:
         activity_log.record(
             actor=getattr(current_user, "username", ""),
@@ -416,32 +418,91 @@ def api_study_refresh_status(study_name: str):
     return jsonify({"state": "unknown"})
 
 
+def _resolve_log_key(name: str) -> str | None:
+    """Map a URL segment to a durable run-log key, or None when unknown.
+
+    Accepts a plain process name and the keyed form some tasks use for their
+    status file (``study_refresh__<study>``) — reading those used to be
+    impossible, because the lookup was done with the bare process name and
+    always missed.
+
+    Args:
+        name: The ``<name>`` segment from the request path.
+
+    Returns:
+        A validated storage key, or None when it names no known process or
+        would not be safe as a filename.
+    """
+    if not run_logs.valid_key(name):
+        return None
+    if name in processes:
+        return name
+    if "__" in name and name.split("__", 1)[0] in processes:
+        return name
+    return None
+
+
+
+
 @process_bp.route('/api/logs/clear/<name>', methods=['POST'])
 @auth.admin_required
 def api_clear_logs(name):
-    if name not in processes:
+    """Delete a process's whole run history (all retained runs)."""
+    key = _resolve_log_key(name)
+    if key is None:
         return jsonify({"error": "Unknown process"}), 400
-    
-    processes[name]["logs"].clear()
+
+    if key in processes:
+        processes[key]["logs"].clear()
+    run_logs.clear(key)
     return jsonify({"status": "success"})
 
 
 @process_bp.route('/api/logs/<name>', methods=['GET'])
 @auth.admin_required
 def api_logs(name):
-    if name not in processes:
+    """Return a run's log lines, plus the run list for the modal's picker.
+
+    Query args:
+        run: A specific run id; the newest run when omitted.
+        since: Cursor from a previous response's ``next_since``, so a polling
+            client appends new lines instead of re-downloading the whole log.
+    """
+    key = _resolve_log_key(name)
+    if key is None:
         return jsonify({"error": "Unknown process"}), 400
 
-    # Cloud Tasks path: return logs from GCS status file
-    if is_cloud_run() and name in CLOUD_TASK_ELIGIBLE:
-        gcs_status = read_task_status(name)
-        if gcs_status:
-            log_lines = gcs_status.get("logs", [])
-            return jsonify({"logs": "\n".join(log_lines)})
+    run_id = (request.args.get("run") or "").strip()
+    try:
+        since = max(0, int(request.args.get("since") or 0))
+    except (TypeError, ValueError):
+        since = 0
 
-    # Subprocess path
-    logs = list(processes[name]["logs"])
-    return jsonify({"logs": "".join(logs)})
+    payload = run_logs.read(key, run_id=run_id, since=since)
+
+    if not payload["runs"]:
+        # Pre-migration runs, and the deploy window where an old worker is
+        # still writing logs into its status file.
+        legacy = ""
+        if is_cloud_run() and key in CLOUD_TASK_ELIGIBLE:
+            gcs_status = read_task_status(key) or {}
+            legacy = "\n".join(gcs_status.get("logs", []))
+        if not legacy and key in processes:
+            legacy = "".join(processes[key]["logs"])
+        return jsonify({"logs": legacy, "next_since": 0, "reset": True,
+                        "run_id": "", "run": None, "runs": [], "key": key})
+
+    # `logs` stays a newline-joined string: the async-annotator card feed reads
+    # this same endpoint and splits on newlines.
+    return jsonify({
+        "logs": "\n".join(payload["lines"]),
+        "next_since": payload["next_since"],
+        "reset": payload["reset"],
+        "run_id": (payload["run"] or {}).get("run_id", ""),
+        "run": payload["run"],
+        "runs": payload["runs"],
+        "key": key,
+    })
 
 
 
@@ -525,6 +586,27 @@ def _get_status_key(name: str, task_args: dict) -> str:
     return name
 
 
+def _pipeline_actor(task_args: dict, parent: str) -> str:
+    """Return the attribution string for a step this pipeline dispatched.
+
+    A downstream step is not launched by a person, but it is *traceable* to
+    one — so the banner reads e.g. ``patrik (via consolidate_enrichment)``
+    rather than losing the trail at the first hop.
+
+    Args:
+        task_args: The dispatching step's arguments.
+        parent: The name of the dispatching step.
+    """
+    origin = (task_args.get("started_by") or "").strip()
+    if not origin:
+        return f"auto-pipeline (after {parent})"
+    if "(via " in origin:
+        return origin  # already traced; don't nest the annotation
+    return f"{origin} (via {parent})"
+
+
+
+
 def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bool:
     """Execute a task function and update process_stats on completion.
 
@@ -592,6 +674,14 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
     # 0 for the whole first chunk (submit -> poll -> poll ...); without resuming on
     # phase=="poll" every poll would call start() and wipe the accumulated log
     # buffer, so a single-chunk run would show almost no history in the card feed.
+    # Adopt the run opened at dispatch (the web service is the only place that
+    # knows who clicked Start), so one click yields one run rather than a
+    # dispatch run plus a worker run — and so every link of a self-chain writes
+    # into the same continuous log.
+    run_logs.attach_run(status_key, run_id=task_args.get("log_run_id", ""),
+                        started_by=task_args.get("started_by", ""),
+                        task_args=task_args, mode="cloud")
+
     if task_args.get("chunk_index", 0) > 0 or task_args.get("phase") == "poll":
         reporter.resume()
     else:
@@ -607,6 +697,13 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
     # True once a cross-task chain has been dispatched (the dispatch IS this
     # step's hand-off, so the pipeline-advance block below must not also fire).
     dispatched_cross_task = False
+
+    # Tee the fyp package's own narration into the run log. On Cloud Run the
+    # task runner is nobody's subprocess, so without this the UI showed only
+    # the worker's explicit reporter.log calls — four lines for a consolidation
+    # that logs hundreds.
+    log_sink = run_logs.ReporterLogHandler(status_key)
+    logging_setup.add_sink(log_sink)
 
     try:
         _ensure_task_functions_loaded()
@@ -662,9 +759,13 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
                 # fanout/leaf/fork-timestamp keys must survive too, so a
                 # self-chaining terminal leaf still runs the completion barrier
                 # on its final batch.
+                # log_run_id and started_by ride along too, so every batch of a
+                # self-chaining scraper or annotator appends to one continuous
+                # run instead of starting a fresh, unattributed log per link.
                 for k in ("pipeline_remaining", "pipeline_stage_total",
                           "pipeline_stage_index", "pipeline_fanout",
-                          "pipeline_leaves", "pipeline_fork_ts"):
+                          "pipeline_leaves", "pipeline_fork_ts",
+                          "log_run_id", "started_by"):
                     if k in task_args and k not in next_args:
                         next_args[k] = task_args[k]
                 success, msg = _dispatch_cloud_task(
@@ -687,6 +788,10 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
                 # Stop the heartbeat so it doesn't race with the next chain
                 # link's reporter writing to the same GCS status file.
                 reporter._stop_heartbeat()
+                # Flush and hand the still-open run to the next link. Without
+                # this, everything logged since the last throttled write —
+                # up to five seconds of it — was dropped on every hop.
+                run_logs.detach(status_key)
                 # Return without writing completion stats — the chain
                 # continues (on success) or the failure is recorded above.
                 return success
@@ -709,6 +814,10 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
                          else task_failures.DISPOSITION_DEAD),
             task_args=task_args, phase="run",
         )
+    finally:
+        # Runs on the chain hop's early return too — a stale sink would keep
+        # forwarding the next task's output into this task's run.
+        logging_setup.remove_sink(log_sink)
 
     # Update process_stats (same logic as monitor_process_completion)
     end_time = datetime.now(UTC)
@@ -760,10 +869,15 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
             next_args["pipeline_stage_index"] = (
                 int(pipeline_stage_index or 1) + 1 if pipeline_stage_index is not None else None
             )
+            next_args["started_by"] = _pipeline_actor(task_args, name)
+            next_args["log_run_id"] = run_logs.new_run_id()
 
             success, msg = _dispatch_cloud_task(next_name, next_args)
             if success:
                 print(f"[{name}] Pipeline: advanced to {next_name}: {msg}")
+                run_logs.open_run(next_name, run_id=next_args["log_run_id"],
+                                  started_by=next_args["started_by"],
+                                  task_args=next_args, mode="cloud")
                 _set_pipeline_in_flight(True)
             else:
                 print(f"[{name}] Pipeline advance to {next_name} failed: {msg}")
@@ -792,6 +906,8 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
                 child_args["pipeline_fork_ts"] = fork_ts
                 child_args["pipeline_stage_total"] = pipeline_stage_total
                 child_args["pipeline_stage_index"] = leaf_stage_index
+                child_args["started_by"] = _pipeline_actor(task_args, name)
+                child_args["log_run_id"] = run_logs.new_run_id()
                 # Stamp the leaf "queued" BEFORE dispatching so its card shows a
                 # definitive this-run status (not a stale one from a previous
                 # run). When the task actually boots it overwrites this with
@@ -804,6 +920,9 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
                 success, msg = _dispatch_cloud_task(child_name, child_args)
                 if success:
                     print(f"[{name}] Pipeline: forked {child_name}: {msg}")
+                    run_logs.open_run(child_name, run_id=child_args["log_run_id"],
+                                      started_by=child_args["started_by"],
+                                      task_args=child_args, mode="cloud")
                 else:
                     print(f"[{name}] Pipeline fork of {child_name} failed: {msg}")
                     stamp_task_status(

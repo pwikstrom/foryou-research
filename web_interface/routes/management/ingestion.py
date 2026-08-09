@@ -117,6 +117,7 @@ def fetch_aio_data():
         "aio_fetch",
         AIO_FETCH_SCRIPT,
         task_args={"hours_back": hours_back},
+        started_by=_actor(),
     )
     if success:
         return jsonify({"status": "started", "message": msg})
@@ -281,6 +282,7 @@ def refresh_collection_metadata():
     success, msg = start_process(
         "collection_metadata_refresh",
         COLLECTION_METADATA_REFRESH_SCRIPT,
+        started_by=_actor(),
     )
     if success:
         return jsonify({"status": "started", "message": msg})
@@ -294,7 +296,8 @@ def refresh_collection_metadata():
 def refresh_ingestion_collection():
     from fyp.fyp_config import INGEST_REFRESH_SCRIPT
 
-    success, msg = start_process("ingest_refresh", INGEST_REFRESH_SCRIPT)
+    success, msg = start_process("ingest_refresh", INGEST_REFRESH_SCRIPT,
+                                 started_by=_actor())
     if success:
         activity_log.record(
             actor=_actor(),

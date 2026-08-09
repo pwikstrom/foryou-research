@@ -153,6 +153,10 @@ fyp_main_v02/
 │   ├── admin_settings.py        # Persisted admin-controlled site settings (e.g. signup gating)
 │   ├── activity_log.py          # Per-user activity log for Data/User Management mutations
 │   ├── process_manager.py       # Background job management (subprocess + Cloud Tasks)
+│   ├── run_logs.py              # Durable process logs (proc_logs/<status_key>.json in "cache"): last 10 runs
+│   │                            #   per process, timestamped once in append(), "Started by <user>" banner,
+│   │                            #   CAS writes + per-key flusher thread. Shared by both execution modes and
+│   │                            #   every admin; read by GET /api/logs/<name>
 │   ├── task_status.py           # GCS/local status reporters, heartbeat, cancellation
 │   ├── worker_runner.py         # Shared CLI entrypoint for the run_*.py workers (argparse + reporter + fail wrapper)
 │   ├── semantic_trajectory.py   # Collection-trajectory overlay computation for Semantic Space

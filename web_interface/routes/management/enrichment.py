@@ -36,6 +36,7 @@ from ...services.stats_service import (
 )
 from ...services.worker_status import (
     PIPELINE_STEPS_ORDER,
+    _actor,
     _build_pipeline_step_view,
     _cached_cookie_health,
     _is_worker_running,
@@ -1287,7 +1288,8 @@ def api_consolidate_enrichment():
     save_process_stats()
 
     success, msg = start_process("consolidate_enrichment", CONSOLIDATE_ENRICHMENT_SCRIPT,
-                                 task_args=task_args if task_args else None)
+                                 task_args=task_args if task_args else None,
+                                 started_by=_actor())
     if success:
         # start_process resets the in-memory ::DATA:: copy; mirror the marker
         # there too so the local-dev overlay in _build_pipeline_step_view agrees

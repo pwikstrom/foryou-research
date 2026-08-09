@@ -674,7 +674,8 @@ def start_ab_eval_run():
         }
         if arms_spec is not None:
             task_args["arms_spec"] = arms_spec
-        success, msg = start_process("ab_eval", AB_EVAL_SCRIPT, task_args=task_args)
+        success, msg = start_process("ab_eval", AB_EVAL_SCRIPT, task_args=task_args,
+                                     started_by=_actor())
         if not success:
             return jsonify({"status": "error", "message": msg}), 409
         activity_log.record(actor=_actor(), category="admin", action="ab_eval.run",
