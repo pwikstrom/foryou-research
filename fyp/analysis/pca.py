@@ -965,18 +965,20 @@ def calculate_scaled_pca_scores(
         events_pca_scores.append(numerical_means)
 
 
-    # transform categorical features to a list of counts dataframes
+    # transform categorical features to counts dataframes
     def _f1(cc):
         return transform_category_column_to_counts_df(study_recoded_dataset, the_column=cc, grouping_factors=grouping_factors)
     categorical_features = study_recoded_dataset[fyp_features].select_dtypes(exclude=["number"]).columns
-    counts_list = list(map(_f1, categorical_features))
 
-    # iterate over the counts dataframes
-    for i in range(len(counts_list)):
+    # Build each counts frame inside the loop rather than materializing them all
+    # up front: these are dense group x category matrices, so holding every
+    # feature's frame at once made peak memory the SUM of them instead of the
+    # largest one.
+    for i in range(len(categorical_features)):
 
-        counts_df = counts_list[i]
         col_name = categorical_features[i]
-        print(f"    [PCA] {(i+1):02}/{len(counts_list)}. {col_name}, {counts_df.shape}", end=": ", flush=True)
+        counts_df = _f1(col_name)
+        print(f"    [PCA] {(i+1):02}/{len(categorical_features)}. {col_name}, {counts_df.shape}", end=": ", flush=True)
 
         # Yes/no(/unclear) variables bypass PCA: emit the day share of "yes"
         # instead of components/entropy. The scaled copy joins the frame like
