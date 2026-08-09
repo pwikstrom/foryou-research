@@ -261,9 +261,10 @@ def test_total_batches_estimate():
     assert worker._total_batches(100, 0, None) == 1        # guard div-by-zero
 
 
-def test_log_prepends_timestamp():
+def test_log_forwards_bare_leaving_stamping_to_the_run_log():
+    # Timestamping happens once, in run_logs.append. This worker used to add
+    # its own prefix from a config key that does not exist, so its stamps were
+    # UTC on Cloud Run while every other line was in the project timezone.
     rep = FakeReporter()
     worker._log(rep, "hello world")
-    assert len(rep.logs) == 1
-    assert rep.logs[0].endswith("hello world")
-    assert rep.logs[0][0] == "[" and "] " in rep.logs[0]   # [HH:MM:SS] prefix
+    assert rep.logs == ["hello world"]

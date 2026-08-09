@@ -119,6 +119,7 @@ def delete_collection():
         "collection_delete",
         COLLECTION_DELETE_SCRIPT,
         task_args={"collection_id": collection_id},
+        started_by=_actor(),
     )
     if success:
         activity_log.record(

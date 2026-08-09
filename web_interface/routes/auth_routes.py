@@ -597,7 +597,8 @@ def api_irrelevant_words_apply():
             "message": f"Cannot run while {', '.join(blocking)} running.",
         }), 409
 
-    success, msg = start_process("retokenise_hashtags", RETOKENISE_HASHTAGS_SCRIPT)
+    success, msg = start_process("retokenise_hashtags", RETOKENISE_HASHTAGS_SCRIPT,
+                                 started_by=current_user.username)
     if success:
         activity_log.record(
             actor=current_user.username,

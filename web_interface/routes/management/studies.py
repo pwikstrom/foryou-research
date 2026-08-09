@@ -231,7 +231,8 @@ def save_study():
 
     if is_cloud_run():
         # On Cloud Run: dispatch as a Cloud Task and return immediately
-        success, msg = start_process("study_refresh", None, task_args=task_args)
+        success, msg = start_process("study_refresh", None, task_args=task_args,
+                                     started_by=_actor())
         if success:
             return jsonify({
                 "status": "success",

@@ -86,6 +86,16 @@ function scraperProcessNames() {
 }
 let _pendingStopProcess = null;
 let _activeLogModal = null;
+// Which run the modal is showing ('' = the newest), how far through it we have
+// read, the full text we hold (so the filter box can re-render without a
+// refetch), and a signature of the run list so the poll only rebuilds the
+// picker when the runs actually change — rebuilding every second would fight
+// the user for the dropdown.
+let _activeLogRun = '';
+let _activeLogSince = 0;
+let _activeLogText = '';
+let _activeLogRunSig = '';
+let _activeLogRunDone = false;
 setInterval(updateLogs, 1000);
 
 // --- Theme Toggle ---
@@ -890,15 +900,118 @@ function confirmStopGraceful() {
 
 function openLogModal(name, displayLabel) {
     _activeLogModal = name;
+    _activeLogRun = '';
+    _activeLogSince = 0;
+    _activeLogText = '';
+    _activeLogRunSig = '';
+    _activeLogRunDone = false;
     document.getElementById('log-modal-title').innerText = `${displayLabel} Log`;
     document.getElementById('log-modal-content').textContent = '';
+    const filter = document.getElementById('log-modal-filter');
+    if (filter) filter.value = '';
     document.getElementById('log-modal-overlay').classList.add('visible');
+    document.addEventListener('keydown', _logModalKeydown);
     fetchLogs(name);
 }
 
 function closeLogModal() {
     _activeLogModal = null;
+    _activeLogText = '';
+    document.removeEventListener('keydown', _logModalKeydown);
     document.getElementById('log-modal-overlay').classList.remove('visible');
+}
+
+function _logModalKeydown(e) {
+    if (e.key === 'Escape') closeLogModal();
+}
+
+function _logModalBackdropClick(e) {
+    // Only a click on the backdrop itself, not one that bubbled up from the card.
+    if (e.target && e.target.id === 'log-modal-overlay') closeLogModal();
+}
+
+// Switching runs re-reads from the top: a past run is immutable, so the poll
+// settles into a no-op once it has been fetched.
+function selectLogRun(runId) {
+    _activeLogRun = runId || '';
+    _activeLogSince = 0;
+    _activeLogText = '';
+    _activeLogRunDone = false;
+    document.getElementById('log-modal-content').textContent = '';
+    if (_activeLogModal) fetchLogs(_activeLogModal);
+}
+
+function filterLogModal() {
+    _renderLogModal(true);
+}
+
+function copyLogModal() {
+    navigator.clipboard.writeText(_activeLogText || '');
+}
+
+function downloadLogModal() {
+    const stamp = (_activeLogRun || 'current').replace(/[^A-Za-z0-9_.-]/g, '');
+    const blob = new Blob([_activeLogText || ''], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${_activeLogModal || 'process'}-${stamp}.log`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+async function clearLogHistory() {
+    if (!_activeLogModal) return;
+    const ok = await _showAppDialog({
+        title: 'Clear log history',
+        message: 'Delete every retained run of this process, for all admins? '
+            + 'This cannot be undone.',
+        okLabel: 'Clear history', cancelLabel: 'Cancel', danger: true,
+    });
+    if (!ok) return;
+    // The global fetch wrapper adds the CSRF header on POST.
+    await fetch(`/api/logs/clear/${_activeLogModal}`, { method: 'POST' });
+    selectLogRun('');
+}
+
+function _runOptionLabel(run) {
+    const started = run.started_at ? new Date(run.started_at) : null;
+    const when = started ? started.toLocaleString() : 'unknown time';
+    const who = run.started_by || 'system';
+    const state = run.state === 'running' ? 'running' : run.state;
+    return `${when} · ${who} · ${state}`;
+}
+
+function _renderRunPicker(runs) {
+    const sel = document.getElementById('log-modal-run');
+    if (!sel) return;
+    const sig = runs.map(r => `${r.run_id}:${r.state}`).join('|');
+    if (sig === _activeLogRunSig) return;
+    _activeLogRunSig = sig;
+    sel.innerHTML = '';
+    runs.forEach((run, i) => {
+        const opt = document.createElement('option');
+        opt.value = run.run_id;
+        opt.textContent = (i === 0 ? 'Latest — ' : '') + _runOptionLabel(run);
+        sel.appendChild(opt);
+    });
+    sel.value = _activeLogRun || (runs[0] ? runs[0].run_id : '');
+    sel.disabled = runs.length === 0;
+}
+
+function _renderLogModal(preserveScroll) {
+    const el = document.getElementById('log-modal-content');
+    if (!el) return;
+    const needle = (document.getElementById('log-modal-filter') || {}).value || '';
+    const text = needle
+        ? _activeLogText.split('\n')
+            .filter(l => l.toLowerCase().includes(needle.toLowerCase())).join('\n')
+        : _activeLogText;
+    const atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 5;
+    el.textContent = text;
+    if (!preserveScroll && (atBottom || el.scrollTop === 0)) {
+        el.scrollTop = el.scrollHeight;
+    }
 }
 
 
@@ -1084,6 +1197,7 @@ async function refreshBatchFeed(procData) {
     if (_batchFeedTick++ % 4 !== 0) return;
     try {
         const res = await fetch('/api/logs/queue_annotator_batch');
+        if (!res.ok) return;
         const d = await res.json();
         renderBatchFeed(el, d.logs);
     } catch (e) { /* keep last content on a transient error */ }
@@ -1439,17 +1553,18 @@ function formatETA(seconds) {
 
 
 
+// Tail whichever log the modal is showing. This used to iterate a hardcoded
+// list of process names, so the six cards missing from it (pca_refresh,
+// embeddings_refresh, sessions_refresh, video_map_refresh, demo_dataset,
+// consolidate_enrichment) rendered a snapshot on open and then froze.
 async function updateLogs() {
-    await fetchLogs('downloader');
-    await fetchLogs('monitor');
-    await fetchLogs('annotator');
-    //await fetchLogs('create_subsets');
-    for (const n of scraperProcessNames()) { await fetchLogs(n); }
-    await fetchLogs('queue_annotator');
-    await fetchLogs('queue_annotator_batch');
-    await fetchLogs('meta_refresh_groups');
-    await fetchLogs('timelines_refresh');
-    await fetchLogs('recode_refresh_studies');
+    if (!_activeLogModal) return;
+    // A finished run is immutable, so once we have caught up there is nothing
+    // left to poll for — this is what stops an open modal from issuing a
+    // request every second forever. A live run keeps tailing even when the tab
+    // is hidden, matching _statusPollNeededWhileHidden().
+    if (_activeLogRunDone) return;
+    await fetchLogs(_activeLogModal);
 }
 
 
@@ -1461,15 +1576,37 @@ async function fetchLogs(name) {
         const el = document.getElementById('log-modal-content');
         if (!el) return;
 
-        const res = await fetch(`/api/logs/${name}`);
+        const params = new URLSearchParams();
+        if (_activeLogRun) params.set('run', _activeLogRun);
+        if (_activeLogSince) params.set('since', String(_activeLogSince));
+        const query = params.toString();
+        const res = await fetch(`/api/logs/${name}${query ? '?' + query : ''}`);
+        if (!res.ok) {
+            // A 403 renders as HTML, so res.json() would throw every second and
+            // leave the pane silently blank.
+            el.textContent = res.status === 403
+                ? 'You do not have permission to view process logs.'
+                : `Could not load the log (HTTP ${res.status}).`;
+            _activeLogModal = null;
+            return;
+        }
         const data = await res.json();
 
-        const atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 5;
-        el.textContent = data.logs;
+        _renderRunPicker(data.runs || []);
+        if (data.run_id && !_activeLogRun) _activeLogRun = data.run_id;
+        // The footer is flushed before the terminal state is written, so a
+        // response that reports a finished run already carries its last lines.
+        const state = (data.run || {}).state || '';
+        _activeLogRunDone = !!state && state !== 'running';
 
-        if (atBottom || el.scrollTop === 0) {
-            el.scrollTop = el.scrollHeight;
+        const incoming = data.logs || '';
+        if (data.reset || !_activeLogText) {
+            _activeLogText = incoming;
+        } else if (incoming) {
+            _activeLogText += '\n' + incoming;
         }
+        _activeLogSince = data.next_since || 0;
+        _renderLogModal(false);
     } catch (e) {
         console.error(e);
     }

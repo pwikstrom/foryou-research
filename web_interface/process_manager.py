@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import fyp.data_io as data_io
 from fyp.fyp_config import PROJECT_ROOT, PYTHON_EXEC
-from web_interface import task_failures
+from web_interface import run_logs, task_failures
 from web_interface.task_status import (
     force_clear_status,
     is_cloud_run,
@@ -159,14 +159,27 @@ def save_process_stats():
 
 
 
-def enqueue_output(out, queue, process_state):
+def enqueue_output(out, queue, process_state, name=None):
+    """Drain a worker subprocess's stdout into the UI log and progress state.
+
+    This is the subprocess mode's single log-buffer entry point, and therefore
+    the only place its lines are timestamped — the worker's own
+    ``LocalStatusReporter.log`` deliberately prints bare, or a line would be
+    stamped at both ends of the pipe.
+
+    Args:
+        out: The subprocess's stdout pipe.
+        queue: The in-memory deque kept as a same-process fallback.
+        process_state: The ``processes[name]`` entry to update.
+        name: The process name, used as the durable run log's key.
+    """
     for line in iter(out.readline, b''):
         line_str = line.decode('utf-8')
         print(line_str, end='') # Mirror to console
-        
+
         # Update last message for UI
         process_state["last_message"] = line_str.strip()
-        
+
         if "::PROGRESS::" in line_str:
             try:
                 _, json_str = line_str.split("::PROGRESS::", 1)
@@ -174,6 +187,7 @@ def enqueue_output(out, queue, process_state):
                 process_state["progress"].update(data)
             except Exception:
                 queue.append(line_str)
+                _log_run_line(name, line_str)
         elif "::DATA::" in line_str:
             try:
                 _, json_str = line_str.split("::DATA::", 1)
@@ -181,13 +195,34 @@ def enqueue_output(out, queue, process_state):
                 process_state["data"].update(data)
             except Exception:
                 queue.append(line_str)
+                _log_run_line(name, line_str)
         else:
             queue.append(line_str)
+            _log_run_line(name, line_str)
     out.close()
+
+
+
+
+def _log_run_line(name, line_str: str) -> None:
+    """Append one worker stdout line to the durable run log."""
+    if name:
+        run_logs.append(name, line_str)
+
+
+
 
 def monitor_process_completion(name, proc):
     """Waits for process to finish and updates stats."""
     proc.wait()
+
+    # proc.wait() returns as soon as the process exits, but the reader thread
+    # is still draining whatever is left in the pipe. Finalizing the run before
+    # it finishes would close the log and silently drop the worker's last
+    # lines — usually the ones that say how the run ended.
+    reader = processes[name].get("log_thread")
+    if reader:
+        reader.join(timeout=10)
 
     end_time = datetime.now(UTC)
     start_time_str = processes[name].get("start_time")
@@ -232,6 +267,9 @@ def monitor_process_completion(name, proc):
             task_args=completed_task_args,
             phase="subprocess",
         )
+
+    run_logs.finalize(name, run_logs.STATE_COMPLETED if outcome == "Success"
+                      else run_logs.STATE_FAILED)
 
     # Update global state to stopped
     _clear_graceful_stop(name)
@@ -386,7 +424,9 @@ def _run_local_pipeline(pipeline: list, summary_owner: str, summary_fn) -> None:
 
             stage_index = i + 2  # stage 1 was the trigger task
 
-            success, msg = start_process(step_name, script_path, args=cli_args)
+            success, msg = start_process(
+                step_name, script_path, args=cli_args,
+                started_by=f"auto-pipeline (after {summary_owner})")
             if not success:
                 print(f"[pipeline] Failed to start {step_name}: {msg}")
                 break
@@ -604,9 +644,20 @@ def _drain_lease_conflict(name: str) -> str | None:
 
 
 def start_process(name: str, script_path, args: list = [], study_name: str | None = None,
-                  task_args: dict | None = None) -> tuple[bool, str]:
+                  task_args: dict | None = None, started_by: str = "") -> tuple[bool, str]:
     """Start a background process. Uses Cloud Tasks on Cloud Run for eligible processes,
-    otherwise falls back to subprocess."""
+    otherwise falls back to subprocess.
+
+    Args:
+        name: Registered process name.
+        script_path: Path to the worker script (subprocess mode).
+        args: CLI argument list for the worker.
+        study_name: Study this run targets, when applicable.
+        task_args: Pre-built Cloud Tasks arguments; derived from ``args`` when omitted.
+        started_by: Username of the admin who launched it. Recorded in the run
+            log's banner — this layer is the only one that knows who clicked,
+            so the attribution is stamped here rather than inside the worker.
+    """
 
     # A local scrape-queue drain (laptop, FYP_FORCE_GCS) holds a lease on the
     # shared storage — refuse conflicting work while it is fresh.
@@ -671,6 +722,12 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         if task_args is None:
             task_args = _cli_args_to_dict(name, args, study_name)
 
+        # Attribution and run identity ride along in task_args so the worker —
+        # running in the other Cloud Run service — writes into the run this
+        # click opened, instead of opening a second one of its own.
+        task_args["started_by"] = started_by or task_args.get("started_by") or ""
+        task_args["log_run_id"] = task_args.get("log_run_id") or run_logs.new_run_id()
+
         # Set dispatch_deadline for self-chaining processes and for the long
         # single-shot refreshes. Cloud Tasks' default dispatch deadline is 600s:
         # a handler that runs longer never gets to respond, so the task is
@@ -697,6 +754,9 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         success, msg = _dispatch_cloud_task(name, task_args,
                                             dispatch_deadline_seconds=deadline)
         if success:
+            run_logs.open_run(status_key, run_id=task_args["log_run_id"],
+                              started_by=task_args["started_by"],
+                              task_args=task_args, mode="cloud")
             # Write an immediate "running" status so the UI shows feedback
             # before the task-runner instance starts up and writes its own status.
             from web_interface.task_status import GCSStatusReporter
@@ -749,7 +809,9 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         # from a previous run leaks into /api/status until the new worker
         # emits its own, making the UI show stale values (e.g. the
         # Consolidation Impact panel carrying the prior run's impact).
-        _ta = task_args if task_args else _cli_args_to_dict(name, args, study_name)
+        _ta = dict(task_args) if task_args else _cli_args_to_dict(name, args, study_name)
+        if started_by:
+            _ta["started_by"] = started_by
         # Keep the full task_args dict in memory so monitor_process_completion
         # can inspect flags like auto_refresh / pipeline_remaining / stage info
         # after the subprocess exits. The UI only reads a few specific fields
@@ -758,10 +820,18 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             "task_args": dict(_ta),
         }
 
+        # Open the durable run before the reader thread starts, so the banner
+        # is the run's first line and nothing the worker prints races ahead of it.
+        run_logs.open_run(name, started_by=started_by, task_args=_ta,
+                          mode="subprocess")
+
         # Start logging thread
-        t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"], processes[name]))
+        t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"], processes[name], name))
         t.daemon = True
         t.start()
+        # Kept so monitor_process_completion can wait for the pipe to drain
+        # before it closes the run log.
+        processes[name]["log_thread"] = t
 
         # Start monitoring thread
         t_mon = threading.Thread(target=monitor_process_completion, args=(name, proc))
@@ -898,6 +968,9 @@ def stop_process(name: str) -> tuple[bool, str]:
                     age = (datetime.now(UTC) - updated_at).total_seconds()
                     if age > STUCK_STATUS_THRESHOLD_S:
                         force_clear_status(name, reason="cancelled")
+                        # The run was opened by the task runner, which is gone;
+                        # close it here or it stays "running" forever.
+                        run_logs.finalize(name, run_logs.STATE_CANCELLED)
                         return True, "Stuck status cleared"
                 except (ValueError, TypeError):
                     pass
@@ -917,12 +990,16 @@ def stop_process(name: str) -> tuple[bool, str]:
         processes[name]["status"] = "stopped"
         processes[name]["start_time"] = None
         _clear_graceful_stop(name)
+        # Ahead of the monitor thread, which would otherwise record the kill's
+        # non-zero exit code as a failure rather than a cancellation.
+        run_logs.finalize(name, run_logs.STATE_CANCELLED)
         return True, "Stopped"
     # Process handle already cleared (e.g. by monitor thread) — clean up state
     if processes[name]["status"] in ("running", "stopping"):
         processes[name]["status"] = "stopped"
         processes[name]["start_time"] = None
         _clear_graceful_stop(name)
+        run_logs.finalize(name, run_logs.STATE_CANCELLED)
         return True, "Stopped"
     return False, "Not running"
 

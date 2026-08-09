@@ -223,7 +223,9 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
             "refresh_pca": True,
             "refresh_metadata": True,
         }
-        success, msg = start_process("study_refresh", None, task_args=sub_args)
+        success, msg = start_process(
+            "study_refresh", None, task_args=sub_args,
+            started_by=f"{task_args.get('started_by') or 'system'} (via collection_delete)")
         if success:
             refresh_dispatched.append(sname)
         else:

@@ -6,6 +6,11 @@ Provides two reporter implementations:
 - GCSStatusReporter: writes status JSON to GCS (Cloud Tasks mode)
 
 Both share the same interface so worker functions are execution-mode agnostic.
+
+Log *text* is no longer kept here. It lives in ``web_interface/run_logs.py``,
+which survives the next run, a restart and a scale-to-zero; the status file is
+back to carrying only state, progress and emitted data. The reporters feed that
+store, but they do not own a run's identity — see ``run_logs.attach_run``.
 """
 
 import json
@@ -16,6 +21,7 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 
 import fyp.data_io as data_io
+from web_interface import run_logs
 
 STATUS_PREFIX = "task_status"
 CANCEL_SUFFIX = "_cancel.json"
@@ -171,6 +177,7 @@ class LocalThreadStatusReporter(TaskStatusReporter):
 
     def __init__(self, key: str) -> None:
         self.key = key
+        self._last_logged_progress = ""
         with _local_thread_status_lock:
             _local_thread_status[key] = {
                 "state": "running",
@@ -189,6 +196,7 @@ class LocalThreadStatusReporter(TaskStatusReporter):
 
     def start(self) -> None:
         self._update({"state": "running"})
+        run_logs.attach_run(self.key, mode="thread")
         print(f"[{self.key}] Starting...")
 
     def update_progress(
@@ -210,6 +218,9 @@ class LocalThreadStatusReporter(TaskStatusReporter):
         if stage_name is not None:
             payload_dict["stage_name"] = stage_name
         self._update({"progress": payload_dict})
+        if message and message != self._last_logged_progress:
+            self._last_logged_progress = message
+            run_logs.append(self.key, message)
         # STDOUT PROTOCOL — MUST stay print() (see LocalStatusReporter.update_progress).
         print(f"::PROGRESS::{json.dumps(payload_dict)}")
 
@@ -230,13 +241,17 @@ class LocalThreadStatusReporter(TaskStatusReporter):
             "state": "succeeded",
             "progress": {"percent": 100, "message": "Completed"},
         })
+        run_logs.finalize(self.key, run_logs.STATE_COMPLETED)
 
     def fail(self, error: str) -> None:
         self._update({"state": "failed", "error": error})
         print(f"Process failed: {error}")
+        run_logs.append(self.key, f"FAILED: {error}")
+        run_logs.finalize(self.key, run_logs.STATE_FAILED)
 
     def log(self, message: str) -> None:
         print(message)
+        run_logs.append(self.key, message)
 
     def check_cancelled(self) -> bool:
         with _local_thread_status_lock:
@@ -267,9 +282,12 @@ class GCSStatusReporter(TaskStatusReporter):
             "progress": {},
             "data": {},
             "error": None,
-            "logs": [],
             "updated_at": None,
         }
+        # Progress messages are logged too, but deduped: a worker calls
+        # update_progress once per item, and a percentage ticking from 1% to
+        # 99% under one unchanged message would bury everything else.
+        self._last_logged_progress = ""
         self._lock = threading.Lock()
         self._last_write: float = 0.0
         self._heartbeat_stop = threading.Event()
@@ -321,7 +339,6 @@ class GCSStatusReporter(TaskStatusReporter):
         self._status["progress"] = {}
         self._status["data"] = {}
         self._status["error"] = None
-        self._status["logs"] = []
         self._write_status(force=True)
         self._start_heartbeat()
 
@@ -362,6 +379,9 @@ class GCSStatusReporter(TaskStatusReporter):
         if stage_index is not None and stage_total is not None:
             stage_prefix = f"[Stage {stage_index}/{stage_total}] "
         print(f"[{self.name}] {stage_prefix}{percent}% - {message}")
+        if message and message != self._last_logged_progress:
+            self._last_logged_progress = message
+            run_logs.append(self.name, f"{stage_prefix}{message}")
         self._write_status()
 
     def emit_data(self, payload: dict) -> None:
@@ -376,6 +396,7 @@ class GCSStatusReporter(TaskStatusReporter):
         self._status["progress"] = {"percent": 100, "message": "Completed"}
         self._write_status(force=True)
         self._clear_cancel()
+        run_logs.finalize(self.name, run_logs.STATE_COMPLETED)
 
     def fail(self, error: str) -> None:
         self._stop_heartbeat()
@@ -384,15 +405,12 @@ class GCSStatusReporter(TaskStatusReporter):
         print(f"[{self.name}] FAILED: {error}")
         self._write_status(force=True)
         self._clear_cancel()
+        run_logs.append(self.name, f"FAILED: {error}")
+        run_logs.finalize(self.name, run_logs.STATE_FAILED)
 
     def log(self, message: str) -> None:
         print(f"[{self.name}] {message}")
-        self._status["logs"].append(message)
-        # Trim to last 200 log lines
-        if len(self._status["logs"]) > 200:
-            self._status["logs"] = self._status["logs"][-200:]
-        # Heartbeat: write to GCS periodically so stale detection works
-        self._write_status()
+        run_logs.append(self.name, message)
 
     def check_cancelled(self) -> bool:
         try:
@@ -494,7 +512,6 @@ def stamp_task_status(
         "progress": {"percent": 0, "message": message},
         "data": {},
         "error": error,
-        "logs": [],
         "updated_at": datetime.now(UTC).isoformat(),
     }
     if stage:

@@ -72,22 +72,15 @@ def _ts_label() -> str:
     return "".join(c for c in str(_dt.datetime.now()) if c in "0123456789")
 
 
-def _now_stamp() -> str:
-    """Short local-time stamp (project timezone) prefixed onto card log lines."""
-    try:
-        from zoneinfo import ZoneInfo
-
-        from fyp.fyp_config import get_config
-        tz = get_config().get("misc", {}).get("timezone")
-        now = _dt.datetime.now(ZoneInfo(tz)) if tz else _dt.datetime.now()
-    except Exception:
-        now = _dt.datetime.now()
-    return now.strftime("%H:%M:%S")
-
-
 def _log(reporter, message: str) -> None:
-    """reporter.log with a leading local-time stamp, for the in-card feed."""
-    reporter.log(f"[{_now_stamp()}] {message}")
+    """reporter.log for the in-card feed.
+
+    Stamping now happens once, centrally, in ``run_logs.append`` — this used to
+    prefix its own time read from a ``misc.timezone`` config key that does not
+    exist (it is ``TIME_ZONE``), so every stamp silently fell back to naive
+    local time, which on Cloud Run is UTC rather than the project timezone.
+    """
+    reporter.log(message)
 
 
 def _total_batches(initial_total, batch_size, max_batches) -> int:

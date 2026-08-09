@@ -127,7 +127,9 @@
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
             <span id="queue_annotator-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            {% if current_user.is_admin() %}
             <a class="text-xs view-log-link" onclick="openLogModal('queue_annotator', 'Urgent Annotator')">View Log</a>
+            {% endif %}
         </div>
     </div>
 
@@ -173,7 +175,9 @@
         <div id="queue_annotator_batch-feed" class="batch-log-feed text-xxs">Idle</div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
             <span id="queue_annotator_batch-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            {% if current_user.is_admin() %}
             <a class="text-xs view-log-link" onclick="openLogModal('queue_annotator_batch', 'Async Annotator')">View Log</a>
+            {% endif %}
         </div>
     </div>
     {% endif %}

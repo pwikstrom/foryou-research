@@ -46,9 +46,13 @@ def _io_log(op: str, loc: str, filename: str, mode: str, bytes_: int, t_ms: floa
     Format: [IO] op=OP loc=LOC file=FILE mode=MODE bytes=N ms=MS
     Bytes is an approximation (in-memory DataFrame size for parquet, JSON payload
     length for json). Used to compare GCS vs local I/O cost.
+
+    Emitted at DEBUG so it stays out of the process logs shown in the UI, where
+    it drowned the worker's own output — every status write emits one. Set
+    ``FYP_LOG_LEVEL=DEBUG`` to bring the timings back.
     """
     bn = os.path.basename(filename) if filename else ""
-    logger.info(f"[IO] op={op} loc={loc} file={bn} mode={mode} bytes={bytes_} ms={t_ms:.1f}")
+    logger.debug(f"[IO] op={op} loc={loc} file={bn} mode={mode} bytes={bytes_} ms={t_ms:.1f}")
 
 
 
