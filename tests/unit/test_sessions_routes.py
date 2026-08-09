@@ -174,14 +174,14 @@ def test_config_floors_hide_short_sessions_but_still_count_them(client, patched_
     import web_interface.routes.api_sessions_routes as mod
 
     # colA__1 has 12 plays / 10 min; colA__0 has 40 / 30; colB__0 has 80 / 60.
-    monkeypatch.setattr(mod, "_session_floors",
-                        lambda: {"min_plays": 20, "min_session_minutes": 0.0})
+    monkeypatch.setattr(mod, "_session_floors", lambda: {
+        "min_plays": 20, "min_session_minutes": 0.0, "min_coverage": 0.0})
 
-    body = client.get("/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0").get_json()
+    body = client.get("/api/sessions/overview?study=s&min_emb_plays=0").get_json()
     assert body["total_in_study"] == 3          # excluded sessions still counted
     assert body["total_above_floors"] == 2
     assert [s["session_id"] for s in body["sessions"]] == ["colA__0", "colB__0"]
-    assert body["floors"] == {"min_plays": 20, "min_session_minutes": 0.0}
+    assert body["floors"] == {"min_plays": 20, "min_session_minutes": 0.0, "min_coverage": 0.0}
     assert body["defaults"]["min_plays"] == 20
 
 
@@ -192,9 +192,9 @@ def test_config_floors_hide_short_sessions_but_still_count_them(client, patched_
 def test_minutes_floor_is_applied_independently(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "_session_floors",
-                        lambda: {"min_plays": 0, "min_session_minutes": 45.0})
-    body = client.get("/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0").get_json()
+    monkeypatch.setattr(mod, "_session_floors", lambda: {
+        "min_plays": 0, "min_session_minutes": 45.0, "min_coverage": 0.0})
+    body = client.get("/api/sessions/overview?study=s&min_emb_plays=0").get_json()
     # Only colB__0 runs 60 minutes.
     assert [s["session_id"] for s in body["sessions"]] == ["colB__0"]
     assert body["total_above_floors"] == 1
@@ -204,55 +204,69 @@ def test_minutes_floor_is_applied_independently(client, patched_routes, monkeypa
 
 
 
-def test_query_params_override_the_config_floors(client, patched_routes, monkeypatch):
+def test_coverage_floor_is_applied_and_counted_as_a_floor(client, patched_routes, monkeypatch):
+    """Coverage is a listing floor, so its exclusions ride in total_above_floors."""
+    import web_interface.routes.api_sessions_routes as mod
+
+    # coverage_embedded: colA__0 0.71, colA__1 0.17, colB__0 0.80.
+    monkeypatch.setattr(mod, "_session_floors", lambda: {
+        "min_plays": 0, "min_session_minutes": 0.0, "min_coverage": 0.75})
+    body = client.get("/api/sessions/overview?study=s&min_emb_plays=0").get_json()
+    assert [s["session_id"] for s in body["sessions"]] == ["colB__0"]
+    assert body["total_in_study"] == 3
+    assert body["total_above_floors"] == 1
+    assert body["floors"]["min_coverage"] == 0.75
+
+
+
+
+
+
+def test_query_params_override_the_admin_floors(client, patched_routes, monkeypatch):
     """`min_plays=0` must still mean "show me everything"."""
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "_session_floors",
-                        lambda: {"min_plays": 20, "min_session_minutes": 15.0})
-    body = client.get("/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0"
-                      "&min_plays=0&min_session_minutes=0").get_json()
+    monkeypatch.setattr(mod, "_session_floors", lambda: {
+        "min_plays": 20, "min_session_minutes": 15.0, "min_coverage": 0.9})
+    body = client.get("/api/sessions/overview?study=s&min_emb_plays=0"
+                      "&min_plays=0&min_session_minutes=0&min_coverage=0").get_json()
     assert body["total_above_floors"] == 3
-    assert body["floors"] == {"min_plays": 0, "min_session_minutes": 0.0}
-    # The config values still ride along as the defaults the UI can show.
+    assert body["floors"] == {"min_plays": 0, "min_session_minutes": 0.0, "min_coverage": 0.0}
+    # The admin values still ride along as the defaults the UI can show.
     assert body["defaults"]["min_session_minutes"] == 15.0
+    assert body["defaults"]["min_coverage"] == 0.9
 
 
 
 
 
 
-def test_session_floors_read_config_and_reject_junk(monkeypatch):
+def test_session_floors_come_from_the_admin_store_in_endpoint_units(monkeypatch):
+    """The route converts the admin-facing percentage to the stored fraction."""
+    import web_interface.admin_settings as admin_settings
     import web_interface.routes.api_sessions_routes as mod
 
-    monkeypatch.setattr(mod, "_sessions_config",
-                        lambda: {"min_session_plays": 9, "min_session_minutes": 2.5})
-    assert mod._session_floors() == {"min_plays": 9, "min_session_minutes": 2.5}
-
-    # Absent keys fall back; negatives clamp; unparseable values do not 500.
-    monkeypatch.setattr(mod, "_sessions_config", lambda: {})
+    monkeypatch.setattr(admin_settings, "get_session_floors", lambda: {
+        "sessions_min_plays": 9, "sessions_min_minutes": 2.5,
+        "sessions_min_coverage_pct": 60.0})
     assert mod._session_floors() == {
-        "min_plays": mod.DEFAULT_MIN_SESSION_PLAYS,
-        "min_session_minutes": mod.DEFAULT_MIN_SESSION_MINUTES,
-    }
-    monkeypatch.setattr(mod, "_sessions_config",
-                        lambda: {"min_session_plays": -5, "min_session_minutes": "nope"})
-    assert mod._session_floors() == {
-        "min_plays": 0, "min_session_minutes": mod.DEFAULT_MIN_SESSION_MINUTES}
+        "min_plays": 9, "min_session_minutes": 2.5, "min_coverage": 0.6}
 
 
 
 
 
 
-def test_committed_config_carries_the_session_floors():
-    """The keys must exist in config.toml, or the fallbacks silently become the rule."""
+def test_committed_config_seeds_the_session_floors():
+    """The seed keys must exist in config.toml, or a fresh deploy silently
+    falls back to the code defaults instead of the documented values."""
     from fyp.fyp_config import fyp_cf
+    from web_interface.admin_settings import SESSION_FLOOR_KEYS
 
     cfg = fyp_cf.get("sessions", {})
-    assert "min_session_plays" in cfg and "min_session_minutes" in cfg
-    assert int(cfg["min_session_plays"]) >= 0
-    assert float(cfg["min_session_minutes"]) >= 0
+    for cfg_key in SESSION_FLOOR_KEYS.values():
+        assert cfg_key in cfg, f"config.toml [sessions] is missing {cfg_key}"
+        assert float(cfg[cfg_key]) >= 0
 
 
 
@@ -304,7 +318,7 @@ def test_overview_filters_and_sorts(client, patched_routes):
     ids = [s["session_id"] for s in body["sessions"]]
     assert ids == ["colA__0", "colB__0"]
     assert body["sessions"][0]["collection_label"] == "Donor A"
-    assert body["defaults"]["min_coverage"] == 0.5
+    assert body["defaults"]["min_emb_plays"] == 5
     assert body["meta"]["embedding_model"] == "gemini-embedding-001"
 
     # NaN focus sorts last when nothing is filtered out.

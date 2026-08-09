@@ -106,3 +106,68 @@ def test_put_valid_backend_roundtrip(client):
     assert res.status_code == 200
     res = client.get("/api/admin/settings")
     assert res.get_json()["settings"]["annotation_backend"] == "gemini"
+
+
+
+
+
+
+def test_get_reports_the_effective_session_floors_not_the_code_defaults(client):
+    """With no stored settings the GET must show the [sessions] config seed.
+
+    The admin page edits these fields; if it showed DEFAULTS while the Sessions
+    tab applied the config seed, the two would silently disagree.
+    """
+    from fyp.fyp_config import fyp_cf
+    from web_interface.admin_settings import SESSION_FLOOR_KEYS
+
+    cfg = fyp_cf.get("sessions", {})
+    settings = client.get("/api/admin/settings").get_json()["settings"]
+    for key, cfg_key in SESSION_FLOOR_KEYS.items():
+        assert settings[key] == pytest.approx(float(cfg[cfg_key])), key
+
+
+
+
+
+
+def test_session_floor_roundtrip_overrides_the_config_seed(client):
+    from web_interface.admin_settings import get_session_floors
+
+    res = client.put("/api/admin/settings", json={
+        "sessions_min_plays": 25, "sessions_min_minutes": 7.5,
+        "sessions_min_coverage_pct": 40})
+    assert res.status_code == 200
+
+    settings = client.get("/api/admin/settings").get_json()["settings"]
+    assert settings["sessions_min_plays"] == 25
+    assert settings["sessions_min_minutes"] == 7.5
+    assert settings["sessions_min_coverage_pct"] == 40
+    # ...and the resolver the Sessions tab reads agrees with what the page shows.
+    assert get_session_floors() == {"sessions_min_plays": 25,
+                                    "sessions_min_minutes": 7.5,
+                                    "sessions_min_coverage_pct": 40.0}
+
+
+
+
+
+
+def test_put_rejects_out_of_range_session_floors(client):
+    for payload, fragment in (
+        ({"sessions_min_plays": -1}, "non-negative"),
+        ({"sessions_min_minutes": -0.5}, "non-negative"),
+        ({"sessions_min_coverage_pct": 101}, "between 0 and 100"),
+        ({"sessions_min_coverage_pct": -5}, "non-negative"),
+    ):
+        res = client.put("/api/admin/settings", json=payload)
+        assert res.status_code == 400, payload
+        assert fragment in res.get_json()["error"], payload
+
+    # bool is an int subclass — it must not sneak through as 1/0.
+    res = client.put("/api/admin/settings", json={"sessions_min_plays": True})
+    assert res.status_code == 400
+
+    # Wrong base type is caught by SETTING_TYPES before the semantic check.
+    res = client.put("/api/admin/settings", json={"sessions_min_minutes": "lots"})
+    assert res.status_code == 400

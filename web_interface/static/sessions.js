@@ -155,12 +155,12 @@ async function sessLoadOverview() {
         return;
     }
     statusEl.textContent = 'Loading sessions…';
-    // No quality floors — the researcher ranks sessions via the table headers
-    // (the Coverage column carries the data-quality signal). min_plays and
-    // min_session_minutes are deliberately NOT sent, so the [sessions] config
-    // floors apply; the status line then reports what they removed.
+    // The list floors (plays / minutes / coverage) are deliberately NOT sent,
+    // so the admin-controlled defaults apply and the status line reports what
+    // they removed. min_emb_plays stays off — the researcher ranks sessions via
+    // the table headers, and the Coverage column carries that signal already.
     const qs = new URLSearchParams({
-        study, min_coverage: '0', min_emb_plays: '0',
+        study, min_emb_plays: '0',
         sort: sessState.sort.key, order: sessState.sort.order,
     });
     try {
@@ -185,9 +185,9 @@ async function sessLoadOverview() {
 
 
 
-// "N sessions in this study" — plus, when the [sessions] list floors actually
-// removed something, how many and on what rule. A count the researcher can't
-// reconcile with the rows on screen is worse than no count.
+// "N sessions in this study" — plus, when the admin-controlled list floors
+// actually removed something, how many and on what rule. A count the
+// researcher can't reconcile with the rows on screen is worse than no count.
 function sessStatusLine(data) {
     const total = sessNum(data.total_in_study, 0);
     const above = sessNum(data.total_above_floors, total);
@@ -203,9 +203,12 @@ function sessStatusLine(data) {
     if (sessNum(floors.min_session_minutes, 0) > 0) {
         rules.push(`${floors.min_session_minutes} min`);
     }
+    if (sessNum(floors.min_coverage, 0) > 0) {
+        rules.push(`${Math.round(floors.min_coverage * 100)}% coverage`);
+    }
     const rule = rules.length ? ` (min ${rules.join(', ')})` : '';
     return `${above.toLocaleString()} of ${total.toLocaleString()} session(s) in this study — `
-        + `${hidden.toLocaleString()} too short to list${rule}.`;
+        + `${hidden.toLocaleString()} below the listing floor${rule}.`;
 }
 
 
