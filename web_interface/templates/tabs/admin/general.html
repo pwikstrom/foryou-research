@@ -61,3 +61,50 @@
             style="color: var(--color-text-muted); margin-left: 4px;"></span>
     </div>
 </section>
+
+<!-- Sessions tab list floors -->
+<section style="margin-bottom: 28px;">
+    <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Sessions tab list floors</h3>
+    <p class="text-xs" style="margin: 0 0 12px 0; color: var(--color-text-muted);">
+        A session is listed on the Sessions tab only if it clears all three. 0 turns a
+        floor off. Applied when the tab is loaded, not when the artifacts are built —
+        changes take effect immediately and nothing is deleted, so lowering a floor
+        brings the sessions straight back. The tab reports how many it excluded.
+    </p>
+
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+        <label for="setting-sessions-min-plays" class="text-sm meta-tooltip" data-tooltip="No binge or low-entropy sequence has ever been detected in a session with fewer than 6 plays, so anything up to 6 hides nothing findable. Above that you are making a research choice."
+            style="color: var(--color-text-primary); min-width: 220px;">
+            Minimum plays per session
+        </label>
+        <input type="number" min="0" step="1" id="setting-sessions-min-plays"
+            onchange="saveSessionFloorSetting(this, 'sessions_min_plays', true)" disabled
+            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary); width: 120px;" />
+        <span id="setting-sessions-min-plays-status" class="text-xs"
+            style="color: var(--color-text-muted); margin-left: 4px;"></span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+        <label for="setting-sessions-min-minutes" class="text-sm meta-tooltip" data-tooltip="Short is not the same as empty — the shortest session carrying a real low-entropy sequence runs 13 seconds, so a minutes floor hides genuine findings sooner than the plays floor does."
+            style="color: var(--color-text-primary); min-width: 220px;">
+            Minimum session length (min)
+        </label>
+        <input type="number" min="0" step="0.5" id="setting-sessions-min-minutes"
+            onchange="saveSessionFloorSetting(this, 'sessions_min_minutes', false)" disabled
+            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary); width: 120px;" />
+        <span id="setting-sessions-min-minutes-status" class="text-xs"
+            style="color: var(--color-text-muted); margin-left: 4px;"></span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 8px;">
+        <label for="setting-sessions-min-coverage" class="text-sm meta-tooltip" data-tooltip="Share of the session's distinct videos that have a semantic embedding. Low-coverage sessions can look artificially homogeneous, because the entropy score only sees the embedded subset — but coverage reflects how much of the corpus has been enriched, not what the donor did."
+            style="color: var(--color-text-primary); min-width: 220px;">
+            Minimum embedded coverage (%)
+        </label>
+        <input type="number" min="0" max="100" step="5" id="setting-sessions-min-coverage"
+            onchange="saveSessionFloorSetting(this, 'sessions_min_coverage_pct', false, 100)" disabled
+            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary); width: 120px;" />
+        <span id="setting-sessions-min-coverage-status" class="text-xs"
+            style="color: var(--color-text-muted); margin-left: 4px;"></span>
+    </div>
+</section>

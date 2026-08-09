@@ -15,6 +15,7 @@ from ..admin_settings import (
     SETTING_TYPES as ADMIN_SETTING_TYPES,
     get_default_new_user_role,
     get_new_user_approval_required,
+    get_session_floors,
     load_admin_settings,
     save_admin_settings,
     validate_setting_value,
@@ -434,6 +435,10 @@ def api_admin_role_permissions(role_name):
 def api_admin_settings():
     if request.method == 'GET':
         merged = {**ADMIN_SETTINGS_DEFAULTS, **load_admin_settings()}
+        # Session floors fall back to the [sessions] config seed, not to
+        # DEFAULTS — report what the server will actually apply, or the admin
+        # page shows a number the Sessions tab is not using.
+        merged.update(get_session_floors())
         from fyp.annotation.backends import BACKEND_IDS, implemented_backend_ids
         return jsonify({"settings": merged,
                         "backend_ids": list(BACKEND_IDS),

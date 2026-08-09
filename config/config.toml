@@ -226,21 +226,35 @@ max_windows = 3
 context_plays = 3
 
 # Session-list floors: a session is listed on the Sessions tab only if it has
-# at least this many plays and lasts at least this many minutes. Applied at
-# QUERY time, not at build time — the artifacts stay complete, so raising or
-# lowering these takes effect on the next page load with no rebuild, and the
-# tab always reports how many sessions the floors removed.
+# at least this many plays, lasts at least this many minutes, and has at least
+# this share of its distinct videos embedded. Applied at QUERY time, not at
+# build time — the artifacts stay complete, so a change takes effect on the
+# next page load with no rebuild, and the tab always reports how many sessions
+# the floors removed.
 #
-# These are a deliberate research choice, not a safety floor: they sit above
-# the point where the detectors can still find something, so they DO hide a
-# few real findings. Measured on the 79,150-session corpus, 10 plays + 3
-# minutes lists 64.4% of sessions and hides 1,008 of the 32,645 that carry a
-# binge or a low-entropy sequence (3.09%) — 7 of them binges. The 3-minute
-# floor accounts for most of that loss (849 sessions; the shortest sequence
-# runs 13 s). Lower to 4 / 0.0 for the structurally safe setting, which hides
-# nothing findable but keeps the 1-play, 0-minute fragments.
+# These are the SEED values only. Admin → Site Settings → "Sessions tab list
+# floors" overrides them at runtime and, once saved there, wins over this file
+# (per key). Edit here to change what a fresh deployment starts with; edit
+# there to retune a running instance.
+#
+# The committed values are a deliberate research choice, not a safety floor:
+# they sit above the point where the detectors can still find something, so
+# they DO hide a few real findings. Measured on the 79,150-session corpus, 10
+# plays + 3 minutes lists 64.4% of sessions and hides 1,008 of the 32,645 that
+# carry a binge or a low-entropy sequence (3.09%) — 7 of them binges. The
+# 3-minute floor accounts for most of that loss (849 sessions; the shortest
+# sequence runs 13 s). Drop to 4 / 0.0 / 0 for the structurally safe setting,
+# which hides nothing findable but keeps the 1-play, 0-minute fragments.
+#
+# min_session_coverage_pct starts at 0 (off). It is the bluntest of the three:
+# coverage is an artifact of how much of the corpus has been scraped and
+# embedded, not of the donor's behaviour, so a coverage floor hides sessions
+# for a reason that says nothing about the session itself. Raise it when you
+# want the list to only offer sessions whose entropy scores rest on most of
+# their content.
 min_session_plays = 10
 min_session_minutes = 3.0
+min_session_coverage_pct = 0
 
 
 

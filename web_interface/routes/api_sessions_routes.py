@@ -35,10 +35,10 @@ from ..task_status import is_cloud_run
 
 sessions_bp = Blueprint('sessions_bp', __name__)
 
-# Default quality floors offered by the UI (query-time only — the artifact
-# itself is unfiltered). Derived from the embedding-entropy study's donor
-# floors, adapted to the single-session grain.
-DEFAULT_MIN_COVERAGE = 0.5
+# Default for the ad-hoc ``min_emb_plays`` quality filter (query-time only —
+# the artifact itself is unfiltered). From the embedding-entropy study's donor
+# floors, adapted to the single-session grain. The coverage floor that used to
+# sit beside it is now an admin setting; see _session_floors.
 DEFAULT_MIN_EMB_PLAYS = 5
 OVERVIEW_LIMIT_DEFAULT = 200
 OVERVIEW_LIMIT_MAX = 1000
@@ -49,14 +49,10 @@ OVERVIEW_LIMIT_MAX = 1000
 # to the client with every overview.
 DEFAULT_CONTEXT_PLAYS = 3
 
-# ``[sessions] min_session_plays`` / ``min_session_minutes``: the floors below
-# which a session is not listed at all. These constants are the fallbacks for a
-# config that omits the keys, and are deliberately the structurally safe pair —
-# nothing can be detected below ``binge_min_videos``, and a short session can
-# still carry a genuine low-entropy sequence. The committed config sets the
-# instance's actual (stricter) research values.
-DEFAULT_MIN_SESSION_PLAYS = 4
-DEFAULT_MIN_SESSION_MINUTES = 0.0
+# The session-list floors (plays / minutes / embedded-coverage) are owned by
+# the admin settings store, which resolves admin setting > [sessions] config >
+# its own fallbacks — so an admin can retune them from Admin → Site Settings
+# with no rebuild. See admin_settings.get_session_floors.
 
 # Columns the overview endpoint returns per session row.
 _OVERVIEW_COLS = [
@@ -253,22 +249,23 @@ def _context_plays() -> int:
 
 
 def _session_floors() -> dict:
-    """``[sessions]`` list floors from the live config (non-negative).
+    """The session-list floors, in the units this endpoint filters on.
 
-    Applied at query time, so a config edit takes effect on the next request
+    Applied at query time, so an admin edit takes effect on the next request
     with no artifact rebuild — the index itself stays complete and every
     excluded session is still counted in ``total_in_study``.
+
+    ``min_coverage`` is converted from the admin-facing percentage to the 0-1
+    fraction ``coverage_embedded`` is stored as.
     """
-    cfg = _sessions_config()
-    try:
-        plays = max(int(cfg.get("min_session_plays", DEFAULT_MIN_SESSION_PLAYS)), 0)
-    except (TypeError, ValueError):
-        plays = DEFAULT_MIN_SESSION_PLAYS
-    try:
-        minutes = max(float(cfg.get("min_session_minutes", DEFAULT_MIN_SESSION_MINUTES)), 0.0)
-    except (TypeError, ValueError):
-        minutes = DEFAULT_MIN_SESSION_MINUTES
-    return {"min_plays": plays, "min_session_minutes": minutes}
+    from web_interface.admin_settings import get_session_floors
+
+    floors = get_session_floors()
+    return {
+        "min_plays": int(floors["sessions_min_plays"]),
+        "min_session_minutes": float(floors["sessions_min_minutes"]),
+        "min_coverage": float(floors["sessions_min_coverage_pct"]) / 100.0,
+    }
 
 
 
@@ -318,11 +315,12 @@ def api_sessions_overview():
     (one of the index metrics; default ``min_window_cosdist``), ``order``
     (``asc``/``desc``), ``limit``.
 
-    ``min_plays`` and ``min_session_minutes`` default to the ``[sessions]``
-    config floors (``min_session_plays`` / ``min_session_minutes``) — the
-    query param is the per-request override, e.g. ``min_plays=0`` to see
-    everything. Excluded sessions still count towards ``total_in_study``, so
-    the caller can always say how many the floors removed.
+    ``min_plays``, ``min_session_minutes`` and ``min_coverage`` default to the
+    admin-controlled session-list floors (Admin → Site Settings, seeded by
+    ``[sessions]`` config); each query param is the per-request override, e.g.
+    ``min_plays=0`` to see everything. Excluded sessions still count towards
+    ``total_in_study``, so the caller can always say how many the floors
+    removed.
     """
     study = (request.args.get('study') or '').strip()
     if not study:
@@ -340,7 +338,7 @@ def api_sessions_overview():
 
     floors = _session_floors()
     try:
-        min_coverage = float(request.args.get('min_coverage', DEFAULT_MIN_COVERAGE))
+        min_coverage = float(request.args.get('min_coverage', floors["min_coverage"]))
         min_emb = int(request.args.get('min_emb_plays', DEFAULT_MIN_EMB_PLAYS))
         min_plays = int(request.args.get('min_plays', floors["min_plays"]))
         min_minutes = float(request.args.get('min_session_minutes',
@@ -356,17 +354,16 @@ def api_sessions_overview():
     cids = _study_collection_ids(study)
     df = index[index["collection_id"].isin(cids)]
     total_in_study = int(len(df))
-    # The list floors are separated from the quality floors so the client can
-    # report "N too short to list" without conflating it with coverage.
+    # The three admin-controlled list floors are applied as one block, so the
+    # client can report a single "N not listed" count it can reconcile with the
+    # rows on screen; min_emb_plays stays a separate ad-hoc quality filter.
     df = df[
         (df["n_plays"].fillna(0) >= min_plays)
         & (df["duration_min"].fillna(0) >= min_minutes)
+        & (df["coverage_embedded"].fillna(0) >= min_coverage)
     ]
     total_above_floors = int(len(df))
-    df = df[
-        (df["coverage_embedded"].fillna(0) >= min_coverage)
-        & (df["n_embedded"].fillna(0) >= min_emb)
-    ]
+    df = df[df["n_embedded"].fillna(0) >= min_emb]
     total_matching = int(len(df))
     df = df.sort_values(sort, ascending=ascending, na_position='last').head(limit)
 
@@ -386,12 +383,13 @@ def api_sessions_overview():
         "returned": len(sessions),
         "meta": meta,
         "params": _display_params(meta),
-        "floors": {"min_plays": min_plays, "min_session_minutes": min_minutes},
+        "floors": {"min_plays": min_plays, "min_session_minutes": min_minutes,
+                   "min_coverage": min_coverage},
         "defaults": {
-            "min_coverage": DEFAULT_MIN_COVERAGE,
             "min_emb_plays": DEFAULT_MIN_EMB_PLAYS,
             "min_plays": floors["min_plays"],
             "min_session_minutes": floors["min_session_minutes"],
+            "min_coverage": floors["min_coverage"],
         },
     })
 

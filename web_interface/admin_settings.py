@@ -31,6 +31,22 @@ DEFAULTS: dict = {
     # Admins always bypass. Server-side clamp — the UI shows when it applied.
     "queue_cap_annotation_items": 5000,
     "queue_cap_scrape_items": 10000,
+    # Sessions-tab list floors. These entries are the LAST-RESORT fallbacks —
+    # resolution is admin setting > [sessions] config > here (see
+    # get_session_floors), so an instance that never opens the admin page keeps
+    # its committed config values. Deliberately the structurally safe pair plus
+    # no coverage floor: nothing findable is hidden at these values.
+    "sessions_min_plays": 4,
+    "sessions_min_minutes": 0.0,
+    "sessions_min_coverage_pct": 0.0,
+}
+
+
+# Sessions-tab floors, in (settings key, [sessions] config key) pairs.
+SESSION_FLOOR_KEYS: dict = {
+    "sessions_min_plays": "min_session_plays",
+    "sessions_min_minutes": "min_session_minutes",
+    "sessions_min_coverage_pct": "min_session_coverage_pct",
 }
 
 
@@ -44,6 +60,9 @@ SETTING_TYPES: dict = {
     EMBEDDING_BACKEND_KEY: str,
     "queue_cap_annotation_items": int,
     "queue_cap_scrape_items": int,
+    "sessions_min_plays": int,
+    "sessions_min_minutes": (int, float),
+    "sessions_min_coverage_pct": (int, float),
 }
 
 
@@ -76,6 +95,12 @@ def validate_setting_value(key: str, value) -> str | None:
     elif key in ("queue_cap_annotation_items", "queue_cap_scrape_items"):
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             return f"{key} must be a non-negative integer (0 = unlimited)"
+    elif key in SESSION_FLOOR_KEYS:
+        # bool is an int subclass — reject it explicitly or True becomes 1.
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            return f"{key} must be a non-negative number (0 = no floor)"
+        if key == "sessions_min_coverage_pct" and value > 100:
+            return "sessions_min_coverage_pct must be a percentage between 0 and 100"
     return None
 
 
@@ -100,6 +125,45 @@ def get_queue_cap(queue_kind: str) -> int:
     return max(0, value)
 
 
+
+
+
+
+def get_session_floors() -> dict:
+    """Effective Sessions-tab list floors, keyed by settings key.
+
+    Resolution order per key: the admin setting if an admin has ever saved one,
+    else the ``[sessions]`` config seed, else :data:`DEFAULTS`. Config stays the
+    committed default so an instance that never opens the admin page keeps its
+    deployed behaviour; the admin store is the runtime override, so changing a
+    floor needs no rebuild.
+
+    Values are floors, never negative; the coverage entry is a percentage
+    (0-100), which is what the admin types — callers convert to the 0-1
+    fraction the index stores.
+
+    Returns:
+        ``{"sessions_min_plays": int, "sessions_min_minutes": float,
+        "sessions_min_coverage_pct": float}``.
+    """
+    from fyp.fyp_config import fyp_cf
+
+    stored = load_admin_settings()
+    cfg = fyp_cf.get("sessions", {})
+    if not isinstance(cfg, dict):
+        cfg = {}
+
+    out: dict = {}
+    for key, cfg_key in SESSION_FLOOR_KEYS.items():
+        raw = stored.get(key, cfg.get(cfg_key, DEFAULTS.get(key)))
+        caster = int if key == "sessions_min_plays" else float
+        try:
+            value = caster(raw)
+        except (TypeError, ValueError):
+            value = caster(DEFAULTS.get(key, 0))
+        out[key] = max(value, caster(0))
+    out["sessions_min_coverage_pct"] = min(out["sessions_min_coverage_pct"], 100.0)
+    return out
 
 
 

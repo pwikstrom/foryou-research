@@ -121,10 +121,16 @@
                 roleSelect.disabled = false;
             }
 
-            // General → Cost guardrail caps
+            // General → Cost guardrail caps + Sessions-tab list floors. The
+            // server sends the EFFECTIVE floors (admin setting, else the
+            // [sessions] config seed), so these fields always show what the
+            // Sessions tab is actually applying.
             const capFields = [
                 ['setting-queue-cap-annotation', 'queue_cap_annotation_items'],
                 ['setting-queue-cap-scrape', 'queue_cap_scrape_items'],
+                ['setting-sessions-min-plays', 'sessions_min_plays'],
+                ['setting-sessions-min-minutes', 'sessions_min_minutes'],
+                ['setting-sessions-min-coverage', 'sessions_min_coverage_pct'],
             ];
             capFields.forEach(([elId, key]) => {
                 const input = document.getElementById(elId);
@@ -193,14 +199,33 @@
         }
     }
 
-    async function saveQueueCapSetting(input, key) {
+    function saveQueueCapSetting(input, key) {
+        return saveNumericSetting(input, key, { integer: true });
+    }
+
+    // Sessions-tab list floors — same save path, but minutes/coverage are
+    // fractional and coverage is a bounded percentage.
+    function saveSessionFloorSetting(input, key, integer, max) {
+        return saveNumericSetting(input, key, { integer: !!integer, max });
+    }
+
+    // Persist one non-negative numeric setting, reverting the field if the
+    // server rejects it — a silently-kept value the server never stored is
+    // worse than a visible failure.
+    async function saveNumericSetting(input, key, opts) {
+        const { integer = true, max } = opts || {};
         const status = document.getElementById(`${input.id}-status`);
         const previous = (window._adminSettings || {})[key] ?? 0;
-        const desired = parseInt(input.value, 10);
+        const desired = integer ? parseInt(input.value, 10) : parseFloat(input.value);
 
-        if (!Number.isInteger(desired) || desired < 0) {
+        if (!Number.isFinite(desired) || desired < 0 || (integer && !Number.isInteger(desired))) {
             input.value = previous;
-            if (status) status.textContent = 'Must be a non-negative integer';
+            if (status) status.textContent = `Must be a non-negative ${integer ? 'integer' : 'number'}`;
+            return;
+        }
+        if (max !== undefined && desired > max) {
+            input.value = previous;
+            if (status) status.textContent = `Must be ${max} or less`;
             return;
         }
 
@@ -222,7 +247,7 @@
                 setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
             }
         } catch (e) {
-            console.error('saveQueueCapSetting:', e);
+            console.error(`saveNumericSetting(${key}):`, e);
             input.value = previous; // revert
             if (status) status.textContent = `Failed — reverted (${e.message})`;
         } finally {
