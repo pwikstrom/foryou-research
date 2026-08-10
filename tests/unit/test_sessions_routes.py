@@ -345,6 +345,87 @@ def test_overview_unknown_sort_falls_back(client, patched_routes):
 
 
 
+_BASE = "/api/sessions/overview?study=s&min_coverage=0&min_emb_plays=0&min_plays=0&min_session_minutes=0"
+
+
+
+
+def test_overview_reports_filter_ranges(client, patched_routes):
+    """The ranges block carries slider bounds, unmoved by the user's filters."""
+    body = client.get(_BASE).get_json()
+    assert body["ranges"]["start_date"] == ["2026-01-01", "2026-01-03"]
+    assert body["ranges"]["n_plays"] == [12.0, 80.0]
+    assert body["ranges"]["min_window_cosdist"] == [0.30, 0.55]
+    assert body["ranges"]["n_episodes"] == [0.0, 2.0]
+    assert body["page"] == 0
+    assert body["page_size"] == 200
+
+    filtered = client.get(_BASE + "&f_plays_min=20").get_json()
+    assert filtered["ranges"] == body["ranges"]
+
+
+
+
+
+
+def test_overview_range_filters(client, patched_routes):
+    res = client.get(_BASE + "&f_plays_min=20&f_plays_max=50")
+    assert [s["session_id"] for s in res.get_json()["sessions"]] == ["colA__0"]
+
+    res = client.get(_BASE + "&f_binges_min=1")
+    assert {s["session_id"] for s in res.get_json()["sessions"]} == {"colA__0", "colB__0"}
+
+    # A bounded numeric filter drops the session with no value for the metric.
+    res = client.get(_BASE + "&f_entropy_max=0.9")
+    assert {s["session_id"] for s in res.get_json()["sessions"]} == {"colA__0", "colB__0"}
+
+    res = client.get(_BASE + "&f_length_min=25&f_coverage_min=0.75")
+    assert [s["session_id"] for s in res.get_json()["sessions"]] == ["colB__0"]
+
+    res = client.get(_BASE + "&f_plays_min=junk")
+    assert res.status_code == 400
+
+
+
+
+
+
+def test_overview_date_filter_is_inclusive(client, patched_routes):
+    res = client.get(_BASE + "&f_start_min=2026-01-02&f_start_max=2026-01-02")
+    assert [s["session_id"] for s in res.get_json()["sessions"]] == ["colA__1"]
+
+    res = client.get(_BASE + "&f_start_max=2026-01-02")
+    assert {s["session_id"] for s in res.get_json()["sessions"]} == {"colA__0", "colA__1"}
+
+    res = client.get(_BASE + "&f_start_min=not-a-date")
+    assert res.status_code == 400
+
+
+
+
+
+
+def test_overview_pagination_clamps(client, patched_routes):
+    body = client.get(_BASE + "&limit=2&page=0").get_json()
+    assert body["total_matching"] == 3
+    assert body["returned"] == 2
+    assert body["page"] == 0
+    assert body["page_size"] == 2
+
+    body = client.get(_BASE + "&limit=2&page=1").get_json()
+    assert body["returned"] == 1
+    assert body["page"] == 1
+
+    # A page past the end clamps to the last non-empty one.
+    body = client.get(_BASE + "&limit=2&page=99").get_json()
+    assert body["page"] == 1
+    assert body["returned"] == 1
+
+
+
+
+
+
 def test_overview_404_without_artifact(client, patched_routes, monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
     monkeypatch.setattr(mod, "_load_index", lambda: None)
