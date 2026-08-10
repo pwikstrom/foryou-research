@@ -225,6 +225,24 @@ max_windows = 3
 # sequence the Sessions-tab player offers as (clearly marked) context.
 context_plays = 3
 
+# A binge is called "directed" (a rabbit hole that travels, rather than one
+# that circles a topic) when its straightness beats this share of REORDERINGS
+# OF ITS OWN MEMBERS — the permutation p-value stored as direction_p. Read at
+# query time, so changing it re-labels immediately without a rebuild.
+# Raw straightness cannot be thresholded directly: it falls like 1/sqrt(steps)
+# under any random walk (measured: -0.92 rank correlation with binge length),
+# so the pre-2026-08 fixed 0.5 cut was a length test that never once fired.
+# Reversing an order leaves straightness unchanged, so the smallest reachable
+# p is 2/k! — binges under 5 videos cannot be tested at all and report null.
+drift_p = 0.05
+
+# Within-binge trend scan: the smallest number of members carrying a variable
+# before that variable is tested for a monotone trend across the binge.
+# Below 7 the exact permutation test cannot survive multiplicity correction
+# across the ~9 scanned variables, so a lower value would only manufacture
+# findings. Sequences are always window_n videos long and are never scanned.
+trend_min_videos = 7
+
 # Session-list floors: a session is listed on the Sessions tab only if it has
 # at least this many plays, lasts at least this many minutes, and has at least
 # this share of its distinct videos embedded. Applied at QUERY time, not at

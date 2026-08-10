@@ -1,5 +1,7 @@
 """Unit tests for the embedding-entropy measures (fyp.analysis.entropy_metrics)."""
 
+import math
+
 import numpy as np
 import pytest
 
@@ -105,3 +107,69 @@ def test_trajectory_geometry_separates_binge_from_drift():
     assert geo_drift["straightness"] > 0.9
     assert geo_binge["straightness"] < geo_drift["straightness"]
     assert geo_binge["diameter"] < drift.shape[0] * geo_drift["step_mean"]
+
+
+
+
+
+
+def test_direction_permutation_p_is_length_free_where_straightness_is_not():
+    """The whole point of the permutation null.
+
+    Raw straightness is net displacement over path length, so it shrinks like
+    1/sqrt(steps) under any random walk — a fixed cut is a length test. The
+    permutation p holds the video SET fixed and randomises only the order, so a
+    stationary cloud scores ~uniform at every length.
+    """
+    rng = np.random.default_rng(11)
+
+    def directed(k):
+        t = np.linspace(0, 0.9, k)
+        v = np.vstack([[np.cos(a), np.sin(a)] + [0.0] * 30 for a in t])
+        return v / np.linalg.norm(v, axis=1, keepdims=True)
+
+    def cloud(k, seed):
+        v = np.random.default_rng(seed).normal(size=(k, 32))
+        return v / np.linalg.norm(v, axis=1, keepdims=True)
+
+    for k in (6, 8, 12):
+        assert em.direction_permutation_p(directed(k)) < 0.05, k
+
+    # Raw straightness collapses with length; the p-value does not.
+    raw = [em.trajectory_geometry(cloud(k, 5))["straightness"] for k in (6, 20)]
+    assert raw[0] > raw[1]
+    ps = [em.direction_permutation_p(cloud(k, 5)) for k in (6, 20)]
+    assert all(p > 0.05 for p in ps)
+    assert rng is not None
+
+
+
+
+
+
+def test_direction_permutation_p_refuses_runs_it_cannot_reject():
+    """Reversal ties every ordering, so 4 videos can never reach p < 0.05."""
+    t = np.linspace(0, 0.9, 4)
+    v = np.vstack([[np.cos(a), np.sin(a)] + [0.0] * 30 for a in t])
+    v /= np.linalg.norm(v, axis=1, keepdims=True)
+    assert np.isnan(em.direction_permutation_p(v))
+
+
+
+
+
+
+def test_direction_permutation_p_floor_and_determinism():
+    t = np.linspace(0, 0.9, 6)
+    v = np.vstack([[np.cos(a), np.sin(a)] + [0.0] * 30 for a in t])
+    v /= np.linalg.norm(v, axis=1, keepdims=True)
+    # Enumerated null (k <= 8): the floor is 2/k!, never 0 — the observed
+    # ordering counts itself and its reversal ties it.
+    assert em.direction_permutation_p(v) == pytest.approx(2 / math.factorial(6))
+
+    # Sampled null (k > 8) must be reproducible: the artifact build has to be a
+    # pure function of its inputs, or two runs disagree.
+    big = np.random.default_rng(4).normal(size=(15, 32))
+    big /= np.linalg.norm(big, axis=1, keepdims=True)
+    assert em.direction_permutation_p(big) == em.direction_permutation_p(big)
+    assert em.direction_permutation_p(big) > 0.0

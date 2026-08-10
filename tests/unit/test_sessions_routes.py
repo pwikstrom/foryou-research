@@ -278,7 +278,11 @@ def test_display_params_fall_back_to_config_for_an_older_artifact():
     from fyp.analysis import session_explorer
 
     assert mod._display_params(None) == {
-        **session_explorer.default_params(), "context_plays": mod._context_plays()}
+        **session_explorer.default_params(),
+        "context_plays": mod._context_plays(),
+        "drift_p": mod._drift_p(),
+        "trend_min_videos": mod._trend_min_videos(),
+    }
     assert mod._display_params({"params": {}})["window_n"] == \
         session_explorer.default_params()["window_n"]
 
@@ -454,3 +458,261 @@ def test_status_reports_model_mismatch(client, patched_routes, monkeypatch):
     assert body["artifact_exists"] is True
     if body["active_embedding_model"]:
         assert body["model_mismatch"] is True
+
+
+
+
+
+
+def test_spearman_exact_matches_the_combinatorial_floor():
+    """The reason we do not use scipy's default p-value.
+
+    scipy's Spearman p is a t-approximation that returns ~0 for a perfect
+    ordering of 4 items, where the exact answer is 2/4! = 0.083. On the
+    production corpus that approximation turned a 3.4% hit rate into 21.6%.
+    """
+    import math
+
+    import numpy as np
+
+    import web_interface.routes.api_sessions_routes as mod
+
+    for n in (4, 5, 6, 7, 8):
+        rho, p = mod._spearman_exact(np.arange(n, dtype=float))
+        assert rho == pytest.approx(1.0)
+        assert p == pytest.approx(2 / math.factorial(n), rel=1e-6), n
+
+    # Above the exact cutoff the null is sampled; (1+hits)/(1+m) keeps the
+    # p-value off zero, which a plain mean would not.
+    _, p_big = mod._spearman_exact(np.arange(12, dtype=float))
+    assert 0 < p_big < 0.001
+    # Reversed data is equally extreme, and a flat variable has no trend.
+    assert mod._spearman_exact(np.arange(6, dtype=float)[::-1])[1] == pytest.approx(2 / 720)
+    assert np.isnan(mod._spearman_exact(np.zeros(6))[0])
+
+
+
+
+
+
+def test_benjamini_hochberg_is_monotone_and_bounded():
+    import web_interface.routes.api_sessions_routes as mod
+
+    q = mod._benjamini_hochberg([0.001, 0.02, 0.3, 0.9])
+    assert q == [pytest.approx(0.004), pytest.approx(0.04), pytest.approx(0.4), pytest.approx(0.9)]
+    # ONE lucky variable among nine null ones pays the full multiplicity price:
+    # 0.03 * 10 / 1 = 0.3, so it stops being a "finding". This is the case the
+    # scan actually faces — ~9 variables tested on one short binge.
+    assert mod._benjamini_hochberg([0.03] + [0.9] * 9)[0] == pytest.approx(0.3)
+
+    # But BH is step-up, not Bonferroni: when EVERY variable is equally small,
+    # none is penalised for the others. Asserting 0.3 here would be wrong.
+    assert mod._benjamini_hochberg([0.03] * 10)[0] == pytest.approx(0.03)
+    assert all(x <= 1.0 for x in mod._benjamini_hochberg([0.9, 0.95, 0.99]))
+
+
+
+
+
+
+def _members(n, dwell=None):
+    return [{"item_id": f"v{i}", "ts": f"2026-01-01T10:{i:02d}:00",
+             "dwell_s": None if dwell is None else dwell[i]} for i in range(n)]
+
+
+
+
+
+
+def test_scan_trend_finds_a_planted_trend_and_names_it():
+    import numpy as np
+    import pandas as pd
+
+    import web_interface.routes.api_sessions_routes as mod
+
+    n = 9
+    feat = pd.DataFrame({
+        "log_plays": np.arange(n, dtype=float),            # perfectly rising
+        "faves_per_K_play": np.random.default_rng(2).normal(size=n),
+    }, index=pd.Index([f"v{i}" for i in range(n)], name="item_id"))
+
+    out = mod._scan_trend(_members(n), feat, min_n=7)
+    assert out["trend"] is not None
+    assert out["trend"]["variable"] == "log_plays"
+    assert out["trend"]["direction"] == "rising"
+    assert out["trend"]["rho"] == pytest.approx(1.0)
+    assert out["trend"]["q"] < 0.05
+    assert out["scanned"] >= 1
+
+
+
+
+
+
+def test_scan_trend_reports_why_it_could_not_run():
+    """A silent 'no trend' would read as evidence of absence."""
+    import pandas as pd
+
+    import web_interface.routes.api_sessions_routes as mod
+
+    out = mod._scan_trend(_members(5), pd.DataFrame(), min_n=7)
+    assert out["trend"] is None
+    assert out["scanned"] == 0            # nothing was testable...
+    assert out["n_members"] == 5 and out["min_n"] == 7   # ...and the UI can say why
+
+
+
+
+
+
+def test_scan_trend_does_not_flag_noise():
+    import numpy as np
+    import pandas as pd
+
+    import web_interface.routes.api_sessions_routes as mod
+
+    rng = np.random.default_rng(0)
+    n = 10
+    feat = pd.DataFrame({f"var{j}": rng.normal(size=n) for j in range(8)},
+                        index=pd.Index([f"v{i}" for i in range(n)], name="item_id"))
+    flagged = 0
+    for _ in range(20):
+        feat = pd.DataFrame({f"var{j}": rng.normal(size=n) for j in range(8)},
+                            index=pd.Index([f"v{i}" for i in range(n)], name="item_id"))
+        if mod._scan_trend(_members(n), feat, min_n=7)["trend"] is not None:
+            flagged += 1
+    # BH across 8 noise variables should keep this near the nominal rate.
+    assert flagged <= 3, f"{flagged}/20 noise binges flagged — correction is not biting"
+
+
+
+
+
+
+def test_scan_trend_includes_per_play_dwell():
+    """Dwell is per-PLAY so it is absent from the per-video map, yet it is the
+    variable most likely to trend within a binge (satiation)."""
+    import pandas as pd
+
+    import web_interface.routes.api_sessions_routes as mod
+
+    n = 9
+    out = mod._scan_trend(_members(n, dwell=list(range(n, 0, -1))), pd.DataFrame(), min_n=7)
+    assert out["trend"] is not None
+    assert out["trend"]["variable"] == "dwell_s"
+    assert out["trend"]["direction"] == "falling"
+
+
+
+
+
+
+def test_creator_count_reports_its_denominator():
+    import pandas as pd
+
+    import web_interface.routes.api_sessions_routes as mod
+
+    feat = pd.DataFrame({"author": ["a", "b", "a", None]},
+                        index=pd.Index([f"v{i}" for i in range(4)], name="item_id"))
+    out = mod._creator_count([f"v{i}" for i in range(4)], feat)
+    # 2 distinct creators over the 3 videos that have one — not "2 of 4".
+    assert out == {"n_creators": 2, "n_attributed": 3, "n_items": 4}
+
+    # An entirely unscraped run must not read as "0 creators" without context.
+    empty = mod._creator_count(["v9"], pd.DataFrame())
+    assert empty == {"n_creators": 0, "n_attributed": 0, "n_items": 1}
+
+
+
+
+
+
+def test_overview_marks_sessions_holding_a_directed_binge(client, patched_routes, monkeypatch):
+    import pandas as pd
+
+    import web_interface.routes.api_sessions_routes as mod
+
+    counts = pd.Series(
+        [1, 0], index=pd.MultiIndex.from_tuples([("colA", "colA__0"), ("colB", "colB__0")]))
+    monkeypatch.setattr(mod, "_directed_counts", lambda: counts)
+
+    body = client.get("/api/sessions/overview?study=s&min_emb_plays=0&min_plays=0").get_json()
+    by_id = {s["session_id"]: s for s in body["sessions"]}
+    assert by_id["colA__0"]["n_directed_episodes"] == 1
+    assert by_id["colB__0"]["n_directed_episodes"] == 0
+    # A session absent from the episodes artifact has no binges, hence none directed.
+    assert by_id["colA__1"]["n_directed_episodes"] == 0
+
+
+
+
+
+
+def test_overview_reports_null_when_directedness_was_never_computed(client, patched_routes, monkeypatch):
+    """An artifact built before direction_p must not read as 'no directed binges'."""
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "_directed_counts", lambda: None)
+    body = client.get("/api/sessions/overview?study=s&min_emb_plays=0&min_plays=0").get_json()
+    assert all(s["n_directed_episodes"] is None for s in body["sessions"])
+
+    # Sorting by a column that artifact cannot supply must not 500.
+    res = client.get("/api/sessions/overview?study=s&min_emb_plays=0&min_plays=0"
+                     "&sort=n_directed_episodes")
+    assert res.status_code == 200
+
+
+
+
+
+
+def test_detail_attaches_creators_to_both_run_kinds(client, patched_routes, monkeypatch):
+    import pandas as pd
+
+    import web_interface.routes.api_sessions_routes as mod
+    import web_interface.routes.api_viewer_routes as viewer
+
+    plays = pd.DataFrame({
+        "item_id": pd.Series(["v1", "v2", "v3"], dtype="string"),
+        "_ts": pd.to_datetime(["2026-01-01T10:00:00", "2026-01-01T10:05:00",
+                               "2026-01-01T10:29:00"]),
+        "play_duration": [10.0, 20.0, 30.0],
+        "source_platform": ["tiktok"] * 3,
+    })
+    members = [{"item_id": "v1", "ts": "2026-01-01T10:00:00", "dwell_s": 10.0,
+                "rolling_cosdist": None},
+               {"item_id": "v2", "ts": "2026-01-01T10:05:00", "dwell_s": 20.0,
+                "rolling_cosdist": 0.1}]
+    feat = pd.DataFrame({
+        "niche_name": ["Recipes", "Recipes", None], "category": ["Food", "Food", None],
+        "story": ["s1", "s2", None], "political_score": [0.0, 0.0, None],
+        "sensitivity_score": [0.0, 0.0, None], "advertising": ["none", "none", None],
+        "author": ["chef_a", "chef_b", None],
+    }, index=pd.Index(["v1", "v2", "v3"], name="item_id"))
+
+    monkeypatch.setattr(mod, "_session_plays", lambda cid, row: plays)
+    monkeypatch.setattr(mod, "_session_episodes", lambda cid, sid: [
+        {"episode_idx": 0, "start_ts": "2026-01-01T10:00:00", "end_ts": "2026-01-01T10:06:00",
+         "n_distinct": 2, "direction_p": 0.01, "members": members}])
+    monkeypatch.setattr(mod, "_session_windows", lambda cid, sid: [
+        {"window_idx": 0, "start_ts": "2026-01-01T10:00:00", "end_ts": "2026-01-01T10:29:00",
+         "n_distinct": 2, "members": [members[0], {"item_id": "v3", "ts": "x", "dwell_s": 1.0}]}])
+    monkeypatch.setattr(mod, "_features", lambda: feat)
+    monkeypatch.setattr(mod, "_trend_frame", lambda ids: pd.DataFrame())
+    monkeypatch.setattr(mod, "_flag_sets", lambda: {
+        "scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()})
+    monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset())
+
+    body = client.get("/api/sessions/detail?study=s&collection_id=colA"
+                      "&session_id=colA__0").get_json()
+    # Binge: two videos, two different creators, both attributed.
+    assert body["episodes"][0]["creators"] == {
+        "n_creators": 2, "n_attributed": 2, "n_items": 2}
+    # Sequence: v3 has no known creator, so the denominator is reported.
+    assert body["windows"][0]["creators"] == {
+        "n_creators": 1, "n_attributed": 1, "n_items": 2}
+    # Trend scan rides along on binges, with an honest "not testable" shape.
+    assert body["episodes"][0]["trend_scan"]["trend"] is None
+    assert body["episodes"][0]["trend_scan"]["n_members"] == 2
+    # The client needs the thresholds even when a session is opened directly.
+    assert body["params"]["drift_p"] == mod._drift_p()

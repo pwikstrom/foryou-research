@@ -33,6 +33,8 @@ and dedupe repeated plays of the same video before measuring (a rewatch loop
 collapses the effective rank and fakes a binge).
 """
 
+import itertools
+
 import numpy as np
 
 # Numerical floors: vectors landing within EPS_NORM of the corpus mean have no
@@ -210,6 +212,75 @@ def trajectory_geometry(unit_ordered: np.ndarray) -> dict:
     straightness = float(net_disp / path_len) if path_len > 0 else float("nan")
     return {"diameter": diameter, "step_mean": step_mean, "path_len": path_len,
             "net_disp": net_disp, "straightness": straightness}
+
+
+
+
+def direction_permutation_p(unit_ordered: np.ndarray, max_exact: int = 8,
+                            n_perm: int = 2000, seed: int = 0) -> float:
+    """How unusual the run's straightness is against reorderings of ITSELF.
+
+    Raw :func:`trajectory_geometry` straightness cannot be thresholded at a
+    fixed value: it is net displacement over path length, which shrinks like
+    ``1/sqrt(steps)`` under any random walk, so a constant cut is really a
+    length test (measured on the production corpus: straightness correlates
+    -0.92 with run length, and no run of any length reached the historical 0.5
+    "drifting" cut).
+
+    The permutation null removes that confound. The set of videos is held
+    fixed and only their ORDER is randomised, which is exactly the question:
+    did the content travel in a direction, or did we merely order a stationary
+    cloud by time? The result is a p-value, comparable across run lengths.
+
+    Because reversing an order leaves straightness unchanged, every value
+    occurs at least twice, so the smallest attainable p is ``2/k!`` — 0.083 at
+    ``k = 4``. Runs shorter than 5 videos therefore cannot reach any
+    conventional threshold and return ``nan`` rather than a misleading number.
+
+    Args:
+        unit_ordered: An ``(k, d)`` array of directional vectors in time order.
+        max_exact: Enumerate every ordering up to this length; sample above it.
+        n_perm: Sampled orderings used when ``k > max_exact``.
+        seed: RNG seed for the sampled case, so the artifact stays
+            reproducible (the build must be a pure function of its inputs).
+
+    Returns:
+        ``P(straightness of a reordering >= observed)``, or ``nan`` when the
+        run is too short for the test to be able to reject.
+    """
+    k = unit_ordered.shape[0]
+    if k < 5:
+        return float("nan")
+
+    # Chordal distance matrix once: every candidate ordering is then O(k)
+    # table lookups instead of O(k*d) vector arithmetic (d is ~1536).
+    diff = unit_ordered[:, None, :] - unit_ordered[None, :, :]
+    dist = np.sqrt(np.einsum("ijk,ijk->ij", diff, diff))
+
+    if k <= max_exact:
+        orders = np.array(list(itertools.permutations(range(k))), dtype=np.intp)
+    else:
+        rng = np.random.default_rng(seed)
+        orders = np.array([rng.permutation(k) for _ in range(n_perm)], dtype=np.intp)
+
+    path = dist[orders[:, :-1], orders[:, 1:]].sum(axis=1)
+    net = dist[orders[:, 0], orders[:, -1]]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        straight = np.where(path > 0, net / path, np.nan)
+
+    observed = float(dist[0, k - 1] / dist[np.arange(k - 1), np.arange(1, k)].sum())
+    valid = np.isfinite(straight)
+    if not valid.any() or not np.isfinite(observed):
+        return float("nan")
+    hits = int((straight[valid] >= observed - 1e-12).sum())
+    total = int(valid.sum())
+    if k <= max_exact:
+        # Enumerated: the observed ordering is among them, so the count carries
+        # its own floor (2/k!, since a reversal ties it).
+        return hits / total
+    # Sampled: (1 + hits) / (1 + m). A plain mean can return exactly 0, which
+    # claims a certainty the sample cannot support.
+    return (1 + hits) / (1 + total)
 
 
 

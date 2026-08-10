@@ -14,8 +14,11 @@ precomputed into the artifacts, and per-item flags come from cheap id-set
 membership checks.
 """
 
+import itertools
 import time
+from functools import lru_cache
 
+import numpy as np
 import pandas as pd
 from flask import Blueprint, jsonify, request
 
@@ -49,6 +52,12 @@ OVERVIEW_LIMIT_MAX = 1000
 # to the client with every overview.
 DEFAULT_CONTEXT_PLAYS = 3
 
+# ``[sessions] drift_p`` / ``trend_min_videos`` fallbacks — both are read-side
+# thresholds applied to numbers already in the artifact, so changing them
+# re-labels immediately and needs no rebuild.
+DEFAULT_DRIFT_P = 0.05
+DEFAULT_TREND_MIN_VIDEOS = 7
+
 # The session-list floors (plays / minutes / embedded-coverage) are owned by
 # the admin settings store, which resolves admin setting > [sessions] config >
 # its own fallbacks — so an admin can retune them from Admin → Site Settings
@@ -67,12 +76,13 @@ _OVERVIEW_COLS = [
 _SORT_KEYS = {
     "min_window_cosdist", "min_window_entropy_norm", "duration_min", "n_plays",
     "n_distinct", "n_episodes", "episode_play_frac", "coverage_embedded",
-    "start_ts", "total_watch_s",
+    "start_ts", "total_watch_s", "n_directed_episodes",
 }
 
 # In-process caches, invalidated on the artifact file fingerprint (index /
 # meta) or a short TTL (the enrichment id sets, which have no single file).
 _INDEX_CACHE: dict = {"fingerprint": None, "df": None}
+_DIRECTED_CACHE: dict = {"fingerprint": None, "cut": None, "counts": None}
 _FLAGS_CACHE: dict = {"ts": 0.0, "model": None, "flags": None}
 _FEAT_CACHE: dict = {"ts": 0.0, "df": None}
 _FLAGS_TTL_S = 600.0
@@ -113,6 +123,44 @@ def _load_index() -> pd.DataFrame | None:
         _INDEX_CACHE["df"] = df
         _INDEX_CACHE["fingerprint"] = key
     return _INDEX_CACHE["df"]
+
+
+
+
+def _directed_counts() -> pd.Series | None:
+    """Per-session count of DIRECTED binges, indexed by (collection_id, session_id).
+
+    Read from the episodes artifact rather than a column on the session index:
+    there are only a few hundred episodes corpus-wide, so aggregating them per
+    request (fingerprint-cached) is cheaper than a schema change, and the
+    threshold stays live.
+
+    Returns None when the artifact predates ``direction_p`` — the caller must
+    then report "not computed" rather than zero, which would read as "no
+    session has a directed binge".
+    """
+    key = _fingerprint(session_explorer.EPISODES_FILE)
+    if key is None:
+        return None
+    cut = _drift_p()
+    if (_DIRECTED_CACHE["counts"] is not None
+            and _DIRECTED_CACHE["fingerprint"] == key
+            and _DIRECTED_CACHE["cut"] == cut):
+        return _DIRECTED_CACHE["counts"]
+    df = data_io.load_parquet_selective(
+        storage_location=session_explorer.ARTIFACT_LOCATION,
+        filename=session_explorer.EPISODES_FILE,
+        columns=["collection_id", "session_id", "direction_p"],
+    )
+    if df is None or "direction_p" not in df.columns:
+        return None
+    df = df.copy()
+    df["collection_id"] = df["collection_id"].astype("string")
+    df["session_id"] = df["session_id"].astype("string")
+    directed = pd.to_numeric(df["direction_p"], errors="coerce") < cut
+    counts = directed.groupby([df["collection_id"], df["session_id"]]).sum().astype("int32")
+    _DIRECTED_CACHE.update({"fingerprint": key, "cut": cut, "counts": counts})
+    return counts
 
 
 
@@ -207,6 +255,215 @@ def _story_map(item_ids: set[str]) -> dict[str, str]:
 
 
 
+# Map columns that are identifiers or map coordinates, not measurements — they
+# would "trend" meaninglessly (x/y are a 2D projection, niche is a cluster id).
+_TREND_EXCLUDE = {"item_id", "niche", "x", "y"}
+
+# Enumerate every ordering up to this length; sample above it. The Spearman
+# null depends only on n, so each length's null is built once per process.
+_TREND_MAX_EXACT = 8
+_TREND_SAMPLES = 20_000
+
+
+
+
+@lru_cache(maxsize=32)
+def _spearman_null(n: int) -> np.ndarray:
+    """Sorted ``|rho|`` under a random ordering of ``n`` items.
+
+    Distribution-free in the ranks, so it depends only on ``n`` — building it
+    once per length is what makes an exact test affordable per request.
+    Deliberately NOT scipy's default p-value: that is a t-approximation which
+    returns p ~ 0 for a perfect ordering of 4 items, where the exact answer is
+    0.083. On this corpus the approximation turned a 3.4% hit rate into 21.6%.
+    """
+    x = np.arange(n, dtype=float)
+    xc = x - x.mean()
+    if n <= _TREND_MAX_EXACT:
+        orders = np.array(list(itertools.permutations(range(n))), dtype=float)
+    else:
+        rng = np.random.default_rng(0)
+        orders = np.array([rng.permutation(n) for _ in range(_TREND_SAMPLES)], dtype=float)
+    oc = orders - orders.mean(axis=1, keepdims=True)
+    return np.sort(np.abs((oc @ xc) / (xc ** 2).sum()))
+
+
+
+
+def _spearman_exact(y: np.ndarray) -> tuple[float, float]:
+    """Spearman rho of ``y`` against position, with an exact permutation p."""
+    n = len(y)
+    ranks = pd.Series(y).rank().to_numpy()
+    x = np.arange(n, dtype=float)
+    xc, rc = x - x.mean(), ranks - ranks.mean()
+    denom = np.sqrt((rc ** 2).sum() * (xc ** 2).sum())
+    if denom <= 0:
+        return float("nan"), 1.0
+    rho = float((rc @ xc) / denom)
+    null = _spearman_null(n)
+    hits = int((null >= abs(rho) - 1e-12).sum())
+    if n <= _TREND_MAX_EXACT:
+        # Enumerated null: the observed ordering is one of them, so the count
+        # already carries its own floor (2/n!, since reversal ties it).
+        return rho, hits / len(null)
+    # Sampled null: (1 + hits) / (1 + m), the standard permutation-test
+    # estimator. A plain mean can return exactly 0, which claims a certainty
+    # the sample cannot support.
+    return rho, (1 + hits) / (1 + len(null))
+
+
+
+
+def _benjamini_hochberg(pvalues: list[float]) -> list[float]:
+    """BH-adjusted q-values, in the input order."""
+    m = len(pvalues)
+    order = sorted(range(m), key=lambda i: pvalues[i])
+    q = [1.0] * m
+    running = 1.0
+    for rank, i in enumerate(reversed(order), start=1):
+        running = min(running, pvalues[i] * m / (m - rank + 1))
+        q[i] = running
+    return q
+
+
+
+
+def _trend_frame(item_ids: set[str]) -> pd.DataFrame:
+    """Numeric per-video variables for one session's items (item_id-indexed).
+
+    The eligible columns are whatever the map artifact currently stores as a
+    number, minus the identifiers and map coordinates — so a newly-annotated
+    numeric field joins the scan without a code change. Filtered to the
+    session's few hundred items, so this is a small pushdown read, not a
+    corpus scan.
+    """
+    if not item_ids:
+        return pd.DataFrame()
+    try:
+        df = data_io.load_parquet_selective(
+            storage_location=embeddings.STORE_LOCATION, filename="video_map.parquet",
+            filters=[("item_id", "in", [str(i) for i in item_ids])],
+        )
+    except Exception:
+        return pd.DataFrame()
+    if df is None or df.empty or "item_id" not in df.columns:
+        return pd.DataFrame()
+    numeric = [c for c in df.columns
+               if c not in _TREND_EXCLUDE and pd.api.types.is_numeric_dtype(df[c])]
+    if not numeric:
+        return pd.DataFrame()
+    out = df[["item_id"] + numeric].copy()
+    out["item_id"] = out["item_id"].astype("string")
+    for col in numeric:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+    return out.drop_duplicates("item_id").set_index("item_id")
+
+
+
+
+def _scan_trend(members: list[dict], feat: pd.DataFrame, min_n: int) -> dict:
+    """Find the strongest monotone trend across one binge's ordered members.
+
+    Every numeric variable is tested with an exact permutation Spearman against
+    member position, and the resulting p-values are Benjamini-Hochberg adjusted
+    ACROSS the variables scanned — without that correction, scanning ~9
+    variables on a short run manufactures a "finding" for most binges.
+
+    Args:
+        members: The binge's members in time order (each with ``item_id`` and
+            ``dwell_s``).
+        feat: Numeric per-video variables, item_id-indexed.
+        min_n: Fewest non-null points a variable needs to be tested.
+
+    Returns:
+        A dict the card renders verbatim: ``scanned`` (how many variables had
+        enough data), ``n_members``, ``min_n``, and either ``trend`` (the
+        single strongest surviving result) or ``trend: None``. A null trend
+        with ``scanned: 0`` means "not testable", which the UI must not present
+        as "no trend exists".
+    """
+    ids = [str(m.get("item_id")) for m in members]
+    series: dict[str, np.ndarray] = {}
+    if not feat.empty:
+        sub = feat.reindex(ids)
+        for col in feat.columns:
+            series[col] = sub[col].to_numpy(dtype=float)
+    # Dwell rides along from the member list — it is per-PLAY, so it never
+    # appears in the per-video map, yet it is the variable most likely to
+    # trend within a binge (the satiation effect).
+    series["dwell_s"] = np.array(
+        [np.nan if m.get("dwell_s") is None else float(m["dwell_s"]) for m in members])
+
+    tested = []
+    for name, values in series.items():
+        ok = np.isfinite(values)
+        # A variable that barely varies has no monotone trend to find, and its
+        # tie-heavy ranks make the permutation null a poor approximation.
+        if int(ok.sum()) < min_n or len(np.unique(values[ok])) < 3:
+            continue
+        rho, p = _spearman_exact(values[ok])
+        if np.isfinite(rho):
+            tested.append({"variable": name, "rho": round(rho, 3),
+                           "p": round(p, 5), "n": int(ok.sum())})
+
+    out = {"scanned": len(tested), "n_members": len(members), "min_n": min_n,
+           "trend": None}
+    if not tested:
+        return out
+    for entry, q in zip(tested, _benjamini_hochberg([t["p"] for t in tested])):
+        entry["q"] = round(q, 5)
+    best = min(tested, key=lambda t: (t["q"], -abs(t["rho"])))
+    if best["q"] < 0.05:
+        best["direction"] = "rising" if best["rho"] > 0 else "falling"
+        best["label"] = _variable_label(best["variable"])
+        out["trend"] = best
+    return out
+
+
+
+
+@lru_cache(maxsize=1024)
+def _variable_label(name: str) -> str:
+    """Human-readable name for a scanned variable, from var_schema if present."""
+    try:
+        schema = fyp_cf.get("var_schema")
+        if schema is not None and name in schema.index:
+            display = schema.loc[name].get("display_name")
+            if isinstance(display, str) and display.strip():
+                return display.strip()
+    except Exception:
+        pass
+    return name.replace("_", " ")
+
+
+
+
+def _creator_count(item_ids: list[str], feat: pd.DataFrame) -> dict:
+    """Distinct known creators across a run, with how many items are attributed.
+
+    A bare count would silently under-report a run whose videos were never
+    scraped: 3 creators across 4 known authors is a different observation from
+    3 across 12, so both numbers travel together.
+    """
+    known = 0
+    authors: set[str] = set()
+    if not feat.empty and "author" in feat.columns:
+        for value in feat.reindex([str(i) for i in item_ids])["author"]:
+            if value is None:
+                continue
+            try:
+                if pd.isna(value):
+                    continue
+            except (TypeError, ValueError):
+                pass
+            known += 1
+            authors.add(str(value))
+    return {"n_creators": len(authors), "n_attributed": known,
+            "n_items": len(item_ids)}
+
+
+
+
 def _study_collection_ids(study: str) -> set[str]:
     """Collection ids whose sessions belong to ``study`` (already access-checked).
 
@@ -248,6 +505,31 @@ def _context_plays() -> int:
 
 
 
+def _drift_p() -> float:
+    """``[sessions] drift_p`` — the ``direction_p`` cut for calling a binge directed."""
+    try:
+        return max(min(float(_sessions_config().get("drift_p", DEFAULT_DRIFT_P)), 1.0), 0.0)
+    except (TypeError, ValueError):
+        return DEFAULT_DRIFT_P
+
+
+
+
+def _trend_min_videos() -> int:
+    """``[sessions] trend_min_videos`` — smallest scannable binge, floored at 5.
+
+    Below 5 members the exact permutation test cannot reach any conventional
+    threshold at all, so a smaller value would not widen coverage, only
+    misrepresent what was tested.
+    """
+    try:
+        return max(int(_sessions_config().get("trend_min_videos", DEFAULT_TREND_MIN_VIDEOS)), 5)
+    except (TypeError, ValueError):
+        return DEFAULT_TREND_MIN_VIDEOS
+
+
+
+
 def _session_floors() -> dict:
     """The session-list floors, in the units this endpoint filters on.
 
@@ -284,6 +566,8 @@ def _display_params(meta: dict | None) -> dict:
     if isinstance(built, dict):
         params.update({k: v for k, v in built.items() if k in params})
     params["context_plays"] = _context_plays()
+    params["drift_p"] = _drift_p()
+    params["trend_min_videos"] = _trend_min_videos()
     return params
 
 
@@ -365,6 +649,17 @@ def api_sessions_overview():
     total_above_floors = int(len(df))
     df = df[df["n_embedded"].fillna(0) >= min_emb]
     total_matching = int(len(df))
+
+    # Directed-binge counts join BEFORE the sort so the column is sortable —
+    # ranking sessions by it is how a researcher hunts rabbit holes.
+    directed = _directed_counts()
+    if directed is not None:
+        df = df.copy()
+        keys = pd.MultiIndex.from_arrays([df["collection_id"], df["session_id"]])
+        df["n_directed_episodes"] = directed.reindex(keys).fillna(0).astype("int32").to_numpy()
+    if sort not in df.columns:
+        # e.g. sorting by directed binges against an artifact that has none.
+        sort = "min_window_cosdist"
     df = df.sort_values(sort, ascending=ascending, na_position='last').head(limit)
 
     display = load_display_id_map()
@@ -372,6 +667,10 @@ def api_sessions_overview():
     for _, row in df.iterrows():
         rec = {col: _clean(row.get(col)) for col in _OVERVIEW_COLS}
         rec["collection_label"] = display.get(rec["collection_id"], rec["collection_id"])
+        # None (not 0) when the artifact predates direction_p: the client must
+        # be able to tell "no directed binges" from "never measured".
+        rec["n_directed_episodes"] = (
+            _clean(row.get("n_directed_episodes")) if directed is not None else None)
         sessions.append(rec)
 
     meta = _load_meta()
@@ -482,7 +781,7 @@ def _session_episodes(collection_id: str, session_id: str) -> list[dict]:
         ep = {col: _clean(row.get(col)) for col in (
             "episode_idx", "start_ts", "end_ts", "duration_min", "n_plays",
             "n_distinct", "repeat_rate", "n_interleaved", "focus", "diameter",
-            "step_mean", "straightness", "spectral_entropy_bits",
+            "step_mean", "straightness", "direction_p", "spectral_entropy_bits",
             "effective_rank", "dominant_niche", "dominant_niche_share",
             "n_niches", "n_authors", "dominant_author_share", "advertising",
             "advertising_share", "mean_political", "mean_sensitivity",
@@ -619,6 +918,18 @@ def api_sessions_detail():
             "episode_idx": episode_idx,
         })
 
+    # Per-run creator counts and the within-binge trend scan, both computed
+    # here rather than baked into the artifact: they need no embedding
+    # vectors, so they stay live and a change needs no rebuild.
+    trend_feat = _trend_frame({str(i) for i in plays["item_id"]})
+    min_n = _trend_min_videos()
+    for ep in episodes:
+        ids = [m["item_id"] for m in ep["members"]]
+        ep["creators"] = _creator_count(ids, feat)
+        ep["trend_scan"] = _scan_trend(ep["members"], trend_feat, min_n)
+    for w in windows:
+        w["creators"] = _creator_count([m["item_id"] for m in w["members"]], feat)
+
     display = load_display_id_map()
     session = {col: _clean(session_row.get(col)) for col in _OVERVIEW_COLS}
     session["collection_label"] = display.get(collection_id, collection_id)
@@ -627,6 +938,7 @@ def api_sessions_detail():
         "plays": play_rows,
         "episodes": episodes,
         "windows": windows,
+        "params": _display_params(_load_meta()),
     })
 
 
