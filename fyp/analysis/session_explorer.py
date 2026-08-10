@@ -101,6 +101,41 @@ PROGRESS_PREFIX = "sessions_progress__"
 # per-collection loads (tier 2) — always correct, collections are independent.
 MAX_VECTORS_PER_LINK = 150_000
 
+# Map columns that are identifiers or map coordinates, not measurements —
+# excluded from the per-session min/max columns (and from the read side's
+# trend scan, which mirrors this set in api_sessions_routes).
+TREND_EXCLUDE = {"item_id", "niche", "x", "y"}
+
+# Per-fragment / per-session caps on the searchable text blob. Load-bearing:
+# without them a long session ships every full caption and the index (cached
+# whole in the web process) grows by hundreds of MB corpus-wide.
+_SEARCH_FRAGMENT_CAP = 200
+_SEARCH_TEXT_CAP = 8_000
+
+
+
+
+def trend_numeric_columns() -> list[str]:
+    """Numeric ``video_map`` columns eligible for per-session min/max columns.
+
+    The candidate set is the map writer's own numeric overlay lists (its
+    source of truth for what it denormalises) intersected with the columns the
+    artifact on disk actually has — a map built before an overlay existed
+    simply yields fewer columns. Returns [] when no map artifact exists.
+    """
+    # Function-level import: video_map pulls in sklearn + the Gemini client,
+    # which must not ride along on every session_explorer import (the web
+    # process imports this module at boot).
+    from fyp.analysis import video_map
+
+    available = data_io.get_parquet_columns(
+        storage_location=embeddings.STORE_LOCATION, filename=video_map.MAP_FILE)
+    if not available:
+        return []
+    candidates = (["log_plays"] + list(video_map.OVERLAY_NUMERIC)
+                  + list(video_map.SCRAPE_OVERLAY_NUMERIC))
+    return [c for c in candidates if c in available and c not in TREND_EXCLUDE]
+
 
 
 
@@ -239,62 +274,143 @@ def load_directional_block(model: str, item_ids: list, corpus_mean: np.ndarray,
 
 
 
-def load_video_features(item_ids: set[str] | None = None) -> pd.DataFrame:
+def load_video_features(item_ids: set[str] | None = None,
+                        extra_map_cols: list[str] | None = None,
+                        include_scrape_text: bool = False) -> pd.DataFrame:
     """Load per-video content features for episode/session characterisation.
 
     Joins the denormalised map fields (niche, category, annotation scalars,
-    story) with the scrape author handle (kept out of the embeddings, so it is
-    an independent signal for the same-/cross-author question). Callers index
-    into it per episode/session.
+    story) with scrape-side fields: the author handle (kept out of the
+    embeddings, so it is an independent signal for the same-/cross-author
+    question) and the video ``duration``. Callers index into it per
+    episode/session.
 
     Args:
         item_ids: Optional item-id subset pushed into both parquet reads, so a
             batch-scoped build holds a batch-sized frame instead of the corpus.
+        extra_map_cols: Optional additional ``video_map`` columns to read
+            (e.g. :func:`trend_numeric_columns` for the per-session min/max
+            index columns); columns absent from the artifact are skipped.
+        include_scrape_text: Also read ``desc`` / ``desc_hashtags`` from the
+            scrapes frame. Batch-scoped callers only — corpus-wide these text
+            columns are hundreds of MB, so the web process's cached
+            whole-corpus feature frame must never request them.
 
     Returns:
         A DataFrame indexed by ``item_id`` with ``niche_name``, ``category``,
         ``story``, ``political_score``, ``sensitivity_score``, ``advertising``,
-        and ``author``.
+        ``author`` and ``duration`` (plus any ``extra_map_cols`` /
+        scrape-text columns requested).
     """
     id_filter = ([("item_id", "in", [str(i) for i in item_ids])]
                  if item_ids is not None else None)
+    map_cols = ["item_id", "niche_name", "category", "story",
+                "political_score", "sensitivity_score", "advertising"]
+    for col in extra_map_cols or []:
+        if col not in map_cols:
+            map_cols.append(col)
     mp = data_io.load_parquet_selective(
         storage_location=embeddings.STORE_LOCATION,
         filename="video_map.parquet",
-        columns=["item_id", "niche_name", "category", "story",
-                 "political_score", "sensitivity_score", "advertising"],
+        columns=map_cols,
         filters=id_filter,
     )
     if mp is None:
-        mp = pd.DataFrame(columns=["item_id", "niche_name", "category", "story",
-                                   "political_score", "sensitivity_score", "advertising"])
+        mp = pd.DataFrame(columns=map_cols)
     feat = mp.copy()
     feat["item_id"] = feat["item_id"].astype("string")
-    for col in ("political_score", "sensitivity_score"):
+    numeric_cols = ["political_score", "sensitivity_score"] + [
+        c for c in (extra_map_cols or []) if c in feat.columns]
+    for col in dict.fromkeys(numeric_cols):
         feat[col] = pd.to_numeric(feat[col], errors="coerce")
 
-    # The scrape author column is `author_handle` post contract-canonicalisation
-    # but `author_uniqueId` in older stores; take whichever exists.
-    auth = None
-    for author_col in ("author_handle", "author_uniqueId"):
+    # Scrape-side columns, guarded on what the store actually has (the author
+    # column is `author_handle` post contract-canonicalisation but
+    # `author_uniqueId` in older stores).
+    try:
+        available = data_io.get_parquet_columns(
+            storage_location=embeddings.STORE_LOCATION,
+            filename=embeddings.SCRAPES_FILE) or []
+    except Exception:
+        available = []
+    author_col = next((c for c in ("author_handle", "author_uniqueId")
+                       if c in available), None)
+    scrape_cols = ["item_id"]
+    if author_col:
+        scrape_cols.append(author_col)
+    if "duration" in available:
+        scrape_cols.append("duration")
+    if include_scrape_text:
+        scrape_cols.extend(c for c in ("desc", "desc_hashtags") if c in available)
+    scr = None
+    if len(scrape_cols) > 1:
         try:
-            auth = data_io.load_parquet_selective(
+            scr = data_io.load_parquet_selective(
                 storage_location=embeddings.STORE_LOCATION,
                 filename=embeddings.SCRAPES_FILE,
-                columns=["item_id", author_col],
+                columns=scrape_cols,
                 filters=id_filter,
             )
         except Exception:
-            auth = None
-        if auth is not None and author_col in auth.columns:
-            auth = auth.rename(columns={author_col: "author"})
-            break
-    if auth is None or "author" not in getattr(auth, "columns", []):
-        auth = pd.DataFrame({"item_id": pd.Series([], dtype="string"),
-                             "author": pd.Series([], dtype="string")})
-    auth["item_id"] = auth["item_id"].astype("string")
-    auth = auth.drop_duplicates("item_id")
-    return feat.merge(auth, on="item_id", how="left").set_index("item_id")
+            scr = None
+    if scr is None:
+        scr = pd.DataFrame({"item_id": pd.Series([], dtype="string")})
+    scr = scr.copy()
+    if author_col and author_col in scr.columns:
+        scr = scr.rename(columns={author_col: "author"})
+    if "author" not in scr.columns:
+        scr["author"] = pd.Series([None] * len(scr), dtype="string")
+    if "duration" in scr.columns:
+        scr["duration"] = pd.to_numeric(scr["duration"], errors="coerce")
+    else:
+        scr["duration"] = pd.Series([None] * len(scr), dtype="float64[pyarrow]")
+    scr["item_id"] = scr["item_id"].astype("string")
+    scr = scr.drop_duplicates("item_id")
+    return feat.merge(scr, on="item_id", how="left").set_index("item_id")
+
+
+
+
+def load_story_texts(item_ids: set[str]) -> dict[str, str]:
+    """Per-item AI story summaries for one batch's items, for the search blob.
+
+    ``video_map.parquet``'s ``story`` column is populated only for the 2D
+    map's hover-label sample, so the searchable text must come from the
+    machine-annotations frame. Batch-scoped callers only (filter pushdown on
+    the batch's item ids) — never read corpus-wide.
+
+    Args:
+        item_ids: The batch's item ids.
+
+    Returns:
+        item_id → story text (missing/empty stories absent).
+    """
+    if not item_ids:
+        return {}
+    try:
+        df = data_io.load_parquet_selective(
+            storage_location=embeddings.STORE_LOCATION,
+            filename=embeddings.ANNOTATIONS_FILE,
+            columns=["item_id", "video_story"],
+            filters=[("item_id", "in", [str(i) for i in item_ids])],
+        )
+    except Exception:
+        return {}
+    if df is None or df.empty or "video_story" not in df.columns:
+        return {}
+    out: dict[str, str] = {}
+    for iid, story in zip(df["item_id"].astype("string"), df["video_story"]):
+        if story is None:
+            continue
+        try:
+            if pd.isna(story):
+                continue
+        except (TypeError, ValueError):
+            pass
+        text = str(story).strip()
+        if text:
+            out[str(iid)] = text
+    return out
 
 
 
@@ -724,10 +840,51 @@ def low_entropy_windows(emb_seq: list[tuple], U: np.ndarray, window_n: int,
 
 
 
+def _search_text(distinct_list: list[str], feat: pd.DataFrame,
+                 stories: dict[str, str]) -> str:
+    """Build one session's searchable text blob (lowercased, deduped, capped).
+
+    Concatenates the text the detail panel displays — niche names, categories,
+    creator handles, video descriptions + hashtags, and the AI story summaries
+    — so the overview's free-text search matches exactly what a researcher
+    sees when they open the session.
+    """
+    frags: set[str] = set()
+    sub = feat.reindex(distinct_list)
+    for col in ("niche_name", "category", "author"):
+        if col not in sub.columns:
+            continue
+        for value in sub[col].dropna().unique():
+            text = str(value).strip()
+            if text:
+                frags.add(text[:_SEARCH_FRAGMENT_CAP])
+    for col in ("desc", "desc_hashtags"):
+        if col not in sub.columns:
+            continue
+        for value in sub[col].dropna():
+            # desc_hashtags is a LIST column — a cell can be an array of tags.
+            if isinstance(value, (list, tuple, np.ndarray)):
+                text = " ".join(str(v).strip() for v in value
+                                if v is not None and str(v).strip())
+            else:
+                text = str(value).strip()
+            if text:
+                frags.add(text[:_SEARCH_FRAGMENT_CAP])
+    for iid in distinct_list:
+        story = stories.get(iid)
+        if story:
+            frags.add(story[:_SEARCH_FRAGMENT_CAP])
+    return "\n".join(sorted(frags)).lower()[:_SEARCH_TEXT_CAP]
+
+
+
+
 def session_record(cid: str, sess: object, g: pd.DataFrame, id2idx: dict,
                    U: np.ndarray, feat: pd.DataFrame, id_sets: dict,
                    episodes: list[dict], window_n: int = WINDOW_N,
-                   max_windows: int = MAX_WINDOWS) -> tuple[dict, list[dict]]:
+                   max_windows: int = MAX_WINDOWS,
+                   trend_cols: list[str] | None = None,
+                   stories: dict[str, str] | None = None) -> tuple[dict, list[dict]]:
     """Reduce one session's plays to a quality/entropy row + its low-entropy windows.
 
     Args:
@@ -741,6 +898,10 @@ def session_record(cid: str, sess: object, g: pd.DataFrame, id2idx: dict,
         id_sets: Enrichment id sets from :func:`enrichment_id_sets`.
         episodes: The session's attributed episode rows.
         window_n: Sliding-window width for the low-entropy windows.
+        trend_cols: Numeric feature columns to emit ``vmin_``/``vmax_``
+            session-extreme columns for (see :func:`trend_numeric_columns`).
+        stories: item_id → story text for the search blob (see
+            :func:`load_story_texts`).
 
     Returns:
         ``(session_row, window_rows)`` — the row for ``sessions_index.parquet``
@@ -788,7 +949,23 @@ def session_record(cid: str, sess: object, g: pd.DataFrame, id2idx: dict,
 
     ep_plays = int(sum(e["n_plays"] for e in episodes))
     med_dwell = _num(dur.median(), 1)
+
+    # Session-extreme values of the numeric trend variables (over distinct
+    # items) + dwell (per-play), so the overview can filter on "session max of
+    # <variable>" without touching the map at request time.
+    all_feat = feat.reindex(distinct_list)
+    extremes: dict[str, float | None] = {}
+    for col in trend_cols or []:
+        vals = (pd.to_numeric(all_feat[col], errors="coerce")
+                if col in all_feat.columns else pd.Series(dtype="float64"))
+        extremes[f"vmin_{col}"] = _num(vals.min(), 4)
+        extremes[f"vmax_{col}"] = _num(vals.max(), 4)
+    extremes["vmin_dwell_s"] = _num(dur.min(), 1)
+    extremes["vmax_dwell_s"] = _num(dur.max(), 1)
+
     return {
+        **extremes,
+        "search_text": _search_text(distinct_list, feat, stories or {}),
         "collection_id": cid,
         "session_id": str(sess),
         "start_ts": start_ts.isoformat(),
@@ -818,7 +995,9 @@ def session_record(cid: str, sess: object, g: pd.DataFrame, id2idx: dict,
 
 def build_collection(cid: str, plays: pd.DataFrame, id2idx: dict, U: np.ndarray,
                      feat: pd.DataFrame, id_sets: dict,
-                     params: dict | None = None) -> tuple[list[dict], list[dict], list[dict]]:
+                     params: dict | None = None,
+                     trend_cols: list[str] | None = None,
+                     stories: dict[str, str] | None = None) -> tuple[list[dict], list[dict], list[dict]]:
     """Segment one collection's sessions and build its session + episode rows.
 
     Every session gets a row (including sessions with no embedded plays — they
@@ -833,6 +1012,8 @@ def build_collection(cid: str, plays: pd.DataFrame, id2idx: dict, U: np.ndarray,
         feat: Per-video features indexed by item_id.
         id_sets: Enrichment id sets from :func:`enrichment_id_sets`.
         params: Optional parameter overrides (see :func:`default_params`).
+        trend_cols: Numeric feature columns for the session-extreme columns.
+        stories: item_id → story text for the search blob.
 
     Returns:
         ``(session_rows, episode_rows, window_rows)``.
@@ -873,7 +1054,8 @@ def build_collection(cid: str, plays: pd.DataFrame, id2idx: dict, U: np.ndarray,
         episode_rows.extend(eps)
         srow, wins = session_record(
             cid, s, g, id2idx, U, feat, id_sets, eps,
-            window_n=p["window_n"], max_windows=p["max_windows"])
+            window_n=p["window_n"], max_windows=p["max_windows"],
+            trend_cols=trend_cols, stories=stories)
         session_rows.append(srow)
         window_rows.extend(wins)
     return session_rows, episode_rows, window_rows
@@ -895,6 +1077,24 @@ _SESSIONS_SCHEMA: dict[str, pa.DataType] = {
     "n_episodes": pa.int16(), "episode_play_frac": pa.float32(),
     "dominant_niche": pa.string(), "n_niches": pa.int16(),
 }
+
+
+
+
+def sessions_schema(trend_cols: list[str] | None = None) -> dict[str, pa.DataType]:
+    """The sessions-index schema for one build's trend-variable set.
+
+    The base columns plus ``search_text`` and a ``vmin_``/``vmax_`` float pair
+    per trend variable (and for dwell). All links of one chained run must use
+    the same ``trend_cols`` or the shard concat at publish would see
+    mismatched schemas — the worker pins the list at link 0.
+    """
+    extra: dict[str, pa.DataType] = {"search_text": pa.string()}
+    for col in list(trend_cols or []) + ["dwell_s"]:
+        extra.setdefault(f"vmin_{col}", pa.float64())
+        extra.setdefault(f"vmax_{col}", pa.float64())
+    return {**_SESSIONS_SCHEMA, **extra}
+
 
 _WINDOWS_SCHEMA: dict[str, pa.DataType] = {
     "collection_id": pa.string(), "session_id": pa.string(), "window_idx": pa.int16(),
@@ -944,7 +1144,8 @@ def _arrow_frame(rows: list[dict], schema: dict[str, pa.DataType]) -> pd.DataFra
 
 def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
                 index=None, params: dict | None = None, reporter=None,
-                max_vectors: int = MAX_VECTORS_PER_LINK):
+                max_vectors: int = MAX_VECTORS_PER_LINK,
+                trend_cols: list[str] | None = None):
     """Segment one batch of collections against the dense embedding sidecar.
 
     Peak memory is O(batch): only the batch's plays, features, id sets and
@@ -966,6 +1167,9 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
         max_vectors: Tier gate — a batch whose embedded-distinct union
             exceeds this loads vectors per collection (tier 2) instead of
             once for the union (tier 1).
+        trend_cols: Numeric feature columns for the session-extreme
+            ``vmin_``/``vmax_`` columns (None resolves the live list — a
+            chained worker must pass the list pinned at link 0 instead).
 
     Returns:
         ``(session_rows, episode_rows, window_rows, stats)``; all None when
@@ -977,8 +1181,12 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
     if plays.empty:
         return [], [], [], stats
 
+    if trend_cols is None:
+        trend_cols = trend_numeric_columns()
     batch_ids = [str(i) for i in plays["item_id"].drop_duplicates()]
-    feat = load_video_features(item_ids=set(batch_ids))
+    feat = load_video_features(item_ids=set(batch_ids), extra_map_cols=trend_cols,
+                               include_scrape_text=True)
+    stories = load_story_texts(set(batch_ids))
     id_sets = enrichment_id_sets(model, item_ids=set(batch_ids),
                                  include_embedded=False)
 
@@ -1007,7 +1215,7 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
                 return None, None, None, None
             srows, erows, wrows = build_collection(
                 cid, plays[plays["collection_id"] == cid], id2local, U,
-                feat, id_sets, p)
+                feat, id_sets, p, trend_cols=trend_cols, stories=stories)
             session_rows.extend(srows)
             episode_rows.extend(erows)
             window_rows.extend(wrows)
@@ -1022,7 +1230,8 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
             id2local, U = load_directional_block(model, c_ids, corpus_mean, index)
             id_sets["embedded"] = set(id2local)
             srows, erows, wrows = build_collection(
-                cid, cplays, id2local, U, feat, id_sets, p)
+                cid, cplays, id2local, U, feat, id_sets, p,
+                trend_cols=trend_cols, stories=stories)
             session_rows.extend(srows)
             episode_rows.extend(erows)
             window_rows.extend(wrows)
@@ -1063,9 +1272,15 @@ def shard_filename(kind: str, run_id: str, chunk: int) -> str:
 
 
 def write_batch_shards(run_id: str, chunk: int, session_rows: list[dict],
-                       episode_rows: list[dict], window_rows: list[dict]) -> None:
-    """Persist one link's rows as its three deterministic shards."""
-    for kind, schema, rows in (("sessions", _SESSIONS_SCHEMA, session_rows),
+                       episode_rows: list[dict], window_rows: list[dict],
+                       trend_cols: list[str] | None = None) -> None:
+    """Persist one link's rows as its three deterministic shards.
+
+    ``trend_cols`` must be the same list :func:`build_batch` produced the rows
+    with (the worker pins it at link 0), so every shard of a run shares one
+    sessions schema.
+    """
+    for kind, schema, rows in (("sessions", sessions_schema(trend_cols), session_rows),
                                ("episodes", _EPISODES_SCHEMA, episode_rows),
                                ("windows", _WINDOWS_SCHEMA, window_rows)):
         tbl = _arrow_table(rows, schema)
@@ -1221,6 +1436,8 @@ def build_artifacts(reporter=None, params: dict | None = None,
     discovered = discover_collections(collections)
     cids = [c for c, _ in discovered]
     _log(f"  {len(cids)} collections to segment")
+    trend_cols = trend_numeric_columns()
+    _log(f"  session min/max columns for {len(trend_cols)} trend variable(s)")
 
     all_sessions: list[dict] = []
     all_episodes: list[dict] = []
@@ -1229,7 +1446,7 @@ def build_artifacts(reporter=None, params: dict | None = None,
         batch = cids[start:start + batch_size]
         srows, erows, wrows, stats = build_batch(
             batch, model, corpus_mean, index, params=p, reporter=reporter,
-            max_vectors=max_vectors)
+            max_vectors=max_vectors, trend_cols=trend_cols)
         if srows is None:
             _log("Cancelled by user.")
             return {"cancelled": True}
@@ -1247,7 +1464,7 @@ def build_artifacts(reporter=None, params: dict | None = None,
     _log(f"Writing artifacts: {len(all_sessions):,} sessions, "
          f"{len(all_episodes):,} episodes, {len(all_windows):,} low-entropy windows")
     data_io.save_parquet(
-        df=_arrow_frame(all_sessions, _SESSIONS_SCHEMA),
+        df=_arrow_frame(all_sessions, sessions_schema(trend_cols)),
         storage_location=ARTIFACT_LOCATION, filename=SESSIONS_FILE,
     )
     data_io.save_parquet(
@@ -1265,6 +1482,7 @@ def build_artifacts(reporter=None, params: dict | None = None,
         "corpus_mean_count": n_vectors,
         "store_fingerprint": store_fp,
         "params": p,
+        "trend_vars": trend_cols,
         "n_collections": len(cids),
         "n_sessions": len(all_sessions),
         "n_episodes": len(all_episodes),

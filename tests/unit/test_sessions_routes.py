@@ -896,3 +896,207 @@ def test_detail_attaches_creators_to_both_run_kinds(client, patched_routes, monk
     assert body["episodes"][0]["trend_scan"]["n_members"] == 2
     # The client needs the thresholds even when a session is opened directly.
     assert body["params"]["drift_p"] == mod._drift_p()
+
+
+
+
+def _index_df_with_extremes():
+    """The base fixture plus the rebuilt-artifact columns (vmax_/vmin_/search_text)."""
+    df = _index_df()
+    df["vmax_sensitivity_score"] = pd.to_numeric(
+        pd.Series([0.9, 0.2, None]), errors="coerce")
+    df["vmin_sensitivity_score"] = pd.to_numeric(
+        pd.Series([0.1, 0.0, None]), errors="coerce")
+    df["search_text"] = pd.Series(
+        ["sourdough bread\n#funnycats\nchef_a", "gaming clips\nstreamer_b", None],
+        dtype="string")
+    return df
+
+
+
+
+
+
+def test_overview_sorts_by_collection_id(client, patched_routes):
+    res = client.get(_BASE + "&sort=collection_id&order=asc")
+    assert res.status_code == 200
+    cids = [s["collection_id"] for s in res.get_json()["sessions"]]
+    assert cids == sorted(cids)
+
+    res = client.get(_BASE + "&sort=collection_id&order=desc")
+    cids = [s["collection_id"] for s in res.get_json()["sessions"]]
+    assert cids == sorted(cids, reverse=True)
+
+
+
+
+
+
+def test_overview_varmax_filter_and_ranges(client, patched_routes, monkeypatch):
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "_load_index", _index_df_with_extremes)
+
+    body = client.get(_BASE).get_json()
+    # Bounds computed over the floor-passing frame; labels ride along.
+    assert body["ranges"]["var_max"]["sensitivity_score"] == [0.2, 0.9]
+    assert "sensitivity_score" in body["ranges"]["var_labels"]
+
+    # Narrowing on the session max keeps only colA__0 (0.9); the NaN row
+    # (colB__0) is dropped while the filter is bounded.
+    res = client.get(_BASE + "&f_varmax_col=sensitivity_score&f_varmax_min=0.5")
+    assert [s["session_id"] for s in res.get_json()["sessions"]] == ["colA__0"]
+
+    res = client.get(_BASE + "&f_varmax_col=sensitivity_score&f_varmax_max=0.5")
+    assert [s["session_id"] for s in res.get_json()["sessions"]] == ["colA__1"]
+
+    # An unknown variable is silently ignored, never a 500.
+    res = client.get(_BASE + "&f_varmax_col=__nope__&f_varmax_min=0.5")
+    assert res.status_code == 200
+    assert res.get_json()["total_matching"] == 3
+
+
+
+
+
+
+def test_overview_varmax_degrades_on_an_old_artifact(client, patched_routes):
+    """No vmax_ columns: var_max is null (not {}) and the filter is a no-op."""
+    body = client.get(_BASE + "&f_varmax_col=sensitivity_score&f_varmax_min=0.5").get_json()
+    assert body["ranges"]["var_max"] is None
+    assert body["ranges"]["var_labels"] is None
+    assert body["total_matching"] == 3
+
+
+
+
+
+
+def test_overview_search_matches_the_baked_blob(client, patched_routes, monkeypatch):
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "_load_index", _index_df_with_extremes)
+
+    body = client.get(_BASE + "&q=sourdough").get_json()
+    assert body["search_available"] is True
+    assert [s["session_id"] for s in body["sessions"]] == ["colA__0"]
+
+    # Case-insensitive, and multi-term is AND across terms.
+    body = client.get(_BASE + "&q=SOURDOUGH+chef_a").get_json()
+    assert [s["session_id"] for s in body["sessions"]] == ["colA__0"]
+    body = client.get(_BASE + "&q=sourdough+gaming").get_json()
+    assert body["sessions"] == []
+
+    # A null blob never matches (and never errors).
+    body = client.get(_BASE + "&q=funnycats").get_json()
+    assert [s["session_id"] for s in body["sessions"]] == ["colA__0"]
+
+
+
+
+
+
+def test_overview_search_is_ignored_on_an_old_artifact(client, patched_routes):
+    body = client.get(_BASE + "&q=sourdough").get_json()
+    assert body["search_available"] is False
+    assert body["total_matching"] == 3
+
+
+
+
+
+
+def test_min_max_ranges_is_descriptive_and_skips_all_nan():
+    import numpy as np
+
+    import web_interface.routes.api_sessions_routes as mod
+
+    series = {
+        "sensitivity_score": np.array([0.2, np.nan, 0.8, 0.4]),
+        "log_plays": np.array([np.nan, np.nan, np.nan, np.nan]),
+        "dwell_s": np.array([5.0, 40.0, 10.0, np.nan]),
+    }
+    out = mod._min_max_ranges(series)
+    by_var = {r["variable"]: r for r in out}
+    assert "log_plays" not in by_var
+    assert by_var["sensitivity_score"]["min"] == pytest.approx(0.2)
+    assert by_var["sensitivity_score"]["max"] == pytest.approx(0.8)
+    assert by_var["sensitivity_score"]["n"] == 3
+    assert by_var["dwell_s"]["label"] == "Dwell (s)"
+    assert by_var["dwell_s"]["min"] == pytest.approx(5.0)
+    assert by_var["dwell_s"]["max"] == pytest.approx(40.0)
+    # Sorted by label for a stable display order.
+    assert [r["label"] for r in out] == sorted(
+        (r["label"] for r in out), key=str.lower)
+
+
+
+
+
+
+def test_scan_trend_reports_ranges_even_below_min_n():
+    """A binge too short to test still carries its observed min/max."""
+    import web_interface.routes.api_sessions_routes as mod
+
+    out = mod._scan_trend(_members(3, dwell=[5.0, 30.0, 10.0]), pd.DataFrame(), min_n=7)
+    assert out["scanned"] == 0 and out["trend"] is None
+    by_var = {r["variable"]: r for r in out["ranges"]}
+    assert by_var["dwell_s"]["min"] == pytest.approx(5.0)
+    assert by_var["dwell_s"]["max"] == pytest.approx(30.0)
+
+
+
+
+
+
+def test_detail_carries_duration_desc_hashtags_and_session_ranges(
+        client, patched_routes, monkeypatch):
+    import numpy as np
+
+    import web_interface.routes.api_sessions_routes as mod
+    import web_interface.routes.api_viewer_routes as viewer
+
+    plays = pd.DataFrame({
+        "item_id": pd.Series(["v1", "v2"], dtype="string"),
+        "_ts": pd.to_datetime(["2026-01-01T10:00:00", "2026-01-01T10:05:00"]),
+        "play_duration": [12.0, 45.0],
+        "source_platform": ["tiktok"] * 2,
+    })
+    feat = pd.DataFrame({
+        "niche_name": ["Recipes", None], "category": ["Food", None],
+        "story": [None, None], "political_score": [0.0, None],
+        "sensitivity_score": [0.1, None], "advertising": ["none", None],
+        "author": ["chef_a", None], "duration": [30.0, None],
+    }, index=pd.Index(["v1", "v2"], name="item_id"))
+    trend_feat = pd.DataFrame({
+        "sensitivity_score": [0.1, 0.7],
+    }, index=pd.Index(["v1", "v2"], name="item_id"))
+
+    long_desc = "caption " * 100  # 800 chars, beyond _STORY_CAP
+    monkeypatch.setattr(mod, "_session_plays", lambda cid, row: plays)
+    monkeypatch.setattr(mod, "_session_episodes", lambda cid, sid: [])
+    monkeypatch.setattr(mod, "_session_windows", lambda cid, sid: [])
+    monkeypatch.setattr(mod, "_features", lambda: feat)
+    monkeypatch.setattr(mod, "_trend_frame", lambda ids: trend_feat)
+    monkeypatch.setattr(mod, "_story_map", lambda ids: {})
+    monkeypatch.setattr(mod, "_scrape_text_map", lambda ids: {
+        "v1": {"desc": long_desc, "hashtags": "#bread #sourdough"}})
+    monkeypatch.setattr(mod, "_flag_sets", lambda: {
+        "scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()})
+    monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset())
+
+    body = client.get("/api/sessions/detail?study=s&collection_id=colA"
+                      "&session_id=colA__0").get_json()
+    p1, p2 = body["plays"]
+    assert p1["duration_s"] == pytest.approx(30.0)
+    assert p1["hashtags"] == "#bread #sourdough"
+    # Long captions are capped like stories.
+    assert len(p1["desc"]) == mod._STORY_CAP + 1 and p1["desc"].endswith("…")
+    assert p2["duration_s"] is None and p2["desc"] is None
+
+    # Session-level observed ranges: trend variables + per-play dwell.
+    by_var = {r["variable"]: r for r in body["session_ranges"]}
+    assert by_var["sensitivity_score"]["min"] == pytest.approx(0.1)
+    assert by_var["sensitivity_score"]["max"] == pytest.approx(0.7)
+    assert by_var["dwell_s"]["min"] == pytest.approx(12.0)
+    assert by_var["dwell_s"]["max"] == pytest.approx(45.0)

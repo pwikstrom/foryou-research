@@ -224,3 +224,72 @@ def test_arrow_frames_roundtrip(space, feat):
     roll = list(edf["member_rolling_cosdist"].iloc[0])
     assert pd.isna(roll[0]) and len(roll) == 6
     assert len(list(wdf["member_item_ids"].iloc[0])) == se.WINDOW_N
+
+
+
+
+def test_session_record_emits_variable_extremes(space, feat):
+    """vmin_/vmax_ columns per trend variable (+ dwell), None on all-null."""
+    id2idx, U, ids = space
+    f = feat.copy()
+    f["sensitivity_score"] = [float(i % 7) for i in range(len(f))]
+    f["log_plays"] = pd.array([None] * len(f), dtype="float64")  # all-null
+    seq = [f"c0_{i}" for i in range(6)]
+    plays = _plays(seq)
+    plays["play_duration"] = [5.0, 10.0, 40.0, 20.0, 15.0, 25.0]
+    srows, _, _w = se.build_collection(
+        "col1", plays, id2idx, U, f, _id_sets(ids),
+        trend_cols=["sensitivity_score", "log_plays"])
+    s = srows[0]
+    expected = [float(i % 7) for i, iid in enumerate(f.index) if iid in set(seq)]
+    assert s["vmin_sensitivity_score"] == pytest.approx(min(expected))
+    assert s["vmax_sensitivity_score"] == pytest.approx(max(expected))
+    assert s["vmin_log_plays"] is None and s["vmax_log_plays"] is None
+    assert s["vmin_dwell_s"] == pytest.approx(5.0)
+    assert s["vmax_dwell_s"] == pytest.approx(40.0)
+
+
+
+
+def test_search_text_collects_and_caps_the_display_fields(space, feat):
+    """The blob is lowercased, deduped, and covers every displayed text field."""
+    id2idx, U, ids = space
+    f = feat.copy()
+    f["desc"] = "A Caption #FunnyCats " + "x" * 500
+    f["desc_hashtags"] = "#funnycats"
+    seq = [f"c0_{i}" for i in range(4)]
+    stories = {"c0_0": "A story about SOURDOUGH bread"}
+    srows, _, _w = se.build_collection(
+        "col1", _plays(seq), id2idx, U, f, _id_sets(ids), stories=stories)
+    blob = srows[0]["search_text"]
+    assert blob == blob.lower()
+    assert "niche_0" in blob and "author_a" in blob
+    assert "sourdough" in blob
+    assert "a caption #funnycats" in blob
+    # Per-fragment cap: the 500-char caption tail must not survive whole.
+    assert "x" * 210 not in blob
+    # Dedup: four items share one caption — it appears once.
+    assert blob.count("a caption #funnycats") == 1
+    assert len(blob) <= 8000
+
+
+
+
+def test_sessions_schema_extends_the_base_with_extremes_and_roundtrips(space, feat):
+    id2idx, U, ids = space
+    trend_cols = ["sensitivity_score"]
+    schema = se.sessions_schema(trend_cols)
+    for col in ("search_text", "vmin_sensitivity_score", "vmax_sensitivity_score",
+                "vmin_dwell_s", "vmax_dwell_s"):
+        assert col in schema
+    assert set(se._SESSIONS_SCHEMA) <= set(schema)
+
+    seq = [f"c0_{i}" for i in range(6)]
+    srows, _, _w = se.build_collection(
+        "col1", _plays(seq), id2idx, U, feat, _id_sets(ids), trend_cols=trend_cols)
+    sdf = se._arrow_frame(srows, schema)
+    assert all(str(t).endswith("[pyarrow]") for t in sdf.dtypes)
+    assert sdf["vmax_sensitivity_score"].iloc[0] == pytest.approx(0.0)
+    assert isinstance(sdf["search_text"].iloc[0], str)
+    tbl = se._arrow_table(srows, schema)
+    assert tbl.num_rows == 1
