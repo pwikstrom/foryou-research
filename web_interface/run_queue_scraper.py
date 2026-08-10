@@ -222,6 +222,19 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.emit_data({"permanent_storm_abort": True})
         return None
 
+    if results_df.attrs.get('transient_storm_tripped'):
+        reporter.log(
+            f"Transient-failure storm detected "
+            f"({results_df.attrs.get('transient_storm_category')}): every item is "
+            f"failing with the same retryable verdict, so the platform has likely "
+            f"changed something and the scraper is broken — grinding on would churn "
+            f"the queue at zero yield. Stopping the chain; the items stay queued. "
+            f"A scraper alert was raised on the enrichment page — revise the "
+            f"scraper (or wait for an upstream fix) before re-running."
+        )
+        reporter.emit_data({"transient_storm_abort": True})
+        return None
+
     if reporter.check_cancelled():
         reporter.log("Cancellation requested. Stopping after this batch.")
         return None

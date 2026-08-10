@@ -72,6 +72,7 @@ _CONFIG_CONSTANT_ACCESSORS = {
     "MEMORY_STOP_FRACTION": lambda: _memory_stop_fraction(),
     "SLIDESHOW_MAX_DIMENSION": lambda: _slideshow_max_dimension(),
     "PERMANENT_STORM_THRESHOLD": lambda: _permanent_storm_threshold(),
+    "TRANSIENT_STORM_THRESHOLD": lambda: _transient_storm_threshold(),
 }
 
 
@@ -104,6 +105,26 @@ def _permanent_storm_threshold() -> int:
         return int(_cf()["misc"].get("scraper_permanent_storm_threshold", 15))
     except (KeyError, TypeError, ValueError):
         return 15
+
+# Consecutive same-category *transient* failures that mark the batch outcome as
+# suspect (a "transient storm"). The permanent-storm guard's blind spot: a
+# platform-side breakage classified on the retryable side (2026-08-10: TikTok
+# deployed a new bot-challenge wall that made yt-dlp fail every item with
+# "No video formats found!" → "unknown", a retryable category) neither trips the
+# rate-limit circuit breaker nor the permanent-storm guard, so the worker churns
+# the whole queue at 0% yield, burning 3 yt-dlp attempts per item and
+# self-chaining until the queue stops pruning. A long homogeneous run of one
+# transient category aborts the batch and stops chaining instead; the items are
+# already transient so they simply stay queued — no demotion needed. The
+# threshold is higher than the permanent guard's: transient runs (network
+# blips) are more plausible in a healthy session, and any success resets the
+# count. Overridable via ``[misc] scraper_transient_storm_threshold``.
+def _transient_storm_threshold() -> int:
+    """Lazy accessor for the transient-storm guard threshold (see comment above)."""
+    try:
+        return int(_cf()["misc"].get("scraper_transient_storm_threshold", 25))
+    except (KeyError, TypeError, ValueError):
+        return 25
 
 # Fraction of the container memory limit at which a batch stops launching new
 # downloads, drains in-flight work, saves what completed, and defers the rest
@@ -493,28 +514,42 @@ def download_single_video(
                             ccc += 1
                             blob = bucket.get_blob(f"{media_prefix}/{video_id}_{ccc:02}.jpeg")
 
-                        # Audio is optional: any failure yields a silent slideshow.
-                        try:
-                            audio_path = scraper.fetch_slideshow_audio(video_id, temp_dir)
-                        except Exception:
-                            audio_path = None
-
                         temp_mp4 = os.path.join(temp_dir, f"{video_id}.mp4")
-                        try:
-                            make_slideshow(
-                                image_files,
-                                output=temp_mp4,
-                                duration=SLIDESHOW_SECONDS_PER_IMAGE,
-                                swipe=False,
-                                audio_path=audio_path,
-                                verbose=verbose
-                            )
-                        finally:
-                            if audio_path:
-                                try: os.remove(audio_path)
-                                except OSError: pass
+                        if not image_files:
+                            # All source jpegs are missing or under min_size
+                            # (e.g. a bot wall serving stub bodies): assembling
+                            # would raise "No input files provided". Mark media
+                            # as failed-transient so the id stays queued.
+                            logger.warning(
+                                f"No usable carousel images for '{video_id}' — "
+                                f"skipping slideshow assembly; media stays "
+                                f"queued for retry.")
+                            scrape_metadata.loc[0, 'video_downloaded'] = False
+                            scrape_metadata.attrs['media_error_type'] = 'carousel'
+                            scrape_metadata.attrs['media_error_detail'] = (
+                                'no usable carousel images for slideshow assembly')
+                        else:
+                            # Audio is optional: any failure yields a silent slideshow.
+                            try:
+                                audio_path = scraper.fetch_slideshow_audio(video_id, temp_dir)
+                            except Exception:
+                                audio_path = None
 
-                        if os.path.getsize(temp_mp4) > min_size:
+                            try:
+                                make_slideshow(
+                                    image_files,
+                                    output=temp_mp4,
+                                    duration=SLIDESHOW_SECONDS_PER_IMAGE,
+                                    swipe=False,
+                                    audio_path=audio_path,
+                                    verbose=verbose
+                                )
+                            finally:
+                                if audio_path:
+                                    try: os.remove(audio_path)
+                                    except OSError: pass
+
+                        if image_files and os.path.getsize(temp_mp4) > min_size:
                             if verbose:
                                 logger.info("Uploading video file to storage bucket...")
                             blob = bucket.blob(f"{media_prefix}/{video_id}.mp4")
@@ -525,7 +560,7 @@ def download_single_video(
                             for name in source_blob_names:
                                 try: bucket.blob(name).delete()
                                 except Exception: pass
-                        else:
+                        elif image_files:
                             if verbose:
                                 logger.warning("Generated video file is too small, not uploading.")
                             scrape_metadata.loc[0,'video_downloaded'] = False
@@ -560,39 +595,53 @@ def download_single_video(
                                 image_files.append(cand)
                             ccc += 1
 
-                        # Audio is optional: any failure yields a silent slideshow.
-                        try:
-                            audio_path = scraper.fetch_slideshow_audio(video_id, temp_dir)
-                        except Exception:
-                            audio_path = None
-
                         temp_mp4 = os.path.join(temp_dir, f"{video_id}.mp4")
-                        try:
-                            make_slideshow(
-                                image_files,
-                                output=temp_mp4,
-                                duration=SLIDESHOW_SECONDS_PER_IMAGE,
-                                swipe=False,
-                                audio_path=audio_path,
-                                verbose=verbose
-                            )
-                        finally:
-                            if audio_path:
-                                try: os.remove(audio_path)
-                                except OSError: pass
-
-                        if os.path.exists(temp_mp4) and os.path.getsize(temp_mp4) > min_size:
-                            if verbose:
-                                logger.info("Moving slideshow to media folder...")
-                            os.replace(temp_mp4, final_mp4)
-                            scrape_metadata.loc[0,'video_downloaded'] = True
+                        if not image_files:
+                            # All source jpegs are missing or under min_size:
+                            # assembling would raise "No input files provided".
+                            # Mark media as failed-transient so the id stays
+                            # queued (mirrors the GCS branch).
+                            logger.warning(
+                                f"No usable carousel images for '{video_id}' — "
+                                f"skipping slideshow assembly; media stays "
+                                f"queued for retry.")
+                            scrape_metadata.loc[0, 'video_downloaded'] = False
+                            scrape_metadata.attrs['media_error_type'] = 'carousel'
+                            scrape_metadata.attrs['media_error_detail'] = (
+                                'no usable carousel images for slideshow assembly')
                         else:
-                            if verbose:
-                                logger.warning("Generated video file is too small, discarding.")
-                            if os.path.exists(temp_mp4):
-                                try: os.remove(temp_mp4)
-                                except OSError: pass
-                            scrape_metadata.loc[0,'video_downloaded'] = False
+                            # Audio is optional: any failure yields a silent slideshow.
+                            try:
+                                audio_path = scraper.fetch_slideshow_audio(video_id, temp_dir)
+                            except Exception:
+                                audio_path = None
+
+                            try:
+                                make_slideshow(
+                                    image_files,
+                                    output=temp_mp4,
+                                    duration=SLIDESHOW_SECONDS_PER_IMAGE,
+                                    swipe=False,
+                                    audio_path=audio_path,
+                                    verbose=verbose
+                                )
+                            finally:
+                                if audio_path:
+                                    try: os.remove(audio_path)
+                                    except OSError: pass
+
+                            if os.path.exists(temp_mp4) and os.path.getsize(temp_mp4) > min_size:
+                                if verbose:
+                                    logger.info("Moving slideshow to media folder...")
+                                os.replace(temp_mp4, final_mp4)
+                                scrape_metadata.loc[0,'video_downloaded'] = True
+                            else:
+                                if verbose:
+                                    logger.warning("Generated video file is too small, discarding.")
+                                if os.path.exists(temp_mp4):
+                                    try: os.remove(temp_mp4)
+                                    except OSError: pass
+                                scrape_metadata.loc[0,'video_downloaded'] = False
 
                         # Clean up source jpegs from media_dir either way
                         for cand in image_files:
@@ -1001,6 +1050,13 @@ def download_video_threads(
     # transient instead of being pruned from the queue as permanently failed.
     storm_state = {"classification": None, "consecutive": 0, "tripped": False}
     storm_threshold = _permanent_storm_threshold()
+    # Transient-storm guard: a run of consecutive *identical* transient
+    # classifications (e.g. transient:unknown) that the circuit breaker and
+    # the permanent-storm guard are both blind to — a platform-side breakage
+    # whose error lands in a retryable category. Aborts the batch and stops
+    # chaining; the items are transient so they stay queued as-is.
+    t_storm_state = {"classification": None, "consecutive": 0, "tripped": False}
+    t_storm_threshold = _transient_storm_threshold()
     abort_event = threading.Event()
     # Memory safety valve: set once the container's memory cgroup crosses
     # MEMORY_STOP_FRACTION. Workers that have not started downloading yet defer
@@ -1021,7 +1077,7 @@ def download_video_threads(
                                    f"aborting batch; remaining items stay queued.")
             else:
                 breaker_state["consecutive"] = 0
-            if storm_state["tripped"]:
+            if storm_state["tripped"] or t_storm_state["tripped"]:
                 # Frozen once tripped: post-abort "batch_aborted" results are
                 # transient and would otherwise wipe the storm classification.
                 return
@@ -1043,6 +1099,27 @@ def download_video_threads(
             else:
                 storm_state["classification"] = None
                 storm_state["consecutive"] = 0
+            # 'batch_aborted' is synthetic (post-abort placeholder), never a
+            # scraper verdict — it must not seed or extend a transient run.
+            if (classification.startswith("transient")
+                    and category != "batch_aborted"):
+                if classification == t_storm_state["classification"]:
+                    t_storm_state["consecutive"] += 1
+                else:
+                    t_storm_state["classification"] = classification
+                    t_storm_state["consecutive"] = 1
+                if (t_storm_state["consecutive"] >= t_storm_threshold
+                        and not t_storm_state["tripped"]):
+                    t_storm_state["tripped"] = True
+                    abort_event.set()
+                    logger.warning(f"  [scrape] Transient-storm guard: "
+                                   f"{t_storm_state['consecutive']} consecutive "
+                                   f"'{classification}' results — the platform or the "
+                                   f"scraper is likely broken. Aborting batch; the items "
+                                   f"are transient and stay queued for a later retry.")
+            else:
+                t_storm_state["classification"] = None
+                t_storm_state["consecutive"] = 0
 
     def worker(idx_video):
         idx, video = idx_video
@@ -1260,6 +1337,21 @@ def download_video_threads(
                     f"remain queued and were not recorded as failed."
                 ),
             )
+        elif t_storm_state["tripped"]:
+            scraper_alerts.raise_alert(
+                platform=scraper.platform,
+                kind=scraper_alerts.KIND_TRANSIENT_STORM,
+                category=t_storm_state["classification"],
+                count=t_storm_state["consecutive"],
+                message=(
+                    f"{t_storm_state['consecutive']} consecutive items failed with the "
+                    f"same transient verdict ({t_storm_state['classification']}) — the "
+                    f"platform has likely changed something (e.g. a new bot wall or a "
+                    f"broken extractor) and the {scraper.platform} scraper needs "
+                    f"attention. Scraping was stopped; the affected items remain queued "
+                    f"and will be retried once the scraper is healthy again."
+                ),
+            )
         elif results:
             scraper_alerts.clear_alert(scraper.platform, reason="healthy batch")
 
@@ -1278,6 +1370,8 @@ def download_video_threads(
         empty_results.attrs['circuit_breaker_tripped'] = breaker_state["tripped"]
         empty_results.attrs['permanent_storm_tripped'] = storm_state["tripped"]
         empty_results.attrs['permanent_storm_category'] = storm_state["classification"]
+        empty_results.attrs['transient_storm_tripped'] = t_storm_state["tripped"]
+        empty_results.attrs['transient_storm_category'] = t_storm_state["classification"]
         empty_results.attrs['memory_stop'] = mem_stop_event.is_set()
         return empty_results, permanent_failed_ids, transient_failed_ids
 
@@ -1307,6 +1401,8 @@ def download_video_threads(
     results.attrs['circuit_breaker_tripped'] = breaker_state["tripped"]
     results.attrs['permanent_storm_tripped'] = storm_state["tripped"]
     results.attrs['permanent_storm_category'] = storm_state["classification"]
+    results.attrs['transient_storm_tripped'] = t_storm_state["tripped"]
+    results.attrs['transient_storm_category'] = t_storm_state["classification"]
     results.attrs['memory_stop'] = mem_stop_event.is_set()
 
     return results, permanent_failed_ids, transient_failed_ids
@@ -1407,6 +1503,16 @@ def scraper_loop_from_list(
                   f"stay in the queue; re-run the scraper once the session is healthy.")
             if reporter is not None:
                 reporter.emit_data({"permanent_storm_abort": True})
+            break
+
+        if results_from_scraper.attrs.get('transient_storm_tripped'):
+            logger.warning(f"  Transient-failure storm detected "
+                  f"({results_from_scraper.attrs.get('transient_storm_category')}) — "
+                  f"every item is failing the same retryable way, so the platform or "
+                  f"the scraper is likely broken; stopping the batch loop. The items "
+                  f"stay in the queue for a later retry.")
+            if reporter is not None:
+                reporter.emit_data({"transient_storm_abort": True})
             break
 
         with open(os.path.join(_cf()['paths']['temp'], "temp_failed_scrapes.json"), "w") as f:

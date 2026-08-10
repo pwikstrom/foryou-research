@@ -25,9 +25,11 @@ logger = get_logger(__name__)
 ALERTS_LOCATION = "cache"
 ALERTS_FILENAME = "scraper_alerts.json"
 
-# Alert kinds — one for now; the schema leaves room for future systematic
-# failure modes (e.g. a repeated bot-wall verdict across runs).
+# Alert kinds — the schema leaves room for future systematic failure modes.
 KIND_PERMANENT_STORM = "permanent_storm"
+# A run of consecutive identical *transient* verdicts (e.g. a new bot wall
+# breaking the extractor for every item — 2026-08-10 TikTok incident).
+KIND_TRANSIENT_STORM = "transient_storm"
 
 
 
