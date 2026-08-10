@@ -4877,6 +4877,19 @@ body:has(.public-page) {
     color: var(--color-text-secondary);
 }
 
+/* A run whose videos are all by one creator — the donor sat on one account
+   rather than being served a topic assembled across creators. */
+.sess-solo-creator {
+    color: var(--color-warning);
+}
+
+/* The within-binge trend line, on its own row under the binge's metrics. */
+.sess-trend {
+    display: block;
+    margin-top: 3px;
+    color: var(--color-text-muted);
+}
+
 /* Horizontally-scrollable row of episode member cards */
 .sess-cards-row {
     display: flex;

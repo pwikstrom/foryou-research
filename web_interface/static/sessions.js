@@ -29,7 +29,40 @@ const sessState = {
 // for a payload that predates the `params` key.
 const SESS_PARAM_FALLBACKS = {
     min_videos: 4, min_minutes: 3, window_n: 6, max_windows: 3, context_plays: 3,
+    drift_p: 0.05, trend_min_videos: 7,
 };
+
+
+
+
+// "3 creators" / "1 creator", with the attribution denominator when some of
+// the run's videos have no known creator (unscraped ones never will).
+function sessCreatorText(c) {
+    if (!c || !c.n_items) { return null; }
+    if (!c.n_attributed) { return 'creators unknown'; }
+    const label = c.n_creators === 1 ? '1 creator' : `${c.n_creators} creators`;
+    return c.n_attributed < c.n_items
+        ? `${label} (of ${c.n_attributed}/${c.n_items} known)` : label;
+}
+
+
+
+
+function sessCreatorTooltip(c) {
+    if (!c || !c.n_items) { return ''; }
+    if (!c.n_attributed) {
+        return 'None of these videos has a known creator — they have not been scraped, '
+            + 'so this run cannot be classified as single- or multi-creator.';
+    }
+    const base = c.n_creators === 1
+        ? 'Every attributed video in this run is by the SAME creator — the donor was '
+          + 'sitting on one account, rather than being served a topic assembled across creators.'
+        : `${c.n_creators} different creators — the feed assembled this run across accounts, `
+          + 'not from one creator’s page.';
+    return c.n_attributed < c.n_items
+        ? `${base} Counted over the ${c.n_attributed} of ${c.n_items} videos with a known creator.`
+        : base;
+}
 
 
 
@@ -69,7 +102,11 @@ const SESS_COLUMNS = [
         + `embedding distance over any ${p.window_n} consecutive distinct embedded videos. `
         + '0 = near-identical content, ~0.9+ = unrelated. Lower = a more homogeneous '
         + 'stretch existed. Click the header to rank sessions by it.' },
-    { key: 'n_episodes', label: 'Binges', defaultOrder: 'desc' },
+    { key: 'n_episodes', label: 'Binges', defaultOrder: 'desc',
+      tooltip: (p) => 'Detected binges in this session. A superscript ✳ marks a session '
+        + 'containing at least one DIRECTED binge — one whose content travels rather than '
+        + 'circling a topic, established against reorderings of that binge’s own videos '
+        + `at p < ${p.drift_p}.` },
 ];
 
 
@@ -233,7 +270,10 @@ function sessApplyParamCopy() {
             + 'are the same size, their spectral entropy is directly comparable — “low entropy” '
             + 'means the content spans few independent semantic directions. Found by exhaustive '
             + 'search, independent of the binge detector, so they can confirm a binge or reveal a '
-            + 'focused stretch it missed.';
+            + 'focused stretch it missed. '
+            + `Sequences carry no trend scan: at ${p.window_n} videos only a perfectly ordered `
+            + 'variable could survive correction, and roughly 3% of sequences show one by chance, '
+            + 'so any result would be noise. Binges are scanned instead.';
     }
 }
 
@@ -257,6 +297,26 @@ function sessFmtTs(ts) {
         year: 'numeric', month: 'short', day: 'numeric',
         hour: '2-digit', minute: '2-digit',
     });
+}
+
+
+
+
+// Binge count for one table row, with a ✳ when at least one of them is
+// directed. `n_directed_episodes` is null (not 0) on an artifact built before
+// the test existed — those rows get no marker rather than a false "none".
+function sessBingeCell(s) {
+    if (!s.n_episodes) {
+        return '<span style="color: var(--color-text-muted);">–</span>';
+    }
+    const directed = s.n_directed_episodes;
+    const mark = (directed != null && directed > 0)
+        ? `<sup class="meta-tooltip" style="color: var(--color-warning); cursor: help;" data-tooltip="${escapeHtml(
+            `${directed} of ${s.n_episodes} binge(s) here are DIRECTED — the content travels `
+            + `rather than circling one topic, at p < ${sessParams().drift_p} against `
+            + 'reorderings of the binge’s own videos.')}">✳</sup>`
+        : '';
+    return `<span style="color: var(--color-accent);" class="font-medium">${s.n_episodes}</span>${mark}`;
 }
 
 
@@ -315,7 +375,7 @@ function sessRenderList(data) {
             <td class="text-xs">${s.n_plays}</td>
             <td><span class="sess-cov-bar meta-tooltip" data-tooltip="${covPct}% of distinct videos embedded"><span class="sess-cov-fill" style="width: ${covPct}%;"></span></span></td>
             <td class="text-xs">${score}</td>
-            <td class="text-xs">${s.n_episodes ? `<span style="color: var(--color-accent);" class="font-medium">${s.n_episodes}</span>` : '<span style="color: var(--color-text-muted);">–</span>'}</td>`;
+            <td class="text-xs">${sessBingeCell(s)}</td>`;
         tr.addEventListener('click', () => sessSelect(s.collection_id, s.session_id, tr));
         tbody.appendChild(tr);
     }
@@ -365,6 +425,9 @@ async function sessSelect(collectionId, sessionId, rowEl) {
         // the current selection.
         if (!sessState.selected || sessState.selected.session_id !== sessionId) { return; }
         sessState.detail = data;
+        // The detail payload carries the same params block; a session can be
+        // opened via a deep link before any overview has landed.
+        if (data.params) { sessState.params = data.params; }
         sessState.activeSeq = null;
         emptyEl.style.display = 'none';
         detailEl.style.display = 'flex';
@@ -558,6 +621,85 @@ function sessRenderStrip(data) {
 
 
 
+// Directed vs stationary, from the permutation p-value (direction_p) rather
+// than a fixed straightness cut. Raw straightness falls like 1/sqrt(steps), so
+// the old fixed 0.5 threshold was a length test that never once fired on the
+// corpus; direction_p compares a binge against reorderings of its OWN members.
+function sessBingeShape(ep) {
+    const cut = sessParams().drift_p;
+    if (ep.direction_p == null || !Number.isFinite(Number(ep.direction_p))) {
+        return {
+            label: 'shape untested',
+            tooltip: ep.n_distinct != null && ep.n_distinct < 5
+                ? `Only ${ep.n_distinct} videos. Reversing an order leaves straightness `
+                  + 'unchanged, so with 4 videos the smallest reachable p is 2/4! = 0.083 — '
+                  + 'no binge this short can be shown to be directed, whatever its shape.'
+                : 'This binge predates the directedness test. Rebuild the sessions '
+                  + 'artifacts (Refresh Caches → Sessions) to compute it.',
+        };
+    }
+    const p = Number(ep.direction_p);
+    if (p < cut) {
+        return {
+            label: 'directed',
+            tooltip: `Directed: this binge travels. Only ${(100 * p).toFixed(1)}% of `
+                + 'reorderings of its own videos are as straight, so the order it was '
+                + 'watched in carries a real direction — it ends somewhere semantically '
+                + 'different from where it began (the rabbit-hole shape). '
+                + `p = ${p.toFixed(3)}, threshold ${cut}.`,
+        };
+    }
+    return {
+        label: 'stationary',
+        tooltip: 'Stationary: the viewer circles one semantic neighbourhood. '
+            + `${(100 * p).toFixed(0)}% of reorderings of these same videos are at least `
+            + 'as straight, so the watch order carries no direction the content does not '
+            + `already have. p = ${p.toFixed(3)}, threshold ${cut}.`,
+    };
+}
+
+
+
+
+// One line under a binge: the strongest variable trending across it, or an
+// explicit statement of why there is none. Silence would read as "we checked
+// and found nothing" even where the test could not run at all.
+function sessTrendHtml(scan) {
+    if (!scan) { return ''; }
+    const wrap = (text, tip) =>
+        `<span class="text-xxs sess-trend meta-tooltip" data-tooltip="${escapeHtml(tip)}">${escapeHtml(text)}</span>`;
+
+    if (scan.trend) {
+        const t = scan.trend;
+        const arrow = t.direction === 'rising' ? '↑' : '↓';
+        return wrap(
+            `${arrow} ${t.label} ${t.direction} across this binge (ρ ${t.rho > 0 ? '+' : ''}${t.rho})`,
+            `${t.label} ${t.direction} monotonically as the binge progresses. `
+            + `Spearman ρ = ${t.rho} over ${t.n} videos, exact permutation p = ${t.p}, `
+            + `q = ${t.q} after Benjamini-Hochberg correction across the ${scan.scanned} `
+            + 'variables that had enough data. Correlation with position, not causation: '
+            + 'it says the feed served these videos in this order, not that anything drove it.');
+    }
+    if (!scan.scanned) {
+        const why = scan.n_members < scan.min_n
+            ? `this binge has ${scan.n_members} videos and the scan needs ${scan.min_n}`
+            : 'none of the numeric variables covers enough of its videos';
+        return wrap('no trend scan', `Not tested — ${why}. `
+            + 'Below that length the exact permutation test cannot clear multiplicity '
+            + 'correction across the scanned variables, so any "trend" would be an '
+            + 'artifact of looking at many variables at once. This is a limit of the '
+            + 'test, NOT evidence that nothing trends.');
+    }
+    return wrap(`no trend (${scan.scanned} variables)`,
+        `${scan.scanned} numeric variables were tested for a monotone trend across this `
+        + 'binge; none survived Benjamini-Hochberg correction at q < 0.05. With this few '
+        + 'videos only a strong, near-perfectly ordered trend can survive, so a real but '
+        + 'modest gradient would not show here.');
+}
+
+
+
+
 function sessRenderSeqList(data) {
     const epHost = document.getElementById('sess-episode-chips');
     const winHost = document.getElementById('sess-window-chips');
@@ -569,7 +711,8 @@ function sessRenderSeqList(data) {
             + 'No binges detected in this session.</div>';
     }
     for (const ep of data.episodes) {
-        const kind = (ep.straightness != null && ep.straightness >= 0.5) ? 'drifting' : 'stationary';
+        const shape = sessBingeShape(ep);
+        const creators = sessCreatorText(ep.creators);
         const entry = document.createElement('button');
         entry.type = 'button';
         entry.className = 'sess-chip sess-seq-entry';
@@ -581,9 +724,11 @@ function sessRenderSeqList(data) {
             <span class="text-xs" style="color: var(--color-text-tertiary); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                 <span>${ep.n_distinct} videos</span>
                 <span>${sessFmtMinutes(ep.duration_min)}</span>
+                ${creators ? `<span class="meta-tooltip${(ep.creators && ep.creators.n_creators === 1) ? ' sess-solo-creator' : ''}" data-tooltip="${escapeHtml(sessCreatorTooltip(ep.creators))}">${escapeHtml(creators)}</span>` : ''}
                 <span class="meta-tooltip" data-tooltip="Average pairwise embedding distance across ALL ${ep.n_distinct} of this binge's videos (no best-window search). Same 0–1 scale as the low-entropy sequences, but an average over the binge's whole membership — a single loosely-matching member raises it.">avg distance ${ep.focus != null ? ep.focus.toFixed(3) : '–'}</span>
-                <span class="sess-badge text-xxs meta-tooltip" data-tooltip="${kind === 'drifting' ? 'Drifting binge: each video is close to the last, but the content travels — it ends somewhere semantically different from where it began (the rabbit-hole shape).' : 'Stationary binge: the viewer dwells inside one semantic neighbourhood — content circles the same topic.'}">${kind}</span>
-            </span>`;
+                <span class="sess-badge text-xxs meta-tooltip" data-tooltip="${escapeHtml(shape.tooltip)}">${escapeHtml(shape.label)}</span>
+            </span>
+            ${sessTrendHtml(ep.trend_scan)}`;
         entry.addEventListener('click', () => sessSelectSeq('binge', ep.episode_idx, 0));
         epHost.appendChild(entry);
     }
@@ -605,6 +750,7 @@ function sessRenderSeqList(data) {
             <span class="text-xs" style="color: var(--color-text-tertiary); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                 <span>${w.n_distinct} videos</span>
                 <span>${sessFmtMinutes(w.duration_min)}</span>
+                ${sessCreatorText(w.creators) ? `<span class="meta-tooltip${(w.creators && w.creators.n_creators === 1) ? ' sess-solo-creator' : ''}" data-tooltip="${escapeHtml(sessCreatorTooltip(w.creators))}">${escapeHtml(sessCreatorText(w.creators))}</span>` : ''}
                 <span class="meta-tooltip" data-tooltip="Average pairwise embedding distance between this window's ${w.n_distinct} videos — the rank key. Sequence 1 is the session's score in the table.">distance ${w.mean_cosdist != null ? w.mean_cosdist.toFixed(3) : '–'}</span>
                 <span class="meta-tooltip" data-tooltip="Normalised spectral entropy of the same ${w.n_distinct} videos (0 = all content along one semantic direction, 1 = maximally spread). Comparable across windows because they are all the same size.">entropy ${w.entropy_norm != null ? w.entropy_norm.toFixed(2) : '–'}</span>
             </span>`;
