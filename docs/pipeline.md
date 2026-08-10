@@ -103,7 +103,11 @@ profiling (`session_profile.py`), sequence windowing/modelling
 (`sequence_analysis.py`, `sequence_model.py`), dense semantic embeddings +
 niche detection + 2D map (`embeddings.py`, `niche_detection.py`,
 `video_map.py`; embeddings are backend-dispatched too — Gemini default,
-hosted or local Qwen alternatives, model-scoped shard store).
+hosted or local Qwen alternatives, model-scoped shard store). The Sessions
+tab's artifacts (session index, binge episodes, low-entropy windows) are
+built by `fyp/analysis/session_explorer.py` + `entropy_metrics.py` over a
+dense random-access embedding sidecar (`fyp/analysis/embedding_store.py`),
+as a batch-and-chained `sessions_refresh` worker.
 
 Every study refresh also writes a **methods/provenance note**
 (`{study}_methods.json`, built by `web_interface/services/methods_note.py`):
@@ -121,6 +125,10 @@ Refresh dependencies (each a background job, chained from the UI):
 ```
 consolidate → embeddings → video_map (niches) → study definitions → { meta ‖ pca ‖ timelines }
 ```
+
+`sessions_refresh` sits deliberately **outside** this chain: it is launched
+manually (Data Management → Refresh Caches) and goes silently stale after an
+embeddings refresh until rerun.
 
 ## Adding a platform — checklist
 

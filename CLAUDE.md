@@ -180,7 +180,7 @@ fyp_main_v02/
 │   ├── run_embeddings_refresh.py   # Embed not-yet-embedded annotated videos (Cloud Task)
 │   ├── run_video_map_refresh.py    # Cluster embedding store into niches + 2D map (Cloud Task)
 │   ├── run_sequence_refresh.py  # Refresh sequence-analysis artifacts (Cloud Task)
-│   ├── run_sessions_refresh.py  # Build the Sessions tab's session index + focus-episode artifacts (self-chaining Cloud Task; O(batch) memory, per-link shards, corpus-mean drift guard)
+│   ├── run_sessions_refresh.py  # Build the Sessions tab's session index + binge-episode/window artifacts (self-chaining Cloud Task; O(batch) memory, per-link shards, corpus-mean drift guard)
 │   ├── run_benchmark_parquet_read.py  # Benchmark parquet read paths (Cloud Task)
 │   ├── run_queue_annotator_batch.py   # Batch-mode Gemini annotation (Cloud Task)
 │   ├── run_ab_eval.py           # Prompt A/B eval run (Cloud Task)
@@ -199,7 +199,7 @@ fyp_main_v02/
 │   │   ├── api_correlations_routes.py   #   Correlations API
 │   │   ├── api_collections_routes.py    #   Collection stats + annotation API
 │   │   ├── api_semantic_space_routes.py #   Semantic Space tab API (video embedding map)
-│   │   ├── api_sessions_routes.py       #   Sessions tab API (session quality index + focus episodes)
+│   │   ├── api_sessions_routes.py       #   Sessions tab API (session index + binge episodes + low-entropy sequences)
 │   │   ├── management/          #   Admin/management endpoints — per-domain submodules (studies, collections,
 │   │   │                        #     enrichment, contracts, ab_eval, schema, ingestion) on ONE shared blueprint
 │   │   ├── management_routes.py #   Compatibility shim re-exporting the management package
