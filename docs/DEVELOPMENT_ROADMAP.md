@@ -390,16 +390,24 @@ all levels plus students doing assignments on recommender systems and cultural t
 
 ### S1. Clear the operational backlog — make "reliable" true, not just built (weeks 1–2; admin ops, not code)
 
-Work the pending-ops list (`POST_HOLIDAY_NOTES.md` + the pending-ops memory hub) in
-dependency order: (1) the owed prod **PCA/Correlations refresh** (unlocks Group
-differences + the Correct-for-noise toggle); (2) **YouTube cookie re-export +
-residential-IP drain** (runbook in CLAUDE.md), the **IG re-queue** of historical
-`no_video` image posts, and the TikTok slideshow queue; (3) **annotate IG/YT items**
-and promote the resulting `av_` / the pending `sv_`; (4) one plain **Consolidate &
-Refresh** to clear every code-side trigger; (5) security/infra — `MAIL_PASSWORD` on
-the task runner, **rotate the `GEMINI_API_KEY`** (still in git history; also a
-public-release blocker), GCS bucket versioning, the `share_annotations` opt-in
-migration + hub redeploy.
+**Status 2026-07-29: substantively closed.** A full read-only verification against
+prod found most carried-forward items already done: the prod **PCA/Correlations
+refresh** ran 2026-07-29 (`{study}_corr_stats.json` × 7 + `annotation_reliability.json`
+in the `cache` location — note the reliability artifact is empty until a repeat-run
+ab_eval or n≥10 human-eval coding exists, so "Correct for noise" stays a no-op for
+now); the **YouTube residential-IP drain** completed early July (all 1,218 items
+scraped); the **IG `no_video` re-queue** is done (84/87 scraped, 83 annotated);
+**IG/YT annotation + `av_8e04fabdfefd` promotion** are done; `MAIL_PASSWORD` is set
+on both services; the `share_annotations` opt-in migration was applied 2026-07-14
+with redeploys since. The **`GEMINI_API_KEY` was rotated 2026-07-29**: the key
+leaked in git history was deleted (GCP soft-delete) after every local copy was
+swapped to a restricted replacement key — the historical string is now inert.
+
+Remaining, deliberately deprioritized (tracked in the pending-ops memory hub, not
+blocking S2): enable **GCS bucket versioning** on `fyp_bucket_01` (+ a
+noncurrent-version lifecycle cap), the 949-item TikTok queue drain, the `sv_` /
+`av_28a765642412` promotions, the viz/timeline "Platform" checkboxes, one plain
+Consolidate & Refresh after any new scrapes, and the local `v0_legacy` decision.
 
 _Why first:_ every later item (reliability metrics, demos, onboarding) reads from
 artifacts these ops produce, and inviting users onto a stale pipeline undermines the
@@ -651,3 +659,30 @@ byproducts → M5 last, per "consolidate first".
   untouched. **Still outstanding:** the prod data ops (generator run, ingest,
   demo-study creation) and the manual student-account walkthrough — log in as
   the student role → read-only surfaces only, demo study visible.
+
+## Status addendum (2026-08-10)
+
+With S1–S4 code-closed, August work went to research-facing depth and
+corpus-scale robustness rather than starting the M-track:
+
+- **Correlations tab overhaul** (deployed through 2026-08-06): statistical-rigor
+  pass (two-panel Group differences, corr_stats v2), then an explanations layer
+  (key-findings report, sample-bound Gemini interpretation, per-view explainer
+  texts). See `docs/correlations-tab-guide.md`.
+- **Sessions tab** (new; four deploys 2026-08-06 → 2026-08-10): session-quality
+  explorer with binge episodes and low-entropy sequences, admin-editable list
+  floors, per-binge creators, permutation-based directedness, within-binge trend
+  scan, and a binge-detector rewrite (off-theme skip tolerance + rewind). One
+  prod `sessions_refresh` rebuild is owed to pick up the new segmentation.
+- **Corpus-scale robustness** (deployed 2026-08-09): the `pca_refresh` OOM fixed
+  exactly (survivors-only crosstab — no published number moves), the sessions
+  build rewritten O(batch) over a dense embedding sidecar
+  (`fyp/analysis/embedding_store.py`), streaming `data_io` primitives, a shared
+  memory probe (`fyp/core/memory.py`), and dispatch-deadline/dead-letter fixes
+  for self-chaining workers. Known next cliff: `stats.family_permanova` is
+  O(groups²).
+- **Ops/UX**: durable per-process run logs (last 10 runs, launch attribution),
+  per-variable filter value search, Video Analysis timestamp/identity/navigation
+  fixes.
+
+The M-track (M1 study export bundle first) remains the next planned thrust.

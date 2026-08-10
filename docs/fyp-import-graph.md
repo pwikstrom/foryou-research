@@ -21,6 +21,14 @@ python scripts/gen_import_graph.py > /tmp/matrix.md   # then replace the section
 
 Every old path (`fyp/<module>.py`) remains forever as a back-compat shim.
 
+**Modules added after Phase 8** (born inside a subpackage, no shim needed):
+`fyp/core/memory.py` (RSS/peak probes), `fyp/scrape/scraper_alerts.py`,
+`fyp/annotation/backends/` and `fyp/analysis/embedding_backends/` (backend
+registries), `fyp/analysis/embedding_store.py` (dense random-access sidecar),
+`fyp/analysis/session_explorer.py` and `fyp/analysis/entropy_metrics.py`
+(Sessions tab build). The matrix below is the Phase 8 snapshot and does not
+include them.
+
 ## Back-compat mechanism
 
 **Renamed modules** use a *sys.modules alias shim*:
