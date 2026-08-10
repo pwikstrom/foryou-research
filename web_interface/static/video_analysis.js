@@ -33,9 +33,9 @@ let viewerData = {
     leftPanelVisible: true,
     rightPanelVisible: true,
     // Prefetch / caching infrastructure
-    _metadataCache: new Map(),       // itemId -> {data, timestamp}
+    _metadataCache: new Map(),       // rowKey(itemId, rowIdx) -> {data, timestamp}
     _metadataCacheMax: 50,           // LRU eviction threshold
-    _inflightItem: null,             // { itemId, promise, abort } for the in-flight metadata prefetch
+    _inflightItem: null,             // { key, itemId, promise, abort } for the in-flight metadata prefetch
     _itemFetchAbort: null,           // AbortController for in-flight item-metadata fetch
     _preloadedVideoIndex: null       // Index whose video is preloaded in the hidden element
 };
@@ -1126,36 +1126,50 @@ async function applyViewerFilters(focusItemId = null) {
 // Metadata cache helpers (LRU, max 50 entries)
 // ---------------------------------------------------------------------------
 
-function cacheMetadata(itemId, data) {
+// Cache identity for one row of the feed. An item id alone is NOT enough: the
+// same video watched twice is two rows, same id but different activity
+// timestamp, dwell and session — and they sit close together in the feed often
+// enough that both land inside a 50-entry LRU. Keying on the id alone made the
+// second occurrence render the first one's record, so its timestamp appeared
+// not to advance. `row_idx` is what the server disambiguates on, so it is what
+// the cache keys on too. Rows with no row_idx (an older chunk) degrade to the
+// id, which is the previous behaviour rather than a new failure.
+function rowKey(itemId, rowIdx) {
+    return (rowIdx === undefined || rowIdx === null) ? `${itemId}` : `${itemId}#${rowIdx}`;
+}
+
+function cacheMetadata(key, data) {
     const cache = viewerData._metadataCache;
-    cache.delete(itemId); // refresh position
-    cache.set(itemId, { data, ts: Date.now() });
+    cache.delete(key); // refresh position
+    cache.set(key, { data, ts: Date.now() });
     if (cache.size > viewerData._metadataCacheMax) {
         cache.delete(cache.keys().next().value); // evict oldest
     }
 }
 
-function videoStreamUrl(itemId) {
+function videoStreamUrl(itemId, key) {
     // Append the item's platform when cached metadata knows it — the server
     // resolves the media path faster with it, and falls back to probing
-    // (platform subpath, then legacy flat path) without it.
+    // (platform subpath, then legacy flat path) without it. The media is a
+    // property of the item, so any occurrence's cached record answers this;
+    // `key` just says which one to read it from.
     const base = `/api/video/${encodeURIComponent(viewerData.activeStudy)}/${itemId}`;
-    const meta = getCachedMetadata(itemId);
+    const meta = getCachedMetadata(key === undefined ? itemId : key);
     const platform = meta && meta.source_platform;
     return platform ? `${base}?platform=${encodeURIComponent(platform)}` : base;
 }
 
-function getCachedMetadata(itemId) {
-    const entry = viewerData._metadataCache.get(itemId);
+function getCachedMetadata(key) {
+    const entry = viewerData._metadataCache.get(key);
     if (!entry) return null;
     // Expire after 5 minutes
     if (Date.now() - entry.ts > 300_000) {
-        viewerData._metadataCache.delete(itemId);
+        viewerData._metadataCache.delete(key);
         return null;
     }
     // Refresh LRU position
-    viewerData._metadataCache.delete(itemId);
-    viewerData._metadataCache.set(itemId, entry);
+    viewerData._metadataCache.delete(key);
+    viewerData._metadataCache.set(key, entry);
     return entry.data;
 }
 
@@ -1185,14 +1199,19 @@ function prefetchNext() {
 
     const nextItemId = viewerData.filteredIds[relIdx];
     const nextRowIdx = viewerData.rowIdxs ? viewerData.rowIdxs[relIdx] : undefined;
+    const nextKey = rowKey(nextItemId, nextRowIdx);
 
-    // Cancel a stale in-flight prefetch — but never one that is for the item
+    // Cancel a stale in-flight prefetch — but never one that is for the row
     // currently on screen (loadViewerItem may be awaiting it) or already for
-    // the target item.
+    // the target row. Compared on the row key, not the item id: consecutive
+    // rewatches of one video are different rows behind the same id, and
+    // matching on the id would hand one row's response to the other.
     const currentRel = viewerData.currentIndex - (viewerData.currentOffset || 0);
     const currentItemId = viewerData.filteredIds ? viewerData.filteredIds[currentRel] : undefined;
+    const currentKey = currentItemId === undefined ? undefined : rowKey(
+        currentItemId, viewerData.rowIdxs ? viewerData.rowIdxs[currentRel] : undefined);
     const inflight = viewerData._inflightItem;
-    if (inflight && inflight.itemId !== nextItemId && inflight.itemId !== currentItemId) {
+    if (inflight && inflight.key !== nextKey && inflight.key !== currentKey) {
         inflight.abort.abort();
         viewerData._inflightItem = null;
     }
@@ -1200,7 +1219,7 @@ function prefetchNext() {
     // Prefetch metadata (if not already cached or being fetched). The promise
     // is kept so loadViewerItem can await this request instead of issuing a
     // duplicate — the server pays the full item cost per request.
-    if (!getCachedMetadata(nextItemId) && !(inflight && inflight.itemId === nextItemId)) {
+    if (!getCachedMetadata(nextKey) && !(inflight && inflight.key === nextKey)) {
         const abort = new AbortController();
         const promise = fetch(`/api/video_analysis/item/${encodeURIComponent(viewerData.activeStudy)}/${nextItemId}`, {
             method: 'POST',
@@ -1213,20 +1232,20 @@ function prefetchNext() {
             signal: abort.signal
         })
             .then(r => r.json())
-            .then(data => { if (!data.error) cacheMetadata(nextItemId, data); return data; })
+            .then(data => { if (!data.error) cacheMetadata(nextKey, data); return data; })
             .catch(() => null); // silently ignore aborts / errors
-        viewerData._inflightItem = { itemId: nextItemId, promise, abort };
+        viewerData._inflightItem = { key: nextKey, itemId: nextItemId, promise, abort };
     }
 
     // Preload next video in hidden element — skipped when its metadata is
     // already known to say there is no media to stream.
-    const nextMeta = getCachedMetadata(nextItemId);
+    const nextMeta = getCachedMetadata(nextKey);
     const nextHasNoMedia = nextMeta && nextMeta.video_downloaded === false;
     const preloadEl = document.getElementById('viewer-video-preload');
     if (preloadEl && viewerData._preloadedVideoIndex !== nextIndex && !nextHasNoMedia) {
         const autoplay = window.userSettings && window.userSettings.video_autostart;
         preloadEl.preload = autoplay ? "auto" : "metadata";
-        preloadEl.src = videoStreamUrl(nextItemId);
+        preloadEl.src = videoStreamUrl(nextItemId, nextKey);
         viewerData._preloadedVideoIndex = nextIndex;
     }
 }
@@ -1264,12 +1283,13 @@ async function loadViewerItem(index) {
 
     const itemId = viewerData.filteredIds[relativeIndex];
     const rowIdx = viewerData.rowIdxs ? viewerData.rowIdxs[relativeIndex] : undefined;
+    const cacheKey = rowKey(itemId, rowIdx);
     const displayId = viewerData.displayIds[itemId] || itemId;
 
-    // Reuse an in-flight prefetch when it is already fetching this item's
+    // Reuse an in-flight prefetch when it is already fetching this row's
     // metadata (each item request is expensive server-side); abort it only
-    // when it is for some other item. Also cancel any stale item fetch.
-    const inflightItem = (viewerData._inflightItem && viewerData._inflightItem.itemId === itemId)
+    // when it is for some other row. Also cancel any stale item fetch.
+    const inflightItem = (viewerData._inflightItem && viewerData._inflightItem.key === cacheKey)
         ? viewerData._inflightItem : null;
     if (!inflightItem && viewerData._inflightItem) {
         viewerData._inflightItem.abort.abort();
@@ -1286,7 +1306,7 @@ async function loadViewerItem(index) {
     // -------------------------------------------------------------------
     const videoEl = document.getElementById('viewer-video');
     const preloadEl = document.getElementById('viewer-video-preload');
-    const videoUrl = videoStreamUrl(itemId);
+    const videoUrl = videoStreamUrl(itemId, cacheKey);
     const autoplay = window.userSettings && window.userSettings.video_autostart;
 
     // A notice from the previous item must not linger over this one — restore
@@ -1322,7 +1342,7 @@ async function loadViewerItem(index) {
     videoEl.addEventListener('error', () => {
         if (viewerData.currentIndex !== index) return;   // stale listener
         if (msgEl.dataset.notice) return;                // notice already shown
-        const meta = getCachedMetadata(itemId);
+        const meta = getCachedMetadata(cacheKey);
         showVideoNotice(videoNoticeText(meta) || "Video could not be loaded.");
     }, { once: true });
 
@@ -1340,7 +1360,7 @@ async function loadViewerItem(index) {
     // 2. Fetch (or read from cache) the item metadata in parallel with the
     //    video stream. Render the right-side details panel when it lands.
     // -------------------------------------------------------------------
-    const cached = getCachedMetadata(itemId);
+    const cached = getCachedMetadata(cacheKey);
     if (cached) {
         // Cache hit: render synchronously, no placeholder flash.
         renderMetadata(cached);
@@ -1361,7 +1381,7 @@ async function loadViewerItem(index) {
     const handleItem = (item) => {
         // Always cache a successful response — useful for back-navigation
         // even if the user has moved on from this index.
-        if (item && !item.error) cacheMetadata(itemId, item);
+        if (item && !item.error) cacheMetadata(cacheKey, item);
 
         // Race guard: only update the panel if the user is still on this index.
         if (viewerData.currentIndex !== requestedIndex) return;
