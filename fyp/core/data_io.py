@@ -610,15 +610,64 @@ def move(src_storage_location: str = "", dst_storage_location: str = "", filenam
 
     # Local Move
     elif src_mode == 'local' and dst_mode == 'local':
-    
+
         if src_primary and dst_primary:
             shutil.move(src_primary, dst_primary)
             if verbose: logger.info(f"    [DATA_IO] Moved Local: '{filename}' from '{src_storage_location}' to '{dst_storage_location}'")
         else:
             if verbose and src_mode == 'local':
                 logger.error(f"    [DATA_IO] ERROR Couldn't find '{filename}' in '{src_storage_location}'")
-    
-        
+
+
+
+
+
+
+def rename(storage_location: str = "", src_filename: str = "", dst_filename: str = "", verbose: bool = False) -> bool:
+    """Rename a file within a single storage location.
+
+    Local mode is an atomic filesystem move; GCS mode uses ``rename_blob``
+    (a server-side copy + delete). An existing file at ``dst_filename`` is
+    overwritten, matching ``save_*`` semantics.
+
+    Args:
+        storage_location: The named storage location holding the file.
+        src_filename: The current filename.
+        dst_filename: The new filename.
+        verbose: When True, log the rename.
+
+    Returns:
+        True when the source existed and was renamed, False when it was absent.
+    """
+
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
+    if src_filename == "" or dst_filename == "":
+        raise ValueError("Filename cannot be empty")
+
+    if src_filename == dst_filename:
+        return exists(storage_location=storage_location, filename=src_filename)
+
+    src_primary, _, src_mode, src_blob_name = _resolve_paths(storage_location, src_filename)
+    dst_primary, _, _, dst_blob_name = _resolve_paths(storage_location, dst_filename)
+
+    if src_mode == 'gcs':
+        bucket = _get_bucket()
+        if not bucket:
+            raise ValueError("GCS bucket not initialized for rename")
+        blob = bucket.blob(src_blob_name)
+        if not blob.exists():
+            return False
+        bucket.rename_blob(blob, dst_blob_name)
+        if verbose: logger.info(f"    [DATA_IO] Renamed GCS: '{src_blob_name}' -> '{dst_blob_name}'")
+        return True
+
+    if not src_primary or not os.path.exists(src_primary):
+        return False
+    shutil.move(src_primary, dst_primary)
+    if verbose: logger.info(f"    [DATA_IO] Renamed Local: '{src_filename}' -> '{dst_filename}' in '{storage_location}'")
+    return True
 
 
 

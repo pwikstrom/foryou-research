@@ -41,6 +41,19 @@
         </div>
     </div>
 
+    <!-- Rename Study prompt (after modal so it renders on top at same z-index) -->
+    <div id="study-rename-overlay" class="stop-confirm-overlay" style="z-index: 1200;">
+        <div class="stop-confirm-card" style="max-width: 420px;">
+            <p class="text-sm font-bold" style="margin: 0 0 8px 0;">Rename study</p>
+            <p id="study-rename-hint" class="text-sm" style="margin: 0 0 12px 0; color: var(--color-text-secondary);"></p>
+            <input type="text" id="study-rename-input" class="control-input" style="width: 100%; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <button class="btn-discreet" id="study-rename-cancel-btn">Cancel</button>
+                <button class="btn-primary" id="study-rename-ok-btn">Rename</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Template for Study Edit Form (cloned into modal) -->
     <template id="study_detail_template">
         <div class="study-edit-form" data-study-name="">
@@ -129,8 +142,14 @@ Included videos can still be enriched afterwards, so a wider frame is fine."
 
             {% if current_user.is_admin() %}
             <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                <button type="button" class="btn-danger text-xs" onclick="deleteStudy(this, event)"
-                    style="padding: 2px 8px;">Delete Study</button>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" class="btn-danger text-xs" onclick="deleteStudy(this, event)"
+                        style="padding: 2px 8px;">Delete</button>
+                    <button type="button" class="btn-discreet text-xs js-study-existing-action" onclick="renameStudy(this, event)"
+                        style="padding: 2px 8px;">Rename</button>
+                    <button type="button" class="btn-discreet text-xs js-study-existing-action" onclick="duplicateStudy(this, event)"
+                        style="padding: 2px 8px;">Duplicate</button>
+                </div>
                 <button type="button" class="action-btn text-xs" onclick="saveStudy(this, event)"
                     style="padding: 2px 8px;">Save/Refresh Study</button>
             </div>

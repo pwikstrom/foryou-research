@@ -580,7 +580,11 @@ function _showStudyModal(study, isNew = false, readOnly = false) {
     const template = document.getElementById('study_detail_template');
     const formClone = template.content.cloneNode(true).querySelector('.study-edit-form');
     formClone.dataset.studyName = study.STUDY_NAME;
-    if (isNew) formClone.dataset.isNew = 'true';
+    if (isNew) {
+        formClone.dataset.isNew = 'true';
+        // Rename/Duplicate act on a saved study — meaningless before first save.
+        formClone.querySelectorAll('.js-study-existing-action').forEach(b => { b.style.display = 'none'; });
+    }
     // Consulted by populateForm and the chart/collection renderers. Read-only
     // renders entirely from the /api/manage/studies payload — it never calls the
     // Data-Management-only endpoints a viewer would be refused.
@@ -1240,6 +1244,120 @@ async function deleteStudy(btn, event) {
             }
         })
         .catch(err => showAppAlert("Delete failed: " + err));
+}
+
+// --- Duplicate / Rename (grouped with Delete in the modal footer) ---
+
+// Suggest a unique name for a duplicated study.
+function _suggestCopyName(sourceName) {
+    let candidate = `${sourceName}_copy`;
+    let n = 2;
+    while (allStudies.some(s => s.STUDY_NAME === candidate)) {
+        candidate = `${sourceName}_copy${n}`;
+        n += 1;
+    }
+    return candidate;
+}
+
+// Duplicate = reopen the New Study modal pre-filled with this study's saved
+// definition. Saving goes through the normal new-study flow (name-uniqueness
+// check, validation, background stats/PCA refresh), so the user can adjust
+// the copy before committing the expensive rebuild.
+function duplicateStudy(btn, event) {
+    if (event) event.preventDefault();
+    const formContainer = btn.closest('.study-edit-form');
+    const sourceName = formContainer.dataset.studyName;
+    const source = allStudies.find(s => s.STUDY_NAME === sourceName);
+    if (!source) return;
+
+    // Copy the definition only — stats, timestamps and the cached daily chart
+    // belong to the source study and are recomputed when the copy is saved.
+    const copy = JSON.parse(JSON.stringify(source));
+    delete copy.stats;
+    delete copy.last_updated;
+    delete copy.cached_daily_activities;
+    copy.STUDY_NAME = '';
+
+    closeStudyModal();
+    loadSystemRoles(() => {
+        _showStudyModal(copy, true);
+        const title = document.getElementById('editStudyModalTitle');
+        if (title) title.textContent = `New study — copy of ${sourceName}`;
+        const nameInput = document.getElementById('newStudyNameInput');
+        if (nameInput) {
+            nameInput.value = _suggestCopyName(sourceName);
+            nameInput.select();
+        }
+    });
+}
+
+// Small input prompt on top of the study modal. Resolves to the entered name,
+// or null on cancel/Escape/backdrop.
+function _promptStudyRename(oldName) {
+    return new Promise(resolve => {
+        const overlay = document.getElementById('study-rename-overlay');
+        if (!overlay) { resolve(window.prompt(`New name for '${oldName}':`, oldName)); return; }
+
+        const input = document.getElementById('study-rename-input');
+        const hint = document.getElementById('study-rename-hint');
+        hint.textContent = `Enter a new name for '${oldName}'. Its dataset, stats and access are kept — no rebuild needed.`;
+        input.value = oldName;
+
+        let done = false;
+        const close = (val) => {
+            if (done) return;
+            done = true;
+            overlay.classList.remove('visible');
+            resolve(val);
+        };
+        document.getElementById('study-rename-ok-btn').onclick = () => close(input.value.trim());
+        document.getElementById('study-rename-cancel-btn').onclick = () => close(null);
+        overlay.onclick = (e) => { if (e.target === overlay) close(null); };
+        input.onkeydown = (e) => {
+            if (e.key === 'Enter') close(input.value.trim());
+            else if (e.key === 'Escape') close(null);
+            e.stopPropagation();
+        };
+
+        overlay.classList.add('visible');
+        setTimeout(() => { input.focus(); input.select(); }, 50);
+    });
+}
+
+async function renameStudy(btn, event) {
+    if (event) event.preventDefault();
+    const formContainer = btn.closest('.study-edit-form');
+    const oldName = formContainer.dataset.studyName;
+    if (!oldName || formContainer.dataset.isNew === 'true') return;
+
+    const newName = await _promptStudyRename(oldName);
+    if (!newName || newName === oldName) return;
+    if (allStudies.some(s => s.STUDY_NAME === newName)) {
+        showAppAlert(`A study named '${newName}' already exists.`);
+        return;
+    }
+
+    fetch('/api/manage/studies/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ OLD_NAME: oldName, NEW_NAME: newName })
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // Update in place — the modal stays open under the new name.
+                formContainer.dataset.studyName = newName;
+                const title = document.getElementById('editStudyModalTitle');
+                if (title) title.textContent = newName;
+                const cached = allStudies.find(s => s.STUDY_NAME === oldName);
+                if (cached) cached.STUDY_NAME = newName;
+                renderStudiesTable();
+                refreshStudyDropdowns();
+            } else {
+                showAppAlert('Rename failed: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(err => showAppAlert('Rename failed: ' + err));
 }
 
 function populateEnrichmentStudySelect(studies) {
