@@ -289,14 +289,15 @@ function sessFmtMinutes(m) {
 
 
 
+// Session timestamps come from `local_timestamp` — the participant's own wall
+// clock, serialized zone-less — so they render verbatim through the shared
+// formatter (24-hour, "16-Oct-2024 15:32"), exactly like the Video Analysis
+// detail panel's "Activity timestamp". Do not route them through
+// toLocaleString(): that renders 12-hour on en-US and disagrees with the rest
+// of the UI.
 function sessFmtTs(ts) {
     if (!ts) { return '–'; }
-    const d = new Date(ts);
-    if (isNaN(d.getTime())) { return String(ts).slice(0, 16); }
-    return d.toLocaleString(undefined, {
-        year: 'numeric', month: 'short', day: 'numeric',
-        hour: '2-digit', minute: '2-digit',
-    });
+    return fypFmtAuto(ts, String(ts).slice(0, 16));
 }
 
 

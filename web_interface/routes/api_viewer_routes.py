@@ -58,6 +58,24 @@ _IDS_BASE_COLUMNS = (
 )
 
 
+# How many index -> timestamp samples the slider's scrub chip gets for the whole
+# filtered set. Sending one per row would be tens of thousands of strings; the
+# ladder is enough to name the point in time the thumb is over, and every index
+# is sampled exactly whenever the result set is this small or smaller.
+_SLIDER_TIME_MARKS = 500
+
+
+def _iso_timestamps(series) -> list:
+    """ISO-8601 strings for a timestamp series, ``None`` where unparseable.
+
+    Accepts either a real datetime column or the ISO strings the recoded
+    parquets store, and normalizes both to the same wire form so the client
+    formats every activity timestamp through one path.
+    """
+    parsed = pd.to_datetime(series, errors="coerce")
+    return [None if pd.isna(v) else pd.Timestamp(v).isoformat() for v in parsed]
+
+
 def _ids_columns(filters, search_query, full_col_types=None):
     """Columns ``api_viewer_ids`` needs for this request, or None for all.
 
@@ -190,6 +208,21 @@ def api_viewer_ids():
         except (ValueError, TypeError):
             time_span = None
 
+    # Coarse index -> timestamp ladder across the WHOLE filtered set, on the same
+    # clock as the header span. It labels the slider's scrub chip at positions
+    # outside the downloaded chunk, which is most of them once a study runs to
+    # tens of thousands of videos. First chunk only; the client keeps it.
+    time_marks = None
+    if offset == 0 and span_col is not None and total_count > 0:
+        positions = np.unique(
+            np.linspace(0, total_count - 1, min(total_count, _SLIDER_TIME_MARKS))
+            .round().astype(int)
+        )
+        time_marks = {
+            "idx": positions.tolist(),
+            "ts": _iso_timestamps(filtered_df[span_col].iloc[positions]),
+        }
+
     # Build global list of indices (0-based) where extra_data is present.
     # Only computed on the first chunk request (offset 0) to avoid repeat work.
     extra_data_indices = None
@@ -219,10 +252,17 @@ def api_viewer_ids():
         "display_ids": relevant_display_ids,
         "truncated": False,
         "time_span": time_span,
+        # Exact per-row timestamps for the rows actually returned, so scrubbing
+        # inside the loaded chunk names the real activity time rather than the
+        # nearest ladder sample.
+        "timestamps": _iso_timestamps(chunk[span_col]) if span_col is not None else [],
     }
 
     if focus_item_id:
         result["focus_index"] = focus_index
+
+    if time_marks is not None:
+        result["time_marks"] = time_marks
 
     if extra_data_indices is not None:
         result["extra_data_indices"] = extra_data_indices

@@ -1432,6 +1432,24 @@ button {
     cursor: default;
 }
 
+/* Scrub chip: the activity timestamp of the video under the slider thumb.
+   `left` is set from JS to follow the thumb; the translate centres it there. */
+#viewer-slider-ts {
+    position: absolute;
+    top: 100%;
+    transform: translateX(-50%);
+    margin-top: 2px;
+    padding: 2px 6px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 3;
+    border-radius: 4px;
+    background: var(--tooltip-bg);
+    color: var(--tooltip-text);
+    border: 1px solid var(--tooltip-border);
+    box-shadow: var(--shadow-sm);
+}
+
 
 /* ============================================================
    Modal
@@ -1684,6 +1702,41 @@ button.meta-tooltip:disabled {
 .meta-tooltip.tooltip-right-anchored::after {
     left: auto;
     right: 0;
+}
+
+/* floating_tooltip.js re-homes every tooltip onto #fyp-tooltip so it can escape
+   clipping ancestors (the scrolling details panel, the overflow-hidden tab
+   panes). It stamps this class on <html> once loaded; the ::after rendering
+   above stays as the no-JS fallback and is suppressed here so only one tooltip
+   is ever drawn. Keep the two visually identical. */
+html.fyp-floating-tooltips .meta-tooltip::after {
+    display: none;
+}
+
+#fyp-tooltip {
+    position: fixed;
+    top: -9999px;
+    left: -9999px;
+    background: var(--tooltip-bg);
+    color: var(--tooltip-text);
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-normal);
+    line-height: var(--leading-normal);
+    white-space: pre-wrap;
+    max-width: 280px;
+    width: max-content;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    z-index: 4000;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--tooltip-border);
+}
+
+#fyp-tooltip.is-visible {
+    opacity: 1;
 }
 
 
@@ -2064,6 +2117,37 @@ button.meta-tooltip:disabled {
 #viewer-metadata tr.detail-display-id td {
     padding: 0;
     border-bottom: none;
+}
+
+/* Drill-down notice bar (Video Analysis): message on the left, dismiss on the
+   right. Hidden with display:none, so the flex layout only applies when shown. */
+#viewer-drilldown-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 15px;
+    background: var(--color-bg-elevated);
+    border-bottom: 1px solid var(--color-border-subtle);
+    color: var(--color-text-muted);
+}
+
+#viewer-drilldown-notice .viewer-notice-text {
+    flex: 1 1 auto;
+}
+
+#viewer-drilldown-notice .viewer-notice-close {
+    flex: 0 0 auto;
+    background: none;
+    border: none;
+    padding: 0 4px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--color-text-muted);
+    font-size: var(--text-h3);
+}
+
+#viewer-drilldown-notice .viewer-notice-close:hover {
+    color: var(--color-text-primary);
 }
 
 

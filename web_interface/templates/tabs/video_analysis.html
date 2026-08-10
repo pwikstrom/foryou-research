@@ -13,7 +13,9 @@
         <button class="mobile-only mobile-drawer-trigger" data-drawer-target="#va-left-panel"
             style="margin-right: 10px;">Filters</button>
         <span class="text-sm" style="margin-right: 8px; color: var(--control-bar-text);">Date range:</span>
-        <span id="viewer-date-range" class="text-sm meta-tooltip"
+        <!-- tooltip-below: the control bar sits at the top of the tab pane, so an
+             upward tooltip would open over the tab bar. -->
+        <span id="viewer-date-range" class="text-sm meta-tooltip tooltip-below"
             data-tooltip="First and last activity timestamp in the current selection. Videos are sorted oldest to newest."
             style="color: var(--control-bar-info);">&mdash;</span>
 
@@ -112,6 +114,8 @@
                         <div id="viewer-slider-markers" style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 1;"></div>
                         <input type="range" id="viewer-slider" min="1" max="1" value="1" disabled
                             style="width: 100%; cursor: pointer; position: relative; z-index: 2;">
+                        <!-- Activity timestamp of the video under the thumb, shown while scrubbing. -->
+                        <div id="viewer-slider-ts" class="text-xs font-mono" style="display: none;" aria-hidden="true"></div>
                     </div>
                 </div>
 
@@ -133,8 +137,9 @@
 
             <!-- Drill-down notice: shown when an incoming drill-down named a video
                  this study does not contain (e.g. a Semantic Space dot — that map
-                 spans the whole corpus). Cleared on the next filter apply. -->
-            <div id="viewer-drilldown-notice" class="text-sm" style="display: none; padding: 8px 15px; background: var(--color-bg-elevated); border-bottom: 1px solid var(--color-border-subtle); color: var(--color-text-muted);"></div>
+                 spans the whole corpus). Dismissable, and cleared automatically on
+                 the next item load or filter apply. -->
+            <div id="viewer-drilldown-notice" class="text-sm" style="display: none;"></div>
 
             <!-- Content Area: Video + Metadata -->
             <div style="display: flex; flex: 1; overflow: hidden;">
