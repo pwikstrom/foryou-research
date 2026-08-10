@@ -784,6 +784,13 @@
   ]
  ],
  [
+  "/api/manage/studies/rename",
+  "management_bp.rename_study",
+  [
+   "POST"
+  ]
+ ],
+ [
   "/api/manage/studies/save",
   "management_bp.save_study",
   [

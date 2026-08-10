@@ -497,6 +497,81 @@ def daily_activities():
 
 
 
+# Per-study cached artifacts, all in the "cache" location. Keep in sync with
+# delete_study and the run_* workers that write them (study/recode refresh,
+# pca refresh, meta refresh, sequence refresh, methods note).
+_STUDY_ARTIFACT_SUFFIXES = [
+    "_recoded.parquet",
+    "_recoded.meta.json",
+    "_explorer_metadata.json",
+    "_comp_interpretations.json",
+    "_PCA.parquet",
+    "_corr_stats.json",
+    "_methods.json",
+    "_sequence.parquet",
+    "_sequence_summary.json",
+]
+
+
+
+
+@management_bp.route('/api/manage/studies/rename', methods=['POST'])
+@login_required
+@permission_required('tab.data_management.studies')
+def rename_study():
+    """Rename a study: move its definition key and carry its cached artifacts over.
+
+    The artifacts are renamed in place (local move / GCS blob rename), so a
+    rename needs no dataset rebuild. A missing artifact is fine — e.g. a study
+    saved definition-only, or one whose sequence/correlation refresh never ran.
+    """
+    data = request.json or {}
+    old_name = (data.get("OLD_NAME") or "").strip()
+    new_name = (data.get("NEW_NAME") or "").strip()
+    if not old_name or not new_name:
+        return jsonify({"error": "Missing OLD_NAME or NEW_NAME"}), 400
+    if new_name == old_name:
+        return jsonify({"error": "The new name is the same as the old name"}), 400
+
+    init_study_defs()
+    studies = fyp_cf.get('study_defs', {})
+    if old_name not in studies:
+        return jsonify({"error": f"Study not found: {old_name}"}), 404
+    if new_name in studies:
+        return jsonify({"error": f"A study named '{new_name}' already exists"}), 400
+
+    # Rebuild the dict so the renamed study keeps its position in the listing.
+    fyp_cf['study_defs'] = {
+        (new_name if name == old_name else name): config
+        for name, config in studies.items()
+    }
+    save_study_defs()
+
+    moved = []
+    for suffix in _STUDY_ARTIFACT_SUFFIXES:
+        try:
+            if data_io.rename(storage_location="cache",
+                              src_filename=f"{old_name}{suffix}",
+                              dst_filename=f"{new_name}{suffix}"):
+                moved.append(suffix)
+        except Exception as e:
+            print(f"[rename_study] non-fatal: could not rename {old_name}{suffix}: {e}")
+
+    study_cache.invalidate(old_name)
+
+    activity_log.record(
+        actor=_actor(),
+        category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action="study.rename",
+        target=old_name,
+        details={"new_name": new_name, "artifacts_moved": moved},
+    )
+
+    return jsonify({"status": "success", "old_name": old_name, "new_name": new_name})
+
+
+
+
 @management_bp.route('/api/manage/studies/delete', methods=['POST'])
 @login_required
 @permission_required('tab.data_management.studies')
@@ -515,13 +590,8 @@ def delete_study():
         del fyp_cf['study_defs'][study_name]
         save_study_defs()
 
-        for cached_file in [
-            f"{study_name}_recoded.parquet",
-            f"{study_name}_explorer_metadata.json",
-            f"{study_name}_comp_interpretations.json",
-            f"{study_name}_PCA.parquet",
-        ]:
-            data_io.remove(storage_location="cache", filename=cached_file)
+        for suffix in _STUDY_ARTIFACT_SUFFIXES:
+            data_io.remove(storage_location="cache", filename=f"{study_name}{suffix}")
 
         activity_log.record(
             actor=_actor(),
