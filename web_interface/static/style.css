@@ -5249,6 +5249,85 @@ body:has(.public-page) {
 
 .sess-dual-range input[type="range"]::-moz-range-track { background: none; }
 
+/* Free-text session search: lives in the filter panel header area, outside
+   the rebuildable slider grid. */
+.sess-search-wrap { padding: 0 14px 8px; }
+
+.sess-search {
+    width: 100%;
+    padding: 5px 9px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+}
+
+.sess-search::placeholder { color: var(--color-text-muted); }
+
+.sess-search:focus {
+    outline: none;
+    border-color: var(--color-accent);
+}
+
+.sess-search:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* The "session max of variable" filter row's picker */
+.sess-varmax-select {
+    width: 100%;
+    margin: 2px 0 4px;
+    padding: 3px 6px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+}
+
+/* Binge card + its collapsible min/max panel stack in one column */
+.sess-seq-wrap {
+    display: flex;
+    flex-direction: column;
+}
+
+.sess-seq-wrap .sess-chip { width: 100%; }
+
+/* The "▸ (more info)" toggle inside a card / the detail header */
+.sess-more-toggle {
+    color: var(--color-text-muted);
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.sess-more-toggle:hover { color: var(--color-text-secondary); }
+
+.sess-more-caret { display: inline-block; }
+
+/* Collapsed-by-default per-variable min/max list (label + range columns) */
+.sess-minmax {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 1px 10px;
+    padding: 6px 10px 8px;
+    border: 1px solid var(--color-border-subtle);
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    background: var(--color-bg-elevated);
+    color: var(--color-text-tertiary);
+}
+
+.sess-minmax-label { color: var(--color-text-muted); }
+
+.sess-minmax-title {
+    color: var(--color-text-secondary);
+    font-weight: var(--weight-medium);
+    padding-bottom: 2px;
+}
+
 /* Pagination footer under the session table */
 .sess-pager {
     display: flex;

@@ -120,6 +120,11 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         discovered = session_explorer.discover_collections(collections)
         remaining = [c for c, _ in discovered]
         total = len(remaining)
+        # Pinned at link 0 and carried through the chain: every shard must use
+        # the same session-extreme column set or the publish concat would see
+        # mismatched schemas (e.g. a video_map rebuild landing mid-chain).
+        trend_cols = session_explorer.trend_numeric_columns()
+        reporter.log(f"Session min/max columns for {len(trend_cols)} trend variable(s).")
         run_id = str(task_args.get("log_run_id") or uuid.uuid4().hex[:12])
         session_explorer.sweep_stale_run_files(run_id)
 
@@ -139,6 +144,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         run_id = str(task_args["run_id"])
         remaining = [c for c in str(task_args.get("remaining_collections", "")).split("\x1f") if c]
         total = int(task_args.get("total_collections", len(remaining)))
+        trend_cols = json.loads(task_args.get("trend_cols_json") or "[]")
         if store_fp:
             try:
                 corpus_mean, n_vectors, _ = embedding_store.get_corpus_mean(
@@ -167,12 +173,14 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
     with mem_probe("SESSIONS", f"chunk_{chunk:04d}", log=reporter.log,
                    collections=len(batch)):
         srows, erows, wrows, stats = session_explorer.build_batch(
-            batch, model, corpus_mean, index, params=params, reporter=reporter)
+            batch, model, corpus_mean, index, params=params, reporter=reporter,
+            trend_cols=trend_cols)
     if srows is None:
         reporter.log("Cancelled by user. Previous artifacts left intact.")
         return None
 
-    session_explorer.write_batch_shards(run_id, chunk, srows, erows, wrows)
+    session_explorer.write_batch_shards(run_id, chunk, srows, erows, wrows,
+                                        trend_cols=trend_cols)
 
     def _mutate(progress):
         # Keyed by chunk so a Cloud Tasks replay of a link OVERWRITES its own
@@ -221,6 +229,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             "remaining_collections": "\x1f".join(rest),
             "run_id": run_id,
             "params_json": json.dumps(params),
+            "trend_cols_json": json.dumps(trend_cols),
             "embedding_model": model,
             "corpus_mean_fp": store_fp,
             "total_collections": total,
@@ -248,6 +257,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         "corpus_mean_count": int(n_vectors),
         "store_fingerprint": store_fp,
         "params": params,
+        "trend_vars": trend_cols,
         "n_collections": total,
         "n_sessions": int(progress["sessions"]),
         "n_episodes": int(progress["episodes"]),

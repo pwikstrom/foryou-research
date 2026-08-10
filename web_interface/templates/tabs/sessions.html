@@ -27,6 +27,13 @@
                     </button>
                     <button type="button" id="sess-filters-clear" class="btn-discreet text-xxs" style="display: none; padding: 1px 8px;">Clear</button>
                 </div>
+                <!-- Free-text search: outside #sess-filters-body so slider
+                     rebuilds never destroy the input (or steal its focus),
+                     and it stays usable with the panel collapsed. -->
+                <div class="sess-search-wrap">
+                    <input type="text" id="sess-search" class="sess-search text-xs"
+                           placeholder="Search stories, captions, creators…" autocomplete="off">
+                </div>
                 <div id="sess-filters-body" class="sess-filters-body"></div>
             </div>
             <div id="sess-list-summary" class="text-xs" style="padding: 6px 14px; color: var(--color-text-tertiary); border-bottom: 1px solid var(--color-border-subtle);"></div>
@@ -48,7 +55,7 @@
                 <div>
                     <div class="text-sm font-medium" style="color: var(--color-text-secondary); margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
                         Session strip
-                        <span class="meta-tooltip text-xs" data-tooltip="A real-time axis across the session: each mark starts where its play started, and its WIDTH is how long that video was watched — so an unbroken run of watching fills the strip, and gaps are pauses. Height is constant. Coloured marks (and the outlined bands behind them) are detected binges; grey marks are plays whose video has no embedding."
+                        <span class="meta-tooltip text-xs" data-tooltip="A real-time axis across the session showing when and how long videos were played. Gaps indicate missing play duration data. Coloured sections are detected binges; grey bars are plays whose video has no embedding."
                               style="color: var(--color-text-muted); cursor: help;">ⓘ</span>
                     </div>
                     <div id="sess-strip" style="position: relative;"></div>

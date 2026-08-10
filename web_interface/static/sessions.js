@@ -23,7 +23,14 @@ const sessState = {
     filters: {},         // per-filter {min, max} in SLIDER units (see SESS_FILTERS)
     filterMeta: {},      // per-filter slider bounds {lo, hi}, from the overview's ranges
     filtersOpen: true,   // filter panel expanded?
+    searchQ: '',         // committed free-text search (server-side, on search_text)
+    varMax: { col: null, min: null, max: null },  // "session max of variable" filter (slider units)
+    varMaxMeta: null,    // the chosen variable's slider bounds {lo, hi}
 };
+
+// Response-ordering guard for the overview fetch: a slow response for an
+// older filter/search state must not clobber a newer one.
+let _sessOverviewSeq = 0;
 
 
 
@@ -110,18 +117,18 @@ function sessDayToIsoDate(day) {
 
 
 const SESS_FILTERS = [
-    { key: 'date', label: 'Date', rangeKey: 'start_date',
+    { key: 'date', label: 'Session date range', rangeKey: 'start_date',
       paramMin: 'f_start_min', paramMax: 'f_start_max',
       bounds: (r) => [Math.floor(Date.parse(r[0]) / 86400000),
                       Math.ceil(Date.parse(r[1]) / 86400000)],
       fmt: (v) => fypWallDate(sessDayToIsoDate(v), sessDayToIsoDate(v)),
       param: (v) => sessDayToIsoDate(v) },
-    { key: 'length', label: 'Length', rangeKey: 'duration_min',
+    { key: 'length', label: 'Session duration', rangeKey: 'duration_min',
       paramMin: 'f_length_min', paramMax: 'f_length_max',
       bounds: (r) => [Math.floor(r[0]), Math.ceil(r[1])],
       fmt: (v) => sessFmtMinutes(v),
       param: (v) => String(v) },
-    { key: 'plays', label: 'Plays', rangeKey: 'n_plays',
+    { key: 'plays', label: 'Video play count', rangeKey: 'n_plays',
       paramMin: 'f_plays_min', paramMax: 'f_plays_max',
       bounds: (r) => [Math.floor(r[0]), Math.ceil(r[1])],
       fmt: (v) => String(v),
@@ -139,7 +146,7 @@ const SESS_FILTERS = [
       bounds: (r) => [Math.floor(r[0] * 1000), Math.ceil(r[1] * 1000)],
       fmt: (v) => (v / 1000).toFixed(2),
       param: (v) => String(v / 1000) },
-    { key: 'binges', label: 'Binges', rangeKey: 'n_episodes',
+    { key: 'binges', label: 'Binge count', rangeKey: 'n_episodes',
       paramMin: 'f_binges_min', paramMax: 'f_binges_max',
       bounds: (r) => [Math.floor(r[0]), Math.ceil(r[1])],
       fmt: (v) => String(v),
@@ -160,30 +167,11 @@ function sessFilterActive(key) {
 
 
 
-// One dual-handle range slider row: two stacked native range inputs over a
-// shared track, with a fill bar between the handles and a live readout.
-// 'input' updates the readout/fill only; 'change' (handle released) commits
-// the filter and reloads page 0.
-function sessBuildFilterRow(def, meta) {
-    const val = sessState.filters[def.key];
-    const row = document.createElement('div');
-    row.className = 'sess-filter-row';
-
-    const label = def.tooltip
-        ? `<span class="meta-tooltip" data-tooltip="${escapeHtml(def.tooltip)}">${escapeHtml(def.label)}</span>`
-        : escapeHtml(def.label);
-    row.innerHTML = `
-        <div class="sess-filter-head text-xxs">
-            <span class="sess-filter-label">${label}</span>
-            <span class="sess-filter-val"></span>
-        </div>
-        <div class="sess-dual-range">
-            <div class="sess-dual-track"></div>
-            <div class="sess-dual-fill"></div>
-            <input type="range" class="sess-dr-min" min="${meta.lo}" max="${meta.hi}" step="1" value="${val.min}">
-            <input type="range" class="sess-dr-max" min="${meta.lo}" max="${meta.hi}" step="1" value="${val.max}">
-        </div>`;
-
+// Wire a dual-handle range slider already in `row` (two stacked native range
+// inputs over a shared track, a fill bar between the handles, a live
+// readout). 'input' updates the readout/fill only; 'change' (handle
+// released) calls onCommit(lo, hi).
+function sessWireDualRange(row, meta, fmt, onCommit) {
     const inMin = row.querySelector('.sess-dr-min');
     const inMax = row.querySelector('.sess-dr-max');
     const fill = row.querySelector('.sess-dual-fill');
@@ -201,21 +189,166 @@ function sessBuildFilterRow(def, meta) {
         fill.style.left = `${(100 * (lo - meta.lo)) / span}%`;
         fill.style.right = `${100 - (100 * (hi - meta.lo)) / span}%`;
         const narrowed = lo > meta.lo || hi < meta.hi;
-        readout.textContent = `${def.fmt(lo)} – ${def.fmt(hi)}`;
+        readout.textContent = `${fmt(lo)} – ${fmt(hi)}`;
         readout.classList.toggle('is-active', narrowed);
         return { lo, hi };
     };
     const commit = () => {
         const { lo, hi } = sync();
-        sessState.filters[def.key] = { min: lo, max: hi };
-        sessState.page = 0;
-        sessLoadOverview();
+        onCommit(lo, hi);
     };
     inMin.addEventListener('input', sync);
     inMax.addEventListener('input', sync);
     inMin.addEventListener('change', commit);
     inMax.addEventListener('change', commit);
     sync();
+}
+
+
+
+
+// The shared inner markup of one slider row.
+function sessDualRangeHtml(labelHtml, meta, min, max) {
+    return `
+        <div class="sess-filter-head text-xxs">
+            <span class="sess-filter-label">${labelHtml}</span>
+            <span class="sess-filter-val"></span>
+        </div>
+        <div class="sess-dual-range">
+            <div class="sess-dual-track"></div>
+            <div class="sess-dual-fill"></div>
+            <input type="range" class="sess-dr-min" min="${meta.lo}" max="${meta.hi}" step="1" value="${min}">
+            <input type="range" class="sess-dr-max" min="${meta.lo}" max="${meta.hi}" step="1" value="${max}">
+        </div>`;
+}
+
+
+
+
+function sessBuildFilterRow(def, meta) {
+    const val = sessState.filters[def.key];
+    const row = document.createElement('div');
+    row.className = 'sess-filter-row';
+    const label = def.tooltip
+        ? `<span class="meta-tooltip" data-tooltip="${escapeHtml(def.tooltip)}">${escapeHtml(def.label)}</span>`
+        : escapeHtml(def.label);
+    row.innerHTML = sessDualRangeHtml(label, meta, val.min, val.max);
+    sessWireDualRange(row, meta, def.fmt, (lo, hi) => {
+        sessState.filters[def.key] = { min: lo, max: hi };
+        sessState.page = 0;
+        sessLoadOverview();
+    });
+    return row;
+}
+
+
+
+
+// Slider units for the variable-max filter: generic ×1000 fixed-point (the
+// entropy filter's pattern) so any variable's real-valued range maps onto
+// integer slider steps.
+const SESS_VARMAX_SCALE = 1000;
+
+function sessVarMaxBounds(range) {
+    return { lo: Math.floor(range[0] * SESS_VARMAX_SCALE),
+             hi: Math.ceil(range[1] * SESS_VARMAX_SCALE) };
+}
+
+
+function sessVarMaxFmt(v) {
+    const x = v / SESS_VARMAX_SCALE;
+    return Number.isInteger(x) ? String(x) : String(Math.round(x * 100) / 100);
+}
+
+
+// True when the variable-max filter is narrowing the result set.
+function sessVarMaxActive() {
+    const vm = sessState.varMax;
+    const meta = sessState.varMaxMeta;
+    if (!vm.col || !meta || vm.min == null || vm.max == null) { return false; }
+    return vm.min > meta.lo || vm.max < meta.hi;
+}
+
+
+
+
+// The "session max of variable" filter row: a variable picker, then a range
+// slider over that variable's session-max values. Server-side it filters the
+// baked vmax_<variable> index column.
+function sessBuildVarMaxRow(varMaxRanges, varLabels) {
+    const row = document.createElement('div');
+    row.className = 'sess-filter-row';
+    const vars = Object.keys(varMaxRanges).sort((a, b) => {
+        const la = (varLabels && varLabels[a]) || a;
+        const lb = (varLabels && varLabels[b]) || b;
+        return la.toLowerCase().localeCompare(lb.toLowerCase());
+    });
+
+    // Keep the previous selection only while the variable still exists.
+    if (sessState.varMax.col && !varMaxRanges[sessState.varMax.col]) {
+        sessState.varMax = { col: null, min: null, max: null };
+        sessState.varMaxMeta = null;
+    }
+
+    const tooltip = 'Pick a per-video variable; sessions are kept when the LARGEST '
+        + 'value across the session’s videos falls in this range. Sessions with '
+        + 'no value for the variable are hidden while the range is narrowed.';
+    const options = ['<option value="">Filter by variable max…</option>']
+        .concat(vars.map(v => `<option value="${escapeHtml(v)}"${v === sessState.varMax.col ? ' selected' : ''}>`
+            + `${escapeHtml((varLabels && varLabels[v]) || v)}</option>`));
+    row.innerHTML = `
+        <div class="sess-filter-head text-xxs">
+            <span class="sess-filter-label"><span class="meta-tooltip" data-tooltip="${escapeHtml(tooltip)}">Session max of variable</span></span>
+        </div>
+        <select class="sess-varmax-select text-xxs">${options.join('')}</select>
+        <div class="sess-varmax-slider"></div>`;
+
+    const select = row.querySelector('.sess-varmax-select');
+    const sliderHost = row.querySelector('.sess-varmax-slider');
+
+    const renderSlider = () => {
+        sliderHost.innerHTML = '';
+        const col = sessState.varMax.col;
+        if (!col) { return; }
+        const meta = sessVarMaxBounds(varMaxRanges[col]);
+        if (meta.lo >= meta.hi) {
+            sessState.varMaxMeta = null;
+            sliderHost.innerHTML = '<div class="text-xxs" style="color: var(--color-text-muted);">'
+                + 'Every session has the same max for this variable.</div>';
+            return;
+        }
+        sessState.varMaxMeta = meta;
+        const vm = sessState.varMax;
+        vm.min = vm.min == null ? meta.lo : Math.max(Math.min(vm.min, meta.hi), meta.lo);
+        vm.max = vm.max == null ? meta.hi : Math.min(Math.max(vm.max, meta.lo), meta.hi);
+        const inner = document.createElement('div');
+        inner.innerHTML = sessDualRangeHtml('', meta, vm.min, vm.max);
+        // Drop the empty label row — the picker above is this row's label.
+        inner.querySelector('.sess-filter-label').textContent = '';
+        sliderHost.appendChild(inner);
+        sessWireDualRange(inner, meta, sessVarMaxFmt, (lo, hi) => {
+            sessState.varMax.min = lo;
+            sessState.varMax.max = hi;
+            sessState.page = 0;
+            sessLoadOverview();
+        });
+    };
+
+    select.addEventListener('change', () => {
+        const col = select.value || null;
+        const wasNarrowed = sessVarMaxActive();
+        sessState.varMax = { col, min: null, max: null };
+        sessState.varMaxMeta = null;
+        renderSlider();
+        sessUpdateFilterChrome();
+        // Deselecting (or switching) a variable that was narrowing the list
+        // must widen it again immediately.
+        if (wasNarrowed) {
+            sessState.page = 0;
+            sessLoadOverview();
+        }
+    });
+    renderSlider();
     return row;
 }
 
@@ -250,6 +383,22 @@ function sessRenderFilters(ranges) {
             : { min: lo, max: hi };
         body.appendChild(sessBuildFilterRow(def, meta));
     }
+    const varMaxRanges = ranges ? ranges.var_max : null;
+    if (varMaxRanges && Object.keys(varMaxRanges).length) {
+        body.appendChild(sessBuildVarMaxRow(varMaxRanges, ranges.var_labels || {}));
+    } else {
+        sessState.varMax = { col: null, min: null, max: null };
+        sessState.varMaxMeta = null;
+        if (ranges && varMaxRanges === null) {
+            // Old artifact: the vmax_ columns don't exist yet.
+            const hint = document.createElement('div');
+            hint.className = 'sess-filter-row text-xxs';
+            hint.style.color = 'var(--color-text-muted)';
+            hint.textContent = 'Variable-max filter unavailable — rebuild the sessions index '
+                + '(Refresh Caches → Sessions) to enable it.';
+            body.appendChild(hint);
+        }
+    }
     sessUpdateFilterChrome();
 }
 
@@ -258,7 +407,9 @@ function sessRenderFilters(ranges) {
 
 // Badge ("2 active") + Clear button + collapsed/expanded state.
 function sessUpdateFilterChrome() {
-    const nActive = SESS_FILTERS.filter(d => sessFilterActive(d.key)).length;
+    const nActive = SESS_FILTERS.filter(d => sessFilterActive(d.key)).length
+        + (sessVarMaxActive() ? 1 : 0)
+        + (sessState.searchQ ? 1 : 0);
     const badge = document.getElementById('sess-filters-badge');
     const clear = document.getElementById('sess-filters-clear');
     const body = document.getElementById('sess-filters-body');
@@ -287,8 +438,32 @@ function sessInitFilterPanel() {
     if (clear) {
         clear.addEventListener('click', () => {
             sessState.filters = {};
+            sessState.varMax = { col: null, min: null, max: null };
+            sessState.varMaxMeta = null;
+            sessState.searchQ = '';
+            const search = document.getElementById('sess-search');
+            if (search) { search.value = ''; }
             sessState.page = 0;
             sessLoadOverview();
+        });
+    }
+    // Free-text search over what the detail panel displays (stories, niches,
+    // categories, creators, captions + hashtags). Debounced and immediate —
+    // no Apply button; the response-sequence guard in sessLoadOverview
+    // discards out-of-order responses.
+    const search = document.getElementById('sess-search');
+    if (search) {
+        let debounce = null;
+        search.addEventListener('input', () => {
+            clearTimeout(debounce);
+            debounce = setTimeout(() => {
+                const raw = search.value.trim();
+                const q = raw.length >= 2 ? raw : '';
+                if (q === sessState.searchQ) { return; }
+                sessState.searchQ = q;
+                sessState.page = 0;
+                sessLoadOverview();
+            }, 300);
         });
     }
     const prev = document.getElementById('sess-page-prev');
@@ -344,7 +519,7 @@ function sessRenderPager(data) {
 // Session-table columns. `key` is the server-side sort key (null = not
 // sortable); `defaultOrder` is the direction a first click applies.
 const SESS_COLUMNS = [
-    { key: null, label: 'Collection' },
+    { key: 'collection_id', label: 'Collection', defaultOrder: 'asc' },
     { key: 'start_ts', label: 'Start', defaultOrder: 'desc' },
     { key: 'duration_min', label: 'Length', defaultOrder: 'desc' },
     { key: 'n_plays', label: 'Plays', defaultOrder: 'desc' },
@@ -372,6 +547,17 @@ function initSessions() {
     _sessLoaded = true;
 
     sessInitFilterPanel();
+    // The playlist starts hidden; this button is its only way in.
+    const plToggle = document.getElementById('sess-playlist-toggle');
+    if (plToggle) {
+        plToggle.addEventListener('click', () => {
+            const pl = document.getElementById('sess-playlist');
+            if (!pl) { return; }
+            const open = pl.style.display === 'none';
+            pl.style.display = open ? '' : 'none';
+            plToggle.textContent = open ? 'Hide' : 'Show';
+        });
+    }
     window.studyState.ready.then(() => {
         sessState.study = window.studyState.current;
         sessLoadStatus();
@@ -383,6 +569,11 @@ function initSessions() {
         // A different study has different sessions — its slider bounds are
         // rebuilt from the fresh ranges, so stale narrowings must not carry.
         sessState.filters = {};
+        sessState.varMax = { col: null, min: null, max: null };
+        sessState.varMaxMeta = null;
+        sessState.searchQ = '';
+        const search = document.getElementById('sess-search');
+        if (search) { search.value = ''; }
         sessState.page = 0;
         sessClearDetail();
         sessLoadOverview();
@@ -471,9 +662,19 @@ async function sessLoadOverview() {
         if (val.min > meta.lo) { qs.set(def.paramMin, def.param(val.min)); }
         if (val.max < meta.hi) { qs.set(def.paramMax, def.param(val.max)); }
     }
+    if (sessVarMaxActive()) {
+        const vm = sessState.varMax;
+        const meta = sessState.varMaxMeta;
+        qs.set('f_varmax_col', vm.col);
+        if (vm.min > meta.lo) { qs.set('f_varmax_min', String(vm.min / SESS_VARMAX_SCALE)); }
+        if (vm.max < meta.hi) { qs.set('f_varmax_max', String(vm.max / SESS_VARMAX_SCALE)); }
+    }
+    if (sessState.searchQ) { qs.set('q', sessState.searchQ); }
+    const seq = ++_sessOverviewSeq;
     try {
         const resp = await fetch(`/api/sessions/overview?${qs}`);
         const data = await resp.json();
+        if (seq !== _sessOverviewSeq) { return; }
         if (!resp.ok) {
             listEl.innerHTML = '';
             document.getElementById('sess-list-summary').textContent = '';
@@ -485,12 +686,28 @@ async function sessLoadOverview() {
         sessState.page = sessNum(data.page, 0);
         sessApplyParamCopy();
         sessRenderFilters(data.ranges);
+        sessUpdateSearchAvailability(data);
         sessRenderList(data);
         sessRenderPager(data);
         statusEl.textContent = sessStatusLine(data);
     } catch (e) {
         statusEl.textContent = 'Failed to load sessions.';
     }
+}
+
+
+
+
+// Disable the search box (with an explanatory placeholder) when the index
+// predates the search_text column; re-enable after a rebuild.
+function sessUpdateSearchAvailability(data) {
+    const search = document.getElementById('sess-search');
+    if (!search) { return; }
+    const available = data.search_available !== false;
+    search.disabled = !available;
+    search.placeholder = available
+        ? 'Search stories, captions, creators…'
+        : 'Search needs a rebuilt sessions index';
 }
 
 
@@ -557,6 +774,75 @@ function sessApplyParamCopy() {
 
 
 
+// Share of the video's full length that was watched, as a whole percent
+// (dwell ÷ video duration, clipped to 0–100). Null when either is unknown.
+function sessCompletionPct(dwellS, durationS) {
+    const dwell = Number(dwellS);
+    const dur = Number(durationS);
+    if (!Number.isFinite(dwell) || !Number.isFinite(dur) || dur <= 0) { return null; }
+    return Math.round(100 * Math.min(Math.max(dwell / dur, 0), 1));
+}
+
+
+
+
+// "12s (40%)" — watch time with the completion share when the video's length
+// is known (it isn't for unscraped videos).
+function sessDwellText(dwellS, durationS) {
+    if (dwellS == null) { return null; }
+    const pct = sessCompletionPct(dwellS, durationS);
+    return `${Math.round(dwellS)}s${pct != null ? ` (${pct}%)` : ''}`;
+}
+
+
+
+
+// The collapsed per-variable min/max block: a "▸ more info" toggle plus a
+// hidden two-column list. `ranges` is the API's [{label, min, max, n}, ...].
+function sessMinMaxHtml(ranges) {
+    const fmtVal = (v) => (Number.isInteger(v) ? String(v) : Number(v).toFixed(2));
+    return ranges.map(r =>
+        `<span class="sess-minmax-label">${escapeHtml(r.label)}</span>`
+        + `<span>${fmtVal(r.min)} – ${fmtVal(r.max)}</span>`).join('');
+}
+
+
+
+
+// Attach a hidden .sess-minmax panel after `anchorEl` (inside `host`) and
+// wire `toggleEl` to expand/collapse it, flipping the ▸/▾ caret.
+function sessWireMinMax(host, toggleEl, ranges, title) {
+    const panel = document.createElement('div');
+    panel.className = 'sess-minmax text-xxs';
+    panel.style.display = 'none';
+    panel.innerHTML = (title ? `<span class="sess-minmax-title">${escapeHtml(title)}</span><span></span>` : '')
+        + sessMinMaxHtml(ranges);
+    host.appendChild(panel);
+    const caret = toggleEl.querySelector('.sess-more-caret');
+    toggleEl.addEventListener('click', (ev) => {
+        // The toggle can sit inside the binge-card <button>; expanding the
+        // panel must not also activate the sequence.
+        ev.stopPropagation();
+        const open = panel.style.display === 'none';
+        panel.style.display = open ? 'grid' : 'none';
+        if (caret) { caret.textContent = open ? '▾' : '▸'; }
+    });
+}
+
+
+
+
+// The "▸ (more info)" toggle markup shared by the binge cards and the
+// session header.
+function sessMoreToggleHtml() {
+    return '<span class="sess-more-toggle text-xxs meta-tooltip" data-tooltip="Show the '
+        + 'smallest and largest value of each numeric video variable observed here.">'
+        + '<span class="sess-more-caret">▸</span> (more info)</span>';
+}
+
+
+
+
 function sessFmtMinutes(m) {
     if (m == null) { return '–'; }
     if (m < 60) { return `${Math.round(m)} min`; }
@@ -604,7 +890,8 @@ function sessRenderList(data) {
     const listEl = document.getElementById('sess-list');
     const summary = document.getElementById('sess-list-summary');
     listEl.innerHTML = '';
-    const filtered = SESS_FILTERS.some(d => sessFilterActive(d.key));
+    const filtered = SESS_FILTERS.some(d => sessFilterActive(d.key))
+        || sessVarMaxActive() || !!sessState.searchQ;
     if (!data.sessions.length) {
         summary.textContent = filtered ? 'No sessions match the current filters.' : '';
     } else if (data.total_matching > data.returned) {
@@ -750,9 +1037,14 @@ function sessRenderDetailHeader(data) {
         `low-entropy min ${score}`,
         s.dominant_niche ? `mostly “${escapeHtml(s.dominant_niche)}”` : null,
     ].filter(Boolean);
+    const ranges = data.session_ranges || [];
     el.innerHTML = `
         <div class="text-h3 font-semibold" style="margin-bottom: 2px;">${escapeHtml(s.collection_label || s.collection_id)}</div>
-        <div class="text-xs" style="color: var(--color-text-tertiary);">${stats.join(' · ')}</div>`;
+        <div class="text-xs" style="color: var(--color-text-tertiary);">${stats.join(' · ')}${ranges.length ? ' · ' + sessMoreToggleHtml() : ''}</div>`;
+    if (ranges.length) {
+        sessWireMinMax(el, el.querySelector('.sess-more-toggle'), ranges,
+                       'Min – max across this session’s videos');
+    }
 }
 
 
@@ -863,7 +1155,7 @@ function sessRenderStrip(data) {
             const bits = [
                 p.niche_name ? `<b>${escapeHtml(p.niche_name)}</b>` : '<i>no niche</i>',
                 p.story ? escapeHtml(p.story.slice(0, 160)) : null,
-                `${sessFmtTs(p.ts)} · dwell ${p.dwell_s != null ? Math.round(p.dwell_s) + 's' : '–'}`,
+                `${sessFmtTs(p.ts)} · dwell ${sessDwellText(p.dwell_s, p.duration_s) || '–'}`,
                 p.embedded ? null : 'not embedded',
                 (p.episode_idx != null) ? `binge ${p.episode_idx + 1}` : null,
             ].filter(Boolean);
@@ -933,10 +1225,11 @@ function sessBingeShape(ep) {
         return {
             label: 'shape untested',
             tooltip: ep.n_distinct != null && ep.n_distinct < 5
-                ? `Only ${ep.n_distinct} videos. Reversing an order leaves straightness `
-                  + 'unchanged, so with 4 videos the smallest reachable p is 2/4! = 0.083 — '
-                  + 'no binge this short can be shown to be directed, whatever its shape.'
-                : 'This binge predates the directedness test. Rebuild the sessions '
+                ? `Only ${ep.n_distinct} videos — too few to tell a real direction from `
+                  + 'chance: with so few videos, every possible watch order looks about '
+                  + 'as "straight" as every other, so no binge this short can be shown '
+                  + 'to be directed, whatever its shape.'
+                : 'This binge predates the directedness check. Rebuild the sessions '
                   + 'artifacts (Refresh Caches → Sessions) to compute it.',
         };
     }
@@ -944,19 +1237,22 @@ function sessBingeShape(ep) {
     if (p < cut) {
         return {
             label: 'directed',
-            tooltip: `Directed: this binge travels. Only ${(100 * p).toFixed(1)}% of `
-                + 'reorderings of its own videos are as straight, so the order it was '
-                + 'watched in carries a real direction — it ends somewhere semantically '
-                + 'different from where it began (the rabbit-hole shape). '
-                + `p = ${p.toFixed(3)}, threshold ${cut}.`,
+            tooltip: 'Directed: the content travels — the binge ends on noticeably '
+                + 'different content from where it began (the "rabbit hole" shape). '
+                + 'How we know: we compared the actual watch order against random '
+                + `shufflings of the same videos, and only ${(100 * p).toFixed(1)}% of `
+                + 'shufflings move this consistently from start to finish — so the '
+                + 'real order almost certainly heads somewhere on purpose rather than '
+                + `by chance (p = ${p.toFixed(3)}; we call a binge directed below ${cut}).`,
         };
     }
     return {
         label: 'stationary',
-        tooltip: 'Stationary: the viewer circles one semantic neighbourhood. '
-            + `${(100 * p).toFixed(0)}% of reorderings of these same videos are at least `
-            + 'as straight, so the watch order carries no direction the content does not '
-            + `already have. p = ${p.toFixed(3)}, threshold ${cut}.`,
+        tooltip: 'Stationary: the viewer circles one topic area rather than moving '
+            + 'through it towards something else. How we know: '
+            + `${(100 * p).toFixed(0)}% of random shufflings of these same videos look `
+            + 'at least as "directed" as the actual watch order — so the order adds no '
+            + `direction of its own (p = ${p.toFixed(3)}; directed would need p below ${cut}).`,
     };
 }
 
@@ -976,27 +1272,31 @@ function sessTrendHtml(scan) {
         const arrow = t.direction === 'rising' ? '↑' : '↓';
         return wrap(
             `${arrow} ${t.label} ${t.direction} across this binge (ρ ${t.rho > 0 ? '+' : ''}${t.rho})`,
-            `${t.label} ${t.direction} monotonically as the binge progresses. `
-            + `Spearman ρ = ${t.rho} over ${t.n} videos, exact permutation p = ${t.p}, `
-            + `q = ${t.q} after Benjamini-Hochberg correction across the ${scan.scanned} `
-            + 'variables that had enough data. Correlation with position, not causation: '
-            + 'it says the feed served these videos in this order, not that anything drove it.');
+            `${t.label} keeps ${t.direction} from the start of this binge to its end. `
+            + 'We measured how consistently it moves in one direction across the '
+            + `${t.n} videos (a rank correlation, Spearman’s ρ = ${t.rho}: +1 would be `
+            + 'a perfectly steady rise, −1 a perfectly steady fall), and how often '
+            + 'randomly shuffling the watch order would look this consistent just by '
+            + `chance (p = ${t.p} — the smaller, the less likely it is luck). Because `
+            + `${scan.scanned} variables were checked at once, the bar is raised so one `
+            + `of them doesn’t stand out by luck alone (adjusted value q = ${t.q}). `
+            + 'Important: this only says the videos ARRIVED in this order — not that '
+            + 'anything caused it, or that the viewer responded to it.');
     }
     if (!scan.scanned) {
         const why = scan.n_members < scan.min_n
-            ? `this binge has ${scan.n_members} videos and the scan needs ${scan.min_n}`
-            : 'none of the numeric variables covers enough of its videos';
+            ? `this binge has ${scan.n_members} videos and the check needs at least ${scan.min_n}`
+            : 'none of the numeric variables has values for enough of its videos';
         return wrap('no trend scan', `Not tested — ${why}. `
-            + 'Below that length the exact permutation test cannot clear multiplicity '
-            + 'correction across the scanned variables, so any "trend" would be an '
-            + 'artifact of looking at many variables at once. This is a limit of the '
-            + 'test, NOT evidence that nothing trends.');
+            + 'With this few videos, pure chance can easily produce a clean-looking '
+            + 'rise or fall, so any "trend" reported here would be unreliable. That is '
+            + 'a limit of the check, NOT evidence that nothing changes across the binge.');
     }
     return wrap(`no trend (${scan.scanned} variables)`,
-        `${scan.scanned} numeric variables were tested for a monotone trend across this `
-        + 'binge; none survived Benjamini-Hochberg correction at q < 0.05. With this few '
-        + 'videos only a strong, near-perfectly ordered trend can survive, so a real but '
-        + 'modest gradient would not show here.');
+        `${scan.scanned} numeric variables were each checked for a steady rise or fall `
+        + 'across this binge; none passed. With a run this short, only a very strong, '
+        + 'almost perfectly ordered change can pass the check — so a real but modest '
+        + 'change could still be present without showing up here.');
 }
 
 
@@ -1033,7 +1333,20 @@ function sessRenderSeqList(data) {
             </span>
             ${sessTrendHtml(ep.trend_scan)}`;
         entry.addEventListener('click', () => sessSelectSeq('binge', ep.episode_idx, 0));
-        epHost.appendChild(entry);
+        // Per-variable min/max, collapsed under the card. Wrapped in a plain
+        // div so the expanding panel sits OUTSIDE the <button> (a button must
+        // not contain the block the toggle reveals).
+        const ranges = (ep.trend_scan && ep.trend_scan.ranges) || [];
+        if (ranges.length) {
+            const wrap = document.createElement('div');
+            wrap.className = 'sess-seq-wrap';
+            entry.insertAdjacentHTML('beforeend', sessMoreToggleHtml());
+            wrap.appendChild(entry);
+            sessWireMinMax(wrap, entry.querySelector('.sess-more-toggle'), ranges, null);
+            epHost.appendChild(wrap);
+        } else {
+            epHost.appendChild(entry);
+        }
     }
 
     const windows = data.windows || [];
@@ -1227,7 +1540,11 @@ function sessRenderPlayer(autoplay) {
     add('Niche', play.niche_name ? escapeHtml(play.niche_name) : null);
     add('Category', play.category ? escapeHtml(play.category) : null);
     add('Creator', play.author ? escapeHtml(play.author) : null);
-    add('Watched', m.dwell_s != null ? `${Math.round(m.dwell_s)}s` : null);
+    add('Watched', sessDwellText(m.dwell_s, play.duration_s),
+        play.duration_s != null
+            ? 'Watch time, with the share of the video’s full length watched in '
+              + 'parentheses (watch time ÷ video length, capped at 100%).'
+            : null);
     add('Played at', escapeHtml(sessFmtTs(m.ts)));
     if (a.kind === 'binge' && !isContext) {
         add('Δ distance',
@@ -1237,6 +1554,9 @@ function sessRenderPlayer(autoplay) {
     add('Political', play.political_score != null ? play.political_score.toFixed(2) : null);
     add('Sensitivity', play.sensitivity_score != null ? play.sensitivity_score.toFixed(2) : null);
     add('Story', play.story ? escapeHtml(play.story) : null);
+    add('Description', play.desc ? escapeHtml(play.desc) : null,
+        'The video’s caption as posted (scraped or donated).');
+    add('Hashtags', play.hashtags ? escapeHtml(play.hashtags) : null);
 
     document.getElementById('sess-player-meta').innerHTML = `
         ${rows.join('')}
@@ -1288,7 +1608,7 @@ function sessRenderPlaylist(data) {
         <tr class="sess-play-row${p.episode_idx != null ? ' in-episode' : ''}">
             <td class="text-xs" style="color: var(--color-text-tertiary); white-space: nowrap;">${p.seq + 1}</td>
             <td class="text-xs" style="white-space: nowrap;">${escapeHtml(sessFmtTs(p.ts))}</td>
-            <td class="text-xs" style="white-space: nowrap;">${p.dwell_s != null ? Math.round(p.dwell_s) + 's' : '–'}</td>
+            <td class="text-xs" style="white-space: nowrap;">${sessDwellText(p.dwell_s, p.duration_s) || '–'}</td>
             <td class="text-xs">${p.niche_name ? escapeHtml(p.niche_name) : '<span style="color: var(--color-text-muted);">–</span>'}</td>
             <td class="text-xs" style="color: var(--color-text-tertiary);">${p.story ? escapeHtml(p.story.slice(0, 120)) : ''}</td>
             <td class="text-xs" style="white-space: nowrap;">${p.episode_idx != null ? `<span style="color: ${sessEpisodeColor(p.episode_idx)};">binge ${p.episode_idx + 1}</span>` : ''}</td>

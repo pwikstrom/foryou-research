@@ -92,8 +92,12 @@ _RANGE_FILTER_COLS = {
 _SORT_KEYS = {
     "min_window_cosdist", "min_window_entropy_norm", "duration_min", "n_plays",
     "n_distinct", "n_episodes", "episode_play_frac", "coverage_embedded",
-    "start_ts", "total_watch_s", "n_directed_episodes",
+    "start_ts", "total_watch_s", "n_directed_episodes", "collection_id",
 }
+
+# Prefix of the per-variable session-extreme columns baked into the index
+# (``vmax_<variable>`` / ``vmin_<variable>``; see session_explorer.sessions_schema).
+_VARMAX_PREFIX = "vmax_"
 
 # In-process caches, invalidated on the artifact file fingerprint (index /
 # meta) or a short TTL (the enrichment id sets, which have no single file).
@@ -229,11 +233,13 @@ def _features() -> pd.DataFrame:
     if _FEAT_CACHE["df"] is not None and now - _FEAT_CACHE["ts"] < _FEAT_TTL_S:
         return _FEAT_CACHE["df"]
     try:
+        # Corpus-wide, so no scrape text (desc/hashtags are hundreds of MB at
+        # that scale) — the detail endpoint reads those per session instead.
         df = session_explorer.load_video_features()
     except Exception:
         df = pd.DataFrame(columns=["niche_name", "category", "story",
                                    "political_score", "sensitivity_score",
-                                   "advertising", "author"])
+                                   "advertising", "author", "duration"])
     _FEAT_CACHE.update({"ts": now, "df": df})
     return df
 
@@ -267,6 +273,72 @@ def _story_map(item_ids: set[str]) -> dict[str, str]:
         if s:
             out[str(iid)] = str(s)
     return out
+
+
+
+
+def _scrape_text_map(item_ids: set[str]) -> dict[str, dict]:
+    """Per-item scraped caption text for one session's items.
+
+    ``desc`` / ``desc_hashtags`` are deliberately NOT part of the cached
+    corpus-wide feature frame (they would add hundreds of MB); like the
+    stories, they are pushdown-read per session — a few hundred ids at most.
+
+    Returns:
+        item_id → ``{"desc": str | None, "hashtags": str | None}`` (items with
+        neither field absent).
+    """
+    if not item_ids:
+        return {}
+    try:
+        available = data_io.get_parquet_columns(
+            storage_location=embeddings.STORE_LOCATION,
+            filename=embeddings.SCRAPES_FILE) or []
+    except Exception:
+        return {}
+    cols = [c for c in ("desc", "desc_hashtags") if c in available]
+    if not cols:
+        return {}
+    try:
+        df = data_io.load_parquet_selective(
+            storage_location=embeddings.STORE_LOCATION,
+            filename=embeddings.SCRAPES_FILE,
+            columns=["item_id"] + cols,
+            filters=[("item_id", "in", list(item_ids))],
+        )
+    except Exception:
+        return {}
+    if df is None or df.empty:
+        return {}
+    out: dict[str, dict] = {}
+    for _, row in df.drop_duplicates(subset=["item_id"]).iterrows():
+        desc = _text_value(row.get("desc"))
+        hashtags = _text_value(row.get("desc_hashtags"))
+        if desc or hashtags:
+            out[str(row["item_id"])] = {"desc": desc, "hashtags": hashtags}
+    return out
+
+
+
+
+def _text_value(value) -> str | None:
+    """A displayable string from a text cell; joins list cells (hashtags).
+
+    ``desc_hashtags`` is stored as a LIST column, so a cell can be a numpy
+    array / Python list rather than a scalar — ``_clean`` would choke on it.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple, np.ndarray)):
+        parts = [str(v).strip() for v in value if v is not None and str(v).strip()]
+        return " ".join(parts) or None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    return text or None
 
 
 
@@ -377,6 +449,38 @@ def _trend_frame(item_ids: set[str]) -> pd.DataFrame:
 
 
 
+def _min_max_ranges(series: dict[str, np.ndarray]) -> list[dict]:
+    """Observed min/max per numeric variable, for the "(more info)" panels.
+
+    Purely descriptive — no test, no threshold — so it is computed for every
+    binge/session, including ones too short for the trend scan.
+
+    Args:
+        series: variable name → aligned value array (NaN for missing).
+
+    Returns:
+        ``[{"variable", "label", "min", "max", "n"}, ...]`` sorted by label;
+        variables with no finite value are omitted.
+    """
+    out = []
+    for name, values in series.items():
+        ok = np.isfinite(values)
+        if not ok.any():
+            continue
+        out.append({
+            "variable": name,
+            # dwell_s is per-play, not a var_schema variable, so it has no
+            # display name to look up.
+            "label": "Dwell (s)" if name == "dwell_s" else _variable_label(name),
+            "min": round(float(values[ok].min()), 3),
+            "max": round(float(values[ok].max()), 3),
+            "n": int(ok.sum()),
+        })
+    return sorted(out, key=lambda r: r["label"].lower())
+
+
+
+
 def _scan_trend(members: list[dict], feat: pd.DataFrame, min_n: int) -> dict:
     """Find the strongest monotone trend across one binge's ordered members.
 
@@ -396,7 +500,9 @@ def _scan_trend(members: list[dict], feat: pd.DataFrame, min_n: int) -> dict:
         enough data), ``n_members``, ``min_n``, and either ``trend`` (the
         single strongest surviving result) or ``trend: None``. A null trend
         with ``scanned: 0`` means "not testable", which the UI must not present
-        as "no trend exists".
+        as "no trend exists". ``ranges`` (per-variable observed min/max, see
+        :func:`_min_max_ranges`) is descriptive and present regardless of the
+        ``min_n`` gate — a binge too short to test still has extremes.
     """
     ids = [str(m.get("item_id")) for m in members]
     series: dict[str, np.ndarray] = {}
@@ -423,7 +529,7 @@ def _scan_trend(members: list[dict], feat: pd.DataFrame, min_n: int) -> dict:
                            "p": round(p, 5), "n": int(ok.sum())})
 
     out = {"scanned": len(tested), "n_members": len(members), "min_n": min_n,
-           "trend": None}
+           "trend": None, "ranges": _min_max_ranges(series)}
     if not tested:
         return out
     for entry, q in zip(tested, _benjamini_hochberg([t["p"] for t in tested])):
@@ -651,6 +757,23 @@ def _filter_ranges(df: pd.DataFrame) -> dict:
                 if col in df.columns else pd.Series(dtype="float64"))
         out[col] = ([float(vals.min()), float(vals.max())]
                     if vals.notna().any() else None)
+    # Per-variable session-max bounds for the variable-picker filter. None
+    # (not {}) when the artifact predates the vmax_ columns, so the client can
+    # tell "no variables usable" from "filter unavailable — rebuild".
+    vmax_cols = [c for c in df.columns if c.startswith(_VARMAX_PREFIX)]
+    if vmax_cols:
+        var_max: dict = {}
+        for col in vmax_cols:
+            vals = pd.to_numeric(df[col], errors="coerce")
+            if vals.notna().any():
+                var_max[col[len(_VARMAX_PREFIX):]] = [float(vals.min()), float(vals.max())]
+        out["var_max"] = var_max
+        out["var_labels"] = {
+            name: ("Dwell (s)" if name == "dwell_s" else _variable_label(name))
+            for name in var_max}
+    else:
+        out["var_max"] = None
+        out["var_labels"] = None
     return out
 
 
@@ -695,6 +818,17 @@ def api_sessions_overview():
     ``_RANGE_FILTER_COLS``. A bounded numeric filter drops sessions whose
     value is missing (an unscored session cannot satisfy an entropy cut).
     The response's ``ranges`` block carries each filter's slider bounds.
+
+    Two further filters need a rebuilt index and degrade silently on an old
+    artifact (the response's ``ranges.var_max`` / ``search_available`` flags
+    tell the client which are live):
+
+    * ``f_varmax_col`` + ``f_varmax_min``/``f_varmax_max`` — range-filter on
+      the session's baked MAX of one numeric video variable (index column
+      ``vmax_<f_varmax_col>``); an unknown/absent variable is ignored.
+    * ``q`` — free-text search over the per-session ``search_text`` blob
+      (stories, niches, categories, creators, captions + hashtags), split on
+      whitespace, all terms must match (case-insensitive substring AND).
     """
     study = (request.args.get('study') or '').strip()
     if not study:
@@ -722,8 +856,12 @@ def api_sessions_overview():
         range_filters = {stem: (_opt_query_float(f"{stem}_min"),
                                 _opt_query_float(f"{stem}_max"))
                          for stem in _RANGE_FILTER_COLS}
+        varmax_col = (request.args.get('f_varmax_col') or '').strip()
+        varmax_lo = _opt_query_float('f_varmax_min')
+        varmax_hi = _opt_query_float('f_varmax_max')
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid numeric filter"}), 400
+    search_q = (request.args.get('q') or '').strip()
     f_start_min = f_start_max = None
     try:
         raw = (request.args.get('f_start_min') or '').strip()
@@ -783,6 +921,23 @@ def api_sessions_overview():
             mask &= vals >= lo
         if hi is not None:
             mask &= vals <= hi
+    # Variable-max filter: same NaN-drops-row semantics. Silently skipped when
+    # the column is absent (old artifact, or a variable the map no longer has).
+    if varmax_col and (varmax_lo is not None or varmax_hi is not None):
+        col = f"{_VARMAX_PREFIX}{varmax_col}"
+        if col in df.columns:
+            vals = pd.to_numeric(df[col], errors="coerce")
+            if varmax_lo is not None:
+                mask &= vals >= varmax_lo
+            if varmax_hi is not None:
+                mask &= vals <= varmax_hi
+    # Free-text search over the baked per-session blob (lowercased at build);
+    # every whitespace-separated term must match. Ignored on an old artifact.
+    search_available = "search_text" in df.columns
+    if search_q and search_available:
+        blobs = df["search_text"].astype("string")
+        for term in search_q.lower().split():
+            mask &= blobs.str.contains(term, regex=False).fillna(False).to_numpy(dtype=bool)
     df = df[mask]
     total_matching = int(len(df))
 
@@ -826,6 +981,7 @@ def api_sessions_overview():
         "page": page,
         "page_size": limit,
         "ranges": ranges,
+        "search_available": search_available,
         "meta": meta,
         "params": _display_params(meta),
         "floors": {"min_plays": min_plays, "min_session_minutes": min_minutes,
@@ -1031,7 +1187,9 @@ def api_sessions_detail():
     feat = _features()
     flags = _flag_sets()
     study_ids = _study_item_ids(study) or frozenset()
-    stories = _story_map({str(i) for i in plays["item_id"]})
+    session_item_ids = {str(i) for i in plays["item_id"]}
+    stories = _story_map(session_item_ids)
+    scrape_text = _scrape_text_map(session_item_ids)
 
     # A play belongs to an episode when its timestamp falls inside the
     # episode's span and its item is one of the episode's members.
@@ -1054,11 +1212,16 @@ def api_sessions_detail():
         story = stories.get(iid) or (None if f is None else _clean(f.get("story"))) or None
         if isinstance(story, str) and len(story) > _STORY_CAP:
             story = story[:_STORY_CAP] + "…"
+        text = scrape_text.get(iid) or {}
+        desc = text.get("desc")
+        if isinstance(desc, str) and len(desc) > _STORY_CAP:
+            desc = desc[:_STORY_CAP] + "…"
         play_rows.append({
             "seq": seq,
             "item_id": iid,
             "ts": ts.isoformat(),
             "dwell_s": _clean(row.get("play_duration")),
+            "duration_s": None if f is None else _clean(f.get("duration")),
             "platform": _clean(row.get("source_platform")),
             "annotated": iid in flags["annotated"],
             "embedded": iid in flags["embedded"],
@@ -1066,6 +1229,8 @@ def api_sessions_detail():
             "niche_name": None if f is None else _clean(f.get("niche_name")),
             "category": None if f is None else _clean(f.get("category")),
             "story": story,
+            "desc": desc,
+            "hashtags": text.get("hashtags"),
             "author": None if f is None else _clean(f.get("author")),
             "political_score": None if f is None else _clean(f.get("political_score")),
             "sensitivity_score": None if f is None else _clean(f.get("sensitivity_score")),
@@ -1075,7 +1240,7 @@ def api_sessions_detail():
     # Per-run creator counts and the within-binge trend scan, both computed
     # here rather than baked into the artifact: they need no embedding
     # vectors, so they stay live and a change needs no rebuild.
-    trend_feat = _trend_frame({str(i) for i in plays["item_id"]})
+    trend_feat = _trend_frame(session_item_ids)
     min_n = _trend_min_videos()
     for ep in episodes:
         ids = [m["item_id"] for m in ep["members"]]
@@ -1083,6 +1248,17 @@ def api_sessions_detail():
         ep["trend_scan"] = _scan_trend(ep["members"], trend_feat, min_n)
     for w in windows:
         w["creators"] = _creator_count([m["item_id"] for m in w["members"]], feat)
+
+    # Session-level observed min/max of the same variables the binge cards
+    # show — live-computed from the current video_map, so it can differ
+    # slightly from the index's baked ``vmax_``/``vmin_`` columns after a map
+    # rebuild (both are honest; they describe different build moments).
+    session_series: dict[str, np.ndarray] = {
+        col: trend_feat[col].to_numpy(dtype=float) for col in trend_feat.columns
+    } if not trend_feat.empty else {}
+    dwell_vals = pd.to_numeric(plays["play_duration"], errors="coerce")
+    session_series["dwell_s"] = dwell_vals.to_numpy(dtype=float)
+    session_ranges = _min_max_ranges(session_series)
 
     display = load_display_id_map()
     session = {col: _clean(session_row.get(col)) for col in _OVERVIEW_COLS}
@@ -1092,6 +1268,7 @@ def api_sessions_detail():
         "plays": play_rows,
         "episodes": episodes,
         "windows": windows,
+        "session_ranges": session_ranges,
         "params": _display_params(_load_meta()),
     })
 
