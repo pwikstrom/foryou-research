@@ -1660,6 +1660,15 @@ def new_merge(
     # tabs. Runs for both the merge and activity-only branches.
     shebang = _join_niche_columns(shebang, verbose=verbose)
 
+    # Row order is the product here; the index labels are whatever the last
+    # upstream operation happened to leave behind, and some of those paths leave
+    # a float index that is mostly NaN. That index gets written into the recoded
+    # parquet and read straight back out, where the web layer treats a row's
+    # label as its identity (Video Analysis names the row behind the video on
+    # screen with it). Normalise it once here so what lands on disk is a clean
+    # 0..n-1 and no reader inherits an ambiguous or non-serialisable label.
+    shebang = shebang.reset_index(drop=True)
+
     if save_to_cache:
         t1 = _dt.datetime.now()
         if verbose:

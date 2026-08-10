@@ -364,13 +364,26 @@ def _cached_study_frame(study, verbose=False):
         # of the two and nothing downstream needs it.
         del raw_df
 
-        # Force the index's lazy hash engine to build NOW, while we still hold
-        # the loading lock. The cached frame is shared across request threads,
-        # and pandas builds this engine on the first lookup without locking —
-        # two concurrent first lookups can each observe a partially built
-        # table and miss keys that are present (seen in prod as a spurious
-        # KeyError on a valid row_idx from the item endpoint's prefetch pair).
-        _ = filtered_df.index.is_unique
+        # The cached frame's index IS the row_idx contract: the viewer is handed
+        # these labels with its id chunk and sends one back to name the exact row
+        # behind the video on screen. Recoded parquets do not guarantee a usable
+        # index — several carry a float index inherited from an upstream join,
+        # mostly NaN with a few duplicated labels. Those labels are unusable as
+        # row identity twice over: NaN != NaN, so the lookup never matches and
+        # silently falls back to the first row with that item_id (the same video
+        # watched twice then reports one timestamp for every occurrence), and a
+        # NaN also serialises to a bare `NaN` token that no JSON parser accepts.
+        # Normalising here repairs every already-written parquet without a
+        # re-recode, and makes the labels unique, finite and stable for as long
+        # as this cache entry lives — which is exactly the contract's lifetime,
+        # since a rewritten parquet changes the mtime and invalidates the entry.
+        # Assigning the index (rather than reset_index) rebinds the axis without
+        # copying the columns; filtered_df is this function's own fresh object.
+        # This also retires the hash-engine warm-up that used to stand here: a
+        # RangeIndex resolves labels arithmetically and builds no shared lazy
+        # engine, so the race that made a concurrent prefetch pair miss a valid
+        # row_idx cannot happen on it.
+        filtered_df.index = pd.RangeIndex(len(filtered_df))
 
         # Re-read the mtime *after* loading so the cache entry is
         # tagged with the version we actually have in memory.
@@ -558,8 +571,10 @@ def get_explorer_rows(study, item_id=None, row_index=None, verbose=False):
 
     ``row_index`` (the frame index the client was handed with its id chunk)
     wins when it is present and still valid, because duplicate ``item_id``
-    values are legitimate — the same video watched twice. Falls back to matching
-    on ``item_id``.
+    values are legitimate — the same video watched twice, which the item_id
+    fallback cannot tell apart (it would answer every occurrence with the
+    first one's row). ``_cached_study_frame`` guarantees those labels are a
+    unique RangeIndex, so a match here is the exact row the viewer is showing.
 
     Returns (frame, col_types); the frame is empty when nothing matches, and
     (None, None) when the study has no recoded dataset.
@@ -571,16 +586,22 @@ def get_explorer_rows(study, item_id=None, row_index=None, verbose=False):
     id_col = 'item_id' if 'item_id' in df.columns else (
         'video_id' if 'video_id' in df.columns else None)
 
-    # Row lookup via a plain array comparison rather than .loc: label lookups
-    # go through the index's shared lazy hash engine, which is not safe to
-    # build from two request threads at once (the engine is also pre-built at
-    # cache time — this is defense in depth, and it handles duplicate labels
-    # the same way .loc[[label]] would).
+    # Row lookup via a plain array comparison rather than .loc, so a label the
+    # frame no longer carries is an empty result rather than a KeyError.
+    # Non-integral values are rejected outright: a client holding a chunk from
+    # before the index was normalised can still send a float NaN, and NaN
+    # compares False against everything — it would slip past this branch into
+    # the item_id fallback and answer with the wrong occurrence.
     rows = None
     if row_index is not None:
-        positions = np.flatnonzero(np.asarray(df.index) == row_index)
-        if positions.size:
-            rows = df.iloc[positions]
+        try:
+            wanted = int(row_index)
+        except (TypeError, ValueError):
+            wanted = None
+        if wanted is not None and wanted == row_index:
+            positions = np.flatnonzero(np.asarray(df.index) == wanted)
+            if positions.size:
+                rows = df.iloc[positions]
     if rows is None:
         if id_col is not None:
             rows = df[df[id_col].astype(str) == str(item_id)]
