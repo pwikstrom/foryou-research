@@ -4967,6 +4967,12 @@ body:has(.public-page) {
     color: var(--color-warning);
 }
 
+/* Off-theme videos a binge tolerated — never hidden, so a long binge cannot
+   present itself as an unbroken run. */
+.sess-skipped {
+    color: var(--color-text-muted);
+}
+
 /* The within-binge trend line, on its own row under the binge's metrics. */
 .sess-trend {
     display: block;

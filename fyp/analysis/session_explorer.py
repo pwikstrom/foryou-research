@@ -22,11 +22,15 @@ collection it reduces the persistent viewing sessions (the ingest-assigned
 
 Segmentation rule (per session, on embedded plays, distinct videos): grow the
 current episode while the next *distinct* video's mean cosine distance to the
-centroid of the last :data:`MEM` members ≤ :data:`CUT`; otherwise close the
-episode (kept if ≥ :data:`MIN_VIDEOS` distinct videos over ≥
-:data:`MIN_MINUTES`) and start a new one. ``session_id`` boundaries hard-break
-episodes; repeated plays of a video already in the episode extend its span but
-are not new members (a rewatch loop must not fake a binge).
+centroid of the last :data:`MEM` members ≤ :data:`CUT`. Up to :data:`MAX_SKIP`
+consecutive off-theme videos are tolerated without ending the episode (an ad
+mid-binge is the motivating case); they are counted as ``n_skipped`` but are
+never members and never enter the centroid. Beyond that the episode closes
+(kept if ≥ :data:`MIN_VIDEOS` distinct videos over ≥ :data:`MIN_MINUTES`) and
+the scan rewinds to the first tolerated video so it can open the next episode.
+``session_id`` boundaries hard-break episodes; repeated plays of a video
+already in the episode extend its span but are not new members (a rewatch loop
+must not fake a binge).
 
 The artifacts are **global** (all collections) and study-scoped at query time:
 per-study caches are sampled and shred sequences, so everything here reads the
@@ -47,12 +51,24 @@ from fyp.organize_datasets import COLLECTIONS_LABEL
 
 logger = get_logger(__name__)
 
-# Locked segmentation parameters from the embedding-entropy study
-# (specification-curve validated; `mem` controls drift tolerance).
+# Segmentation parameters. CUT/MEM/MIN_VIDEOS come from the embedding-entropy
+# study (specification-curve validated; `mem` controls drift tolerance).
+#
+# MIN_MINUTES and MAX_SKIP were retuned 2026-08-10 against the production
+# corpus and are NOT the study's values (the study used 3.0 minutes and no
+# skip tolerance):
+#   * MAX_SKIP: with no tolerance, a single off-theme video ended a run and
+#     then seeded the next one, so 99.4% of candidate runs ended under
+#     MIN_VIDEOS and long on-theme stretches never surfaced.
+#   * MIN_MINUTES: at 3.0 it dropped 65% of the runs that did reach
+#     MIN_VIDEOS, penalising fast scrolling — the most binge-like behaviour.
+# These are only the fallbacks; `[sessions]` in the config carries the
+# operative values (see default_params).
 CUT = 0.5
 MEM = 6
 MIN_VIDEOS = 4
-MIN_MINUTES = 3.0
+MIN_MINUTES = 1.0
+MAX_SKIP = 2
 
 # Sliding-window width (distinct embedded videos) for the per-session
 # low-entropy windows. The per-pair cosine distance is size-robust, but a
@@ -105,6 +121,7 @@ def default_params() -> dict:
         "mem": int(cfg.get("binge_mem", MEM)),
         "min_videos": int(cfg.get("binge_min_videos", MIN_VIDEOS)),
         "min_minutes": float(cfg.get("binge_min_minutes", MIN_MINUTES)),
+        "max_skip": max(int(cfg.get("binge_max_skip", MAX_SKIP)), 0),
         "window_n": int(cfg.get("window_n", WINDOW_N)),
         "max_windows": int(cfg.get("max_windows", MAX_WINDOWS)),
     }
@@ -408,8 +425,25 @@ def discover_collections(collections: list[str] | None = None) -> list[tuple[str
 
 
 def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
-                    min_videos: int, min_minutes: float) -> list[dict]:
+                    min_videos: int, min_minutes: float,
+                    max_skip: int = MAX_SKIP) -> list[dict]:
     """Grow focus episodes within one session's embedded plays.
+
+    A run survives up to ``max_skip`` CONSECUTIVE off-theme videos. They are
+    tolerated, not absorbed: a skipped video is never a member, never enters
+    the centroid, and never extends the span — it is only counted, as
+    ``n_skipped``. An ad break in the middle of a binge is the motivating case.
+
+    ``max_skip = 0`` restores the pre-2026-08-10 behaviour, where one off-theme
+    video ended the run AND became the first member of the next one. That
+    second effect was the damaging one: the theme then had to re-accumulate
+    from an anchor that was not the theme, which is why long on-theme stretches
+    fragmented into runs too small to keep (99.4% of candidate runs on the
+    production corpus ended with fewer than ``min_videos`` videos).
+
+    When the tolerance IS exhausted, the run ends and the scan rewinds to the
+    first tolerated video, so the videos that ended one binge are available to
+    open the next — they are never silently dropped.
 
     Args:
         seq: Time-ordered ``(item_id, row_idx, ts, dur)`` tuples for the
@@ -419,6 +453,7 @@ def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
         mem: Number of recent members the centroid is taken over.
         min_videos: Minimum distinct videos to keep an episode.
         min_minutes: Minimum span (minutes) to keep an episode.
+        max_skip: Consecutive off-theme videos a run tolerates.
 
     Returns:
         A list of episode dicts (raw members + span; geometry/content are
@@ -426,6 +461,7 @@ def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
     """
     episodes: list[dict] = []
     cur: dict | None = None
+    pending: list[int] = []
 
     def close(c: dict | None) -> None:
         if c is None or len(c["idx"]) < min_videos:
@@ -436,17 +472,22 @@ def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
     def fresh(iid, ridx, ts, dur) -> dict:
         return {"ids": [iid], "idx": [ridx], "seen": {iid},
                 "m_ts": [ts], "m_dur": [dur],
-                "start_ts": ts, "end_ts": ts, "n_plays": 1}
+                "start_ts": ts, "end_ts": ts, "n_plays": 1, "n_skipped": 0}
 
-    for iid, ridx, ts, dur in seq:
+    i = 0
+    while i < len(seq):
+        iid, ridx, ts, dur = seq[i]
         if cur is None:
             cur = fresh(iid, ridx, ts, dur)
+            pending = []
+            i += 1
             continue
         if iid in cur["seen"]:
             # A rewatch extends the span but is not a new member — otherwise a
             # repeat loop collapses the effective rank and fakes a binge.
             cur["n_plays"] += 1
             cur["end_ts"] = ts
+            i += 1
             continue
         centroid = U[cur["idx"][-mem:]].mean(axis=0)
         dist = 1.0 - float(U[ridx] @ centroid)
@@ -458,9 +499,23 @@ def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
             cur["m_dur"].append(dur)
             cur["n_plays"] += 1
             cur["end_ts"] = ts
-        else:
-            close(cur)
-            cur = fresh(iid, ridx, ts, dur)
+            # Only now are the tolerated videos INSIDE the binge — a run that
+            # ends on an interruption never counts it.
+            cur["n_skipped"] += len(pending)
+            pending = []
+            i += 1
+            continue
+
+        pending.append(i)
+        if len(pending) <= max_skip:
+            i += 1
+            continue
+        close(cur)
+        # Rewind so the tolerated videos get a fair chance to open the next
+        # run; the restart point always advances, so this terminates.
+        i = pending[0]
+        cur = None
+        pending = []
     close(cur)
     return episodes
 
@@ -572,6 +627,9 @@ def episode_record(ep: dict, cid: str, sess: object, U: np.ndarray,
         "n_distinct": k,
         "repeat_rate": round(ep["n_plays"] / k, 2),
         "n_interleaved": max(n_in_span - int(ep["n_plays"]), 0),
+        # Off-theme videos the binge survived (see segment_session's max_skip).
+        # Reported so a long binge cannot hide how much it tolerated.
+        "n_skipped": int(ep.get("n_skipped", 0)),
         "focus": _num(focus, 4),
         "diameter": _num(geo["diameter"], 4),
         "step_mean": _num(geo["step_mean"], 4),
@@ -807,7 +865,8 @@ def build_collection(cid: str, plays: pd.DataFrame, id2idx: dict, U: np.ndarray,
                zip(emb["item_id"], emb["_ts"], emb["play_duration"])]
         eps = []
         for ep_idx, ep in enumerate(segment_session(
-                seq, U, p["cut"], p["mem"], p["min_videos"], p["min_minutes"])):
+                seq, U, p["cut"], p["mem"], p["min_videos"], p["min_minutes"],
+                max_skip=p["max_skip"])):
             row = episode_record(ep, cid, s, U, feat, play_ts, mem=p["mem"])
             row["episode_idx"] = ep_idx
             eps.append(row)
@@ -851,7 +910,8 @@ _EPISODES_SCHEMA: dict[str, pa.DataType] = {
     "collection_id": pa.string(), "session_id": pa.string(), "episode_idx": pa.int16(),
     "start_ts": pa.string(), "end_ts": pa.string(), "duration_min": pa.float32(),
     "n_plays": pa.int32(), "n_distinct": pa.int32(), "repeat_rate": pa.float32(),
-    "n_interleaved": pa.int32(), "focus": pa.float32(), "diameter": pa.float32(),
+    "n_interleaved": pa.int32(), "n_skipped": pa.int32(),
+    "focus": pa.float32(), "diameter": pa.float32(),
     "step_mean": pa.float32(), "straightness": pa.float32(),
     "spectral_entropy_bits": pa.float32(), "effective_rank": pa.float32(),
     "direction_p": pa.float32(),

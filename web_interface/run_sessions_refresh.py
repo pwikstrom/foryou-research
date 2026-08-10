@@ -39,7 +39,8 @@ MAX_CHAIN_RESTARTS = 2
 # Segmentation override keys accepted from the UI / CLI and carried verbatim
 # through every link (so a chain restart re-resolves with the same inputs).
 _OVERRIDE_KEYS = (("cut", float), ("mem", int), ("min_videos", int),
-                  ("min_minutes", float), ("window_n", int), ("max_windows", int))
+                  ("min_minutes", float), ("max_skip", int),
+                  ("window_n", int), ("max_windows", int))
 
 
 
@@ -63,8 +64,8 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         reporter: Status reporter (GCS on Cloud Run, stdout locally).
         task_args: Optional dict. User inputs: ``collections`` (comma-separated
             allow-list), ``batch_size``, plus the segmentation overrides
-            ``cut``/``mem``/``min_videos``/``min_minutes``/``window_n``/
-            ``max_windows``. Chain-internal: ``chunk_index``,
+            ``cut``/``mem``/``min_videos``/``min_minutes``/``max_skip``/
+            ``window_n``/``max_windows``. Chain-internal: ``chunk_index``,
             ``remaining_collections``, ``run_id``, ``params_json``,
             ``embedding_model``, ``corpus_mean_fp``, ``total_collections``,
             ``chain_restarts``.
@@ -285,7 +286,8 @@ if __name__ == "__main__":
             task_args["collections"] = args.collections
         if args.batch_size:
             task_args["batch_size"] = args.batch_size
-        for key in ("cut", "mem", "min_videos", "min_minutes", "window_n", "max_windows"):
+        for key in ("cut", "mem", "min_videos", "min_minutes", "max_skip",
+                    "window_n", "max_windows"):
             value = getattr(args, key, None)
             if value is not None:
                 task_args[key] = value
@@ -311,6 +313,8 @@ if __name__ == "__main__":
             (("--mem",), {"type": int, "default": None}),
             (("--min-videos",), {"type": int, "default": None}),
             (("--min-minutes",), {"type": float, "default": None}),
+            (("--max-skip",), {"type": int, "default": None,
+                               "help": "Consecutive off-theme videos a binge survives"}),
             (("--window-n",), {"type": int, "default": None}),
             (("--max-windows",), {"type": int, "default": None}),
         ],

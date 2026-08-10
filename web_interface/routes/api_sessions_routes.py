@@ -780,7 +780,8 @@ def _session_episodes(collection_id: str, session_id: str) -> list[dict]:
             })
         ep = {col: _clean(row.get(col)) for col in (
             "episode_idx", "start_ts", "end_ts", "duration_min", "n_plays",
-            "n_distinct", "repeat_rate", "n_interleaved", "focus", "diameter",
+            "n_distinct", "repeat_rate", "n_interleaved", "n_skipped",
+            "focus", "diameter",
             "step_mean", "straightness", "direction_p", "spectral_entropy_bits",
             "effective_rank", "dominant_niche", "dominant_niche_share",
             "n_niches", "n_authors", "dominant_author_share", "advertising",

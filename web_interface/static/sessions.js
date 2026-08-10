@@ -28,8 +28,8 @@ const sessState = {
 // own build parameters + the live context_plays); these are only the fallbacks
 // for a payload that predates the `params` key.
 const SESS_PARAM_FALLBACKS = {
-    min_videos: 4, min_minutes: 3, window_n: 6, max_windows: 3, context_plays: 3,
-    drift_p: 0.05, trend_min_videos: 7,
+    min_videos: 4, min_minutes: 1, max_skip: 2, window_n: 6, max_windows: 3,
+    context_plays: 3, drift_p: 0.05, trend_min_videos: 7,
 };
 
 
@@ -259,7 +259,10 @@ function sessApplyParamCopy() {
         binge.dataset.tooltip = `A binge is a maximal run of ${p.min_videos}+ distinct videos `
             + `(over ${p.min_minutes}+ minutes) within the session where each next video stays `
             + 'semantically close to the running centre of the previous ones. Rewatches extend a '
-            + 'binge but don’t count as new videos.';
+            + 'binge but don’t count as new videos. '
+            + `Up to ${p.max_skip} off-theme videos in a row (typically ads) are tolerated without `
+            + 'ending the binge — an immediate return to the theme means it never ended. Those are '
+            + 'not members and are reported separately as "off-theme skipped".';
     }
     const seq = document.getElementById('sess-seq-help');
     if (seq) {
@@ -622,6 +625,22 @@ function sessRenderStrip(data) {
 
 
 
+// Off-theme videos the binge survived. Shown whenever there are any, so a
+// long binge cannot quietly present itself as an unbroken run.
+function sessSkippedHtml(ep) {
+    const n = sessNum(ep.n_skipped, 0);
+    if (!n) { return ''; }
+    const max = sessParams().max_skip;
+    return `<span class="meta-tooltip sess-skipped" data-tooltip="${escapeHtml(
+        `${n} video${n > 1 ? 's' : ''} inside this binge were off-theme — most often ads. `
+        + `The binge survives up to ${max} in a row, on the view that an immediate return `
+        + 'to the theme means the binge never ended. They are not counted as members: they '
+        + 'do not enter the focus score, the distance metrics, or the creator count.')}">${n} off-theme skipped</span>`;
+}
+
+
+
+
 // Directed vs stationary, from the permutation p-value (direction_p) rather
 // than a fixed straightness cut. Raw straightness falls like 1/sqrt(steps), so
 // the old fixed 0.5 threshold was a length test that never once fired on the
@@ -725,6 +744,7 @@ function sessRenderSeqList(data) {
             <span class="text-xs" style="color: var(--color-text-tertiary); display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                 <span>${ep.n_distinct} videos</span>
                 <span>${sessFmtMinutes(ep.duration_min)}</span>
+                ${sessSkippedHtml(ep)}
                 ${creators ? `<span class="meta-tooltip${(ep.creators && ep.creators.n_creators === 1) ? ' sess-solo-creator' : ''}" data-tooltip="${escapeHtml(sessCreatorTooltip(ep.creators))}">${escapeHtml(creators)}</span>` : ''}
                 <span class="meta-tooltip" data-tooltip="Average pairwise embedding distance across ALL ${ep.n_distinct} of this binge's videos (no best-window search). Same 0–1 scale as the low-entropy sequences, but an average over the binge's whole membership — a single loosely-matching member raises it.">avg distance ${ep.focus != null ? ep.focus.toFixed(3) : '–'}</span>
                 <span class="sess-badge text-xxs meta-tooltip" data-tooltip="${escapeHtml(shape.tooltip)}">${escapeHtml(shape.label)}</span>
