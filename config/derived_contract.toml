@@ -87,10 +87,14 @@ scale = "categorical"
 display_name = "Scrape failed"
 description = "Whether the item's media scrape failed (item_id in the failed-scrapes set)."
 
+# The niche columns are model-derived labels, so they sit under the same UI
+# section as the Gemini annotation fields rather than in a section of their own.
+# `section` is cosmetic — compute_var_schema_hash() excludes it, so moving a
+# field between sections never invalidates a cached study parquet.
 [[fields]]
 name = "niche_name"
 dtype = "string[pyarrow]"
-section = "Semantic"
+section = "AI Annotations"
 role = "measure"
 scale = "categorical"
 display_name = "Niche"
@@ -99,7 +103,7 @@ description = "Embeddings-derived micro-genre (KMeans cluster of video embedding
 [[fields]]
 name = "niche"
 dtype = "int64[pyarrow]"
-section = "Semantic"
+section = "AI Annotations"
 role = "skip"
 scale = "raw"
 display_name = "Niche ID"

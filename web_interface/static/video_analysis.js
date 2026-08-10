@@ -175,15 +175,20 @@ async function checkPendingDrillDown() {
 }
 
 
-// One-off banner above the player, cleared by the next item load. Used for
-// drill-downs that could not land on the video they named.
+// One-off banner above the player. Retired either by the user (× button) or by
+// the next item load — it describes one specific video, so it must not follow
+// the researcher around the rest of the filtered set. Used for drill-downs that
+// could not land on the video they named.
 function _showViewerNotice(message, platformUrl) {
     const bar = document.getElementById('viewer-drilldown-notice');
     if (!bar) return;
     const link = platformUrl
         ? ` <a href="${platformUrl}" target="_blank" rel="noopener">Open it on the platform ↗</a>`
         : '';
-    bar.innerHTML = `${escapeHtml(message)}${link}`;
+    bar.innerHTML = `<span class="viewer-notice-text">${escapeHtml(message)}${link}</span>`
+        + '<button type="button" class="viewer-notice-close meta-tooltip tooltip-below tooltip-right-anchored"'
+        + ' data-tooltip="Dismiss this message" aria-label="Dismiss this message">&times;</button>';
+    bar.querySelector('.viewer-notice-close').onclick = _clearViewerNotice;
     bar.style.display = '';
 }
 
@@ -271,13 +276,24 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Only update text, don't load yet
                 const count = viewerData.itemCount;
                 document.getElementById('viewer-index').innerText = `${val + 1} / ${count}`;
+                updateSliderTimestampChip(val, true);
             });
 
             // Load on release (change)
             slider.addEventListener('change', (e) => {
                 const val = parseInt(e.target.value) - 1;
                 viewerData.currentIndex = val;
+                updateSliderTimestampChip(val, false);
                 loadViewerItem(val);
+            });
+
+            // Hovering the track is a scrub too — it reads the position the
+            // thumb is already at, without moving it.
+            slider.addEventListener('mouseenter', () => {
+                updateSliderTimestampChip(parseInt(slider.value) - 1, true);
+            });
+            slider.addEventListener('mouseleave', () => {
+                updateSliderTimestampChip(parseInt(slider.value) - 1, false);
             });
         }
     }
@@ -923,13 +939,25 @@ function updateViewerDateRange(span) {
     }
 }
 
-// `focusItemId` (optional) asks the server where that video sits in the filtered
-// order, so a drill-down can land on it directly instead of on row 0. Returns
-// true when the video was found and selected.
-async function applyViewerFilters(focusItemId = null) {
-    if (!viewerData.activeStudy) return false;
+// The item id of the video currently on screen, or null when there is none.
+// Reads through the chunk offset — `filteredIds` only ever holds the 1000-row
+// window around the current position, so indexing it with the global index is
+// wrong as soon as the user pages past the first chunk.
+function currentViewerItemId() {
+    if (viewerData.currentIndex < 0 || !viewerData.filteredIds) return null;
+    const rel = viewerData.currentIndex - (viewerData.currentOffset || 0);
+    if (rel < 0 || rel >= viewerData.filteredIds.length) return null;
+    return viewerData.filteredIds[rel];
+}
 
-    _clearViewerNotice();
+
+// Download the id/row-idx chunk containing `index` and adopt it as the client's
+// window into the filtered order. Returns false when the fetch failed. Touches
+// no player state: callers that must also show the item call loadViewerItem
+// afterwards, callers that only need the index to be navigable do not.
+async function loadChunkFor(index) {
+    const chunkLimit = viewerData.chunkLimit || 1000;
+    const newOffset = Math.floor(index / chunkLimit) * chunkLimit;
     const hideDuplicates = document.getElementById('viewer-hide-duplicates')?.checked || false;
 
     try {
@@ -941,7 +969,57 @@ async function applyViewerFilters(focusItemId = null) {
                 filters: viewerData.filters,
                 search_query: viewerData.searchQuery,
                 hide_duplicates: hideDuplicates,
-                focus_item_id: focusItemId || undefined,
+                offset: newOffset,
+                limit: chunkLimit
+            })
+        });
+        const data = await res.json();
+        if (data.error) {
+            alert(data.error);
+            return false;
+        }
+
+        viewerData.filteredIds = data.ids;
+        viewerData.rowIdxs = data.row_idxs || [];
+        viewerData.chunkTimestamps = data.timestamps || [];
+        viewerData.currentOffset = newOffset;
+        viewerData.displayIds = { ...viewerData.displayIds, ...(data.display_ids || {}) };
+        return true;
+    } catch (e) {
+        console.error("[Viewer] Failed to load chunk", e);
+        return false;
+    }
+}
+
+
+// `focusItemId` (optional) asks the server where that video sits in the filtered
+// order, so a drill-down can land on it directly instead of on row 0. Returns
+// true when the video was found and selected.
+//
+// With no explicit focus, the video already on screen is sent instead as a
+// best-effort one: a filter change keeps the user on the video they were
+// watching whenever it survives the new filter set, and only falls back to row 0
+// when it does not. The lookup has to happen server-side — the client holds one
+// 1000-row chunk, so it cannot tell "filtered out" from "somewhere past row 999".
+async function applyViewerFilters(focusItemId = null) {
+    if (!viewerData.activeStudy) return false;
+
+    _clearViewerNotice();
+    const hideDuplicates = document.getElementById('viewer-hide-duplicates')?.checked || false;
+
+    // Capture the currently playing video ID before overwriting the array
+    const previousItemId = currentViewerItemId();
+
+    try {
+        const res = await fetch('/api/video_analysis/ids', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                study: viewerData.activeStudy,
+                filters: viewerData.filters,
+                search_query: viewerData.searchQuery,
+                hide_duplicates: hideDuplicates,
+                focus_item_id: focusItemId || previousItemId || undefined,
                 offset: 0,
                 limit: 1000
             })
@@ -953,19 +1031,16 @@ async function applyViewerFilters(focusItemId = null) {
             return false;
         }
 
-        // Capture the currently playing video ID before overwriting the array
-        const previousItemId = (viewerData.itemCount > 0 && viewerData.currentIndex >= 0)
-            ? viewerData.filteredIds[viewerData.currentIndex]
-            : null;
-
         viewerData.filteredIds = data.ids;
         viewerData.rowIdxs = data.row_idxs || [];
+        viewerData.chunkTimestamps = data.timestamps || [];
         viewerData.itemCount = data.count; // True total number of matching items
         updateViewerDateRange(data.time_span);
         clearMetadataCache();
         viewerData.currentOffset = data.offset || 0; // The base index of the downloaded chunk
         viewerData.chunkLimit = 1000; // Expected max size of the downloaded chunk
         viewerData.displayIds = data.display_ids || {};
+        viewerData.timeMarks = data.time_marks || null;
 
         // Store extra_data indices (returned on first chunk only)
         if (data.extra_data_indices) {
@@ -973,6 +1048,8 @@ async function applyViewerFilters(focusItemId = null) {
         }
         renderSliderMarkers();
         updateSkipButtons();
+        // The chip's timestamps belong to the old result set.
+        updateSliderTimestampChip(0, false);
 
         // Let the user know if we capped the slider out at 10k
         const isTruncated = data.truncated;
@@ -991,12 +1068,22 @@ async function applyViewerFilters(focusItemId = null) {
                 return true;
             }
 
-            // Check if the previously playing video survived the filter change
-            const newIndex = previousItemId ? viewerData.filteredIds.indexOf(previousItemId) : -1;
+            // Did the video on screen survive the filter change? focus_index is
+            // its position in the whole new order (null = filtered out), so this
+            // holds just as well for a video that was at row 40,000.
+            const keepIndex = (previousItemId && Number.isInteger(data.focus_index))
+                ? data.focus_index : -1;
 
-            if (newIndex !== -1) {
-                // Video is still in the loaded chunk! Just update index internally and skip reloading the video.
-                viewerData.currentIndex = newIndex;
+            if (keepIndex !== -1) {
+                viewerData.currentIndex = keepIndex;
+                const rel = keepIndex - (viewerData.currentOffset || 0);
+                if (rel < 0 || rel >= viewerData.filteredIds.length) {
+                    // The video is outside the chunk just downloaded. Page to it
+                    // so nav/prefetch stay consistent — but do not touch the
+                    // player: the right video is already on screen and playing.
+                    await loadChunkFor(keepIndex);
+                }
+                prefetchNext();
             } else {
                 // Video was filtered out, load the first item in the new list.
                 viewerData.currentIndex = 0;
@@ -1154,6 +1241,11 @@ async function loadViewerItem(index) {
         return;
     }
 
+    // The drill-down notice describes the video the caller asked for, not this
+    // one, so moving off that video retires it. (The drill-down path shows the
+    // notice *after* its own load, so this never eats its own banner.)
+    _clearViewerNotice();
+
     // Check if the requested index is outside the currently loaded chunk
     const relativeIndex = index - (viewerData.currentOffset || 0);
     const loadedCount = viewerData.filteredIds ? viewerData.filteredIds.length : 0;
@@ -1161,44 +1253,13 @@ async function loadViewerItem(index) {
 
     if (!inRange) {
         document.getElementById('viewer-status').innerText = `Fetching next chunk...`;
-
-        // Calculate the base offset for the chunk containing this index
-        const newOffset = Math.floor(index / (viewerData.chunkLimit || 1000)) * (viewerData.chunkLimit || 1000);
-        const hideDuplicates = document.getElementById('viewer-hide-duplicates')?.checked || false;
-
-        try {
-            const res = await fetch('/api/video_analysis/ids', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    study: viewerData.activeStudy,
-                    filters: viewerData.filters,
-                    search_query: viewerData.searchQuery,
-                    hide_duplicates: hideDuplicates,
-                    offset: newOffset,
-                    limit: viewerData.chunkLimit || 1000
-                })
-            });
-            const data = await res.json();
-            if (data.error) {
-                alert(data.error);
-                return;
-            }
-
-            viewerData.filteredIds = data.ids;
-            viewerData.rowIdxs = data.row_idxs || [];
-            viewerData.currentOffset = newOffset;
-            viewerData.displayIds = { ...viewerData.displayIds, ...(data.display_ids || {}) }; // Append new displays
-
-            // Re-call loadViewerItem now that the data is loaded
-            await loadViewerItem(index);
-            return;
-
-        } catch (e) {
-            console.error("[Viewer] Failed to load chunk", e);
+        if (!await loadChunkFor(index)) {
             document.getElementById('viewer-status').innerText = "Error loading chunk";
             return;
         }
+        // Re-call loadViewerItem now that the data is loaded
+        await loadViewerItem(index);
+        return;
     }
 
     const itemId = viewerData.filteredIds[relativeIndex];
@@ -1381,16 +1442,6 @@ function renderMetadata(item) {
         // (The detail-panel field gear moved to My Stuff -> Preferences.)
     }
 
-    // Inject Display ID if present at top
-    if (item.display_collection_id) {
-        const didRow = document.createElement('tr');
-        didRow.className = 'detail-display-id';
-        didRow.innerHTML = `<td class="font-bold" style="color:var(--color-info);">Display ID</td><td class="font-bold" style="color:var(--color-text-primary); text-align:right;">${item.display_collection_id}</td>`;
-        tbody.appendChild(didRow);
-    }
-
-
-
     const meta = viewerData.metadata || {};
     const globalDisplay = meta.display_priority || [];
     const schemaMap = meta.schema_map || {};
@@ -1427,6 +1478,21 @@ function renderMetadata(item) {
         if (!sections[section]) sections[section] = [];
         sections[section].push(key);
     });
+
+    // A collection with a display ID is known by it everywhere else (the Explore
+    // and Video Analysis filter dropdowns, Correlations group labels), so the
+    // Collection ID row shows it too — the raw UUID stays reachable in the row's
+    // tooltip. The standalone "Display ID" header row is only rendered when the
+    // Collection ID row itself is not on screen (the user can switch it off in
+    // My Stuff -> Preferences); otherwise it would print the same value twice.
+    const collectionIdRendered = Object.values(sections)
+        .some(keys => keys.includes('collection_id'));
+    if (item.display_collection_id && !collectionIdRendered) {
+        const didRow = document.createElement('tr');
+        didRow.className = 'detail-display-id';
+        didRow.innerHTML = `<td class="font-bold" style="color:var(--color-info);">Display ID</td><td class="font-bold" style="color:var(--color-text-primary); text-align:right;">${escapeHtml(item.display_collection_id)}</td>`;
+        tbody.appendChild(didRow);
+    }
 
     // Sort Sections by the backend's hard-coded section_order; sections not
     // listed fall after, alphabetically.
@@ -1607,6 +1673,11 @@ function renderMetadata(item) {
                 tooltipParts.push(schemaMap[key].description);
             }
 
+            // 4. The raw collection id, when the value cell shows its display ID.
+            if (key === 'collection_id' && item.display_collection_id && item.collection_id) {
+                tooltipParts.push(`Raw collection ID: ${item.collection_id}`);
+            }
+
             if (tooltipParts.length > 0) {
                 tdKey.classList.add('meta-tooltip');
                 // Join with newline. CSS handles whitespace: pre-wrap
@@ -1627,6 +1698,13 @@ function renderMetadata(item) {
 
             let val = item[key];
             let displayVal = '';
+
+            // Collections are identified by their display ID wherever one has
+            // been set — matching the filter dropdowns — with the raw id kept in
+            // this row's key-cell tooltip.
+            if (key === 'collection_id' && item.display_collection_id) {
+                val = item.display_collection_id;
+            }
 
             if (val === null || val === undefined) {
                 displayVal = '';
@@ -1745,6 +1823,7 @@ function updateNavUI() {
             slider.disabled = true;
             slider.max = 1;
             slider.value = 1;
+            updateSliderTimestampChip(0, false);
         }
     }
 }
@@ -1999,6 +2078,64 @@ function renderSliderMarkers() {
         bar.title = `${cnt} engagement activit${cnt === 1 ? 'y' : 'ies'}`;
         container.appendChild(bar);
     });
+}
+
+
+// The activity timestamp of the video at a global index, as
+// `{ts, exact}` — or null when the position has no usable timestamp.
+//
+// Exact for the ~1000 rows of the downloaded chunk; anywhere else the nearest
+// rung of the server's coarse index -> timestamp ladder, which the caller
+// labels as approximate. Both are on the participant's own clock, the same
+// basis as the header date range and the detail panel's Activity timestamp.
+function viewerTimestampAt(index) {
+    const rel = index - (viewerData.currentOffset || 0);
+    const chunk = viewerData.chunkTimestamps;
+    if (chunk && rel >= 0 && rel < chunk.length && chunk[rel]) {
+        return { ts: chunk[rel], exact: true };
+    }
+
+    const marks = viewerData.timeMarks;
+    if (!marks || !marks.idx || !marks.idx.length) return null;
+
+    // Binary search for the first sample at or after `index`, then keep
+    // whichever of it and its predecessor sits closer.
+    let lo = 0, hi = marks.idx.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (marks.idx[mid] < index) lo = mid + 1; else hi = mid;
+    }
+    if (lo > 0 && Math.abs(marks.idx[lo - 1] - index) <= Math.abs(marks.idx[lo] - index)) {
+        lo -= 1;
+    }
+    if (!marks.ts[lo]) return null;
+    return { ts: marks.ts[lo], exact: marks.idx[lo] === index };
+}
+
+
+// Show/hide the timestamp chip under the slider thumb. `index` is 0-based.
+function updateSliderTimestampChip(index, visible) {
+    const chip = document.getElementById('viewer-slider-ts');
+    const slider = document.getElementById('viewer-slider');
+    if (!chip || !slider) return;
+
+    const found = (visible && viewerData.itemCount > 0) ? viewerTimestampAt(index) : null;
+    const text = found ? fypFmtAuto(found.ts, '') : '';
+    if (!text) {
+        chip.style.display = 'none';
+        return;
+    }
+
+    chip.textContent = found.exact ? text : `≈ ${text}`;
+
+    // Follow the thumb: it travels the track width minus its own width, so the
+    // centre of the thumb sits at half a thumb plus that fraction of the rest.
+    const min = Number(slider.min) || 1;
+    const max = Number(slider.max) || 1;
+    const frac = max > min ? Math.min(1, Math.max(0, (index + 1 - min) / (max - min))) : 0;
+    const thumbPx = 16;
+    chip.style.left = `calc(${thumbPx / 2}px + (100% - ${thumbPx}px) * ${frac})`;
+    chip.style.display = '';
 }
 
 
