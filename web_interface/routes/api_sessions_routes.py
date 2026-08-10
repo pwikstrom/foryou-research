@@ -72,6 +72,18 @@ _OVERVIEW_COLS = [
     "n_episodes", "episode_play_frac", "dominant_niche", "n_niches",
 ]
 
+# Columns the overview's ad-hoc range filters (the collapsible filter panel)
+# act on, keyed by their query-param stem: ``<stem>_min`` / ``<stem>_max``.
+# The date filter (``f_start_min``/``f_start_max``) is handled separately —
+# it compares parsed timestamps, not numerics.
+_RANGE_FILTER_COLS = {
+    "f_length": "duration_min",
+    "f_plays": "n_plays",
+    "f_coverage": "coverage_embedded",
+    "f_entropy": "min_window_cosdist",
+    "f_binges": "n_episodes",
+}
+
 # Sort keys the overview accepts (anything else falls back to the focus rank).
 _SORT_KEYS = {
     "min_window_cosdist", "min_window_entropy_norm", "duration_min", "n_plays",
@@ -589,15 +601,48 @@ def _clean(value):
 
 
 
+def _filter_ranges(df: pd.DataFrame) -> dict:
+    """Slider bounds for the filter panel, over the floor-passing frame.
+
+    Computed BEFORE the ad-hoc range filters are applied, so the client's
+    sliders keep stable endpoints while the user narrows them. A key is None
+    when the column has no usable values (e.g. no session has a low-entropy
+    score yet), which tells the client to omit that slider.
+    """
+    out: dict = {}
+    ts = pd.to_datetime(df["start_ts"], errors="coerce") if "start_ts" in df.columns else pd.Series(dtype="datetime64[ns]")
+    out["start_date"] = ([str(ts.min().date()), str(ts.max().date())]
+                         if ts.notna().any() else None)
+    for col in ("duration_min", "n_plays", "coverage_embedded",
+                "min_window_cosdist", "n_episodes"):
+        vals = (pd.to_numeric(df[col], errors="coerce")
+                if col in df.columns else pd.Series(dtype="float64"))
+        out[col] = ([float(vals.min()), float(vals.max())]
+                    if vals.notna().any() else None)
+    return out
+
+
+
+
+def _opt_query_float(name: str) -> float | None:
+    """An optional numeric query param: absent/blank → None, junk → ValueError."""
+    raw = request.args.get(name)
+    if raw is None or raw.strip() == '':
+        return None
+    return float(raw)
+
+
+
+
 @sessions_bp.route('/api/sessions/overview', methods=['GET'])
 @permission_required('tab.sessions')
 def api_sessions_overview():
-    """Filterable, sortable session table scoped to one study.
+    """Filterable, sortable, paginated session table scoped to one study.
 
     Query params: ``study`` (required), ``min_coverage`` (embedded coverage
     floor), ``min_emb_plays``, ``min_plays``, ``min_session_minutes``, ``sort``
     (one of the index metrics; default ``min_window_cosdist``), ``order``
-    (``asc``/``desc``), ``limit``.
+    (``asc``/``desc``), ``limit`` (page size), ``page`` (0-based).
 
     ``min_plays``, ``min_session_minutes`` and ``min_coverage`` default to the
     admin-controlled session-list floors (Admin → Site Settings, seeded by
@@ -605,6 +650,15 @@ def api_sessions_overview():
     ``min_plays=0`` to see everything. Excluded sessions still count towards
     ``total_in_study``, so the caller can always say how many the floors
     removed.
+
+    The filter panel's ad-hoc range filters ride in as optional pairs:
+    ``f_start_min``/``f_start_max`` (ISO dates, inclusive, on ``start_ts``),
+    plus ``f_length_*`` (``duration_min``), ``f_plays_*`` (``n_plays``),
+    ``f_coverage_*`` (``coverage_embedded``, 0–1), ``f_entropy_*``
+    (``min_window_cosdist``) and ``f_binges_*`` (``n_episodes``) — see
+    ``_RANGE_FILTER_COLS``. A bounded numeric filter drops sessions whose
+    value is missing (an unscored session cannot satisfy an entropy cut).
+    The response's ``ranges`` block carries each filter's slider bounds.
     """
     study = (request.args.get('study') or '').strip()
     if not study:
@@ -628,8 +682,23 @@ def api_sessions_overview():
         min_minutes = float(request.args.get('min_session_minutes',
                                              floors["min_session_minutes"]))
         limit = min(int(request.args.get('limit', OVERVIEW_LIMIT_DEFAULT)), OVERVIEW_LIMIT_MAX)
+        page = max(int(request.args.get('page', 0)), 0)
+        range_filters = {stem: (_opt_query_float(f"{stem}_min"),
+                                _opt_query_float(f"{stem}_max"))
+                         for stem in _RANGE_FILTER_COLS}
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid numeric filter"}), 400
+    f_start_min = f_start_max = None
+    try:
+        raw = (request.args.get('f_start_min') or '').strip()
+        if raw:
+            f_start_min = pd.Timestamp(raw)
+        raw = (request.args.get('f_start_max') or '').strip()
+        if raw:
+            # Inclusive day: anything before the following midnight matches.
+            f_start_max = pd.Timestamp(raw) + pd.Timedelta(days=1)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid date filter"}), 400
     sort = request.args.get('sort') or "min_window_cosdist"
     if sort not in _SORT_KEYS:
         sort = "min_window_cosdist"
@@ -648,6 +717,32 @@ def api_sessions_overview():
     ]
     total_above_floors = int(len(df))
     df = df[df["n_embedded"].fillna(0) >= min_emb]
+
+    # Slider bounds come from the population the sliders act on — after the
+    # floors, before the user's own range filters.
+    ranges = _filter_ranges(df)
+
+    mask = pd.Series(True, index=df.index)
+    if f_start_min is not None or f_start_max is not None:
+        ts = pd.to_datetime(df["start_ts"], errors="coerce")
+        if f_start_min is not None:
+            mask &= ts >= f_start_min
+        if f_start_max is not None:
+            mask &= ts < f_start_max
+    for stem, col in _RANGE_FILTER_COLS.items():
+        lo, hi = range_filters[stem]
+        if lo is None and hi is None:
+            continue
+        vals = pd.to_numeric(df[col], errors="coerce") if col in df.columns else None
+        if vals is None:
+            continue
+        # NaN compares False on both sides, so a bounded filter drops
+        # sessions with no value for that metric — deliberately.
+        if lo is not None:
+            mask &= vals >= lo
+        if hi is not None:
+            mask &= vals <= hi
+    df = df[mask]
     total_matching = int(len(df))
 
     # Directed-binge counts join BEFORE the sort so the column is sortable —
@@ -660,7 +755,14 @@ def api_sessions_overview():
     if sort not in df.columns:
         # e.g. sorting by directed binges against an artifact that has none.
         sort = "min_window_cosdist"
-    df = df.sort_values(sort, ascending=ascending, na_position='last').head(limit)
+    df = df.sort_values(sort, ascending=ascending, na_position='last')
+    # Pagination: clamp the requested page so a filter change that shrinks the
+    # result set never returns an empty page while matches exist.
+    if limit > 0:
+        page = min(page, max((total_matching - 1) // limit, 0))
+        df = df.iloc[page * limit:(page + 1) * limit]
+    else:
+        page = 0
 
     display = load_display_id_map()
     sessions = []
@@ -680,6 +782,9 @@ def api_sessions_overview():
         "total_above_floors": total_above_floors,
         "total_matching": total_matching,
         "returned": len(sessions),
+        "page": page,
+        "page_size": limit,
+        "ranges": ranges,
         "meta": meta,
         "params": _display_params(meta),
         "floors": {"min_plays": min_plays, "min_session_minutes": min_minutes,

@@ -19,6 +19,10 @@ const sessState = {
     activeSeq: null,     // {kind: 'binge'|'window', idx, pos}
     sort: { key: 'min_window_cosdist', order: 'asc' },
     params: null,        // effective [sessions] limits, from /api/sessions/overview
+    page: 0,             // 0-based table page (200 rows per page, server-side)
+    filters: {},         // per-filter {min, max} in SLIDER units (see SESS_FILTERS)
+    filterMeta: {},      // per-filter slider bounds {lo, hi}, from the overview's ranges
+    filtersOpen: true,   // filter panel expanded?
 };
 
 
@@ -86,6 +90,253 @@ function sessParams() {
     return out;
 }
 
+// The filter panel's slider rows. Slider values are INTEGERS; each def maps
+// its column's domain into slider units and back:
+//   bounds(range)  → [lo, hi] slider ints from the server's `ranges` pair
+//   fmt(v)         → readout text for one slider value
+//   param(v)       → query-param value (domain units) for one slider value
+// A filter is only sent when narrowed from its bounds, so an untouched slider
+// keeps sessions with a missing value (e.g. no low-entropy score) visible.
+// The date slider's unit is whole days since the epoch, in UTC — pure
+// calendar arithmetic on the wall-clock `start_ts` dates, with no viewer-
+// timezone conversion in either direction.
+function sessDayToIsoDate(day) {
+    const d = new Date(day * 86400000);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+
+
+
+const SESS_FILTERS = [
+    { key: 'date', label: 'Date', rangeKey: 'start_date',
+      paramMin: 'f_start_min', paramMax: 'f_start_max',
+      bounds: (r) => [Math.floor(Date.parse(r[0]) / 86400000),
+                      Math.ceil(Date.parse(r[1]) / 86400000)],
+      fmt: (v) => fypWallDate(sessDayToIsoDate(v), sessDayToIsoDate(v)),
+      param: (v) => sessDayToIsoDate(v) },
+    { key: 'length', label: 'Length', rangeKey: 'duration_min',
+      paramMin: 'f_length_min', paramMax: 'f_length_max',
+      bounds: (r) => [Math.floor(r[0]), Math.ceil(r[1])],
+      fmt: (v) => sessFmtMinutes(v),
+      param: (v) => String(v) },
+    { key: 'plays', label: 'Plays', rangeKey: 'n_plays',
+      paramMin: 'f_plays_min', paramMax: 'f_plays_max',
+      bounds: (r) => [Math.floor(r[0]), Math.ceil(r[1])],
+      fmt: (v) => String(v),
+      param: (v) => String(v) },
+    { key: 'coverage', label: 'Coverage', rangeKey: 'coverage_embedded',
+      paramMin: 'f_coverage_min', paramMax: 'f_coverage_max',
+      bounds: (r) => [Math.floor(r[0] * 100), Math.ceil(r[1] * 100)],
+      fmt: (v) => `${v}%`,
+      param: (v) => String(v / 100) },
+    { key: 'entropy', label: 'Low entropy', rangeKey: 'min_window_cosdist',
+      paramMin: 'f_entropy_min', paramMax: 'f_entropy_max',
+      tooltip: 'The session’s best low-entropy sequence score (smaller = a more '
+        + 'homogeneous stretch existed). Narrowing this range hides sessions '
+        + 'that have no score at all (too few embedded videos).',
+      bounds: (r) => [Math.floor(r[0] * 1000), Math.ceil(r[1] * 1000)],
+      fmt: (v) => (v / 1000).toFixed(2),
+      param: (v) => String(v / 1000) },
+    { key: 'binges', label: 'Binges', rangeKey: 'n_episodes',
+      paramMin: 'f_binges_min', paramMax: 'f_binges_max',
+      bounds: (r) => [Math.floor(r[0]), Math.ceil(r[1])],
+      fmt: (v) => String(v),
+      param: (v) => String(v) },
+];
+
+
+
+
+// True when this filter's sliders are narrowed from their bounds.
+function sessFilterActive(key) {
+    const meta = sessState.filterMeta[key];
+    const val = sessState.filters[key];
+    if (!meta || !val) { return false; }
+    return val.min > meta.lo || val.max < meta.hi;
+}
+
+
+
+
+// One dual-handle range slider row: two stacked native range inputs over a
+// shared track, with a fill bar between the handles and a live readout.
+// 'input' updates the readout/fill only; 'change' (handle released) commits
+// the filter and reloads page 0.
+function sessBuildFilterRow(def, meta) {
+    const val = sessState.filters[def.key];
+    const row = document.createElement('div');
+    row.className = 'sess-filter-row';
+
+    const label = def.tooltip
+        ? `<span class="meta-tooltip" data-tooltip="${escapeHtml(def.tooltip)}">${escapeHtml(def.label)}</span>`
+        : escapeHtml(def.label);
+    row.innerHTML = `
+        <div class="sess-filter-head text-xxs">
+            <span class="sess-filter-label">${label}</span>
+            <span class="sess-filter-val"></span>
+        </div>
+        <div class="sess-dual-range">
+            <div class="sess-dual-track"></div>
+            <div class="sess-dual-fill"></div>
+            <input type="range" class="sess-dr-min" min="${meta.lo}" max="${meta.hi}" step="1" value="${val.min}">
+            <input type="range" class="sess-dr-max" min="${meta.lo}" max="${meta.hi}" step="1" value="${val.max}">
+        </div>`;
+
+    const inMin = row.querySelector('.sess-dr-min');
+    const inMax = row.querySelector('.sess-dr-max');
+    const fill = row.querySelector('.sess-dual-fill');
+    const readout = row.querySelector('.sess-filter-val');
+
+    const sync = () => {
+        let lo = Number(inMin.value);
+        let hi = Number(inMax.value);
+        if (lo > hi) {
+            // The dragged handle wins; the other is pushed along.
+            if (document.activeElement === inMin) { hi = lo; inMax.value = hi; }
+            else { lo = hi; inMin.value = lo; }
+        }
+        const span = Math.max(meta.hi - meta.lo, 1);
+        fill.style.left = `${(100 * (lo - meta.lo)) / span}%`;
+        fill.style.right = `${100 - (100 * (hi - meta.lo)) / span}%`;
+        const narrowed = lo > meta.lo || hi < meta.hi;
+        readout.textContent = `${def.fmt(lo)} – ${def.fmt(hi)}`;
+        readout.classList.toggle('is-active', narrowed);
+        return { lo, hi };
+    };
+    const commit = () => {
+        const { lo, hi } = sync();
+        sessState.filters[def.key] = { min: lo, max: hi };
+        sessState.page = 0;
+        sessLoadOverview();
+    };
+    inMin.addEventListener('input', sync);
+    inMax.addEventListener('input', sync);
+    inMin.addEventListener('change', commit);
+    inMax.addEventListener('change', commit);
+    sync();
+    return row;
+}
+
+
+
+
+// (Re)build the filter panel from the overview's `ranges` bounds. Existing
+// slider positions survive a rebuild (clamped into the fresh bounds); a
+// filter whose column has no usable values gets no row.
+function sessRenderFilters(ranges) {
+    const body = document.getElementById('sess-filters-body');
+    if (!body) { return; }
+    body.innerHTML = '';
+    sessState.filterMeta = {};
+    for (const def of SESS_FILTERS) {
+        const r = ranges ? ranges[def.rangeKey] : null;
+        if (!r || r[0] == null || r[1] == null) {
+            delete sessState.filters[def.key];
+            continue;
+        }
+        const [lo, hi] = def.bounds(r);
+        if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo >= hi) {
+            delete sessState.filters[def.key];
+            continue;
+        }
+        const meta = { lo, hi };
+        sessState.filterMeta[def.key] = meta;
+        const prev = sessState.filters[def.key];
+        sessState.filters[def.key] = prev
+            ? { min: Math.max(Math.min(prev.min, hi), lo),
+                max: Math.min(Math.max(prev.max, lo), hi) }
+            : { min: lo, max: hi };
+        body.appendChild(sessBuildFilterRow(def, meta));
+    }
+    sessUpdateFilterChrome();
+}
+
+
+
+
+// Badge ("2 active") + Clear button + collapsed/expanded state.
+function sessUpdateFilterChrome() {
+    const nActive = SESS_FILTERS.filter(d => sessFilterActive(d.key)).length;
+    const badge = document.getElementById('sess-filters-badge');
+    const clear = document.getElementById('sess-filters-clear');
+    const body = document.getElementById('sess-filters-body');
+    const caret = document.getElementById('sess-filters-caret');
+    if (badge) {
+        badge.style.display = nActive ? '' : 'none';
+        badge.textContent = `${nActive} active`;
+    }
+    if (clear) { clear.style.display = nActive ? '' : 'none'; }
+    if (body) { body.style.display = sessState.filtersOpen ? '' : 'none'; }
+    if (caret) { caret.textContent = sessState.filtersOpen ? '▾' : '▸'; }
+}
+
+
+
+
+function sessInitFilterPanel() {
+    const toggle = document.getElementById('sess-filters-toggle');
+    const clear = document.getElementById('sess-filters-clear');
+    if (toggle) {
+        toggle.addEventListener('click', () => {
+            sessState.filtersOpen = !sessState.filtersOpen;
+            sessUpdateFilterChrome();
+        });
+    }
+    if (clear) {
+        clear.addEventListener('click', () => {
+            sessState.filters = {};
+            sessState.page = 0;
+            sessLoadOverview();
+        });
+    }
+    const prev = document.getElementById('sess-page-prev');
+    const next = document.getElementById('sess-page-next');
+    if (prev) { prev.addEventListener('click', () => sessGoPage(-1)); }
+    if (next) { next.addEventListener('click', () => sessGoPage(1)); }
+}
+
+
+
+
+function sessGoPage(delta) {
+    const data = sessState.overview;
+    if (!data) { return; }
+    const size = sessNum(data.page_size, 200) || 200;
+    const maxPage = Math.max(Math.ceil(sessNum(data.total_matching, 0) / size) - 1, 0);
+    const page = Math.min(Math.max(sessState.page + delta, 0), maxPage);
+    if (page === sessState.page) { return; }
+    sessState.page = page;
+    sessLoadOverview();
+}
+
+
+
+
+function sessRenderPager(data) {
+    const pager = document.getElementById('sess-pager');
+    if (!pager) { return; }
+    const size = sessNum(data.page_size, 200) || 200;
+    const total = sessNum(data.total_matching, 0);
+    if (total <= size) {
+        pager.style.display = 'none';
+        return;
+    }
+    const page = sessNum(data.page, 0);
+    const maxPage = Math.max(Math.ceil(total / size) - 1, 0);
+    const first = page * size + 1;
+    const last = page * size + sessNum(data.returned, 0);
+    pager.style.display = 'flex';
+    document.getElementById('sess-page-info').textContent =
+        `Page ${page + 1} of ${maxPage + 1} · ${first.toLocaleString()}–${last.toLocaleString()} of ${total.toLocaleString()}`;
+    document.getElementById('sess-page-prev').disabled = page <= 0;
+    document.getElementById('sess-page-next').disabled = page >= maxPage;
+}
+
+
+
+
 // Session-table columns. `key` is the server-side sort key (null = not
 // sortable); `defaultOrder` is the direction a first click applies.
 const SESS_COLUMNS = [
@@ -116,6 +367,7 @@ function initSessions() {
     if (_sessLoaded) { return; }
     _sessLoaded = true;
 
+    sessInitFilterPanel();
     window.studyState.ready.then(() => {
         sessState.study = window.studyState.current;
         sessLoadStatus();
@@ -124,6 +376,10 @@ function initSessions() {
     document.addEventListener('study:changed', (ev) => {
         if (!_sessLoaded) { return; }
         sessState.study = ev.detail.study;
+        // A different study has different sessions — its slider bounds are
+        // rebuilt from the fresh ranges, so stale narrowings must not carry.
+        sessState.filters = {};
+        sessState.page = 0;
         sessClearDetail();
         sessLoadOverview();
     });
@@ -177,6 +433,7 @@ function sessSortBy(key, defaultOrder) {
     } else {
         sessState.sort = { key, order: defaultOrder || 'asc' };
     }
+    sessState.page = 0;
     sessLoadOverview();
 }
 
@@ -199,7 +456,17 @@ async function sessLoadOverview() {
     const qs = new URLSearchParams({
         study, min_emb_plays: '0',
         sort: sessState.sort.key, order: sessState.sort.order,
+        page: String(sessState.page),
     });
+    // Range filters ride along only when narrowed from their slider bounds —
+    // an untouched slider must not exclude sessions missing that metric.
+    for (const def of SESS_FILTERS) {
+        const meta = sessState.filterMeta[def.key];
+        const val = sessState.filters[def.key];
+        if (!meta || !val) { continue; }
+        if (val.min > meta.lo) { qs.set(def.paramMin, def.param(val.min)); }
+        if (val.max < meta.hi) { qs.set(def.paramMax, def.param(val.max)); }
+    }
     try {
         const resp = await fetch(`/api/sessions/overview?${qs}`);
         const data = await resp.json();
@@ -211,8 +478,11 @@ async function sessLoadOverview() {
         }
         sessState.overview = data;
         sessState.params = data.params || null;
+        sessState.page = sessNum(data.page, 0);
         sessApplyParamCopy();
+        sessRenderFilters(data.ranges);
         sessRenderList(data);
+        sessRenderPager(data);
         statusEl.textContent = sessStatusLine(data);
     } catch (e) {
         statusEl.textContent = 'Failed to load sessions.';
@@ -330,10 +600,17 @@ function sessRenderList(data) {
     const listEl = document.getElementById('sess-list');
     const summary = document.getElementById('sess-list-summary');
     listEl.innerHTML = '';
-    summary.textContent = !data.sessions.length ? ''
-        : (data.returned < data.total_matching
-            ? `Showing the top ${data.returned} of ${data.total_matching.toLocaleString()} sessions — click a column heading to re-rank.`
-            : `Showing all ${data.returned} session(s).`);
+    const filtered = SESS_FILTERS.some(d => sessFilterActive(d.key));
+    if (!data.sessions.length) {
+        summary.textContent = filtered ? 'No sessions match the current filters.' : '';
+    } else if (data.total_matching > data.returned) {
+        const first = sessNum(data.page, 0) * (sessNum(data.page_size, 200) || 200);
+        summary.textContent = `Sessions ${(first + 1).toLocaleString()}–${(first + data.returned).toLocaleString()} `
+            + `of ${data.total_matching.toLocaleString()}${filtered ? ' matching the filters' : ''} — `
+            + 'click a column heading to re-rank.';
+    } else {
+        summary.textContent = `Showing all ${data.returned} ${filtered ? 'matching ' : ''}session(s).`;
+    }
 
     const table = document.createElement('table');
     table.className = 'sess-table';
@@ -364,7 +641,8 @@ function sessRenderList(data) {
     const tbody = document.createElement('tbody');
     if (!data.sessions.length) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-sm" style="padding: 20px; color: var(--color-text-muted);">'
-            + 'No sessions in this study.</td></tr>';
+            + (filtered ? 'No sessions match the current filters.' : 'No sessions in this study.')
+            + '</td></tr>';
     }
     for (const s of data.sessions) {
         const tr = document.createElement('tr');

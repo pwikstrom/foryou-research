@@ -5101,6 +5101,153 @@ body:has(.public-page) {
     box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
+/* Collapsible range-filter panel above the session table */
+.sess-filters {
+    border-bottom: 1px solid var(--color-border-subtle);
+    background: var(--color-bg-elevated);
+}
+
+.sess-filters-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 5px 14px 5px 8px;
+}
+
+.sess-filters-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px;
+    background: none;
+    border: none;
+    color: var(--color-text-secondary);
+    font-family: var(--font-sans);
+    cursor: pointer;
+}
+
+.sess-filters-toggle:hover { color: var(--color-text-primary); }
+
+.sess-filters-caret {
+    display: inline-block;
+    width: 10px;
+    color: var(--color-text-tertiary);
+}
+
+.sess-filters-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 18px;
+    padding: 2px 14px 10px;
+}
+
+.sess-filter-row { min-width: 0; }
+
+.sess-filter-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 1px;
+}
+
+.sess-filter-label { color: var(--color-text-tertiary); }
+
+.sess-filter-val {
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.sess-filter-val.is-active {
+    color: var(--color-accent);
+    font-weight: var(--weight-medium);
+}
+
+/* Dual-handle slider: two stacked native range inputs over one shared track.
+   The inputs are transparent (track hidden) and click-through except for
+   their thumbs; the visible track + selected-range fill are separate divs. */
+.sess-dual-range {
+    position: relative;
+    height: 18px;
+}
+
+.sess-dual-track,
+.sess-dual-fill {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 4px;
+    border-radius: 2px;
+    pointer-events: none;
+}
+
+.sess-dual-track {
+    left: 0;
+    right: 0;
+    background: var(--color-border);
+}
+
+.sess-dual-fill { background: var(--color-accent); }
+
+.sess-dual-range input[type="range"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    margin: 0;
+    background: none;
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: none;
+}
+
+.sess-dual-range input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: auto;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--color-text-secondary);
+    border: 2px solid var(--color-bg-elevated);
+    box-shadow: 0 0 0 1px var(--color-border);
+    cursor: ew-resize;
+}
+
+.sess-dual-range input[type="range"]::-moz-range-thumb {
+    pointer-events: auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-text-secondary);
+    border: 2px solid var(--color-bg-elevated);
+    box-shadow: 0 0 0 1px var(--color-border);
+    cursor: ew-resize;
+}
+
+.sess-dual-range input[type="range"]::-webkit-slider-thumb:hover,
+.sess-dual-range input[type="range"]:focus::-webkit-slider-thumb {
+    background: var(--color-accent);
+}
+
+.sess-dual-range input[type="range"]::-moz-range-thumb:hover,
+.sess-dual-range input[type="range"]:focus::-moz-range-thumb {
+    background: var(--color-accent);
+}
+
+.sess-dual-range input[type="range"]::-moz-range-track { background: none; }
+
+/* Pagination footer under the session table */
+.sess-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 14px;
+    border-top: 1px solid var(--color-border-subtle);
+}
+
+
 /* Low-entropy sequence chips: dashed border mirrors the dashed strip bands. */
 .sess-chip--seq { border-style: dashed; }
 .sess-chip--seq.active {
