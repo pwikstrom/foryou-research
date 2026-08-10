@@ -4,10 +4,13 @@ Serves the artifacts built by the ``sessions_refresh`` worker
 (:mod:`fyp.analysis.session_explorer`): a filterable per-session quality/focus
 index, a per-session detail payload (the full play sequence + detected focus
 episodes with their ordered members), and a lightweight freshness/status
-signal. The artifacts are global (all collections); every request is scoped to
-the caller's study — a session is only visible when its collection is one the
-requested, accessible study actually contains (see :func:`_study_collection_ids`:
-selected AND present in the study's built frame).
+signal. The artifacts are global (all collections, full history); every request
+is scoped to the caller's study on BOTH axes — a session is only visible when
+its collection is one the requested, accessible study actually contains (see
+:func:`_study_collection_ids`: selected AND present in the study's built frame)
+AND it started inside the study's date window (see :func:`_in_study_window`).
+Neither axis implies the other: the collection set alone would show a ten-day
+study every session those donors ever recorded.
 
 No embedding vectors are ever touched here: all entropy/focus numbers were
 precomputed into the artifacts, and per-item flags come from cheap id-set
@@ -28,6 +31,7 @@ from fyp.analysis import session_explorer
 from fyp.fyp_config import fyp_cf
 from web_interface.data_service import (
     get_study_collections,
+    get_study_date_window,
     get_study_frame_collections,
     load_display_id_map,
 )
@@ -499,6 +503,34 @@ def _study_collection_ids(study: str) -> set[str]:
 
 
 
+def _in_study_window(df: pd.DataFrame, study: str) -> pd.Series:
+    """Mask of the index rows whose session STARTED inside ``study``'s window.
+
+    The second half of study scoping. The artifact holds every session a
+    collection ever recorded, so a study with a narrow date window would
+    otherwise list years of sessions it does not contain — the frame's own
+    date filter never reaches here, because the artifact is not per-study.
+
+    A session is matched on its start alone: ``start_ts`` is what the table
+    shows, sorts and filters on, so "the session's date" means one thing
+    everywhere. A session straddling a boundary therefore belongs to the day
+    it began on; sessions are short enough that the alternative (span overlap)
+    would move a handful of rows and cost that consistency.
+
+    Both the artifact's ``start_ts`` and the study's bounds are wall-clock
+    (``local_timestamp``-derived), so this is the same comparison the study
+    builder makes — no timezone conversion on either side.
+    """
+    start, end_bound = get_study_date_window(study)
+    ts = pd.to_datetime(df["start_ts"], errors="coerce")
+    # An unparseable start cannot be placed in the window; NaT compares False
+    # on both sides, which drops it — the honest answer for a row that has no
+    # date at all.
+    return (ts >= start) & (ts < end_bound)
+
+
+
+
 def _sessions_config() -> dict:
     """The live ``[sessions]`` config block (always a dict)."""
     cfg = fyp_cf.get("sessions", {})
@@ -644,6 +676,10 @@ def api_sessions_overview():
     (one of the index metrics; default ``min_window_cosdist``), ``order``
     (``asc``/``desc``), ``limit`` (page size), ``page`` (0-based).
 
+    Only sessions inside the study — its collections AND its date window (see
+    :func:`_in_study_window`) — reach any of this; ``total_in_study`` counts
+    that population, not the artifact's.
+
     ``min_plays``, ``min_session_minutes`` and ``min_coverage`` default to the
     admin-controlled session-list floors (Admin → Site Settings, seeded by
     ``[sessions]`` config); each query param is the per-request override, e.g.
@@ -706,6 +742,11 @@ def api_sessions_overview():
 
     cids = _study_collection_ids(study)
     df = index[index["collection_id"].isin(cids)]
+    # Study scoping is two-axis: collections AND the study's date window. This
+    # runs BEFORE total_in_study so every downstream number — the floor counts,
+    # the slider bounds, the status line — describes the study, not the
+    # artifact.
+    df = df[_in_study_window(df, study).to_numpy()]
     total_in_study = int(len(df))
     # The three admin-controlled list floors are applied as one block, so the
     # client can report a single "N not listed" count it can reconcile with the
@@ -950,10 +991,13 @@ def api_sessions_detail():
     """One session's full play sequence + focus episodes + per-item context.
 
     Query params: ``study``, ``collection_id``, ``session_id`` (all required).
-    The collection must belong to the (accessible) study. Each play carries
-    enrichment flags and a ``streamable`` verdict — an item is streamable when
-    it appears in the study's viewer frame AND its media was downloaded, which
-    is exactly what the ``/api/video/<study>/<item_id>`` gate will accept.
+    The session must belong to the (accessible) study on both scoping axes —
+    its collection AND the study's date window — so a bookmarked link into a
+    session the study no longer contains is refused rather than rendered. Each
+    play carries enrichment flags and a ``streamable`` verdict — an item is
+    streamable when it appears in the study's viewer frame AND its media was
+    downloaded, which is exactly what the ``/api/video/<study>/<item_id>``
+    gate will accept.
     """
     from .api_viewer_routes import _study_item_ids
 
@@ -973,6 +1017,10 @@ def api_sessions_detail():
         return jsonify({"error": "The sessions index has not been built yet."}), 404
     match = index[(index["collection_id"] == collection_id)
                   & (index["session_id"] == session_id)]
+    # The other scoping axis: a session the collection recorded outside the
+    # study's date window is not this study's session.
+    if not match.empty:
+        match = match[_in_study_window(match, study).to_numpy()]
     if match.empty:
         return jsonify({"error": "Session not found"}), 404
     session_row = match.iloc[0]
