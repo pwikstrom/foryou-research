@@ -1252,8 +1252,13 @@ function sessOpenInVideoAnalysis(itemId, platform) {
     pauseSessionsVideos();
     const study = sessState.study;
     const platformUrl = (typeof fypPlatformUrl === 'function') ? fypPlatformUrl(platform, itemId) : null;
+    // Scope the viewer to the session's collection so prev/next stay inside it.
+    const collectionId = sessState.selected ? sessState.selected.collection_id : null;
+    const filters = collectionId
+        ? { collection_id: { type: 'category', value: [collectionId] } }
+        : {};
     window._pendingDrillDown = {
-        filters: {},
+        filters: filters,
         searchQuery: '',
         itemId: itemId,
         platformUrl: platformUrl,
