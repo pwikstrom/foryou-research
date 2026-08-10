@@ -210,10 +210,29 @@ session_gap_s = 900
 # A binge grows while the next distinct embedded video's mean cosine distance
 # to the centroid of the last binge_mem members stays <= binge_cut; it is kept
 # if it spans >= binge_min_videos distinct videos over >= binge_min_minutes.
+# Changing any of these needs a sessions_refresh — they are baked in at build.
 binge_cut = 0.5
 binge_mem = 6
 binge_min_videos = 4
-binge_min_minutes = 3.0
+
+# Consecutive off-theme videos a binge survives. An ad in the middle of a
+# binge is the motivating case: the viewer returns to the theme immediately,
+# so the binge did not end. Tolerated videos are NOT members — they never
+# enter the centroid, never extend the span, and are counted as n_skipped.
+#
+# 0 restores the pre-2026-08-10 behaviour, where one off-theme video both
+# ended the run AND seeded the next one. That seeding was the damaging part:
+# the theme had to re-accumulate from an anchor that was not the theme, and
+# 99.4% of candidate runs on the production corpus ended under
+# binge_min_videos. Raising this merges more, but a binge that tolerates many
+# interruptions is a weaker claim — read n_skipped on the card alongside it.
+binge_max_skip = 2
+
+# Minimum span of a kept binge. Was 3.0 until 2026-08-10, which dropped 65%
+# of the runs that reached binge_min_videos: it penalised fast scrolling,
+# which is if anything the more binge-like behaviour (a 6-video run in 79
+# seconds is not a weak binge). binge_min_videos carries the substance.
+binge_min_minutes = 1.0
 
 # Low-entropy sequences: sliding windows of window_n consecutive distinct
 # embedded videos; up to max_windows non-overlapping windows with the smallest
