@@ -8,7 +8,11 @@
         <span id="sess-banner-text" style="color: var(--color-text-secondary);"></span>
     </div>
 
-    <div style="display: flex; gap: 16px; align-items: stretch; height: calc(100vh - 150px);">
+    <!-- flex:1 + min-height:0, not a calc(100vh - Npx) guess: the shell never
+         scrolls (body and .tab-content are overflow:hidden), so a row taller
+         than the space left under the header/nav/control bar has its bottom
+         CLIPPED — which is where the table's pagination footer lives. -->
+    <div style="display: flex; gap: 16px; align-items: stretch; flex: 1; min-height: 0;">
 
         <!-- Left rail: session table (sort by clicking column headings) -->
         <div class="panel" style="width: 460px; min-width: 380px; display: flex; flex-direction: column; padding: 0;">

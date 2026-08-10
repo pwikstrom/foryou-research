@@ -7,6 +7,7 @@ via the data_service facade re-exports."""
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -969,6 +970,48 @@ def get_study_frame_collections(study) -> set | None:
     with _frame_collections_lock:
         _frame_collections_cache[study] = (mtime, cids)
     return cids
+
+
+
+
+def get_study_date_window(study) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """A study's activity date window as a half-open ``[start, end_bound)`` pair.
+
+    The same convention the study builder applies in
+    :func:`fyp.organize_datasets.load_collection_data`: ``START_DATE`` is
+    inclusive, and the stored ``END_DATE`` means "through the end of that day",
+    so the returned upper bound is the following midnight (exclusive). An
+    absent or unparseable bound falls back to the builder's own wide defaults,
+    which makes the window a no-op rather than an accidental cut.
+
+    Anything rendering "the study's data" out of a GLOBAL artifact (one built
+    over every collection's full history, e.g. the sessions index) must apply
+    this alongside :func:`get_study_frame_collections` — the collection set
+    alone does not carry the date window.
+
+    Args:
+        study: Study name.
+
+    Returns:
+        ``(start, end_bound)`` as pandas Timestamps, comparable against a
+        wall-clock ``local_timestamp``-derived column.
+    """
+    if "study_defs" not in fyp_cf:
+        init_study_defs()
+    cfg = (fyp_cf.get("study_defs", {}) or {}).get(study) or {}
+
+    def _bound(key: str, default: str) -> pd.Timestamp:
+        raw = cfg.get(key)
+        if isinstance(raw, str) and raw.strip():
+            try:
+                return pd.Timestamp(datetime.strptime(raw.strip(), "%Y-%m-%d"))
+            except ValueError:
+                pass
+        return pd.Timestamp(default)
+
+    start = _bound("START_DATE", "1970-01-01")
+    end = _bound("END_DATE", "2099-12-31")
+    return start, end + pd.Timedelta(days=1)
 
 
 

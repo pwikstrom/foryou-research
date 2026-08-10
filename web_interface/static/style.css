@@ -5115,13 +5115,19 @@ body:has(.public-page) {
     padding: 5px 14px 5px 8px;
 }
 
+/* flex:1 + text-align:left — the whole header strip left of "Clear" is the
+   toggle's hit area, so the label and the empty space beside it collapse the
+   panel too, not just the caret glyph. */
 .sess-filters-toggle {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 2px 6px;
+    flex: 1;
+    min-width: 0;
+    padding: 4px 6px;
     background: none;
     border: none;
+    text-align: left;
     color: var(--color-text-secondary);
     font-family: var(--font-sans);
     cursor: pointer;
@@ -5129,9 +5135,15 @@ body:has(.public-page) {
 
 .sess-filters-toggle:hover { color: var(--color-text-primary); }
 
+.sess-filters-toggle:hover .sess-filters-caret { color: var(--color-text-primary); }
+
+/* Sized above the button's own text-xs: at the label's size the glyph reads
+   as punctuation rather than as the control it is. */
 .sess-filters-caret {
     display: inline-block;
-    width: 10px;
+    width: 14px;
+    font-size: var(--text-sm);
+    line-height: 1;
     color: var(--color-text-tertiary);
 }
 

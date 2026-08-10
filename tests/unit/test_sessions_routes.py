@@ -89,6 +89,11 @@ def patched_routes(monkeypatch):
     monkeypatch.setattr(mod, "get_study_collections",
                         lambda study: [{"collection_id": "colA"}, {"collection_id": "colB"}])
     monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA", "colB"})
+    # A wide-open window by default — the date axis of study scoping is
+    # exercised explicitly below, and stubbing it keeps every other test off
+    # the study-defs store (which the real helper reads from disk).
+    monkeypatch.setattr(mod, "get_study_date_window",
+                        lambda study: (pd.Timestamp("1970-01-01"), pd.Timestamp("2100-01-01")))
     monkeypatch.setattr(mod, "load_display_id_map", lambda: {"colA": "Donor A"})
     monkeypatch.setattr(mod, "_load_meta", lambda: {
         "built_at": "2026-08-01T00:00:00+00:00", "embedding_model": "gemini-embedding-001",
@@ -399,6 +404,100 @@ def test_overview_date_filter_is_inclusive(client, patched_routes):
 
     res = client.get(_BASE + "&f_start_min=not-a-date")
     assert res.status_code == 400
+
+
+
+
+
+
+def test_overview_excludes_sessions_outside_the_study_date_window(
+        client, patched_routes, monkeypatch):
+    """The artifact is global; a study's date window must still scope it.
+
+    Without this the tab lists every session a study's collections ever
+    recorded — a ten-day study showing years of sessions.
+    """
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "get_study_date_window",
+                        lambda study: (pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-03")))
+
+    body = client.get(_BASE).get_json()
+    assert [s["session_id"] for s in body["sessions"]] == ["colA__1"]
+    # Out-of-window sessions are not "hidden by a floor" — they are not in the
+    # study at all, so they must not inflate the status line's denominator.
+    assert body["total_in_study"] == 1
+    assert body["total_above_floors"] == 1
+    assert body["total_matching"] == 1
+    # The slider bounds describe the study, not the artifact's full span.
+    assert body["ranges"]["start_date"] == ["2026-01-02", "2026-01-02"]
+
+
+
+
+
+
+def test_study_date_window_end_is_inclusive_through_that_day(
+        client, patched_routes, monkeypatch):
+    """END_DATE means "through the end of that day", as in the study builder.
+
+    A date-only upper bound implicitly means midnight, which would drop every
+    session on the study's own last day.
+    """
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "get_study_date_window",
+                        lambda study: (pd.Timestamp("2026-01-03"), pd.Timestamp("2026-01-04")))
+
+    # colB__0 starts 10:00 on the closing day.
+    body = client.get(_BASE).get_json()
+    assert [s["session_id"] for s in body["sessions"]] == ["colB__0"]
+
+
+
+
+
+
+def test_detail_refuses_a_session_outside_the_study_date_window(
+        client, patched_routes, monkeypatch):
+    """A bookmarked link cannot open a session the study does not contain."""
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "get_study_date_window",
+                        lambda study: (pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-03")))
+
+    res = client.get("/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0")
+    assert res.status_code == 404
+
+
+
+
+
+
+def test_study_date_window_matches_the_builder_convention():
+    """The helper the sessions scoping is built on, against its own contract."""
+    from fyp.fyp_config import fyp_cf
+    from web_interface.services.study_data import get_study_date_window
+
+    defs = fyp_cf.setdefault("study_defs", {})
+    defs["__window_test__"] = {"START_DATE": "2025-03-04", "END_DATE": "2025-03-13"}
+    defs["__window_test_open__"] = {}
+    defs["__window_test_junk__"] = {"START_DATE": "not-a-date", "END_DATE": "   "}
+    try:
+        start, end_bound = get_study_date_window("__window_test__")
+        assert start == pd.Timestamp("2025-03-04")
+        # Exclusive bound at the following midnight => the last day is included.
+        assert end_bound == pd.Timestamp("2025-03-14")
+
+        # No bounds, and unparseable bounds, both degrade to a no-op window
+        # rather than an accidental cut.
+        for name in ("__window_test_open__", "__window_test_junk__", "__not_a_study__"):
+            start, end_bound = get_study_date_window(name)
+            assert start == pd.Timestamp("1970-01-01")
+            assert end_bound == pd.Timestamp("2100-01-01")
+    finally:
+        for name in ("__window_test__", "__window_test_open__", "__window_test_junk__"):
+            defs.pop(name, None)
 
 
 

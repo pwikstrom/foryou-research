@@ -314,12 +314,16 @@ function sessGoPage(delta) {
 
 
 
+// The pager shows for any non-empty result — on a single page it reads
+// "Page 1 of 1" with both arrows disabled. Hiding it there saved a row but
+// made pagination undiscoverable: a table that scrolls past 200 rows with no
+// footer looks like the whole result set.
 function sessRenderPager(data) {
     const pager = document.getElementById('sess-pager');
     if (!pager) { return; }
     const size = sessNum(data.page_size, 200) || 200;
     const total = sessNum(data.total_matching, 0);
-    if (total <= size) {
+    if (!total) {
         pager.style.display = 'none';
         return;
     }
