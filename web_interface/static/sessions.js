@@ -26,11 +26,25 @@ const sessState = {
     searchQ: '',         // committed free-text search (server-side, on search_text)
     varMax: { col: null, min: null, max: null },  // "session max of variable" filter (slider units)
     varMaxMeta: null,    // the chosen variable's slider bounds {lo, hi}
+    playsById: {},       // item_id -> play row of the current detail payload
+    rangesJson: null,    // last-rendered filter bounds (skip rebuilds when unchanged)
+    playlistShown: false, // playlist rendered for the current detail payload?
 };
 
 // Response-ordering guard for the overview fetch: a slow response for an
-// older filter/search state must not clobber a newer one.
+// older filter/search state must not clobber a newer one. The abort
+// controllers additionally CANCEL the superseded request — without them the
+// server keeps computing responses nobody will render.
 let _sessOverviewSeq = 0;
+let _sessOverviewAbort = null;
+let _sessDetailAbort = null;
+
+// Small client-side cache of detail payloads: re-clicking a session renders
+// instantly instead of re-reading five parquet artifacts server-side.
+// Entries expire so a rebuilt artifact shows up within a few minutes.
+const _sessDetailCache = new Map();
+const SESS_DETAIL_CACHE_MAX = 20;
+const SESS_DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 
 
 
@@ -444,6 +458,9 @@ function sessInitFilterPanel() {
             const search = document.getElementById('sess-search');
             if (search) { search.value = ''; }
             sessState.page = 0;
+            // The bounds won't change, but the slider positions must — force
+            // the panel rebuild the unchanged-ranges shortcut would skip.
+            sessState.rangesJson = null;
             sessLoadOverview();
         });
     }
@@ -556,6 +573,11 @@ function initSessions() {
             const open = pl.style.display === 'none';
             pl.style.display = open ? '' : 'none';
             plToggle.textContent = open ? 'Hide' : 'Show';
+            // Lazily built: the table renders on first open per payload.
+            if (open && !sessState.playlistShown && sessState.detail) {
+                sessRenderPlaylist(sessState.detail);
+                sessState.playlistShown = true;
+            }
         });
     }
     window.studyState.ready.then(() => {
@@ -575,6 +597,8 @@ function initSessions() {
         const search = document.getElementById('sess-search');
         if (search) { search.value = ''; }
         sessState.page = 0;
+        sessState.rangesJson = null;
+        _sessDetailCache.clear();
         sessClearDetail();
         sessLoadOverview();
     });
@@ -671,8 +695,11 @@ async function sessLoadOverview() {
     }
     if (sessState.searchQ) { qs.set('q', sessState.searchQ); }
     const seq = ++_sessOverviewSeq;
+    if (_sessOverviewAbort) { _sessOverviewAbort.abort(); }
+    const abort = new AbortController();
+    _sessOverviewAbort = abort;
     try {
-        const resp = await fetch(`/api/sessions/overview?${qs}`);
+        const resp = await fetch(`/api/sessions/overview?${qs}`, { signal: abort.signal });
         const data = await resp.json();
         if (seq !== _sessOverviewSeq) { return; }
         if (!resp.ok) {
@@ -685,12 +712,23 @@ async function sessLoadOverview() {
         sessState.params = data.params || null;
         sessState.page = sessNum(data.page, 0);
         sessApplyParamCopy();
-        sessRenderFilters(data.ranges);
+        // The slider bounds are invariant across the user's own filters, so
+        // most responses carry the same `ranges` — skipping the rebuild keeps
+        // the slider the user just released alive (focus, keyboard stepping)
+        // and saves re-wiring the whole panel per keystroke.
+        const rangesJson = JSON.stringify(data.ranges == null ? null : data.ranges);
+        if (rangesJson !== sessState.rangesJson) {
+            sessState.rangesJson = rangesJson;
+            sessRenderFilters(data.ranges);
+        } else {
+            sessUpdateFilterChrome();
+        }
         sessUpdateSearchAvailability(data);
         sessRenderList(data);
         sessRenderPager(data);
         statusEl.textContent = sessStatusLine(data);
     } catch (e) {
+        if (e && e.name === 'AbortError') { return; }
         statusEl.textContent = 'Failed to load sessions.';
     }
 }
@@ -869,15 +907,16 @@ function sessFmtTs(ts) {
 // Binge count for one table row, with a ✳ when at least one of them is
 // directed. `n_directed_episodes` is null (not 0) on an artifact built before
 // the test existed — those rows get no marker rather than a false "none".
-function sessBingeCell(s) {
+function sessBingeCell(s, params) {
     if (!s.n_episodes) {
         return '<span style="color: var(--color-text-muted);">–</span>';
     }
+    const p = params || sessParams();
     const directed = s.n_directed_episodes;
     const mark = (directed != null && directed > 0)
         ? `<sup class="meta-tooltip" style="color: var(--color-warning); cursor: help;" data-tooltip="${escapeHtml(
             `${directed} of ${s.n_episodes} binge(s) here are DIRECTED — the content travels `
-            + `rather than circling one topic, at p < ${sessParams().drift_p} against `
+            + `rather than circling one topic, at p < ${p.drift_p} against `
             + 'reorderings of the binge’s own videos.')}">✳</sup>`
         : '';
     return `<span style="color: var(--color-accent);" class="font-medium">${s.n_episodes}</span>${mark}`;
@@ -929,28 +968,31 @@ function sessRenderList(data) {
     thead.appendChild(headRow);
     table.appendChild(thead);
 
+    // One string parse for the whole body + a single delegated click
+    // listener, instead of 200 per-row innerHTML parses and listeners.
     const tbody = document.createElement('tbody');
     if (!data.sessions.length) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-sm" style="padding: 20px; color: var(--color-text-muted);">'
             + (filtered ? 'No sessions match the current filters.' : 'No sessions in this study.')
             + '</td></tr>';
-    }
-    for (const s of data.sessions) {
-        const tr = document.createElement('tr');
-        tr.dataset.cid = s.collection_id;
-        tr.dataset.sid = s.session_id;
-        const score = (s.min_window_cosdist == null) ? '–' : s.min_window_cosdist.toFixed(3);
-        const covPct = Math.round((s.coverage_embedded || 0) * 100);
-        tr.innerHTML = `
+    } else {
+        tbody.innerHTML = data.sessions.map((s) => {
+            const score = (s.min_window_cosdist == null) ? '–' : s.min_window_cosdist.toFixed(3);
+            const covPct = Math.round((s.coverage_embedded || 0) * 100);
+            return `<tr data-cid="${escapeHtml(s.collection_id)}" data-sid="${escapeHtml(s.session_id)}">
             <td class="text-xs font-medium">${escapeHtml(s.collection_label || s.collection_id)}</td>
             <td class="text-xs" style="white-space: nowrap; color: var(--color-text-tertiary);">${escapeHtml(sessFmtTs(s.start_ts))}</td>
             <td class="text-xs" style="white-space: nowrap;">${sessFmtMinutes(s.duration_min)}</td>
             <td class="text-xs">${s.n_plays}</td>
             <td><span class="sess-cov-bar meta-tooltip" data-tooltip="${covPct}% of distinct videos embedded"><span class="sess-cov-fill" style="width: ${covPct}%;"></span></span></td>
             <td class="text-xs">${score}</td>
-            <td class="text-xs">${sessBingeCell(s)}</td>`;
-        tr.addEventListener('click', () => sessSelect(s.collection_id, s.session_id, tr));
-        tbody.appendChild(tr);
+            <td class="text-xs">${sessBingeCell(s, params)}</td></tr>`;
+        }).join('');
+        tbody.addEventListener('click', (ev) => {
+            const tr = ev.target.closest('tr[data-cid]');
+            if (!tr) { return; }
+            sessSelect(tr.dataset.cid, tr.dataset.sid, tr);
+        });
     }
     table.appendChild(tbody);
     listEl.appendChild(table);
@@ -980,6 +1022,14 @@ async function sessSelect(collectionId, sessionId, rowEl) {
 
     const emptyEl = document.getElementById('sess-detail-empty');
     const detailEl = document.getElementById('sess-detail');
+
+    const cacheKey = `${sessState.study}\x1f${collectionId}\x1f${sessionId}`;
+    const cached = _sessDetailCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < SESS_DETAIL_CACHE_TTL_MS) {
+        sessRenderDetail(cached.data);
+        return;
+    }
+
     emptyEl.style.display = 'block';
     emptyEl.textContent = 'Loading session…';
     detailEl.style.display = 'none';
@@ -987,8 +1037,11 @@ async function sessSelect(collectionId, sessionId, rowEl) {
     const qs = new URLSearchParams({
         study: sessState.study, collection_id: collectionId, session_id: sessionId,
     });
+    if (_sessDetailAbort) { _sessDetailAbort.abort(); }
+    const abort = new AbortController();
+    _sessDetailAbort = abort;
     try {
-        const resp = await fetch(`/api/sessions/detail?${qs}`);
+        const resp = await fetch(`/api/sessions/detail?${qs}`, { signal: abort.signal });
         const data = await resp.json();
         if (!resp.ok) {
             emptyEl.textContent = data.error || 'Failed to load the session.';
@@ -997,28 +1050,57 @@ async function sessSelect(collectionId, sessionId, rowEl) {
         // A slow response for a previously-selected session must not clobber
         // the current selection.
         if (!sessState.selected || sessState.selected.session_id !== sessionId) { return; }
-        sessState.detail = data;
-        // The detail payload carries the same params block; a session can be
-        // opened via a deep link before any overview has landed.
-        if (data.params) { sessState.params = data.params; }
-        sessState.activeSeq = null;
-        emptyEl.style.display = 'none';
-        detailEl.style.display = 'flex';
-        sessRenderDetailHeader(data);
-        sessRenderStrip(data);
-        sessRenderSeqList(data);
-        // Auto-activate the top binge (or, failing that, the top low-entropy
-        // sequence) THROUGH the selector so its entry is visibly focused too.
-        if (data.episodes.length) {
-            sessSelectSeq('binge', data.episodes[0].episode_idx, 0);
-        } else if (data.windows && data.windows.length) {
-            sessSelectSeq('window', data.windows[0].window_idx, 0);
-        } else {
-            sessRenderPlayer();
+        _sessDetailCache.set(cacheKey, { ts: Date.now(), data });
+        while (_sessDetailCache.size > SESS_DETAIL_CACHE_MAX) {
+            _sessDetailCache.delete(_sessDetailCache.keys().next().value);
         }
-        sessRenderPlaylist(data);
+        sessRenderDetail(data);
     } catch (e) {
+        if (e && e.name === 'AbortError') { return; }
         emptyEl.textContent = 'Failed to load the session.';
+    }
+}
+
+
+
+
+// Render one detail payload (fresh or from the client cache).
+function sessRenderDetail(data) {
+    const emptyEl = document.getElementById('sess-detail-empty');
+    const detailEl = document.getElementById('sess-detail');
+    sessState.detail = data;
+    // One item_id -> play map per payload; the player re-renders per step and
+    // must not rebuild it every time.
+    sessState.playsById = {};
+    for (const p of data.plays) { sessState.playsById[p.item_id] = p; }
+    // The detail payload carries the same params block; a session can be
+    // opened via a deep link before any overview has landed.
+    if (data.params) { sessState.params = data.params; }
+    sessState.activeSeq = null;
+    emptyEl.style.display = 'none';
+    detailEl.style.display = 'flex';
+    sessRenderDetailHeader(data);
+    sessRenderStrip(data);
+    sessRenderSeqList(data);
+    // Auto-activate the top binge (or, failing that, the top low-entropy
+    // sequence) THROUGH the selector so its entry is visibly focused too.
+    if (data.episodes.length) {
+        sessSelectSeq('binge', data.episodes[0].episode_idx, 0);
+    } else if (data.windows && data.windows.length) {
+        sessSelectSeq('window', data.windows[0].window_idx, 0);
+    } else {
+        sessRenderPlayer();
+    }
+    // The playlist starts hidden and most sessions are never opened that far —
+    // building its full table eagerly was wasted work. Render only when it is
+    // already open (a fresh payload must not leave stale rows on screen).
+    sessState.playlistShown = false;
+    const pl = document.getElementById('sess-playlist');
+    if (pl && pl.style.display !== 'none') {
+        sessRenderPlaylist(data);
+        sessState.playlistShown = true;
+    } else if (pl) {
+        pl.innerHTML = '';
     }
 }
 
@@ -1075,10 +1157,26 @@ function sessRenderStrip(data) {
     const H = 84;
     const PAD = 6;
     const BAR_H = 48;
-    const t0 = new Date(plays[0].ts).getTime();
-    const t1 = new Date(plays[plays.length - 1].ts).getTime();
+    // Parse every play's timestamp once (the mark, its dwell end and its
+    // neighbour all need it), and read each CSS token once per render —
+    // getCSSVar forces a style resolution, so calling it per mark made a long
+    // session's strip O(plays) forced style recalcs.
+    const times = plays.map(p => new Date(p.ts).getTime());
+    const t0 = times[0];
+    const t1 = times[plays.length - 1];
     const span = Math.max(t1 - t0, 1);
-    const x = (ts) => PAD + ((new Date(ts).getTime() - t0) / span) * (W - 2 * PAD);
+    const xt = (t) => PAD + ((t - t0) / span) * (W - 2 * PAD);
+    const x = (ts) => xt(new Date(ts).getTime());
+    const palette = {
+        episodes: ['--color-accent', '--color-success', '--color-warning', '--color-info']
+            .map(name => getCSSVar(name)),
+        textSecondary: getCSSVar('--color-text-secondary'),
+        border: getCSSVar('--color-border'),
+        textTertiary: getCSSVar('--color-text-tertiary'),
+        fontSans: getCSSVar('--font-sans'),
+    };
+    const epColor = (i) => palette.episodes[i % palette.episodes.length]
+        || palette.episodes[0] || '#5B7E98';
 
     const svgNS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(svgNS, 'svg');
@@ -1097,9 +1195,9 @@ function sessRenderStrip(data) {
         rect.setAttribute('width', Math.max(x1 - x0, 3));
         rect.setAttribute('height', H - 22);
         rect.setAttribute('rx', 3);
-        rect.setAttribute('fill', sessEpisodeColor(ep.episode_idx));
+        rect.setAttribute('fill', epColor(ep.episode_idx));
         rect.setAttribute('fill-opacity', '0.10');
-        rect.setAttribute('stroke', sessEpisodeColor(ep.episode_idx));
+        rect.setAttribute('stroke', epColor(ep.episode_idx));
         rect.setAttribute('stroke-opacity', '0.55');
         rect.style.cursor = 'pointer';
         rect.addEventListener('click', () => sessSelectSeq('binge', ep.episode_idx, 0));
@@ -1119,7 +1217,7 @@ function sessRenderStrip(data) {
         rect.setAttribute('height', H - 14);
         rect.setAttribute('rx', 3);
         rect.setAttribute('fill', 'none');
-        rect.setAttribute('stroke', getCSSVar('--color-text-secondary'));
+        rect.setAttribute('stroke', palette.textSecondary);
         rect.setAttribute('stroke-dasharray', '4 3');
         rect.setAttribute('stroke-width', '1.2');
         rect.style.cursor = 'pointer';
@@ -1135,10 +1233,10 @@ function sessRenderStrip(data) {
     for (let i = 0; i < plays.length; i++) {
         const p = plays[i];
         const mark = document.createElementNS(svgNS, 'rect');
-        const px = x(p.ts);
+        const px = xt(times[i]);
         const dwellMs = (p.dwell_s || 0) * 1000;
-        let endPx = PAD + ((new Date(p.ts).getTime() + dwellMs - t0) / span) * (W - 2 * PAD);
-        if (i + 1 < plays.length) { endPx = Math.min(endPx, x(plays[i + 1].ts)); }
+        let endPx = xt(times[i] + dwellMs);
+        if (i + 1 < plays.length) { endPx = Math.min(endPx, xt(times[i + 1])); }
         const w = Math.max(endPx - px, 2);
         mark.setAttribute('x', px);
         mark.setAttribute('y', H - 16 - BAR_H);
@@ -1146,37 +1244,49 @@ function sessRenderStrip(data) {
         mark.setAttribute('height', BAR_H);
         mark.setAttribute('rx', 1);
         const color = (p.episode_idx != null)
-            ? sessEpisodeColor(p.episode_idx)
-            : (p.embedded ? getCSSVar('--color-text-secondary') : getCSSVar('--color-border'));
+            ? epColor(p.episode_idx)
+            : (p.embedded ? palette.textSecondary : palette.border);
         mark.setAttribute('fill', color);
         mark.setAttribute('fill-opacity', p.episode_idx != null ? '1' : '0.85');
         mark.style.cursor = 'pointer';
-        mark.addEventListener('mouseenter', (ev) => {
-            const bits = [
-                p.niche_name ? `<b>${escapeHtml(p.niche_name)}</b>` : '<i>no niche</i>',
-                p.story ? escapeHtml(p.story.slice(0, 160)) : null,
-                `${sessFmtTs(p.ts)} · dwell ${sessDwellText(p.dwell_s, p.duration_s) || '–'}`,
-                p.embedded ? null : 'not embedded',
-                (p.episode_idx != null) ? `binge ${p.episode_idx + 1}` : null,
-            ].filter(Boolean);
-            tooltip.innerHTML = bits.join('<br>');
-            tooltip.style.display = 'block';
-            const tx = Math.min(ev.clientX + 14, window.innerWidth - 340);
-            tooltip.style.left = `${tx}px`;
-            tooltip.style.top = `${ev.clientY + 14}px`;
-        });
-        mark.addEventListener('mouseleave', () => {
-            tooltip.style.display = 'none';
-        });
-        mark.addEventListener('click', () => {
-            if (p.episode_idx != null) {
-                const ep = sessState.detail.episodes.find(e => e.episode_idx === p.episode_idx);
-                const pos = ep ? Math.max(0, ep.members.findIndex(m => m.item_id === p.item_id)) : 0;
-                sessSelectSeq('binge', p.episode_idx, pos);
-            }
-        });
+        // Three delegated listeners on the <svg> below serve every mark —
+        // the index rides in a data attribute.
+        mark.dataset.play = String(i);
         svg.appendChild(mark);
     }
+
+    svg.addEventListener('mouseover', (ev) => {
+        const idx = ev.target.dataset ? ev.target.dataset.play : undefined;
+        if (idx === undefined) { return; }
+        const p = plays[Number(idx)];
+        const bits = [
+            p.niche_name ? `<b>${escapeHtml(p.niche_name)}</b>` : '<i>no niche</i>',
+            p.story ? escapeHtml(p.story.slice(0, 160)) : null,
+            `${sessFmtTs(p.ts)} · dwell ${sessDwellText(p.dwell_s, p.duration_s) || '–'}`,
+            p.embedded ? null : 'not embedded',
+            (p.episode_idx != null) ? `binge ${p.episode_idx + 1}` : null,
+        ].filter(Boolean);
+        tooltip.innerHTML = bits.join('<br>');
+        tooltip.style.display = 'block';
+        const tx = Math.min(ev.clientX + 14, window.innerWidth - 340);
+        tooltip.style.left = `${tx}px`;
+        tooltip.style.top = `${ev.clientY + 14}px`;
+    });
+    svg.addEventListener('mouseout', (ev) => {
+        if (ev.target.dataset && ev.target.dataset.play !== undefined) {
+            tooltip.style.display = 'none';
+        }
+    });
+    svg.addEventListener('click', (ev) => {
+        const idx = ev.target.dataset ? ev.target.dataset.play : undefined;
+        if (idx === undefined) { return; }
+        const p = plays[Number(idx)];
+        if (p.episode_idx != null) {
+            const ep = sessState.detail.episodes.find(e => e.episode_idx === p.episode_idx);
+            const pos = ep ? Math.max(0, ep.members.findIndex(m => m.item_id === p.item_id)) : 0;
+            sessSelectSeq('binge', p.episode_idx, pos);
+        }
+    });
 
     // Time axis labels.
     const mk = (px, anchor, txt) => {
@@ -1184,9 +1294,9 @@ function sessRenderStrip(data) {
         t.setAttribute('x', px);
         t.setAttribute('y', H - 3);
         t.setAttribute('text-anchor', anchor);
-        t.setAttribute('fill', getCSSVar('--color-text-tertiary'));
+        t.setAttribute('fill', palette.textTertiary);
         t.setAttribute('font-size', '10');
-        t.setAttribute('font-family', getCSSVar('--font-sans'));
+        t.setAttribute('font-family', palette.fontSans);
         t.textContent = txt;
         svg.appendChild(t);
     };
@@ -1475,9 +1585,7 @@ function sessRenderPlayer(autoplay) {
     pauseSessionsVideos();
     const m = a.steps[a.pos];
     const isContext = !!m.context;
-    const playsById = {};
-    for (const p of sessState.detail.plays) { playsById[p.item_id] = p; }
-    const play = playsById[m.item_id] || {};
+    const play = sessState.playsById[m.item_id] || {};
     const seqLabel = a.kind === 'binge' ? `Binge ${a.idx + 1}` : `Sequence ${a.idx + 1}`;
     const seqColor = a.kind === 'binge' ? sessEpisodeColor(a.idx) : 'var(--color-text-secondary)';
 

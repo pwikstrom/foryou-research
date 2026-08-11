@@ -172,7 +172,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
 
     with mem_probe("SESSIONS", f"chunk_{chunk:04d}", log=reporter.log,
                    collections=len(batch)):
-        srows, erows, wrows, stats = session_explorer.build_batch(
+        srows, erows, wrows, plays, stats = session_explorer.build_batch(
             batch, model, corpus_mean, index, params=params, reporter=reporter,
             trend_cols=trend_cols)
     if srows is None:
@@ -180,7 +180,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         return None
 
     session_explorer.write_batch_shards(run_id, chunk, srows, erows, wrows,
-                                        trend_cols=trend_cols)
+                                        trend_cols=trend_cols, plays=plays)
 
     def _mutate(progress):
         # Keyed by chunk so a Cloud Tasks replay of a link OVERWRITES its own
@@ -262,12 +262,14 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         "n_sessions": int(progress["sessions"]),
         "n_episodes": int(progress["episodes"]),
         "n_windows": int(progress["windows"]),
+        "n_plays": int(progress["plays"]),
     }
     session_explorer.publish_artifacts(
         run_id, n_chunks=chunk + 1,
         expected={"sessions": progress["sessions"],
                   "episodes": progress["episodes"],
-                  "windows": progress["windows"]},
+                  "windows": progress["windows"],
+                  "plays": progress["plays"]},
         meta=meta, reporter=reporter,
         covered_collections=progress["collections"],
         total_collections=total)

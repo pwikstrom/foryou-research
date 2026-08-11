@@ -5,6 +5,9 @@ inherits the same local/GCS backend as the per-user files. Schema is intentional
 open: keys may be added over time without migrations.
 """
 
+import threading
+import time
+
 import fyp.data_io as data_io
 from fyp.analysis.embedding_backends.settings import (
     EMBEDDING_BACKEND_KEY,
@@ -168,18 +171,40 @@ def get_session_floors() -> dict:
 
 
 
+# Short-TTL read cache: the settings ride on hot request paths (session
+# floors, queue caps), and on GCS each uncached read is two network
+# round-trips. The web service is the only writer, and save_admin_settings
+# invalidates, so a stale read can only come from another service's write —
+# bounded by the TTL.
+_SETTINGS_CACHE: dict = {"ts": 0.0, "data": None}
+_SETTINGS_TTL_S = 15.0
+_settings_lock = threading.Lock()
+
+
+
+
 def load_admin_settings() -> dict:
-    """Load admin settings from disk, returning ``{}`` if the file is missing.
+    """Load admin settings, returning ``{}`` if the file is missing.
 
     Returns:
-        Parsed JSON object, or an empty dict if not present / unreadable.
+        Parsed JSON object (a copy — callers may mutate before saving), or an
+        empty dict if not present / unreadable.
     """
-    # A missing file is the normal first-run state — check exists() first so
-    # every fresh boot doesn't print a [DATA_IO] ERROR for it.
-    if not data_io.exists(storage_location="users", filename=SETTINGS_FILENAME):
-        return {}
-    data = data_io.load_json(storage_location="users", filename=SETTINGS_FILENAME)
-    return data if isinstance(data, dict) else {}
+    now = time.monotonic()
+    if _SETTINGS_CACHE["data"] is not None and now - _SETTINGS_CACHE["ts"] < _SETTINGS_TTL_S:
+        return dict(_SETTINGS_CACHE["data"])
+    with _settings_lock:
+        if _SETTINGS_CACHE["data"] is not None and now - _SETTINGS_CACHE["ts"] < _SETTINGS_TTL_S:
+            return dict(_SETTINGS_CACHE["data"])
+        # A missing file is the normal first-run state — check exists() first
+        # so every fresh boot doesn't print a [DATA_IO] ERROR for it.
+        if not data_io.exists(storage_location="users", filename=SETTINGS_FILENAME):
+            data = {}
+        else:
+            loaded = data_io.load_json(storage_location="users", filename=SETTINGS_FILENAME)
+            data = loaded if isinstance(loaded, dict) else {}
+        _SETTINGS_CACHE.update({"ts": now, "data": data})
+    return dict(data)
 
 
 
@@ -191,6 +216,7 @@ def save_admin_settings(settings: dict) -> None:
         settings: Full settings dict to write.
     """
     data_io.save_json(data=settings, storage_location="users", filename=SETTINGS_FILENAME)
+    _SETTINGS_CACHE.update({"ts": 0.0, "data": None})
 
 
 
