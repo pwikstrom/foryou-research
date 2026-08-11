@@ -85,16 +85,28 @@ ARTIFACT_LOCATION = "cache"
 SESSIONS_FILE = "sessions_index.parquet"
 EPISODES_FILE = "session_episodes.parquet"
 WINDOWS_FILE = "session_windows.parquet"
+# The play rows the sessions were segmented from, published sorted by
+# (collection_id, ts) in small row groups so the detail endpoint's
+# collection_id pushdown genuinely prunes — the consolidated activity file's
+# row groups span the whole id space, so reading it live decodes ~all rows
+# per request.
+PLAYS_FILE = "sessions_plays.parquet"
 META_FILE = "sessions_meta.json"
 CORPUS_MEAN_PREFIX = "embedding_corpus_mean__"
 
 # Per-link intermediate shards written by the chained build (namespaced by the
 # run id so a retry of link k overwrites its own shard) and the cross-link
-# progress accumulator. The final link concatenates the shards into the three
+# progress accumulator. The final link concatenates the shards into the four
 # single artifact files above, so the read side never changes.
 SHARD_PREFIXES = {"sessions": "sessions_shard__", "episodes": "episodes_shard__",
-                  "windows": "windows_shard__"}
+                  "windows": "windows_shard__", "plays": "plays_shard__"}
 PROGRESS_PREFIX = "sessions_progress__"
+
+# Row-group size for the published plays artifact: small groups keep each
+# group's collection_id min/max stats tight (a chunk's collections are
+# contiguous after the per-shard sort), which is what makes the read side's
+# pushdown prune.
+PLAYS_ROW_GROUP = 32_768
 
 # Vector budget per chain link: ~150k float32 vectors @ dim 1536 ≈ 920 MB.
 # Above it a link degrades from one batch-union load (tier 1) to
@@ -1126,6 +1138,40 @@ _EPISODES_SCHEMA: dict[str, pa.DataType] = {
     "member_rolling_cosdist": pa.large_list(pa.float32()),
 }
 
+_PLAYS_SCHEMA: dict[str, pa.DataType] = {
+    "collection_id": pa.string(), "session_id": pa.string(),
+    "item_id": pa.string(), "ts": pa.timestamp("us"),
+    "play_duration": pa.float64(), "source_platform": pa.string(),
+}
+
+
+
+
+def plays_table(plays: pd.DataFrame) -> pa.Table:
+    """One batch's play rows as an arrow Table in the plays-artifact schema.
+
+    Rows are sorted by (collection_id, ts) so the published file's row-group
+    ``collection_id`` stats stay tight (each chunk owns a disjoint collection
+    set, so per-shard sorting yields a globally clustered artifact).
+
+    Args:
+        plays: A :func:`load_plays`-shaped frame (``_ts`` parsed, play rows
+            only). An empty frame yields an empty, schema-correct table.
+    """
+    if plays is None or not len(plays):
+        return pa.table({col: pa.array([], type=typ)
+                         for col, typ in _PLAYS_SCHEMA.items()})
+    df = plays.sort_values(["collection_id", "_ts"])
+    return pa.table({
+        "collection_id": pa.array(df["collection_id"].astype("string"), type=pa.string()),
+        "session_id": pa.array(df["session_id"].astype("string"), type=pa.string()),
+        "item_id": pa.array(df["item_id"].astype("string"), type=pa.string()),
+        "ts": pa.array(df["_ts"]).cast(pa.timestamp("us")),
+        "play_duration": pa.array(
+            pd.to_numeric(df["play_duration"], errors="coerce"), type=pa.float64()),
+        "source_platform": pa.array(df["source_platform"].astype("string"), type=pa.string()),
+    })
+
 
 
 
@@ -1172,14 +1218,15 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
             chained worker must pass the list pinned at link 0 instead).
 
     Returns:
-        ``(session_rows, episode_rows, window_rows, stats)``; all None when
-        cancelled mid-batch.
+        ``(session_rows, episode_rows, window_rows, plays, stats)`` — ``plays``
+        is the batch's loaded play frame (the plays-artifact shard source, so
+        the worker never re-reads it); all None when cancelled mid-batch.
     """
     p = {**default_params(), **(params or {})}
     plays = load_plays(cids)
     stats = {"n_plays": int(len(plays)), "n_vectors": 0, "tier": 1}
     if plays.empty:
-        return [], [], [], stats
+        return [], [], [], plays, stats
 
     if trend_cols is None:
         trend_cols = trend_numeric_columns()
@@ -1212,7 +1259,7 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
         id_sets["embedded"] = set(id2local)
         for cid in cids:
             if reporter is not None and reporter.check_cancelled():
-                return None, None, None, None
+                return None, None, None, None, None
             srows, erows, wrows = build_collection(
                 cid, plays[plays["collection_id"] == cid], id2local, U,
                 feat, id_sets, p, trend_cols=trend_cols, stories=stories)
@@ -1224,7 +1271,7 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
         stats["tier"] = 2
         for cid in cids:
             if reporter is not None and reporter.check_cancelled():
-                return None, None, None, None
+                return None, None, None, None, None
             cplays = plays[plays["collection_id"] == cid]
             c_ids = [str(i) for i in cplays["item_id"].drop_duplicates()]
             id2local, U = load_directional_block(model, c_ids, corpus_mean, index)
@@ -1236,7 +1283,7 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
             episode_rows.extend(erows)
             window_rows.extend(wrows)
             del U, id2local
-    return session_rows, episode_rows, window_rows, stats
+    return session_rows, episode_rows, window_rows, plays, stats
 
 
 
@@ -1273,12 +1320,14 @@ def shard_filename(kind: str, run_id: str, chunk: int) -> str:
 
 def write_batch_shards(run_id: str, chunk: int, session_rows: list[dict],
                        episode_rows: list[dict], window_rows: list[dict],
-                       trend_cols: list[str] | None = None) -> None:
-    """Persist one link's rows as its three deterministic shards.
+                       trend_cols: list[str] | None = None,
+                       plays: pd.DataFrame | None = None) -> None:
+    """Persist one link's rows as its four deterministic shards.
 
     ``trend_cols`` must be the same list :func:`build_batch` produced the rows
     with (the worker pins it at link 0), so every shard of a run shares one
-    sessions schema.
+    sessions schema. ``plays`` is the batch's play frame from
+    :func:`build_batch` (None writes an empty, schema-correct plays shard).
     """
     for kind, schema, rows in (("sessions", sessions_schema(trend_cols), session_rows),
                                ("episodes", _EPISODES_SCHEMA, episode_rows),
@@ -1288,6 +1337,11 @@ def write_batch_shards(run_id: str, chunk: int, session_rows: list[dict],
             storage_location=ARTIFACT_LOCATION,
             filename=shard_filename(kind, run_id, chunk),
             batches=[tbl], schema=tbl.schema)
+    ptbl = plays_table(plays)
+    data_io.write_parquet_stream(
+        storage_location=ARTIFACT_LOCATION,
+        filename=shard_filename("plays", run_id, chunk),
+        batches=[ptbl], schema=ptbl.schema)
 
 
 
@@ -1359,14 +1413,31 @@ def publish_artifacts(run_id: str, n_chunks: int, expected: dict,
             f"artifact (a concurrent chain sharing this run_id most likely "
             f"published and cleaned up first). Shards kept for inspection.")
 
-    for kind, final in (("episodes", EPISODES_FILE), ("windows", WINDOWS_FILE),
-                        ("sessions", SESSIONS_FILE)):
+    for kind, final in (("plays", PLAYS_FILE), ("episodes", EPISODES_FILE),
+                        ("windows", WINDOWS_FILE), ("sessions", SESSIONS_FILE)):
         all_shards = [shard_filename(kind, run_id, k) for k in range(n_chunks)]
         shards = [s for s in all_shards
                   if data_io.exists(storage_location=ARTIFACT_LOCATION, filename=s)]
         if not shards:
+            if kind == "plays":
+                # A run started before the plays shard existed (mid-run
+                # deploy): publish the three original artifacts; the read
+                # side falls back to the consolidated activity file.
+                if reporter is not None:
+                    reporter.log("No 'plays' shards for this run — skipping "
+                                 "the plays artifact (pre-upgrade run).")
+                continue
             raise RuntimeError(f"publish: no '{kind}' shards found for run {run_id}")
         if len(shards) != len(all_shards):
+            if kind == "plays":
+                # Mid-run deploy: early links predate the plays shard. The
+                # other three kinds are complete, so publish them and let the
+                # read side fall back for plays.
+                if reporter is not None:
+                    reporter.log(f"Incomplete 'plays' shard set "
+                                 f"({len(shards)}/{n_chunks}) — skipping the "
+                                 f"plays artifact (pre-upgrade links).")
+                continue
             raise RuntimeError(
                 f"publish: run {run_id} has an incomplete '{kind}' shard set "
                 f"({len(all_shards) - len(shards)} of {n_chunks} missing) — "
@@ -1374,7 +1445,10 @@ def publish_artifacts(run_id: str, n_chunks: int, expected: dict,
                 f"likely published first.")
         n = data_io.concat_parquet_files(
             src_storage_location=ARTIFACT_LOCATION, src_filenames=shards,
-            dst_storage_location=ARTIFACT_LOCATION, dst_filename=final)
+            dst_storage_location=ARTIFACT_LOCATION, dst_filename=final,
+            # Small row groups keep the plays file's collection_id stats
+            # tight, so the detail endpoint's pushdown prunes.
+            batch_size=PLAYS_ROW_GROUP if kind == "plays" else 131_072)
         if kind in expected and n != int(expected[kind]):
             raise RuntimeError(
                 f"publish: '{kind}' row count {n} != expected {expected[kind]} "
@@ -1442,9 +1516,13 @@ def build_artifacts(reporter=None, params: dict | None = None,
     all_sessions: list[dict] = []
     all_episodes: list[dict] = []
     all_windows: list[dict] = []
+    # Per-batch arrow tables (compact) — streamed into the plays artifact at
+    # the end, one row group per batch, so collection_id stats stay tight.
+    play_tables: list[pa.Table] = []
+    n_plays = 0
     for start in range(0, len(cids), batch_size):
         batch = cids[start:start + batch_size]
-        srows, erows, wrows, stats = build_batch(
+        srows, erows, wrows, plays, stats = build_batch(
             batch, model, corpus_mean, index, params=p, reporter=reporter,
             max_vectors=max_vectors, trend_cols=trend_cols)
         if srows is None:
@@ -1453,6 +1531,8 @@ def build_artifacts(reporter=None, params: dict | None = None,
         all_sessions.extend(srows)
         all_episodes.extend(erows)
         all_windows.extend(wrows)
+        play_tables.append(plays_table(plays))
+        n_plays += int(len(plays))
         done = min(start + batch_size, len(cids))
         if reporter is not None:
             reporter.update_progress(
@@ -1463,6 +1543,11 @@ def build_artifacts(reporter=None, params: dict | None = None,
 
     _log(f"Writing artifacts: {len(all_sessions):,} sessions, "
          f"{len(all_episodes):,} episodes, {len(all_windows):,} low-entropy windows")
+    empty_plays = plays_table(None)
+    data_io.write_parquet_stream(
+        storage_location=ARTIFACT_LOCATION, filename=PLAYS_FILE,
+        batches=play_tables or [empty_plays], schema=empty_plays.schema,
+    )
     data_io.save_parquet(
         df=_arrow_frame(all_sessions, sessions_schema(trend_cols)),
         storage_location=ARTIFACT_LOCATION, filename=SESSIONS_FILE,
@@ -1487,6 +1572,7 @@ def build_artifacts(reporter=None, params: dict | None = None,
         "n_sessions": len(all_sessions),
         "n_episodes": len(all_episodes),
         "n_windows": len(all_windows),
+        "n_plays": n_plays,
     }
     data_io.save_json(data=meta, storage_location=ARTIFACT_LOCATION, filename=META_FILE)
     return meta

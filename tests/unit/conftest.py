@@ -30,6 +30,9 @@ fresh checkout / CI.
 
 import glob
 import os
+import sys
+
+import pytest
 
 collect_ignore = [
     "test_annotate_calc.py",
@@ -60,3 +63,30 @@ def _local_corpus_present() -> bool:
 
 if not _local_corpus_present():
     collect_ignore += _DATA_DEPENDENT
+
+
+@pytest.fixture(autouse=True)
+def _reset_perf_caches():
+    """Reset the web layer's module-level read caches after every test.
+
+    The sessions routes and admin settings hold TTL/fingerprint caches so hot
+    request paths stop re-reading storage. Tests monkeypatch the underlying
+    reads, so a value cached in one test must never leak into the next.
+    """
+    yield
+    admin = sys.modules.get("web_interface.admin_settings")
+    if admin is not None:
+        admin._SETTINGS_CACHE.update({"ts": 0.0, "data": None})
+    routes = sys.modules.get("web_interface.routes.api_sessions_routes")
+    if routes is not None:
+        routes._STAT_CACHE.clear()
+        routes._RANGES_CACHE.clear()
+        routes._INDEX_CACHE.update({"fingerprint": None, "df": None, "search": None})
+        routes._META_CACHE.update({"fingerprint": None, "meta": None})
+        routes._EPISODES_CACHE.update({"fingerprint": None, "df": None})
+        routes._WINDOWS_CACHE.update({"fingerprint": None, "df": None})
+        routes._DIRECTED_CACHE.update({"fingerprint": None, "cut": None, "counts": None})
+        routes._FLAGS_CACHE.update({"ts": 0.0, "model": None, "flags": None,
+                                    "emb_index": None})
+        routes._FEAT_CACHE.update({"ts": 0.0, "df": None})
+        routes._TREND_COLS_CACHE.update({"fingerprint": None, "cols": None})

@@ -18,6 +18,7 @@ membership checks.
 """
 
 import itertools
+import threading
 import time
 from functools import lru_cache
 
@@ -27,7 +28,7 @@ from flask import Blueprint, jsonify, request
 
 import fyp.data_io as data_io
 import fyp.embeddings as embeddings
-from fyp.analysis import session_explorer
+from fyp.analysis import embedding_store, session_explorer
 from fyp.fyp_config import fyp_cf
 from web_interface.data_service import (
     get_study_collections,
@@ -100,13 +101,40 @@ _SORT_KEYS = {
 _VARMAX_PREFIX = "vmax_"
 
 # In-process caches, invalidated on the artifact file fingerprint (index /
-# meta) or a short TTL (the enrichment id sets, which have no single file).
-_INDEX_CACHE: dict = {"fingerprint": None, "df": None}
+# meta / episodes / windows) or a short TTL (the enrichment id sets, which
+# have no single file). Each cache has its own lock (double-checked: probe
+# without the lock, re-check under it before building) — the app serves 8
+# gunicorn threads, and an unlocked cold cache made every concurrent request
+# rebuild a 100 MB frame.
+_INDEX_CACHE: dict = {"fingerprint": None, "df": None, "search": None}
 _DIRECTED_CACHE: dict = {"fingerprint": None, "cut": None, "counts": None}
-_FLAGS_CACHE: dict = {"ts": 0.0, "model": None, "flags": None}
+_FLAGS_CACHE: dict = {"ts": 0.0, "model": None, "flags": None, "emb_index": None}
 _FEAT_CACHE: dict = {"ts": 0.0, "df": None}
+_META_CACHE: dict = {"fingerprint": None, "meta": None}
+_EPISODES_CACHE: dict = {"fingerprint": None, "df": None}
+_WINDOWS_CACHE: dict = {"fingerprint": None, "df": None}
+# Slider bounds per (index fingerprint, study, floors) — invariant across the
+# user's own range/search filters, so recomputing them per request was waste.
+_RANGES_CACHE: dict = {}
+_RANGES_CACHE_MAX = 32
+# video_map's numeric-column list, learned from the first full read per
+# artifact version so later _trend_frame reads can project columns.
+_TREND_COLS_CACHE: dict = {"fingerprint": None, "cols": None}
+# Short-TTL cache over data_io.stat: on GCS every fingerprint probe is a
+# network round-trip, and the overview fires on each debounced keystroke.
+_STAT_CACHE: dict = {}
+_STAT_TTL_S = 15.0
 _FLAGS_TTL_S = 600.0
 _FEAT_TTL_S = 600.0
+
+_index_lock = threading.Lock()
+_directed_lock = threading.Lock()
+_flags_lock = threading.Lock()
+_feat_lock = threading.Lock()
+_meta_lock = threading.Lock()
+_episodes_lock = threading.Lock()
+_windows_lock = threading.Lock()
+_ranges_lock = threading.Lock()
 
 # Story text is for card context only — cap it so a session with 100 plays
 # doesn't ship 100 full transcripts.
@@ -115,22 +143,44 @@ _STORY_CAP = 400
 
 
 
-def _fingerprint(filename: str) -> str | None:
-    """Return a size:mtime fingerprint for a cache artifact, or None if absent."""
-    fp = data_io.stat(
-        storage_location=session_explorer.ARTIFACT_LOCATION, filename=filename,
-    )
-    return None if fp is None else f"{fp.get('size')}:{fp.get('mtime')}"
+def _fingerprint(filename: str,
+                 location: str = session_explorer.ARTIFACT_LOCATION) -> str | None:
+    """Return a size:mtime fingerprint for a cache artifact, or None if absent.
+
+    Stat results are held for ``_STAT_TTL_S`` so a burst of requests (each
+    overview/detail probes several artifacts) costs one storage round-trip per
+    file, not one per request; a rebuild is picked up within the TTL.
+    """
+    cache_key = f"{location}/{filename}"
+    hit = _STAT_CACHE.get(cache_key)
+    now = time.monotonic()
+    if hit is not None and now - hit[0] < _STAT_TTL_S:
+        return hit[1]
+    fp = data_io.stat(storage_location=location, filename=filename)
+    key = None if fp is None else f"{fp.get('size')}:{fp.get('mtime')}"
+    _STAT_CACHE[cache_key] = (now, key)
+    return key
 
 
 
 
 def _load_index() -> pd.DataFrame | None:
-    """Load (and cache) the sessions index, or None when not built yet."""
+    """Load (and cache) the sessions index, or None when not built yet.
+
+    The cached working frame deliberately EXCLUDES ``search_text`` — the blob
+    is ~3/4 of the frame's RAM and only the ``q`` filter reads it, so it is
+    held as a separate aligned Series (see :func:`_search_blob`) and the
+    row-mask copies the overview makes stay cheap. ``_start_dt`` (parsed
+    ``start_ts``) is added once here so no request re-parses 79k strings.
+    """
     key = _fingerprint(session_explorer.SESSIONS_FILE)
     if key is None:
         return None
-    if _INDEX_CACHE["df"] is None or _INDEX_CACHE["fingerprint"] != key:
+    if _INDEX_CACHE["df"] is not None and _INDEX_CACHE["fingerprint"] == key:
+        return _INDEX_CACHE["df"]
+    with _index_lock:
+        if _INDEX_CACHE["df"] is not None and _INDEX_CACHE["fingerprint"] == key:
+            return _INDEX_CACHE["df"]
         df = data_io.load_parquet_selective(
             storage_location=session_explorer.ARTIFACT_LOCATION,
             filename=session_explorer.SESSIONS_FILE,
@@ -140,9 +190,39 @@ def _load_index() -> pd.DataFrame | None:
         df = df.copy()
         df["collection_id"] = df["collection_id"].astype("string")
         df["session_id"] = df["session_id"].astype("string")
-        _INDEX_CACHE["df"] = df
-        _INDEX_CACHE["fingerprint"] = key
+        search = None
+        if "search_text" in df.columns:
+            search = df["search_text"].astype("string")
+            df = df.drop(columns=["search_text"])
+        df["_start_dt"] = pd.to_datetime(df["start_ts"], errors="coerce")
+        with _ranges_lock:
+            _RANGES_CACHE.clear()
+        _INDEX_CACHE.update({"df": df, "search": search, "fingerprint": key})
     return _INDEX_CACHE["df"]
+
+
+
+
+def _search_blob(index: pd.DataFrame) -> pd.Series | None:
+    """The index's ``search_text`` Series (row-aligned), or None when absent.
+
+    The cached index holds the blob out-of-frame; a frame that still carries
+    the column (an injected test frame) is served from it directly.
+    """
+    if "search_text" in index.columns:
+        return index["search_text"].astype("string")
+    if index is _INDEX_CACHE["df"]:
+        return _INDEX_CACHE["search"]
+    return None
+
+
+
+
+def _start_dt(df: pd.DataFrame) -> pd.Series:
+    """Parsed ``start_ts`` — the pre-parsed column when present, else live."""
+    if "_start_dt" in df.columns:
+        return df["_start_dt"]
+    return pd.to_datetime(df["start_ts"], errors="coerce")
 
 
 
@@ -167,34 +247,48 @@ def _directed_counts() -> pd.Series | None:
             and _DIRECTED_CACHE["fingerprint"] == key
             and _DIRECTED_CACHE["cut"] == cut):
         return _DIRECTED_CACHE["counts"]
-    df = data_io.load_parquet_selective(
-        storage_location=session_explorer.ARTIFACT_LOCATION,
-        filename=session_explorer.EPISODES_FILE,
-        columns=["collection_id", "session_id", "direction_p"],
-    )
-    if df is None or "direction_p" not in df.columns:
-        return None
-    df = df.copy()
-    df["collection_id"] = df["collection_id"].astype("string")
-    df["session_id"] = df["session_id"].astype("string")
-    directed = pd.to_numeric(df["direction_p"], errors="coerce") < cut
-    counts = directed.groupby([df["collection_id"], df["session_id"]]).sum().astype("int32")
-    _DIRECTED_CACHE.update({"fingerprint": key, "cut": cut, "counts": counts})
+    with _directed_lock:
+        if (_DIRECTED_CACHE["counts"] is not None
+                and _DIRECTED_CACHE["fingerprint"] == key
+                and _DIRECTED_CACHE["cut"] == cut):
+            return _DIRECTED_CACHE["counts"]
+        df = data_io.load_parquet_selective(
+            storage_location=session_explorer.ARTIFACT_LOCATION,
+            filename=session_explorer.EPISODES_FILE,
+            columns=["collection_id", "session_id", "direction_p"],
+        )
+        if df is None or "direction_p" not in df.columns:
+            return None
+        df = df.copy()
+        df["collection_id"] = df["collection_id"].astype("string")
+        df["session_id"] = df["session_id"].astype("string")
+        directed = pd.to_numeric(df["direction_p"], errors="coerce") < cut
+        counts = directed.groupby([df["collection_id"], df["session_id"]]).sum().astype("int32")
+        _DIRECTED_CACHE.update({"fingerprint": key, "cut": cut, "counts": counts})
     return counts
 
 
 
 
 def _load_meta() -> dict | None:
-    """Load the artifact provenance meta, or None when absent."""
-    if not data_io.exists(storage_location=session_explorer.ARTIFACT_LOCATION,
-                          filename=session_explorer.META_FILE):
+    """Load (and fingerprint-cache) the artifact provenance meta, or None."""
+    key = _fingerprint(session_explorer.META_FILE)
+    if key is None:
         return None
-    meta = data_io.load_json(
-        storage_location=session_explorer.ARTIFACT_LOCATION,
-        filename=session_explorer.META_FILE,
-    )
-    return meta if isinstance(meta, dict) else None
+    if _META_CACHE["fingerprint"] == key:
+        return _META_CACHE["meta"]
+    with _meta_lock:
+        if _META_CACHE["fingerprint"] == key:
+            return _META_CACHE["meta"]
+        meta = data_io.load_json(
+            storage_location=session_explorer.ARTIFACT_LOCATION,
+            filename=session_explorer.META_FILE,
+        )
+        _META_CACHE.update({
+            "fingerprint": key,
+            "meta": meta if isinstance(meta, dict) else None,
+        })
+    return _META_CACHE["meta"]
 
 
 
@@ -205,6 +299,11 @@ def _flag_sets() -> dict:
     Used for the detail payload's per-play ``annotated`` / ``embedded`` /
     ``streamable`` flags. TTL-cached: the sets change only when enrichment
     workers run, and a stale flag merely mislabels a card until the TTL lapses.
+
+    ``embedded`` is deliberately left EMPTY here: filling it means scanning
+    every embedding shard for ~1.35M ids to answer a few hundred membership
+    tests per detail request. The dense sidecar's id → row index answers the
+    same question from one small parquet — see :func:`_embedded_ids`.
     """
     try:
         model = embeddings.active_embedding_backend().model_id()
@@ -214,10 +313,46 @@ def _flag_sets() -> dict:
     if (_FLAGS_CACHE["flags"] is not None and _FLAGS_CACHE["model"] == model
             and now - _FLAGS_CACHE["ts"] < _FLAGS_TTL_S):
         return _FLAGS_CACHE["flags"]
-    flags = session_explorer.enrichment_id_sets(model) if model else {
-        "scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()}
-    _FLAGS_CACHE.update({"ts": now, "model": model, "flags": flags})
-    return flags
+    with _flags_lock:
+        if (_FLAGS_CACHE["flags"] is not None and _FLAGS_CACHE["model"] == model
+                and now - _FLAGS_CACHE["ts"] < _FLAGS_TTL_S):
+            return _FLAGS_CACHE["flags"]
+        flags = (session_explorer.enrichment_id_sets(model, include_embedded=False)
+                 if model else {"scraped": set(), "downloaded": set(),
+                                "annotated": set(), "embedded": set()})
+        emb_index = None
+        if model:
+            try:
+                emb_index = embedding_store.load_index(model)
+            except Exception:
+                emb_index = None
+        _FLAGS_CACHE.update({"ts": now, "model": model, "flags": flags,
+                             "emb_index": emb_index})
+    return _FLAGS_CACHE["flags"]
+
+
+
+
+def _embedded_ids(item_ids: set[str], flags: dict) -> set[str]:
+    """Which of ``item_ids`` have a dense embedding.
+
+    A flag set that already carries ``embedded`` ids (an injected one) is
+    honoured; the production cache leaves it empty and the sidecar's id → row
+    index answers instead — cached by :func:`_flag_sets` (same TTL, same
+    model), so nothing is read per request. Returns an empty set when no
+    dense store exists, which matches the shard scan's answer for that state.
+    """
+    if flags.get("embedded"):
+        return {str(i) for i in item_ids if str(i) in flags["embedded"]}
+    index = _FLAGS_CACHE.get("emb_index")
+    if index is None or not item_ids:
+        return set()
+    ids = [str(i) for i in item_ids]
+    try:
+        _, found = index.lookup(ids)
+    except Exception:
+        return set()
+    return {i for i, f in zip(ids, found) if f}
 
 
 
@@ -232,16 +367,19 @@ def _features() -> pd.DataFrame:
     now = time.monotonic()
     if _FEAT_CACHE["df"] is not None and now - _FEAT_CACHE["ts"] < _FEAT_TTL_S:
         return _FEAT_CACHE["df"]
-    try:
-        # Corpus-wide, so no scrape text (desc/hashtags are hundreds of MB at
-        # that scale) — the detail endpoint reads those per session instead.
-        df = session_explorer.load_video_features()
-    except Exception:
-        df = pd.DataFrame(columns=["niche_name", "category", "story",
-                                   "political_score", "sensitivity_score",
-                                   "advertising", "author", "duration"])
-    _FEAT_CACHE.update({"ts": now, "df": df})
-    return df
+    with _feat_lock:
+        if _FEAT_CACHE["df"] is not None and now - _FEAT_CACHE["ts"] < _FEAT_TTL_S:
+            return _FEAT_CACHE["df"]
+        try:
+            # Corpus-wide, so no scrape text (desc/hashtags are hundreds of MB at
+            # that scale) — the detail endpoint reads those per session instead.
+            df = session_explorer.load_video_features()
+        except Exception:
+            df = pd.DataFrame(columns=["niche_name", "category", "story",
+                                       "political_score", "sensitivity_score",
+                                       "advertising", "author", "duration"])
+        _FEAT_CACHE.update({"ts": now, "df": df})
+    return _FEAT_CACHE["df"]
 
 
 
@@ -427,9 +565,17 @@ def _trend_frame(item_ids: set[str]) -> pd.DataFrame:
     """
     if not item_ids:
         return pd.DataFrame()
+    # The map's numeric-column list is learned from the first (unprojected)
+    # read per artifact version; every later read projects to those columns,
+    # skipping the map's text payload (story/niche/category fragments).
+    map_fp = _fingerprint("video_map.parquet", location=embeddings.STORE_LOCATION)
+    known_cols = (_TREND_COLS_CACHE["cols"]
+                  if map_fp is not None and _TREND_COLS_CACHE["fingerprint"] == map_fp
+                  else None)
     try:
         df = data_io.load_parquet_selective(
             storage_location=embeddings.STORE_LOCATION, filename="video_map.parquet",
+            columns=(["item_id"] + known_cols) if known_cols else None,
             filters=[("item_id", "in", [str(i) for i in item_ids])],
         )
     except Exception:
@@ -438,6 +584,8 @@ def _trend_frame(item_ids: set[str]) -> pd.DataFrame:
         return pd.DataFrame()
     numeric = [c for c in df.columns
                if c not in _TREND_EXCLUDE and pd.api.types.is_numeric_dtype(df[c])]
+    if known_cols is None and map_fp is not None:
+        _TREND_COLS_CACHE.update({"fingerprint": map_fp, "cols": numeric})
     if not numeric:
         return pd.DataFrame()
     out = df[["item_id"] + numeric].copy()
@@ -628,7 +776,7 @@ def _in_study_window(df: pd.DataFrame, study: str) -> pd.Series:
     builder makes — no timezone conversion on either side.
     """
     start, end_bound = get_study_date_window(study)
-    ts = pd.to_datetime(df["start_ts"], errors="coerce")
+    ts = _start_dt(df)
     # An unparseable start cannot be placed in the window; NaT compares False
     # on both sides, which drops it — the honest answer for a row that has no
     # date at all.
@@ -748,7 +896,7 @@ def _filter_ranges(df: pd.DataFrame) -> dict:
     score yet), which tells the client to omit that slider.
     """
     out: dict = {}
-    ts = pd.to_datetime(df["start_ts"], errors="coerce") if "start_ts" in df.columns else pd.Series(dtype="datetime64[ns]")
+    ts = _start_dt(df) if "start_ts" in df.columns else pd.Series(dtype="datetime64[ns]")
     out["start_date"] = ([str(ts.min().date()), str(ts.max().date())]
                          if ts.notna().any() else None)
     for col in ("duration_min", "n_plays", "coverage_embedded",
@@ -775,6 +923,37 @@ def _filter_ranges(df: pd.DataFrame) -> dict:
         out["var_max"] = None
         out["var_labels"] = None
     return out
+
+
+
+
+def _cached_filter_ranges(index: pd.DataFrame, pop: np.ndarray, study: str,
+                          sig: tuple) -> dict:
+    """:func:`_filter_ranges`, cached per (artifact, study scope, floors).
+
+    The bounds are computed BEFORE the user's own range/search filters, so
+    for a given index fingerprint + study scope + floor values they never
+    change — recomputing ~25 ``to_numeric`` columns per keystroke was pure
+    waste. ``sig`` carries everything else the scoped population depends on
+    (floor values, the study's date window, its collection-set signature), so
+    a study rebuild/edit invalidates without an index rebuild. An injected
+    (uncached) index frame computes directly.
+    """
+    fingerprint = _INDEX_CACHE["fingerprint"]
+    if fingerprint is None or index is not _INDEX_CACHE["df"]:
+        return _filter_ranges(index[pop])
+    key = (fingerprint, study, sig)
+    hit = _RANGES_CACHE.get(key)
+    if hit is not None:
+        return hit
+    with _ranges_lock:
+        hit = _RANGES_CACHE.get(key)
+        if hit is None:
+            hit = _filter_ranges(index[pop])
+            if len(_RANGES_CACHE) >= _RANGES_CACHE_MAX:
+                _RANGES_CACHE.clear()
+            _RANGES_CACHE[key] = hit
+    return hit
 
 
 
@@ -879,66 +1058,75 @@ def api_sessions_overview():
     ascending = (request.args.get('order') or 'asc').lower() != 'desc'
 
     cids = _study_collection_ids(study)
-    df = index[index["collection_id"].isin(cids)]
+    window = get_study_date_window(study)
+    # All scoping/filter stages are boolean masks over the FULL index; the
+    # frame is materialized exactly once, after the last mask. The old
+    # stage-by-stage slicing copied the full-width frame ~5 times per request.
+    def _np_mask(series) -> np.ndarray:
+        return series.fillna(False).to_numpy(dtype=bool)
+
     # Study scoping is two-axis: collections AND the study's date window. This
     # runs BEFORE total_in_study so every downstream number — the floor counts,
     # the slider bounds, the status line — describes the study, not the
     # artifact.
-    df = df[_in_study_window(df, study).to_numpy()]
-    total_in_study = int(len(df))
+    in_study = (_np_mask(index["collection_id"].isin(cids))
+                & _np_mask(_in_study_window(index, study)))
+    total_in_study = int(in_study.sum())
     # The three admin-controlled list floors are applied as one block, so the
     # client can report a single "N not listed" count it can reconcile with the
     # rows on screen; min_emb_plays stays a separate ad-hoc quality filter.
-    df = df[
-        (df["n_plays"].fillna(0) >= min_plays)
-        & (df["duration_min"].fillna(0) >= min_minutes)
-        & (df["coverage_embedded"].fillna(0) >= min_coverage)
-    ]
-    total_above_floors = int(len(df))
-    df = df[df["n_embedded"].fillna(0) >= min_emb]
+    floors_ok = (in_study
+                 & _np_mask(index["n_plays"].fillna(0) >= min_plays)
+                 & _np_mask(index["duration_min"].fillna(0) >= min_minutes)
+                 & _np_mask(index["coverage_embedded"].fillna(0) >= min_coverage))
+    total_above_floors = int(floors_ok.sum())
+    pop = floors_ok & _np_mask(index["n_embedded"].fillna(0) >= min_emb)
 
     # Slider bounds come from the population the sliders act on — after the
     # floors, before the user's own range filters.
-    ranges = _filter_ranges(df)
+    ranges = _cached_filter_ranges(
+        index, pop, study,
+        (min_plays, min_minutes, min_coverage, min_emb,
+         len(cids), hash(frozenset(cids)), window))
 
-    mask = pd.Series(True, index=df.index)
+    mask = pop.copy()
     if f_start_min is not None or f_start_max is not None:
-        ts = pd.to_datetime(df["start_ts"], errors="coerce")
+        ts = _start_dt(index)
         if f_start_min is not None:
-            mask &= ts >= f_start_min
+            mask &= _np_mask(ts >= f_start_min)
         if f_start_max is not None:
-            mask &= ts < f_start_max
+            mask &= _np_mask(ts < f_start_max)
     for stem, col in _RANGE_FILTER_COLS.items():
         lo, hi = range_filters[stem]
         if lo is None and hi is None:
             continue
-        vals = pd.to_numeric(df[col], errors="coerce") if col in df.columns else None
-        if vals is None:
+        if col not in index.columns:
             continue
+        vals = pd.to_numeric(index[col], errors="coerce")
         # NaN compares False on both sides, so a bounded filter drops
         # sessions with no value for that metric — deliberately.
         if lo is not None:
-            mask &= vals >= lo
+            mask &= _np_mask(vals >= lo)
         if hi is not None:
-            mask &= vals <= hi
+            mask &= _np_mask(vals <= hi)
     # Variable-max filter: same NaN-drops-row semantics. Silently skipped when
     # the column is absent (old artifact, or a variable the map no longer has).
     if varmax_col and (varmax_lo is not None or varmax_hi is not None):
         col = f"{_VARMAX_PREFIX}{varmax_col}"
-        if col in df.columns:
-            vals = pd.to_numeric(df[col], errors="coerce")
+        if col in index.columns:
+            vals = pd.to_numeric(index[col], errors="coerce")
             if varmax_lo is not None:
-                mask &= vals >= varmax_lo
+                mask &= _np_mask(vals >= varmax_lo)
             if varmax_hi is not None:
-                mask &= vals <= varmax_hi
+                mask &= _np_mask(vals <= varmax_hi)
     # Free-text search over the baked per-session blob (lowercased at build);
     # every whitespace-separated term must match. Ignored on an old artifact.
-    search_available = "search_text" in df.columns
+    blobs = _search_blob(index)
+    search_available = blobs is not None
     if search_q and search_available:
-        blobs = df["search_text"].astype("string")
         for term in search_q.lower().split():
             mask &= blobs.str.contains(term, regex=False).fillna(False).to_numpy(dtype=bool)
-    df = df[mask]
+    df = index[mask]
     total_matching = int(len(df))
 
     # Directed-binge counts join BEFORE the sort so the column is sortable —
@@ -998,13 +1186,16 @@ def api_sessions_overview():
 
 
 def _session_plays(collection_id: str, session_row: pd.Series) -> pd.DataFrame:
-    """Live-read one session's play rows from the consolidated activity file.
+    """Read one session's play rows.
 
-    The activity file is clustered by ``collection_id``, so the pushdown filter
-    prunes row groups and the read is light enough for a live request (same
-    pattern as :mod:`web_interface.semantic_trajectory`). Sessions synthesised
-    for null ``session_id`` rows (keys ``na_<idx>``) are recovered by their
-    time span instead.
+    Preferred source: the ``sessions_plays.parquet`` artifact — play rows
+    only, published sorted by (collection_id, ts) in small row groups, so the
+    ``collection_id`` pushdown genuinely prunes. Fallback (artifact absent —
+    pre-upgrade build — or stale, i.e. it has no rows for this collection):
+    the consolidated activity file, whose row-group stats span the whole id
+    space, so that read decodes ~all play rows and is the slow path. Sessions
+    synthesised for null ``session_id`` rows (keys ``na_<idx>``) are
+    recovered by their time span instead.
 
     Args:
         collection_id: The session's collection.
@@ -1016,18 +1207,35 @@ def _session_plays(collection_id: str, session_row: pd.Series) -> pd.DataFrame:
     from fyp.organize_datasets import COLLECTIONS_LABEL
 
     sid = str(session_row["session_id"])
-    df = data_io.load_parquet_selective(
-        storage_location=embeddings.STORE_LOCATION,
-        filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
-        columns=["item_id", "local_timestamp", "play_duration",
-                 "session_id", "source_platform"],
-        filters=[("collection_id", "==", collection_id),
-                 ("activity_type", "==", "play")],
-    )
-    if df is None or df.empty:
-        return pd.DataFrame(columns=["item_id", "_ts", "play_duration", "source_platform"])
-    df = df.copy()
-    df["_ts"] = pd.to_datetime(df["local_timestamp"], errors="coerce")
+    df = None
+    if _fingerprint(session_explorer.PLAYS_FILE) is not None:
+        try:
+            df = data_io.load_parquet_selective(
+                storage_location=session_explorer.ARTIFACT_LOCATION,
+                filename=session_explorer.PLAYS_FILE,
+                filters=[("collection_id", "==", collection_id)],
+            )
+        except Exception:
+            df = None
+        if df is not None and not df.empty:
+            df = df.copy()
+            df["_ts"] = pd.to_datetime(df["ts"], errors="coerce")
+        else:
+            df = None
+    if df is None:
+        df = data_io.load_parquet_selective(
+            storage_location=embeddings.STORE_LOCATION,
+            filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
+            columns=["item_id", "local_timestamp", "play_duration",
+                     "session_id", "source_platform"],
+            filters=[("collection_id", "==", collection_id),
+                     ("activity_type", "==", "play")],
+        )
+        if df is None or df.empty:
+            return pd.DataFrame(columns=["item_id", "_ts", "play_duration",
+                                         "source_platform"])
+        df = df.copy()
+        df["_ts"] = pd.to_datetime(df["local_timestamp"], errors="coerce")
     df = df.dropna(subset=["_ts"])
     if sid.startswith("na_"):
         start = pd.Timestamp(str(session_row["start_ts"]))
@@ -1041,18 +1249,44 @@ def _session_plays(collection_id: str, session_row: pd.Series) -> pd.DataFrame:
 
 
 
+def _artifact_frame(filename: str, cache: dict, lock: threading.Lock) -> pd.DataFrame | None:
+    """Load (and fingerprint-cache) one whole detail artifact frame.
+
+    The episodes/windows artifacts are small (KBs–MBs) but their row-group
+    stats span the whole collection-id space, so the old per-request pushdown
+    read decoded the entire file anyway — holding the frame and slicing in
+    pandas turns every detail click's read into a dict lookup.
+    """
+    key = _fingerprint(filename)
+    if key is None:
+        return None
+    if cache["df"] is not None and cache["fingerprint"] == key:
+        return cache["df"]
+    with lock:
+        if cache["df"] is not None and cache["fingerprint"] == key:
+            return cache["df"]
+        df = data_io.load_parquet_selective(
+            storage_location=session_explorer.ARTIFACT_LOCATION, filename=filename)
+        if df is None:
+            return None
+        df = df.copy()
+        df["collection_id"] = df["collection_id"].astype("string")
+        df["session_id"] = df["session_id"].astype("string")
+        cache.update({"df": df, "fingerprint": key})
+    return cache["df"]
+
+
+
+
 def _session_episodes(collection_id: str, session_id: str) -> list[dict]:
     """Load one session's episode rows (members reassembled per episode)."""
-    if not data_io.exists(storage_location=session_explorer.ARTIFACT_LOCATION,
-                          filename=session_explorer.EPISODES_FILE):
+    frame = _artifact_frame(session_explorer.EPISODES_FILE, _EPISODES_CACHE,
+                            _episodes_lock)
+    if frame is None:
         return []
-    df = data_io.load_parquet_selective(
-        storage_location=session_explorer.ARTIFACT_LOCATION,
-        filename=session_explorer.EPISODES_FILE,
-        filters=[("collection_id", "==", collection_id),
-                 ("session_id", "==", session_id)],
-    )
-    if df is None or df.empty:
+    df = frame[(frame["collection_id"] == collection_id)
+               & (frame["session_id"] == session_id)]
+    if df.empty:
         return []
     def _as_list(value):
         # List cells come back as numpy arrays / Arrow lists; a bare `or []`
@@ -1098,16 +1332,13 @@ def _session_episodes(collection_id: str, session_id: str) -> list[dict]:
 
 def _session_windows(collection_id: str, session_id: str) -> list[dict]:
     """Load one session's low-entropy-window rows (members reassembled)."""
-    if not data_io.exists(storage_location=session_explorer.ARTIFACT_LOCATION,
-                          filename=session_explorer.WINDOWS_FILE):
+    frame = _artifact_frame(session_explorer.WINDOWS_FILE, _WINDOWS_CACHE,
+                            _windows_lock)
+    if frame is None:
         return []
-    df = data_io.load_parquet_selective(
-        storage_location=session_explorer.ARTIFACT_LOCATION,
-        filename=session_explorer.WINDOWS_FILE,
-        filters=[("collection_id", "==", collection_id),
-                 ("session_id", "==", session_id)],
-    )
-    if df is None or df.empty:
+    df = frame[(frame["collection_id"] == collection_id)
+               & (frame["session_id"] == session_id)]
+    if df.empty:
         return []
 
     def _as_list(value):
@@ -1188,6 +1419,7 @@ def api_sessions_detail():
     flags = _flag_sets()
     study_ids = _study_item_ids(study) or frozenset()
     session_item_ids = {str(i) for i in plays["item_id"]}
+    embedded_ids = _embedded_ids(session_item_ids, flags)
     stories = _story_map(session_item_ids)
     scrape_text = _scrape_text_map(session_item_ids)
 
@@ -1224,7 +1456,7 @@ def api_sessions_detail():
             "duration_s": None if f is None else _clean(f.get("duration")),
             "platform": _clean(row.get("source_platform")),
             "annotated": iid in flags["annotated"],
-            "embedded": iid in flags["embedded"],
+            "embedded": iid in embedded_ids,
             "streamable": (iid in study_ids) and (iid in flags["downloaded"]),
             "niche_name": None if f is None else _clean(f.get("niche_name")),
             "category": None if f is None else _clean(f.get("category")),

@@ -373,4 +373,4 @@ def test_publish_order_sessions_index_last(corpus, monkeypatch):
     monkeypatch.setattr(se.data_io, "concat_parquet_files", spy)
     _run_chain({"batch_size": 2})
     assert order[-1] == se.SESSIONS_FILE
-    assert set(order[:-1]) == {se.EPISODES_FILE, se.WINDOWS_FILE}
+    assert set(order[:-1]) == {se.PLAYS_FILE, se.EPISODES_FILE, se.WINDOWS_FILE}
