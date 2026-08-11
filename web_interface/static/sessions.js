@@ -24,11 +24,13 @@ const sessState = {
     filterMeta: {},      // per-filter slider bounds {lo, hi}, from the overview's ranges
     filtersOpen: true,   // filter panel expanded?
     searchQ: '',         // committed free-text search (server-side, on search_text)
-    varMax: { col: null, min: null, max: null },  // "session max of variable" filter (slider units)
+    varMax: { col: null, min: null, max: null, scope: 'session' },  // "session max of variable" filter (slider units); scope 'session'|'binges'
     varMaxMeta: null,    // the chosen variable's slider bounds {lo, hi}
     playsById: {},       // item_id -> play row of the current detail payload
     rangesJson: null,    // last-rendered filter bounds (skip rebuilds when unchanged)
     playlistShown: false, // playlist rendered for the current detail payload?
+    stripGeom: null,     // last strip render's {x(t), times, cursor} for the marker + var plot
+    varPlot: null,       // variable plotted above the strip (null = plot hidden)
 };
 
 // Response-ordering guard for the overview fetch: a slow response for an
@@ -300,13 +302,17 @@ function sessBuildVarMaxRow(varMaxRanges, varLabels) {
 
     // Keep the previous selection only while the variable still exists.
     if (sessState.varMax.col && !varMaxRanges[sessState.varMax.col]) {
-        sessState.varMax = { col: null, min: null, max: null };
+        sessState.varMax = { col: null, min: null, max: null, scope: 'session' };
         sessState.varMaxMeta = null;
     }
 
     const tooltip = 'Pick a per-video variable; sessions are kept when the LARGEST '
         + 'value across the session’s videos falls in this range. Sessions with '
         + 'no value for the variable are hidden while the range is narrowed.';
+    const scopeTooltip = 'ON: keep sessions where at least one BINGE’s largest value '
+        + 'of the variable falls in the range — the filter looks inside binges only, '
+        + 'so sessions without a matching binge are hidden. OFF: the largest value '
+        + 'is taken across the whole session.';
     const options = ['<option value="">Filter by variable max…</option>']
         .concat(vars.map(v => `<option value="${escapeHtml(v)}"${v === sessState.varMax.col ? ' selected' : ''}>`
             + `${escapeHtml((varLabels && varLabels[v]) || v)}</option>`));
@@ -314,10 +320,17 @@ function sessBuildVarMaxRow(varMaxRanges, varLabels) {
         <div class="sess-filter-head text-xxs">
             <span class="sess-filter-label"><span class="meta-tooltip" data-tooltip="${escapeHtml(tooltip)}">Session max of variable</span></span>
         </div>
-        <select class="sess-varmax-select text-xxs">${options.join('')}</select>
+        <div class="sess-varmax-controls">
+            <select class="sess-varmax-select text-xxs">${options.join('')}</select>
+            <label class="sess-varmax-scope text-xxs meta-tooltip" data-tooltip="${escapeHtml(scopeTooltip)}">
+                <input type="checkbox" class="sess-varmax-scope-cb"${sessState.varMax.scope === 'binges' ? ' checked' : ''}${sessState.varMax.col ? '' : ' disabled'}>
+                binges only
+            </label>
+        </div>
         <div class="sess-varmax-slider"></div>`;
 
     const select = row.querySelector('.sess-varmax-select');
+    const scopeCb = row.querySelector('.sess-varmax-scope-cb');
     const sliderHost = row.querySelector('.sess-varmax-slider');
 
     const renderSlider = () => {
@@ -351,13 +364,24 @@ function sessBuildVarMaxRow(varMaxRanges, varLabels) {
     select.addEventListener('change', () => {
         const col = select.value || null;
         const wasNarrowed = sessVarMaxActive();
-        sessState.varMax = { col, min: null, max: null };
+        // The binges-only scope survives a variable switch — it is a mode of
+        // the filter, not of one variable.
+        sessState.varMax = { col, min: null, max: null, scope: sessState.varMax.scope };
         sessState.varMaxMeta = null;
+        scopeCb.disabled = !col;
         renderSlider();
         sessUpdateFilterChrome();
         // Deselecting (or switching) a variable that was narrowing the list
         // must widen it again immediately.
         if (wasNarrowed) {
+            sessState.page = 0;
+            sessLoadOverview();
+        }
+    });
+    scopeCb.addEventListener('change', () => {
+        sessState.varMax.scope = scopeCb.checked ? 'binges' : 'session';
+        // Only re-query when the filter is actually narrowing something.
+        if (sessVarMaxActive()) {
             sessState.page = 0;
             sessLoadOverview();
         }
@@ -401,7 +425,7 @@ function sessRenderFilters(ranges) {
     if (varMaxRanges && Object.keys(varMaxRanges).length) {
         body.appendChild(sessBuildVarMaxRow(varMaxRanges, ranges.var_labels || {}));
     } else {
-        sessState.varMax = { col: null, min: null, max: null };
+        sessState.varMax = { col: null, min: null, max: null, scope: 'session' };
         sessState.varMaxMeta = null;
         if (ranges && varMaxRanges === null) {
             // Old artifact: the vmax_ columns don't exist yet.
@@ -452,7 +476,7 @@ function sessInitFilterPanel() {
     if (clear) {
         clear.addEventListener('click', () => {
             sessState.filters = {};
-            sessState.varMax = { col: null, min: null, max: null };
+            sessState.varMax = { col: null, min: null, max: null, scope: 'session' };
             sessState.varMaxMeta = null;
             sessState.searchQ = '';
             const search = document.getElementById('sess-search');
@@ -591,7 +615,7 @@ function initSessions() {
         // A different study has different sessions — its slider bounds are
         // rebuilt from the fresh ranges, so stale narrowings must not carry.
         sessState.filters = {};
-        sessState.varMax = { col: null, min: null, max: null };
+        sessState.varMax = { col: null, min: null, max: null, scope: 'session' };
         sessState.varMaxMeta = null;
         sessState.searchQ = '';
         const search = document.getElementById('sess-search');
@@ -692,6 +716,7 @@ async function sessLoadOverview() {
         qs.set('f_varmax_col', vm.col);
         if (vm.min > meta.lo) { qs.set('f_varmax_min', String(vm.min / SESS_VARMAX_SCALE)); }
         if (vm.max < meta.hi) { qs.set('f_varmax_max', String(vm.max / SESS_VARMAX_SCALE)); }
+        if (vm.scope === 'binges') { qs.set('f_varmax_scope', 'binges'); }
     }
     if (sessState.searchQ) { qs.set('q', sessState.searchQ); }
     const seq = ++_sessOverviewSeq;
@@ -836,11 +861,15 @@ function sessDwellText(dwellS, durationS) {
 
 
 // The collapsed per-variable min/max block: a "▸ more info" toggle plus a
-// hidden two-column list. `ranges` is the API's [{label, min, max, n}, ...].
+// hidden two-column list. `ranges` is the API's [{variable, label, min, max,
+// n}, ...]. Each label is clickable: it toggles the per-variable line plot
+// above the session strip.
 function sessMinMaxHtml(ranges) {
     const fmtVal = (v) => (Number.isInteger(v) ? String(v) : Number(v).toFixed(2));
     return ranges.map(r =>
-        `<span class="sess-minmax-label">${escapeHtml(r.label)}</span>`
+        `<span class="sess-minmax-label sess-varplot-link${sessState.varPlot === r.variable ? ' is-plotted' : ''}"`
+        + ` data-var="${escapeHtml(r.variable)}" role="button" tabindex="0"`
+        + ` title="Plot this variable across the session">${escapeHtml(r.label)}</span>`
         + `<span>${fmtVal(r.min)} – ${fmtVal(r.max)}</span>`).join('');
 }
 
@@ -856,6 +885,14 @@ function sessWireMinMax(host, toggleEl, ranges, title) {
     panel.innerHTML = (title ? `<span class="sess-minmax-title">${escapeHtml(title)}</span><span></span>` : '')
         + sessMinMaxHtml(ranges);
     host.appendChild(panel);
+    // One delegated listener per panel: clicking a variable name toggles the
+    // session line plot for that variable.
+    panel.addEventListener('click', (ev) => {
+        const link = ev.target.closest('.sess-varplot-link');
+        if (!link) { return; }
+        ev.stopPropagation();
+        sessToggleVarPlot(link.dataset.var);
+    });
     const caret = toggleEl.querySelector('.sess-more-caret');
     toggleEl.addEventListener('click', (ev) => {
         // The toggle can sit inside the binge-card <button>; expanding the
@@ -874,7 +911,8 @@ function sessWireMinMax(host, toggleEl, ranges, title) {
 // session header.
 function sessMoreToggleHtml() {
     return '<span class="sess-more-toggle text-xxs meta-tooltip" data-tooltip="Show the '
-        + 'smallest and largest value of each numeric video variable observed here.">'
+        + 'smallest and largest value of each numeric video variable observed here. '
+        + 'Click a variable’s name to plot it across the session, above the strip.">'
         + '<span class="sess-more-caret">▸</span> (more info)</span>';
 }
 
@@ -1077,17 +1115,23 @@ function sessRenderDetail(data) {
     // opened via a deep link before any overview has landed.
     if (data.params) { sessState.params = data.params; }
     sessState.activeSeq = null;
+    // A different session has different variables — the plot must not carry.
+    sessState.varPlot = null;
+    const plotHost = document.getElementById('sess-varplot');
+    if (plotHost) { plotHost.style.display = 'none'; plotHost.innerHTML = ''; }
     emptyEl.style.display = 'none';
     detailEl.style.display = 'flex';
     sessRenderDetailHeader(data);
     sessRenderStrip(data);
     sessRenderSeqList(data);
-    // Auto-activate the top binge (or, failing that, the top low-entropy
-    // sequence) THROUGH the selector so its entry is visibly focused too.
+    // Auto-activate the top binge (or, failing that, the top VISIBLE
+    // low-entropy sequence) THROUGH the selector so its entry is visibly
+    // focused too.
+    const visibleWindows = sessVisibleWindows(data);
     if (data.episodes.length) {
         sessSelectSeq('binge', data.episodes[0].episode_idx, 0);
-    } else if (data.windows && data.windows.length) {
-        sessSelectSeq('window', data.windows[0].window_idx, 0);
+    } else if (visibleWindows.length) {
+        sessSelectSeq('window', visibleWindows[0].window_idx, 0);
     } else {
         sessRenderPlayer();
     }
@@ -1144,9 +1188,53 @@ function sessEpisodeColor(i) {
 
 
 
+// A low-entropy sequence that merely re-detects a binge adds noise, not
+// signal: when at least this share of its member videos are members of
+// detected binges, the sequence is hidden from the strip and the selector
+// (nothing is re-searched — the artifact rows are only not shown).
+const SESS_WINDOW_COVERED_SHARE = 0.8;
+
+// The low-entropy sequences worth showing: those NOT largely covered by the
+// session's binges.
+function sessVisibleWindows(data) {
+    const windows = data.windows || [];
+    if (!windows.length || !data.episodes.length) { return windows; }
+    const bingeIds = new Set();
+    for (const ep of data.episodes) {
+        for (const m of ep.members) { bingeIds.add(m.item_id); }
+    }
+    return windows.filter(w => {
+        if (!w.members.length) { return true; }
+        const covered = w.members.filter(m => bingeIds.has(m.item_id)).length;
+        return covered / w.members.length < SESS_WINDOW_COVERED_SHARE;
+    });
+}
+
+
+
+
+// Move the ▾ position marker above the strip to the play at `ts` (null hides
+// it). The marker lives inside the strip SVG's top gutter; sessRenderStrip
+// stores the geometry it needs in sessState.stripGeom.
+function sessUpdateStripCursor(ts) {
+    const geom = sessState.stripGeom;
+    if (!geom || !geom.cursor) { return; }
+    if (!ts) {
+        geom.cursor.style.display = 'none';
+        return;
+    }
+    const px = geom.x(ts);
+    geom.cursor.setAttribute('points', `${px - 5},1 ${px + 5},1 ${px},9`);
+    geom.cursor.style.display = '';
+}
+
+
+
+
 function sessRenderStrip(data) {
     const host = document.getElementById('sess-strip');
     host.innerHTML = '';
+    sessState.stripGeom = null;
     const plays = data.plays;
     if (!plays.length) {
         host.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted);">No plays.</div>';
@@ -1154,7 +1242,10 @@ function sessRenderStrip(data) {
     }
 
     const W = Math.max(host.clientWidth || 800, 400);
-    const H = 84;
+    // TOP is a gutter above the bands reserved for the ▾ marker that tracks
+    // the video currently shown in the player.
+    const TOP = 10;
+    const H = 84 + TOP;
     const PAD = 6;
     const BAR_H = 48;
     // Parse every play's timestamp once (the mark, its dwell end and its
@@ -1171,6 +1262,7 @@ function sessRenderStrip(data) {
         episodes: ['--color-accent', '--color-success', '--color-warning', '--color-info']
             .map(name => getCSSVar(name)),
         textSecondary: getCSSVar('--color-text-secondary'),
+        textPrimary: getCSSVar('--color-text-primary'),
         border: getCSSVar('--color-border'),
         textTertiary: getCSSVar('--color-text-tertiary'),
         fontSans: getCSSVar('--font-sans'),
@@ -1191,9 +1283,9 @@ function sessRenderStrip(data) {
         const x0 = x(ep.start_ts);
         const x1 = x(ep.end_ts);
         rect.setAttribute('x', x0);
-        rect.setAttribute('y', 4);
+        rect.setAttribute('y', 4 + TOP);
         rect.setAttribute('width', Math.max(x1 - x0, 3));
-        rect.setAttribute('height', H - 22);
+        rect.setAttribute('height', H - 22 - TOP);
         rect.setAttribute('rx', 3);
         rect.setAttribute('fill', epColor(ep.episode_idx));
         rect.setAttribute('fill-opacity', '0.10');
@@ -1206,15 +1298,16 @@ function sessRenderStrip(data) {
 
     // Low-entropy sequence bands: dashed outlines (no fill), slightly taller
     // than the binge bands so the two band kinds never merge visually. They
-    // are detector-independent of binges and may overlap them.
-    for (const w of (data.windows || [])) {
+    // are detector-independent of binges and may overlap them — but ones
+    // largely covered by a binge are hidden (see sessVisibleWindows).
+    for (const w of sessVisibleWindows(data)) {
         const rect = document.createElementNS(svgNS, 'rect');
         const x0 = x(w.start_ts);
         const x1 = x(w.end_ts);
         rect.setAttribute('x', x0);
-        rect.setAttribute('y', 1);
+        rect.setAttribute('y', 1 + TOP);
         rect.setAttribute('width', Math.max(x1 - x0, 3));
-        rect.setAttribute('height', H - 14);
+        rect.setAttribute('height', H - 14 - TOP);
         rect.setAttribute('rx', 3);
         rect.setAttribute('fill', 'none');
         rect.setAttribute('stroke', palette.textSecondary);
@@ -1303,7 +1396,133 @@ function sessRenderStrip(data) {
     mk(PAD, 'start', sessFmtTs(plays[0].ts));
     mk(W - PAD, 'end', sessFmtTs(plays[plays.length - 1].ts));
 
+    // The ▾ marker in the top gutter tracking the video shown in the player;
+    // positioned by sessUpdateStripCursor.
+    const cursor = document.createElementNS(svgNS, 'polygon');
+    cursor.setAttribute('fill', palette.textPrimary || '#888');
+    cursor.style.display = 'none';
+    cursor.style.pointerEvents = 'none';
+    svg.appendChild(cursor);
+
     host.appendChild(svg);
+    // The geometry the strip cursor and the variable line plot reuse — both
+    // must share this exact time→x mapping to stay aligned with the strip.
+    sessState.stripGeom = { x, times, W, PAD, cursor };
+    if (sessState.varPlot) { sessRenderVarPlot(); }
+}
+
+
+
+
+// Display name for a plottable variable, from the detail payload's ranges.
+function sessVarLabel(name) {
+    const d = sessState.detail;
+    const hit = d && (d.session_ranges || []).find(r => r.variable === name);
+    return hit ? hit.label : name.replace(/_/g, ' ');
+}
+
+
+
+
+// Toggle the per-variable line plot above the strip (clicking the plotted
+// variable's name again hides it; clicking another switches).
+function sessToggleVarPlot(name) {
+    sessState.varPlot = sessState.varPlot === name ? null : name;
+    document.querySelectorAll('.sess-varplot-link').forEach(el =>
+        el.classList.toggle('is-plotted', el.dataset.var === sessState.varPlot));
+    sessRenderVarPlot();
+}
+
+
+
+
+// Line plot of one variable across the session's plays, sharing the strip's
+// exact time→x mapping (same width, same padding) so peaks line up with the
+// play marks below. Missing values break the line rather than interpolating
+// through content that has no value.
+function sessRenderVarPlot() {
+    const host = document.getElementById('sess-varplot');
+    if (!host) { return; }
+    const d = sessState.detail;
+    const geom = sessState.stripGeom;
+    const name = sessState.varPlot;
+    if (!d || !geom || !name) {
+        host.style.display = 'none';
+        host.innerHTML = '';
+        return;
+    }
+    const values = name === 'dwell_s'
+        ? d.plays.map(p => (p.dwell_s == null ? null : Number(p.dwell_s)))
+        : ((d.play_variables || {})[name] || null);
+    host.style.display = '';
+    const label = sessVarLabel(name);
+    const head = `
+        <div class="sess-varplot-head text-xxs">
+            <span style="color: var(--color-text-secondary);">${escapeHtml(label)} across this session</span>
+            <button type="button" class="btn-discreet text-xxs sess-varplot-close" aria-label="Hide plot">×</button>
+        </div>`;
+    const finite = [];
+    if (values) {
+        for (let i = 0; i < d.plays.length; i++) {
+            const v = Number(values[i]);
+            if (Number.isFinite(v)) { finite.push(v); }
+        }
+    }
+    if (!values || !finite.length) {
+        host.innerHTML = `${head}<div class="text-xxs" style="color: var(--color-text-muted);">`
+            + 'No per-play values available for this variable in this session.</div>';
+        host.querySelector('.sess-varplot-close').addEventListener('click', () => sessToggleVarPlot(name));
+        return;
+    }
+
+    const { W, PAD } = geom;
+    const PH = 64;
+    const yTop = 8;
+    const yBot = PH - 10;
+    let vMin = Math.min(...finite);
+    let vMax = Math.max(...finite);
+    if (vMin === vMax) { vMin -= 0.5; vMax += 0.5; }
+    const y = (v) => yBot - ((v - vMin) / (vMax - vMin)) * (yBot - yTop);
+    const accent = getCSSVar('--color-accent') || '#5B7E98';
+    const tertiary = getCSSVar('--color-text-tertiary');
+    const fontSans = getCSSVar('--font-sans');
+
+    // Step-after path segments: each value holds flat until the next play,
+    // then steps vertically — a play's value is a property of that play, not
+    // a trend between plays. A gap (missing value) breaks the line. An
+    // isolated value (both neighbours missing) keeps a single dot — a bare
+    // step needs two points, and dropping the value entirely would lie.
+    const segments = [];
+    let seg = [];
+    const dots = [];
+    for (let i = 0; i < d.plays.length; i++) {
+        const v = Number(values[i]);
+        if (!Number.isFinite(v)) {
+            if (seg.length === 1) { dots.push(seg[0]); }
+            if (seg.length > 1) { segments.push(seg); }
+            seg = [];
+            continue;
+        }
+        seg.push([geom.x(d.plays[i].ts), y(v)]);
+    }
+    if (seg.length === 1) { dots.push(seg[0]); }
+    if (seg.length > 1) { segments.push(seg); }
+    const stepPath = (pts) => pts.map(([px, py], i) =>
+        i === 0 ? `M ${px.toFixed(1)} ${py.toFixed(1)}`
+                : `H ${px.toFixed(1)} V ${py.toFixed(1)}`).join(' ');
+    const paths = segments.map(s =>
+        `<path d="${stepPath(s)}" fill="none" stroke="${accent}" stroke-width="1.4"/>`).join('')
+        + dots.map(([px, py]) =>
+            `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="1.5" fill="${accent}"/>`).join('');
+    const fmtV = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
+    host.innerHTML = `${head}
+        <svg width="100%" viewBox="0 0 ${W} ${PH}" style="display: block;">
+            <line x1="${PAD}" y1="${yBot}" x2="${W - PAD}" y2="${yBot}" stroke="${tertiary}" stroke-opacity="0.35"/>
+            ${paths}
+            <text x="${PAD}" y="${yTop}" fill="${tertiary}" font-size="9" font-family="${fontSans}">${fmtV(vMax)}</text>
+            <text x="${PAD}" y="${yBot - 2}" fill="${tertiary}" font-size="9" font-family="${fontSans}">${fmtV(vMin)}</text>
+        </svg>`;
+    host.querySelector('.sess-varplot-close').addEventListener('click', () => sessToggleVarPlot(name));
 }
 
 
@@ -1459,10 +1678,16 @@ function sessRenderSeqList(data) {
         }
     }
 
-    const windows = data.windows || [];
-    if (!windows.length) {
+    const allWindows = data.windows || [];
+    const windows = sessVisibleWindows(data);
+    const nHidden = allWindows.length - windows.length;
+    if (!allWindows.length) {
         winHost.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted);">'
             + `None — the session has fewer than ${sessParams().window_n} distinct embedded videos.</div>`;
+    } else if (!windows.length) {
+        winHost.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted);">'
+            + `${nHidden === 1 ? 'The one detected sequence is' : `All ${nHidden} detected sequences are`} `
+            + 'hidden — the same videos already appear in a binge above.</div>';
     }
     for (const w of windows) {
         const entry = document.createElement('button');
@@ -1482,6 +1707,14 @@ function sessRenderSeqList(data) {
             </span>`;
         entry.addEventListener('click', () => sessSelectSeq('window', w.window_idx, 0));
         winHost.appendChild(entry);
+    }
+    if (windows.length && nHidden > 0) {
+        const note = document.createElement('div');
+        note.className = 'text-xxs';
+        note.style.color = 'var(--color-text-muted)';
+        note.textContent = `${nHidden} more sequence${nHidden > 1 ? 's' : ''} hidden — `
+            + 'the same videos already appear in a binge above.';
+        winHost.appendChild(note);
     }
 }
 
@@ -1580,6 +1813,7 @@ function sessRenderPlayer(autoplay) {
         pane.classList.remove('is-context');
         pane.innerHTML = '<div class="text-sm" style="padding: 24px; color: var(--color-text-muted);">'
             + 'Select a binge or low-entropy sequence to inspect its videos.</div>';
+        sessUpdateStripCursor(null);
         return;
     }
     pauseSessionsVideos();
@@ -1587,14 +1821,15 @@ function sessRenderPlayer(autoplay) {
     const isContext = !!m.context;
     const play = sessState.playsById[m.item_id] || {};
     const seqLabel = a.kind === 'binge' ? `Binge ${a.idx + 1}` : `Sequence ${a.idx + 1}`;
+    const kindNoun = a.kind === 'binge' ? 'binge' : 'sequence';
     const seqColor = a.kind === 'binge' ? sessEpisodeColor(a.idx) : 'var(--color-text-secondary)';
+    sessUpdateStripCursor(m.ts);
 
     const posLabel = isContext
         ? `${m.offset} ${m.context === 'before' ? 'before' : 'after'}`
         : `${a.pos - a.memberStart + 1} / ${a.memberCount}`;
     const banner = isContext
-        ? `<div class="sess-context-banner text-xs">CONTEXT — this video is <b>not part of ${seqLabel}</b>; `
-          + `the donor watched it ${m.offset} play${m.offset > 1 ? 's' : ''} ${m.context === 'before' ? 'before the sequence began' : 'after it ended'}.</div>`
+        ? `<div class="sess-context-banner text-xs">Note: not part of the ${kindNoun}.</div>`
         : '';
 
     pane.classList.toggle('is-context', isContext);
@@ -1658,6 +1893,25 @@ function sessRenderPlayer(autoplay) {
         add('Δ distance',
             m.rolling_cosdist != null ? m.rolling_cosdist.toFixed(3) : 'start of binge',
             'Semantic distance from the running centre of the binge so far — how tightly this video continued the thread.');
+    }
+    if (isContext) {
+        // Distance from the sequence's member centroid, server-computed —
+        // the "why was this one left out" number for context steps.
+        const src = a.kind === 'binge'
+            ? sessState.detail.episodes.find(e => e.episode_idx === a.idx)
+            : (sessState.detail.windows || []).find(w => w.window_idx === a.idx);
+        const dist = src && src.context_distances
+            ? src.context_distances[`${m.item_id}@${m.ts}`] : null;
+        // No distance + no embedding is the common honest case: an unembedded
+        // video can never join a binge, and that IS the explanation.
+        const distText = dist != null
+            ? dist.toFixed(3)
+            : (play.embedded === false ? 'not embedded' : null);
+        add('Δ distance', distText,
+            `Semantic distance from the centre of the ${kindNoun}’s videos. A large value `
+            + `shows why this video was not part of the ${kindNoun}; a small one usually means `
+            + 'it was blocked by another rule (e.g. it fell outside the run). "Not embedded" '
+            + `means the video has no semantic embedding at all — it could never join a ${kindNoun}.`);
     }
     add('Political', play.political_score != null ? play.political_score.toFixed(2) : null);
     add('Sensitivity', play.sensitivity_score != null ? play.sensitivity_score.toFixed(2) : null);

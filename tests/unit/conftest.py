@@ -90,3 +90,5 @@ def _reset_perf_caches():
                                     "emb_index": None})
         routes._FEAT_CACHE.update({"ts": 0.0, "df": None})
         routes._TREND_COLS_CACHE.update({"fingerprint": None, "cols": None})
+        routes._EPVMAX_CACHE.update({"key": None, "df": None})
+        routes._MEAN_CACHE.update({"ts": 0.0, "model": None, "mean": None})

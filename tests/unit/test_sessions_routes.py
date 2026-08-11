@@ -1100,3 +1100,180 @@ def test_detail_carries_duration_desc_hashtags_and_session_ranges(
     assert by_var["sensitivity_score"]["max"] == pytest.approx(0.7)
     assert by_var["dwell_s"]["min"] == pytest.approx(12.0)
     assert by_var["dwell_s"]["max"] == pytest.approx(45.0)
+
+
+
+
+
+
+def test_detail_includes_per_play_variable_series(client, patched_routes, monkeypatch):
+    """play_variables aligns each numeric map variable with the plays order."""
+    import web_interface.routes.api_sessions_routes as mod
+    import web_interface.routes.api_viewer_routes as viewer
+
+    plays = pd.DataFrame({
+        "item_id": pd.Series(["v1", "v2"], dtype="string"),
+        "_ts": pd.to_datetime(["2026-01-01T10:00:00", "2026-01-01T10:05:00"]),
+        "play_duration": [12.0, 45.0],
+        "source_platform": ["tiktok"] * 2,
+    })
+    trend_feat = pd.DataFrame({
+        "political_score": [0.25, None],
+    }, index=pd.Index(["v1", "v2"], name="item_id"))
+    trend_feat["political_score"] = pd.to_numeric(trend_feat["political_score"])
+
+    monkeypatch.setattr(mod, "_session_plays", lambda cid, row: plays)
+    monkeypatch.setattr(mod, "_session_episodes", lambda cid, sid: [])
+    monkeypatch.setattr(mod, "_session_windows", lambda cid, sid: [])
+    monkeypatch.setattr(mod, "_features", lambda: pd.DataFrame())
+    monkeypatch.setattr(mod, "_trend_frame", lambda ids: trend_feat)
+    monkeypatch.setattr(mod, "_story_map", lambda ids: {})
+    monkeypatch.setattr(mod, "_scrape_text_map", lambda ids: {})
+    monkeypatch.setattr(mod, "_flag_sets", lambda: {
+        "scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()})
+    monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset())
+
+    body = client.get("/api/sessions/detail?study=s&collection_id=colA"
+                      "&session_id=colA__0").get_json()
+    # A missing value stays a gap (None), never interpolated to a number.
+    assert body["play_variables"] == {"political_score": [0.25, None]}
+
+
+
+
+
+
+def test_attach_context_distances_measures_from_the_member_centroid(monkeypatch):
+    """Context plays get their distance to the sequence's member centroid."""
+    import numpy as np
+
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "_FLAGS_CACHE", {
+        "ts": 0.0, "model": "m", "flags": None, "emb_index": object()})
+    monkeypatch.setattr(mod, "_corpus_mean", lambda model: np.zeros(2))
+    vecs = {
+        "v1": np.array([1.0, 0.0]), "v2": np.array([1.0, 0.0]),   # members
+        "v0": np.array([0.0, 1.0]),                               # orthogonal before
+        "v3": np.array([-1.0, 0.0]),                              # opposite after
+    }
+
+    def fake_block(model, ids, mean, index=None):
+        found = [i for i in ids if i in vecs]
+        block = np.stack([vecs[i] for i in found])
+        return {iid: row for row, iid in enumerate(found)}, block
+
+    monkeypatch.setattr(mod.session_explorer, "load_directional_block", fake_block)
+
+    play_rows = [{"item_id": "v0", "ts": "t0"}, {"item_id": "v1", "ts": "t1"},
+                 {"item_id": "v2", "ts": "t2"}, {"item_id": "v3", "ts": "t3"}]
+    ep = {"members": [{"item_id": "v1", "ts": "t1"},
+                      {"item_id": "v2", "ts": "t2"}]}
+    mod._attach_context_distances([ep], play_rows, 3)
+    dists = ep["context_distances"]
+    # Centroid of the members is [1, 0]: the orthogonal neighbour sits at
+    # distance 1, the opposite one at 2 — exactly the rolling_cosdist scale.
+    assert dists["v0@t0"] == pytest.approx(1.0)
+    assert dists["v3@t3"] == pytest.approx(2.0)
+
+
+
+
+
+
+def test_attach_context_distances_is_a_noop_without_a_dense_store(monkeypatch):
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "_FLAGS_CACHE", {
+        "ts": 0.0, "model": None, "flags": None, "emb_index": None})
+    ep = {"members": [{"item_id": "v1", "ts": "t1"}]}
+    mod._attach_context_distances([ep], [{"item_id": "v0", "ts": "t0"},
+                                         {"item_id": "v1", "ts": "t1"}], 3)
+    assert "context_distances" not in ep
+
+
+
+
+
+
+def test_episode_vmax_reduces_member_lists_per_binge(monkeypatch):
+    """Per-episode maxima cover the map variables AND the per-play dwell."""
+    import web_interface.routes.api_sessions_routes as mod
+
+    frame = pd.DataFrame({
+        "collection_id": pd.Series(["c1", "c1"], dtype="string"),
+        "session_id": pd.Series(["s1", "s2"], dtype="string"),
+        "member_item_ids": [["a", "b"], ["c"]],
+        "member_dwell_s": [[5.0, 30.0], [10.0]],
+    })
+    feat = pd.DataFrame({
+        "political_score": [0.1, 0.7, None],
+    }, index=pd.Index(["a", "b", "c"], name="item_id"))
+    feat["political_score"] = pd.to_numeric(feat["political_score"])
+
+    monkeypatch.setattr(mod, "_fingerprint", lambda fn, location=None: "1:1")
+    monkeypatch.setattr(mod, "_artifact_frame", lambda fn, cache, lock: frame)
+    monkeypatch.setattr(mod, "_trend_frame", lambda ids: feat)
+    monkeypatch.setattr(mod, "_EPVMAX_CACHE", {"key": None, "df": None})
+
+    out = mod._episode_vmax()
+    assert list(out["session_id"]) == ["s1", "s2"]
+    assert out.iloc[0]["dwell_s"] == pytest.approx(30.0)
+    assert out.iloc[0]["political_score"] == pytest.approx(0.7)
+    assert out.iloc[1]["dwell_s"] == pytest.approx(10.0)
+    # A binge whose members have no value must stay NaN (it cannot pass a
+    # range criterion), not silently become 0.
+    assert pd.isna(out.iloc[1]["political_score"])
+
+
+
+
+
+
+def test_varmax_binges_scope_keeps_only_sessions_with_a_matching_binge(
+        client, patched_routes, monkeypatch):
+    import web_interface.routes.api_sessions_routes as mod
+
+    df = _index_df()
+    df["vmax_political_score"] = [0.9, 0.2, 0.9]
+    monkeypatch.setattr(mod, "_load_index", lambda: df)
+    # Only colA__0 has a binge whose max is in the filter range.
+    emax = pd.DataFrame({
+        "collection_id": pd.Series(["colA", "colB"], dtype="string"),
+        "session_id": pd.Series(["colA__0", "colB__0"], dtype="string"),
+        "political_score": [0.85, 0.1],
+    })
+    monkeypatch.setattr(mod, "_episode_vmax", lambda: emax)
+
+    base = ("/api/sessions/overview?study=s&min_plays=0&min_session_minutes=0"
+            "&min_coverage=0&min_emb_plays=0"
+            "&f_varmax_col=political_score&f_varmax_min=0.5")
+    # Session scope: both binge-holding sessions have a session max of 0.9.
+    ids = {s["session_id"] for s in client.get(base).get_json()["sessions"]}
+    assert ids == {"colA__0", "colB__0"}
+    # Binge scope: only the session with a binge maxing in range survives.
+    ids = {s["session_id"] for s in
+           client.get(base + "&f_varmax_scope=binges").get_json()["sessions"]}
+    assert ids == {"colA__0"}
+
+
+
+
+
+
+def test_varmax_binges_scope_degrades_to_session_scope_without_episodes(
+        client, patched_routes, monkeypatch):
+    """No episodes artifact (or unknown variable) → session-max semantics."""
+    import web_interface.routes.api_sessions_routes as mod
+
+    df = _index_df()
+    df["vmax_political_score"] = [0.9, 0.2, 0.9]
+    monkeypatch.setattr(mod, "_load_index", lambda: df)
+    monkeypatch.setattr(mod, "_episode_vmax", lambda: None)
+
+    res = client.get(
+        "/api/sessions/overview?study=s&min_plays=0&min_session_minutes=0"
+        "&min_coverage=0&min_emb_plays=0&f_varmax_col=political_score"
+        "&f_varmax_min=0.5&f_varmax_scope=binges")
+    ids = {s["session_id"] for s in res.get_json()["sessions"]}
+    assert ids == {"colA__0", "colB__0"}
