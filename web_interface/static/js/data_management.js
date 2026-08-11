@@ -291,13 +291,23 @@ function _checkLargeStudy(formContainer) {
     const sampleValue = sampleSelect ? sampleSelect.value : 'off';
     if (sampleValue !== 'off') return Promise.resolve(true);
 
-    const totalActivities = _sumSelectedActivities(formContainer);
+    // The daily chart holds a per-day count for exactly the selected collections,
+    // so summing it across the study window is the size the study will actually
+    // have. Only when the chart has no data (fetch failed / not yet returned) do
+    // we fall back to the whole-collection totals, which ignore the window.
+    const windowed = _windowActivityCount(formContainer);
+    const totalActivities = windowed != null ? windowed : _sumSelectedActivities(formContainer);
     if (totalActivities <= _LARGE_STUDY_THRESHOLD) return Promise.resolve(true);
+
+    const dateInputs = _dateInputs(formContainer);
+    const rangeNote = (windowed != null && dateInputs.start?.value && dateInputs.end?.value)
+        ? ` between ${dateInputs.start.value} and ${dateInputs.end.value}`
+        : '';
 
     return new Promise(resolve => {
         const overlay = document.getElementById('large-study-warning');
         const textEl = document.getElementById('large-study-warning-text');
-        textEl.innerHTML = `This study covers approximately <strong>${totalActivities.toLocaleString()}</strong> activities with no sampling. ` +
+        textEl.innerHTML = `This study covers approximately <strong>${totalActivities.toLocaleString()}</strong> activities${rangeNote} with no sampling. ` +
             `To avoid impacting the hub's performance, consider limiting the time period, enabling sampling, or reducing the number of collections.`;
         overlay.classList.add('visible');
         document.getElementById('large-study-warning-back').onclick = () => {
@@ -794,12 +804,12 @@ function populateForm(row, study) {
         if (el) el.addEventListener('change', () => _scheduleStudyEstimate(row));
     });
 
-    // Date inputs are hidden and driven by the chart selection; redraw the chart
-    // shading live and re-estimate when they change.
-    ['START_DATE', 'END_DATE'].forEach(field => {
-        const el = row.querySelector(`[data-field="${field}"]`);
-        if (el) el.addEventListener('input', () => { _renderDailyChart(row); _scheduleStudyEstimate(row); });
-    });
+    // Date range: typed dates, day steppers, "Full range", and (wired on first
+    // chart render) the chart's per-endpoint drag handles. The window key marks
+    // the saved window as belonging to the saved collection set, so the chart
+    // fetches below leave it alone until the user changes collections.
+    row.dataset.windowKey = _collectionsKey(study.SELECTED_COLLECTIONS);
+    _wireDateRangeControls(row);
 
     // Seed the chart from the cached snapshot saved on the study so it
     // renders instantly on modal open. The backend only persists this cache
@@ -1468,6 +1478,7 @@ function _fetchDailyChart(row) {
         .then(data => {
             s.loading = false;
             if (data.status !== 'success') { _renderDailyChart(row); return; }
+            const isInitial = row.dataset.initialFetch === '1';
             s.totalPerDay = data.total_per_day || [];
             _syncDateRangeToCollections(row, s.totalPerDay);
             _renderDailyChart(row);
@@ -1476,7 +1487,7 @@ function _fetchDailyChart(row) {
             }
             // On the first fetch after opening, the date snap above may have reset
             // the seeded mosaic — re-apply the last persisted check so it persists.
-            if (row.dataset.initialFetch === '1') {
+            if (isInitial) {
                 row.dataset.initialFetch = '';
                 const sd = (typeof allStudies !== 'undefined') ? allStudies.find(x => x.STUDY_NAME === studyName) : null;
                 const st = sd && sd.stats;
@@ -1497,14 +1508,30 @@ function _fetchDailyChart(row) {
         });
 }
 
+// Identity of a collection set, order-independent — the window is snapped when
+// this changes and left alone when it doesn't.
+function _collectionsKey(list) {
+    return JSON.stringify((Array.isArray(list) ? list : []).map(String).sort());
+}
+
 // Snap START_DATE/END_DATE to cover the full span of the currently selected
-// collections. Runs each time the daily-activities fetch returns, so the
-// user's selection always starts with everything included; drag-to-select on
-// the chart overrides until the next collection change.
+// collections, so a changed collection set starts with everything included.
+//
+// An existing window is kept while the collection set is unchanged — a study
+// opens on its saved window (and keeps it verbatim, so a window that reaches
+// past the last day with data survives), instead of being silently widened back
+// to the full range and saved that way. Every daily-activities response lands
+// here, including the debounced refetch the collection selector kicks off on
+// open, so the decision is keyed on the collections rather than on "first fetch".
 function _syncDateRangeToCollections(row, totalPerDay) {
     const startInput = row.querySelector('[data-field="START_DATE"]');
     const endInput = row.querySelector('[data-field="END_DATE"]');
     if (!startInput || !endInput) return;
+
+    const key = _collectionsKey(_getSelectedCollections(row));
+    const sameCollections = row.dataset.windowKey === key;
+    row.dataset.windowKey = key;
+
     // Only fire input (which invalidates the seeded mosaic + actuals) when the
     // snapped value actually changes, so re-opening a study whose window already
     // spans the full range doesn't spuriously wipe the seeded viz.
@@ -1518,6 +1545,8 @@ function _syncDateRangeToCollections(row, totalPerDay) {
         setIfChanged(endInput, '');
         return;
     }
+    if (sameCollections && (startInput.value || '').trim() && (endInput.value || '').trim()) return;
+
     const dates = totalPerDay.map(d => d.date).filter(Boolean).sort();
     setIfChanged(startInput, dates[0]);
     setIfChanged(endInput, dates[dates.length - 1]);
@@ -1534,6 +1563,306 @@ function _toIsoDate(v) {
     // fypWallIsoDate() reads the calendar day straight out of those rather than
     // round-tripping through UTC, which would shift the date back a day here.
     return fypWallIsoDate(v);
+}
+
+
+// --- Study date window: endpoints move independently -----------------------
+//
+// The window lives in the two date inputs (START_DATE / END_DATE). Four things
+// write to them — typing, the -/+ day steppers, the chart's edge handles, and a
+// drag across the chart — and they all funnel through _setDateWindow so the
+// chart shading, the summary line and the estimate stay in sync.
+
+function _dateInputs(row) {
+    return {
+        start: row.querySelector('[data-field="START_DATE"]'),
+        end: row.querySelector('[data-field="END_DATE"]'),
+    };
+}
+
+// First/last day covered by the currently selected collections, from the chart data.
+function _chartSpan(row) {
+    const dates = (_getChartState(row).totalPerDay || []).map(d => d.date).filter(Boolean).sort();
+    if (!dates.length) return null;
+    return { lo: dates[0], hi: dates[dates.length - 1] };
+}
+
+function _isoDayMs(iso) {
+    if (!iso || iso.length < 10) return NaN;
+    return Date.UTC(
+        parseInt(iso.slice(0, 4), 10),
+        parseInt(iso.slice(5, 7), 10) - 1,
+        parseInt(iso.slice(8, 10), 10),
+    );
+}
+
+// Calendar arithmetic on a yyyy-mm-dd string. Both the input and the output are
+// wall-clock days, so the shift runs against UTC midnight and reads the parts
+// back out in UTC — no instant is ever formatted in a local timezone.
+function _shiftIsoDate(iso, days) {
+    const ms = _isoDayMs(iso);
+    if (isNaN(ms)) return iso;
+    const d = new Date(ms + days * 86400000);
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+function _clampIso(iso, lo, hi) {
+    if (!iso) return iso;
+    if (lo && iso < lo) return lo;
+    if (hi && iso > hi) return hi;
+    return iso;
+}
+
+// Activities inside the current window, summed from the chart's per-day counts.
+// Returns null when there is no chart data to sum.
+function _windowActivityCount(row) {
+    const total = _getChartState(row).totalPerDay || [];
+    if (!total.length) return null;
+    const { start, end } = _dateInputs(row);
+    const s = (start?.value || '').trim();
+    const e = (end?.value || '').trim();
+    let n = 0;
+    total.forEach(d => {
+        if (s && d.date < s) return;
+        if (e && d.date > e) return;
+        n += (d.count || 0);
+    });
+    return n;
+}
+
+// Move one or both endpoints. An endpoint only ever moves the other one when the
+// two would cross, so each end can be adjusted on its own.
+//
+// opts.fire  — dispatch the input event (redraw + re-estimate). A live drag passes
+//              false per frame and fires once on release.
+// opts.clamp — hold the value inside the collections' span. On for pointer moves
+//              (a handle can't leave the chart anyway); off for typed dates and the
+//              day steppers, so a window may deliberately reach past the last day
+//              with data.
+function _setDateWindow(row, { start, end }, opts = {}) {
+    const { fire = true, clamp = false } = opts;
+    const inputs = _dateInputs(row);
+    if (!inputs.start || !inputs.end) return false;
+    const span = clamp ? _chartSpan(row) : null;
+    const lo = span ? span.lo : null;
+    const hi = span ? span.hi : null;
+
+    let nextStart = start != null ? _clampIso(start, lo, hi) : (inputs.start.value || '').trim();
+    let nextEnd = end != null ? _clampIso(end, lo, hi) : (inputs.end.value || '').trim();
+    if (nextStart && nextEnd && nextStart > nextEnd) {
+        // The moved end wins; the other one is pushed to meet it.
+        if (start != null && end == null) nextEnd = nextStart;
+        else if (end != null && start == null) nextStart = nextEnd;
+        else nextEnd = nextStart;
+    }
+
+    const changed = [];
+    if (inputs.start.value !== nextStart) { inputs.start.value = nextStart; changed.push(inputs.start); }
+    if (inputs.end.value !== nextEnd) { inputs.end.value = nextEnd; changed.push(inputs.end); }
+    if (!changed.length) return false;
+
+    if (fire) changed.forEach(el => el.dispatchEvent(new Event('input', { bubbles: true })));
+    else _renderDailyChart(row);
+    return true;
+}
+
+// Keep the summary line and the handle positions in step with the inputs. Called
+// at the end of every chart render, so every path that touches the window
+// refreshes it.
+function _updateDateRangeUI(row) {
+    const span = _chartSpan(row);
+    const { start, end } = _dateInputs(row);
+
+    const summary = row.querySelector('.study-date-summary');
+    if (summary) {
+        const s = (start?.value || '').trim();
+        const e = (end?.value || '').trim();
+        if (!span || !s || !e) {
+            summary.textContent = '';
+        } else {
+            const days = Math.round((_isoDayMs(e) - _isoDayMs(s)) / 86400000) + 1;
+            const n = _windowActivityCount(row);
+            const parts = [`${days.toLocaleString()} day${days === 1 ? '' : 's'}`];
+            if (n != null) parts.push(`${n.toLocaleString()} activities`);
+            if (s <= span.lo && e >= span.hi) parts.push('full range');
+            summary.textContent = parts.join(' · ');
+        }
+    }
+
+    _positionRangeHandles(row);
+}
+
+// Wire the typed inputs, the day steppers and the "Full range" button. The chart's
+// own drag handles are wired lazily in _ensureRangeHandles.
+function _wireDateRangeControls(row) {
+    const { start, end } = _dateInputs(row);
+    [start, end].forEach(el => {
+        if (!el) return;
+        // Live redraw while typing/picking; the estimate is debounced downstream.
+        el.addEventListener('input', () => { _renderDailyChart(row); _scheduleStudyEstimate(row); });
+        // On commit, repair a half-typed or crossed-over value rather than saving
+        // an unbounded window by accident.
+        el.addEventListener('change', () => {
+            const span = _chartSpan(row);
+            if (!span) return;
+            const isStart = el === start;
+            const val = (el.value || '').trim();
+            if (!val) { _setDateWindow(row, isStart ? { start: span.lo } : { end: span.hi }); return; }
+            _setDateWindow(row, isStart ? { start: val } : { end: val });
+        });
+    });
+
+    row.querySelectorAll('.study-date-step').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const edge = btn.dataset.edge;
+            const step = parseInt(btn.dataset.step, 10) || 0;
+            const el = edge === 'start' ? start : end;
+            const span = _chartSpan(row);
+            const current = (el?.value || '').trim() || (span ? (edge === 'start' ? span.lo : span.hi) : '');
+            if (!current) return;
+            const moved = _shiftIsoDate(current, step);
+            _setDateWindow(row, edge === 'start' ? { start: moved } : { end: moved });
+        });
+    });
+
+    const reset = row.querySelector('.study-date-reset');
+    if (reset) {
+        reset.addEventListener('click', () => {
+            const span = _chartSpan(row);
+            if (span) _setDateWindow(row, { start: span.lo, end: span.hi });
+        });
+    }
+}
+
+
+// --- Chart edge handles ----------------------------------------------------
+
+// Two draggable rules over the chart, one per endpoint. They live in the chart
+// wrap (not inside the Plotly div, which Plotly owns) and are repositioned from
+// the axis on every render.
+function _ensureRangeHandles(row) {
+    const wrap = row.querySelector('.study-daily-chart-wrap');
+    if (!wrap) return null;
+    if (wrap.querySelectorAll('.study-range-handle').length === 2) return wrap;
+
+    ['start', 'end'].forEach(edge => {
+        const handle = document.createElement('div');
+        handle.className = 'study-range-handle';
+        handle.dataset.edge = edge;
+        handle.style.display = 'none';
+        handle.title = edge === 'start'
+            ? 'Drag to move the start of the window'
+            : 'Drag to move the end of the window';
+        handle.innerHTML = '<span class="study-range-handle__rule"></span><span class="study-range-handle__grip"></span>';
+        handle.addEventListener('mousedown', ev => _beginRangeHandleDrag(row, edge, ev));
+        wrap.appendChild(handle);
+    });
+    return wrap;
+}
+
+function _positionRangeHandles(row) {
+    const wrap = row.querySelector('.study-daily-chart-wrap');
+    if (!wrap) return;
+    const handles = wrap.querySelectorAll('.study-range-handle');
+    if (!handles.length) return;
+
+    const chartDiv = row.querySelector('.study-daily-chart');
+    const fullLayout = chartDiv && chartDiv._fullLayout;
+    const span = _chartSpan(row);
+    const hidden = row.dataset.readOnly === '1' || !span || !fullLayout || !fullLayout.xaxis
+        || !chartDiv._plotlyInited || chartDiv.style.display === 'none';
+    if (hidden) {
+        handles.forEach(h => { h.style.display = 'none'; });
+        return;
+    }
+
+    const xa = fullLayout.xaxis;
+    const ya = fullLayout.yaxis;
+    const { start, end } = _dateInputs(row);
+    const values = {
+        start: (start?.value || '').trim() || span.lo,
+        end: (end?.value || '').trim() || span.hi,
+    };
+    const top = chartDiv.offsetTop + (ya._offset || 0);
+    const height = ya._length || chartDiv.clientHeight;
+
+    handles.forEach(h => {
+        // Bars are anchored at noon, so the handle sits on the centre of the day
+        // it selects — the same day the drag maths reads back out.
+        const px = xa._offset + xa.d2p(_isoDayMs(values[h.dataset.edge]) + 43200000);
+        if (!isFinite(px)) { h.style.display = 'none'; return; }
+        const clamped = Math.max(xa._offset, Math.min(xa._offset + xa._length, px));
+        h.style.display = '';
+        h.style.top = `${top}px`;
+        h.style.height = `${height}px`;
+        h.style.left = `${clamped}px`;
+    });
+}
+
+// Pixel (relative to the chart div) -> the calendar day under the cursor, clamped
+// to the collections' span.
+function _isoAtChartPixel(row, xa, xPx) {
+    const inAxis = Math.max(xa._offset, Math.min(xa._offset + xa._length, xPx)) - xa._offset;
+    const iso = _toIsoDate(xa.p2d(inAxis));
+    if (!iso) return null;
+    const span = _chartSpan(row);
+    return span ? _clampIso(iso, span.lo, span.hi) : iso;
+}
+
+function _beginRangeHandleDrag(row, edge, ev) {
+    if (ev.button !== 0) return;
+    const chartDiv = row.querySelector('.study-daily-chart');
+    const fullLayout = chartDiv && chartDiv._fullLayout;
+    if (!fullLayout || !fullLayout.xaxis) return;
+    const { start, end } = _dateInputs(row);
+    const moving = edge === 'start' ? start : end;
+    if (!moving || moving.disabled) return;
+
+    // Keep the mousedown away from Plotly's drag layer, which would otherwise
+    // start a range selection under the handle.
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    const xa = fullLayout.xaxis;
+    const rect = chartDiv.getBoundingClientRect();
+    const wrap = row.querySelector('.study-daily-chart-wrap');
+    wrap?.classList.add('dragging-range');
+    document.body.classList.add('study-range-dragging');
+
+    let pending = null;
+    let frame = null;
+    let moved = false;
+
+    const apply = () => {
+        frame = null;
+        if (pending == null) return;
+        const iso = pending;
+        pending = null;
+        // fire=false: redraw only. One input event goes out on release so the
+        // estimate runs once for the whole drag rather than once per day crossed.
+        const patch = edge === 'start' ? { start: iso } : { end: iso };
+        if (_setDateWindow(row, patch, { fire: false, clamp: true })) moved = true;
+    };
+
+    const onMove = (e) => {
+        const iso = _isoAtChartPixel(row, xa, e.clientX - rect.left);
+        if (!iso) return;
+        pending = iso;
+        if (frame == null) frame = requestAnimationFrame(apply);
+    };
+
+    const onUp = () => {
+        window.removeEventListener('mousemove', onMove, true);
+        window.removeEventListener('mouseup', onUp, true);
+        if (frame != null) { cancelAnimationFrame(frame); apply(); }
+        wrap?.classList.remove('dragging-range');
+        document.body.classList.remove('study-range-dragging');
+        if (moved) moving.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    window.addEventListener('mousemove', onMove, true);
+    window.addEventListener('mouseup', onUp, true);
 }
 
 function _renderDailyChart(row) {
@@ -1567,6 +1896,7 @@ function _renderDailyChart(row) {
             window.Plotly.purge(chartDiv);
             chartDiv._plotlyInited = false;
         }
+        _updateDateRangeUI(row);
         return;
     }
 
@@ -1721,10 +2051,9 @@ function _renderDailyChart(row) {
             const s1 = _toIsoDate(minX);
             const e1 = _toIsoDate(maxX);
             if (!s1 || !e1) return;
-            startInput.value = s1;
-            endInput.value = e1;
-            startInput.dispatchEvent(new Event('input', { bubbles: true }));
-            endInput.dispatchEvent(new Event('input', { bubbles: true }));
+            // A drag that overshoots the data would otherwise persist a window
+            // wider than any activity; clamp it back to the span.
+            _setDateWindow(row, { start: s1, end: e1 }, { clamp: true });
             window.Plotly.relayout(chartDiv, { selections: [] });
         });
         // Plotly's built-in plotly_doubleclick only fires in the plot interior
@@ -1742,7 +2071,13 @@ function _renderDailyChart(row) {
             endInput.dispatchEvent(new Event('input', { bubbles: true }));
             if (window.Plotly) window.Plotly.relayout(chartDiv, { selections: [] });
         }, true);
+        // Responsive resizes and autorange changes move the axis under the
+        // handles; reposition them whenever Plotly finishes drawing.
+        chartDiv.on('plotly_afterplot', () => _positionRangeHandles(row));
     }
+
+    if (!readOnly) _ensureRangeHandles(row);
+    _updateDateRangeUI(row);
 }
 
 // --- Access dropdown in modal header ---
