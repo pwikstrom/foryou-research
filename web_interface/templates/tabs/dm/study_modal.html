@@ -57,8 +57,6 @@
     <!-- Template for Study Edit Form (cloned into modal) -->
     <template id="study_detail_template">
         <div class="study-edit-form" data-study-name="">
-            <input type="hidden" data-field="START_DATE">
-            <input type="hidden" data-field="END_DATE">
 
             <div class="study-issues-list text-xs" style="margin-top: 16px; display: none; flex-direction: column; gap: 3px;"></div>
 
@@ -113,12 +111,42 @@ Included videos can still be enriched afterwards, so a wider frame is fine."
             </div>
 
             <div class="study-daily-chart-wrap" style="margin-top: 10px; position: relative; z-index: 20;">
+                <div class="study-date-range" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px;">
+                    <label class="meta-tooltip tooltip-below text-xs"
+                        data-tooltip="The study window. Each end moves on its own — type a date, use the −/+ day steppers, or drag that end's handle on the chart. Dragging across the chart sets both ends at once."
+                        style="color: var(--color-text-secondary); white-space: nowrap;">Date range</label>
+
+                    <span style="display: inline-flex; align-items: center; gap: 2px;">
+                        <button type="button" class="btn-discreet study-date-step" data-edge="start" data-step="-1"
+                            title="Move the start one day earlier" {% if not current_user.is_admin() %}disabled{% endif %}>&minus;</button>
+                        <input type="date" data-field="START_DATE" class="control-input study-date-input text-xs"
+                            {% if not current_user.is_admin() %}disabled{% endif %}>
+                        <button type="button" class="btn-discreet study-date-step" data-edge="start" data-step="1"
+                            title="Move the start one day later" {% if not current_user.is_admin() %}disabled{% endif %}>+</button>
+                    </span>
+
+                    <span class="text-xs" style="color: var(--color-text-tertiary);">&ndash;</span>
+
+                    <span style="display: inline-flex; align-items: center; gap: 2px;">
+                        <button type="button" class="btn-discreet study-date-step" data-edge="end" data-step="-1"
+                            title="Move the end one day earlier" {% if not current_user.is_admin() %}disabled{% endif %}>&minus;</button>
+                        <input type="date" data-field="END_DATE" class="control-input study-date-input text-xs"
+                            {% if not current_user.is_admin() %}disabled{% endif %}>
+                        <button type="button" class="btn-discreet study-date-step" data-edge="end" data-step="1"
+                            title="Move the end one day later" {% if not current_user.is_admin() %}disabled{% endif %}>+</button>
+                    </span>
+
+                    <button type="button" class="btn-discreet study-date-reset text-xxs"
+                        title="Reset the window to the full span of the selected collections"
+                        {% if not current_user.is_admin() %}disabled{% endif %}>Full range</button>
+                    <span class="study-date-summary text-xxs" style="color: var(--color-text-tertiary); font-variant-numeric: tabular-nums;"></span>
+                </div>
                 <div class="study-daily-chart-empty text-xs" style="padding: 16px; color: var(--color-text-tertiary); text-align: center; border: 1px dashed var(--color-border); border-radius: 4px; background: var(--color-bg-surface);">
                     Select one or more collections to see activities per day.
                 </div>
                 <div class="study-daily-chart" style="display: none; height: 120px; background: var(--chart-bg); border: 1px solid var(--color-border); border-radius: 4px; overflow: visible;"></div>
                 <div class="study-daily-chart-hint text-xxs" style="display: none; color: var(--color-text-tertiary); margin-top: 2px;">
-                    Drag a horizontal range to set the study window. Double-click to reset to the full range.
+                    Drag either handle to move one end of the window; drag across the chart to set both at once. Double-click to reset to the full range.
                 </div>
             </div>
 
