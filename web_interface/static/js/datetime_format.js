@@ -178,13 +178,19 @@
     }
 
 
-    /** "28-Jul-2026 14:32" exactly as stored — no timezone conversion. */
+    /**
+     * "28-Jul-2026 14:32:07" exactly as stored — no timezone conversion.
+     * Seconds render whenever the stored stamp carries them: participant
+     * activity is second-resolution data (plays inside a binge are often
+     * seconds apart), so truncating to minutes loses research information.
+     */
     function fypWallDateTime(value, fallback) {
         const p = _wallParts(value);
         if (!p) return fallback === undefined ? '' : fallback;
         const date = `${pad2(p.day)}-${MONTHS[p.month - 1]}-${p.year}`;
         if (p.hours === null) return date;
-        return `${date} ${pad2(p.hours)}:${pad2(p.minutes)}`;
+        const time = `${date} ${pad2(p.hours)}:${pad2(p.minutes)}`;
+        return p.seconds === null ? time : `${time}:${pad2(p.seconds)}`;
     }
 
 

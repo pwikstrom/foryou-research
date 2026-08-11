@@ -70,6 +70,14 @@ MIN_VIDEOS = 4
 MIN_MINUTES = 1.0
 MAX_SKIP = 2
 
+# Off-theme plays with dwell under this many seconds are "flicks" — rejected
+# feed noise, not a departure from the theme — and do not spend the MAX_SKIP
+# budget (added 2026-08-11; 0 restores the pure-count rule). Validated on the
+# production corpus's AIO-00060 session: the count-only rule severed a 4-video
+# exercise cluster from the 14-video binge it visibly belonged to, because the
+# 3 interleaved off-theme videos (total dwell 3 s) exhausted the budget.
+FLICK_SECONDS = 3.0
+
 # Sliding-window width (distinct embedded videos) for the per-session
 # low-entropy windows. The per-pair cosine distance is size-robust, but a
 # fixed width keeps scores comparable across sessions (and makes the
@@ -169,6 +177,7 @@ def default_params() -> dict:
         "min_videos": int(cfg.get("binge_min_videos", MIN_VIDEOS)),
         "min_minutes": float(cfg.get("binge_min_minutes", MIN_MINUTES)),
         "max_skip": max(int(cfg.get("binge_max_skip", MAX_SKIP)), 0),
+        "flick_seconds": max(float(cfg.get("binge_flick_seconds", FLICK_SECONDS)), 0.0),
         "window_n": int(cfg.get("window_n", WINDOW_N)),
         "max_windows": int(cfg.get("max_windows", MAX_WINDOWS)),
     }
@@ -554,13 +563,22 @@ def discover_collections(collections: list[str] | None = None) -> list[tuple[str
 
 def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
                     min_videos: int, min_minutes: float,
-                    max_skip: int = MAX_SKIP) -> list[dict]:
+                    max_skip: int = MAX_SKIP,
+                    flick_seconds: float = FLICK_SECONDS) -> list[dict]:
     """Grow focus episodes within one session's embedded plays.
 
     A run survives up to ``max_skip`` CONSECUTIVE off-theme videos. They are
     tolerated, not absorbed: a skipped video is never a member, never enters
     the centroid, and never extends the span — it is only counted, as
     ``n_skipped``. An ad break in the middle of a binge is the motivating case.
+
+    An off-theme video the viewer merely flicked past (dwell under
+    ``flick_seconds``) does not count toward ``max_skip`` at all — a video
+    dismissed in under a couple of seconds is feed noise the viewer rejected,
+    not a departure from the theme. Only off-theme videos the viewer actually
+    watched spend the skip budget. Flicked videos are still tolerated, never
+    members, and still count in ``n_skipped`` when the run resumes.
+    ``flick_seconds = 0`` disables the rule (every off-theme play counts).
 
     ``max_skip = 0`` restores the pre-2026-08-10 behaviour, where one off-theme
     video ended the run AND became the first member of the next one. That
@@ -582,6 +600,8 @@ def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
         min_videos: Minimum distinct videos to keep an episode.
         min_minutes: Minimum span (minutes) to keep an episode.
         max_skip: Consecutive off-theme videos a run tolerates.
+        flick_seconds: Dwell (seconds) under which an off-theme video does not
+            count toward ``max_skip``. 0 disables.
 
     Returns:
         A list of episode dicts (raw members + span; geometry/content are
@@ -590,6 +610,7 @@ def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
     episodes: list[dict] = []
     cur: dict | None = None
     pending: list[int] = []
+    pending_counted = 0
 
     def close(c: dict | None) -> None:
         if c is None or len(c["idx"]) < min_videos:
@@ -608,6 +629,7 @@ def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
         if cur is None:
             cur = fresh(iid, ridx, ts, dur)
             pending = []
+            pending_counted = 0
             i += 1
             continue
         if iid in cur["seen"]:
@@ -631,11 +653,16 @@ def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
             # ends on an interruption never counts it.
             cur["n_skipped"] += len(pending)
             pending = []
+            pending_counted = 0
             i += 1
             continue
 
         pending.append(i)
-        if len(pending) <= max_skip:
+        # An unknown dwell cannot prove a flick, so it spends the budget.
+        dwell = _num(dur)
+        if not (flick_seconds > 0 and dwell is not None and dwell < flick_seconds):
+            pending_counted += 1
+        if pending_counted <= max_skip:
             i += 1
             continue
         close(cur)
@@ -644,6 +671,7 @@ def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
         i = pending[0]
         cur = None
         pending = []
+        pending_counted = 0
     close(cur)
     return episodes
 
@@ -1059,7 +1087,7 @@ def build_collection(cid: str, plays: pd.DataFrame, id2idx: dict, U: np.ndarray,
         eps = []
         for ep_idx, ep in enumerate(segment_session(
                 seq, U, p["cut"], p["mem"], p["min_videos"], p["min_minutes"],
-                max_skip=p["max_skip"])):
+                max_skip=p["max_skip"], flick_seconds=p["flick_seconds"])):
             row = episode_record(ep, cid, s, U, feat, play_ts, mem=p["mem"])
             row["episode_idx"] = ep_idx
             eps.append(row)

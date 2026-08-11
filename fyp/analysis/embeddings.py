@@ -63,6 +63,16 @@ ANNO_DOC_COLS = [
 ]
 SCRAPE_DOC_COLS = ["item_id", "music_title", "desc_hashtags"]
 
+# Additional columns for the EXPERIMENTAL "docv2" document (see
+# build_document_v2): visible symbols/brands, the dominant on-screen
+# gender/ethnicity, and the caption text (minus hashtags, which have their own
+# line). docv2 is not wired into the live pipeline — it exists for the
+# side-by-side shard experiment driven by scripts/adhoc/embed_doc_variant_pilot.py.
+ANNO_DOC_COLS_V2 = ANNO_DOC_COLS + [
+    "symbols_and_brands", "main_gender", "main_ethnicity",
+]
+SCRAPE_DOC_COLS_V2 = SCRAPE_DOC_COLS + ["desc_not_hashtags"]
+
 # Per-field character caps keep each document well under the model's
 # per-instance token limit and stop any single long transcript / overlay list
 # from dominating the vector.
@@ -72,6 +82,13 @@ _CAP_OVERLAYS = 400
 _CAP_OBJECTS = 300
 _CAP_HASHTAGS = 200
 _CAP_SHORT = 120
+
+# docv2 rebalances the transcript: at 800 chars the spoken word dominated the
+# few-word fields (objects, symbols, hashtags), pulling talk-heavy videos
+# together regardless of what they showed. Audio caps stay unchanged.
+_CAP_SPOKEN_V2 = 300
+_CAP_DESC_V2 = 300
+_CAP_SYMBOLS_V2 = 150
 
 
 
@@ -153,16 +170,90 @@ def build_document(row: pd.Series) -> str:
 
 
 
-def build_documents(df: pd.DataFrame) -> pd.Series:
+def build_document_v2(row: pd.Series) -> str:
+    """EXPERIMENTAL document variant ("docv2") — not used by the live pipeline.
+
+    Differences from :func:`build_document` (2026-08-11, prompted by binge
+    boundaries disagreeing with human perceptual grouping on session
+    AIO-00060):
+
+    * Adds ``Symbols/brands`` (flags and brands carry scene/topic context the
+      story often omits), ``People`` (dominant on-screen gender/ethnicity —
+      perceptual continuity the text fields cannot see), and ``Description``
+      (the caption minus hashtags).
+    * The transcript cap drops 800 → 300 so spoken word stops drowning the
+      few-word visual fields. Story and the audio fields are unchanged.
+
+    Vectors from this document are only comparable to other docv2 vectors —
+    the pilot script stamps them under a ``<model>+docv2`` store key so the
+    model-scoped shard store keeps the two spaces fully separate.
+
+    Args:
+        row: A row carrying :data:`ANNO_DOC_COLS_V2` and
+            :data:`SCRAPE_DOC_COLS_V2`.
+
+    Returns:
+        The assembled document string.
+    """
+    story = _text(row.get("video_story"), _CAP_STORY)
+    activity = f'{_text(row.get("main_activity"), 40)}; {_text(row.get("type_of_story"), 40)}'
+    spoken = _text(row.get("transcript_no_repetitions"), _CAP_SPOKEN_V2) or "(none)"
+    overlays = _list(row.get("text_overlays"), _CAP_OVERLAYS) or "(none)"
+    objects = _list(row.get("objects"), _CAP_OBJECTS)
+    symbols = _list(row.get("symbols_and_brands"), _CAP_SYMBOLS_V2) or "(none)"
+    people = f'{_text(row.get("main_gender"), 40)}; {_text(row.get("main_ethnicity"), 60)}'
+    sounds = (
+        f'{_list(row.get("notable_sounds"), _CAP_SHORT)}; '
+        f'{_list(row.get("background_music"), 60)}; '
+        f'{_text(row.get("music_title"), 80)}'
+    )
+    hashtags = _list(row.get("desc_hashtags"), _CAP_HASHTAGS)
+    desc = _list(row.get("desc_not_hashtags"), _CAP_DESC_V2) or "(none)"
+    return (
+        f"Story: {story}\nActivity: {activity}\n"
+        f"Spoken: {spoken}\nOn-screen text: {overlays}\nObjects: {objects}\n"
+        f"Symbols/brands: {symbols}\nPeople: {people}\n"
+        f"Sounds/music: {sounds}\nHashtags: {hashtags}\nDescription: {desc}"
+    )
+
+
+
+
+# Document variants: name -> (builder, annotation columns, scrape columns).
+# "v1" is the live document; experimental variants embed under a
+# "<model>+doc<variant>" store key and never touch the live space.
+DOC_VARIANTS = {
+    "v1": (build_document, ANNO_DOC_COLS, SCRAPE_DOC_COLS),
+    "v2": (build_document_v2, ANNO_DOC_COLS_V2, SCRAPE_DOC_COLS_V2),
+}
+
+
+
+
+def variant_store_model(model: str, variant: str) -> str:
+    """The shard-store ``model`` key for a document variant.
+
+    ``v1`` is the live document and keeps the bare model id (its shards ARE
+    the live store); any other variant is suffixed so the model-scoped store
+    treats it as a separate corpus.
+    """
+    return model if variant == "v1" else f"{model}+doc{variant}"
+
+
+
+
+def build_documents(df: pd.DataFrame, variant: str = "v1") -> pd.Series:
     """Build labelled embedding documents for every row of ``df``.
 
     Args:
         df: Merged annotation+scrape frame containing the document columns.
+        variant: Document variant name from :data:`DOC_VARIANTS`.
 
     Returns:
         A string Series aligned to ``df.index``.
     """
-    return df.apply(build_document, axis=1)
+    builder = DOC_VARIANTS[variant][0]
+    return df.apply(builder, axis=1)
 
 
 

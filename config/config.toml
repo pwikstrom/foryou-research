@@ -228,6 +228,17 @@ binge_min_videos = 4
 # interruptions is a weaker claim — read n_skipped on the card alongside it.
 binge_max_skip = 2
 
+# Off-theme plays the viewer merely flicked past (dwell under this many
+# seconds) do NOT count toward binge_max_skip. A video dismissed in a second
+# or two is feed noise the viewer rejected, not a departure from the theme —
+# only off-theme videos actually watched spend the skip budget. Flicked
+# videos are still never members and still count in n_skipped, so the card
+# stays honest about how much the binge tolerated. 0 restores the pure-count
+# rule. Validated 2026-08-11 on session AIO-00060: the count-only rule cut a
+# 4-video exercise cluster off its adjacent 14-video binge over 3 off-theme
+# videos totalling 3 s of dwell.
+binge_flick_seconds = 3.0
+
 # Minimum span of a kept binge. Was 3.0 until 2026-08-10, which dropped 65%
 # of the runs that reached binge_min_videos: it penalised fast scrolling,
 # which is if anything the more binge-like behaviour (a 6-video run in 79
