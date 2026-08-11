@@ -58,6 +58,9 @@
                         <span class="meta-tooltip text-xs" data-tooltip="A real-time axis across the session showing when and how long videos were played. Gaps indicate missing play duration data. Coloured sections are detected binges; grey bars are plays whose video has no embedding."
                               style="color: var(--color-text-muted); cursor: help;">ⓘ</span>
                     </div>
+                    <!-- Per-variable line plot (same width/time axis as the strip);
+                         shown when a variable is clicked in a "(more info)" panel. -->
+                    <div id="sess-varplot" class="sess-varplot" style="display: none;"></div>
                     <div id="sess-strip" style="position: relative;"></div>
                 </div>
                 <!-- Sequence selector column + shared single-video player -->

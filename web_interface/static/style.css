@@ -5343,10 +5343,17 @@ body:has(.public-page) {
     cursor: not-allowed;
 }
 
-/* The "session max of variable" filter row's picker */
-.sess-varmax-select {
-    width: 100%;
+/* The "session max of variable" filter row's picker + binges-only knob */
+.sess-varmax-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin: 2px 0 4px;
+}
+
+.sess-varmax-select {
+    flex: 1;
+    min-width: 0;
     padding: 3px 6px;
     border: 1px solid var(--color-border);
     border-radius: 4px;
@@ -5354,6 +5361,25 @@ body:has(.public-page) {
     color: var(--color-text-primary);
     font-family: var(--font-sans);
 }
+
+.sess-varmax-scope {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-text-tertiary);
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.sess-varmax-scope input { accent-color: var(--color-accent); cursor: pointer; }
+
+.sess-varmax-scope:has(input:disabled) {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.sess-varmax-scope:has(input:checked) { color: var(--color-accent); }
 
 /* Binge card + its collapsible min/max panel stack in one column */
 .sess-seq-wrap {
@@ -5389,6 +5415,34 @@ body:has(.public-page) {
 }
 
 .sess-minmax-label { color: var(--color-text-muted); }
+
+/* Clickable variable names inside the min/max panels — they toggle the
+   session line plot above the strip. */
+.sess-varplot-link { cursor: pointer; }
+
+.sess-varplot-link:hover {
+    color: var(--color-text-secondary);
+    text-decoration: underline;
+}
+
+.sess-varplot-link.is-plotted { color: var(--color-accent); }
+
+/* The per-variable line plot above the session strip */
+.sess-varplot {
+    padding: 4px 0 2px;
+    border-bottom: 1px dashed var(--color-border-subtle);
+    margin-bottom: 4px;
+}
+
+.sess-varplot-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 2px;
+}
+
+.sess-varplot-close { padding: 0 6px; line-height: 1.2; }
 
 .sess-minmax-title {
     color: var(--color-text-secondary);

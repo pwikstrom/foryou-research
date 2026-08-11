@@ -12,9 +12,11 @@ AND it started inside the study's date window (see :func:`_in_study_window`).
 Neither axis implies the other: the collection set alone would show a ten-day
 study every session those donors ever recorded.
 
-No embedding vectors are ever touched here: all entropy/focus numbers were
-precomputed into the artifacts, and per-item flags come from cheap id-set
-membership checks.
+All entropy/focus numbers were precomputed into the artifacts, and per-item
+flags come from cheap id-set membership checks. The one deliberate exception
+is the detail payload's context-play distances: a handful of vectors are
+fetched from the dense sidecar per request (ranged reads, never a shard scan)
+to explain why the plays just outside a binge/sequence were not part of it.
 """
 
 import itertools
@@ -120,6 +122,14 @@ _RANGES_CACHE_MAX = 32
 # video_map's numeric-column list, learned from the first full read per
 # artifact version so later _trend_frame reads can project columns.
 _TREND_COLS_CACHE: dict = {"fingerprint": None, "cols": None}
+# Per-binge maxima of the numeric video variables, one row per episode —
+# backs the varmax filter's "binges only" scope. Keyed on the episodes +
+# video_map fingerprints; the frame itself is tiny (episodes × variables).
+_EPVMAX_CACHE: dict = {"key": None, "df": None}
+# The active model's corpus mean (for the context-play distances). Same TTL
+# discipline as the flag sets: a stale mean is impossible mid-TTL because the
+# mean file only changes on an embeddings rebuild.
+_MEAN_CACHE: dict = {"ts": 0.0, "model": None, "mean": None}
 # Short-TTL cache over data_io.stat: on GCS every fingerprint probe is a
 # network round-trip, and the overview fires on each debounced keystroke.
 _STAT_CACHE: dict = {}
@@ -128,6 +138,8 @@ _FLAGS_TTL_S = 600.0
 _FEAT_TTL_S = 600.0
 
 _index_lock = threading.Lock()
+_epvmax_lock = threading.Lock()
+_mean_lock = threading.Lock()
 _directed_lock = threading.Lock()
 _flags_lock = threading.Lock()
 _feat_lock = threading.Lock()
@@ -353,6 +365,105 @@ def _embedded_ids(item_ids: set[str], flags: dict) -> set[str]:
     except Exception:
         return set()
     return {i for i, f in zip(ids, found) if f}
+
+
+
+
+def _corpus_mean(model: str) -> np.ndarray | None:
+    """The model's cached corpus mean (TTL-cached JSON read), or None."""
+    now = time.monotonic()
+    if _MEAN_CACHE["model"] == model and now - _MEAN_CACHE["ts"] < _FLAGS_TTL_S:
+        return _MEAN_CACHE["mean"]
+    with _mean_lock:
+        if _MEAN_CACHE["model"] == model and now - _MEAN_CACHE["ts"] < _FLAGS_TTL_S:
+            return _MEAN_CACHE["mean"]
+        try:
+            mean = embedding_store.load_corpus_mean(model)
+        except Exception:
+            mean = None
+        _MEAN_CACHE.update({"ts": now, "model": model, "mean": mean})
+    return _MEAN_CACHE["mean"]
+
+
+
+
+def _attach_context_distances(seqs: list[dict], play_rows: list[dict],
+                              n_ctx: int) -> None:
+    """Attach each sequence's context-play distances, in place.
+
+    For every binge/low-entropy sequence, the up-to-``n_ctx`` plays just
+    before its first member and just after its last are the "context" steps
+    the player shows. Each gets its cosine distance to the centroid of the
+    sequence's member vectors (same directional geometry as the artifact's
+    ``rolling_cosdist``), so the researcher can see WHY a neighbouring video
+    was not part of the run. Stored as ``context_distances`` on the sequence,
+    keyed ``"<item_id>@<ts>"`` — the pair the client identifies a step by.
+
+    Silently a no-op when the dense store / corpus mean is unavailable (the
+    payload simply carries no distances) — never an error path.
+    """
+    if not seqs or not play_rows or n_ctx <= 0:
+        return
+    model = _FLAGS_CACHE.get("model")
+    index = _FLAGS_CACHE.get("emb_index")
+    if not model or index is None:
+        return
+    mean = _corpus_mean(model)
+    if mean is None:
+        return
+
+    # First/last position of each (item_id, ts) in the play sequence — the
+    # same matching rule the client's step builder uses.
+    pos_first: dict[tuple, int] = {}
+    pos_last: dict[tuple, int] = {}
+    for i, p in enumerate(play_rows):
+        key = (p["item_id"], p["ts"])
+        pos_first.setdefault(key, i)
+        pos_last[key] = i
+
+    contexts: list[tuple[dict, list[dict]]] = []
+    need_ids: set[str] = set()
+    for seq in seqs:
+        members = seq.get("members") or []
+        if not members:
+            continue
+        first = pos_first.get((members[0]["item_id"], members[0]["ts"]))
+        last = pos_last.get((members[-1]["item_id"], members[-1]["ts"]))
+        ctx: list[dict] = []
+        if first is not None and first > 0:
+            ctx.extend(play_rows[max(0, first - n_ctx):first])
+        if last is not None and last + 1 < len(play_rows):
+            ctx.extend(play_rows[last + 1:last + 1 + n_ctx])
+        if not ctx:
+            continue
+        contexts.append((seq, ctx))
+        need_ids.update(m["item_id"] for m in members)
+        need_ids.update(p["item_id"] for p in ctx)
+    if not contexts:
+        return
+
+    try:
+        id2row, block = session_explorer.load_directional_block(
+            model, sorted(need_ids), mean, index=index)
+    except Exception:
+        return
+    if not id2row:
+        return
+    for seq, ctx in contexts:
+        rows = [id2row[m["item_id"]] for m in seq["members"]
+                if m["item_id"] in id2row]
+        if not rows:
+            continue
+        centroid = block[rows].mean(axis=0)
+        dists = {}
+        for p in ctx:
+            row = id2row.get(p["item_id"])
+            if row is None:
+                continue
+            dists[f"{p['item_id']}@{p['ts']}"] = round(
+                1.0 - float(block[row] @ centroid), 4)
+        if dists:
+            seq["context_distances"] = dists
 
 
 
@@ -1005,6 +1116,10 @@ def api_sessions_overview():
     * ``f_varmax_col`` + ``f_varmax_min``/``f_varmax_max`` — range-filter on
       the session's baked MAX of one numeric video variable (index column
       ``vmax_<f_varmax_col>``); an unknown/absent variable is ignored.
+      ``f_varmax_scope=binges`` narrows the same criterion to binges: a
+      session passes when at least one of its binges' maxima of the variable
+      is in range (per-episode maxima live-computed from the episodes
+      artifact + video_map; degrades to session scope when unavailable).
     * ``q`` — free-text search over the per-session ``search_text`` blob
       (stories, niches, categories, creators, captions + hashtags), split on
       whitespace, all terms must match (case-insensitive substring AND).
@@ -1038,6 +1153,7 @@ def api_sessions_overview():
         varmax_col = (request.args.get('f_varmax_col') or '').strip()
         varmax_lo = _opt_query_float('f_varmax_min')
         varmax_hi = _opt_query_float('f_varmax_max')
+        varmax_scope = (request.args.get('f_varmax_scope') or 'session').strip()
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid numeric filter"}), 400
     search_q = (request.args.get('q') or '').strip()
@@ -1112,13 +1228,37 @@ def api_sessions_overview():
     # Variable-max filter: same NaN-drops-row semantics. Silently skipped when
     # the column is absent (old artifact, or a variable the map no longer has).
     if varmax_col and (varmax_lo is not None or varmax_hi is not None):
-        col = f"{_VARMAX_PREFIX}{varmax_col}"
-        if col in index.columns:
-            vals = pd.to_numeric(index[col], errors="coerce")
-            if varmax_lo is not None:
-                mask &= _np_mask(vals >= varmax_lo)
-            if varmax_hi is not None:
-                mask &= _np_mask(vals <= varmax_hi)
+        binge_scoped = False
+        if varmax_scope == 'binges':
+            # "Binges only": keep sessions where at least ONE binge's max of
+            # the variable falls in the range. Sessions without a binge (or
+            # whose binges have no value for the variable) drop — the range
+            # is a criterion on binges, and they have none satisfying it.
+            emax = _episode_vmax()
+            if emax is not None and varmax_col in emax.columns:
+                vals = pd.to_numeric(emax[varmax_col], errors="coerce")
+                ok = vals.notna()
+                if varmax_lo is not None:
+                    ok &= vals >= varmax_lo
+                if varmax_hi is not None:
+                    ok &= vals <= varmax_hi
+                passing = pd.MultiIndex.from_frame(
+                    emax.loc[ok, ["collection_id", "session_id"]])
+                keys = pd.MultiIndex.from_arrays(
+                    [index["collection_id"], index["session_id"]])
+                mask &= keys.isin(passing)
+                binge_scoped = True
+        if not binge_scoped:
+            # Session scope — or the binge scope's data isn't available (no
+            # episodes artifact / unknown variable), which degrades to the
+            # session-max semantics rather than silently dropping the filter.
+            col = f"{_VARMAX_PREFIX}{varmax_col}"
+            if col in index.columns:
+                vals = pd.to_numeric(index[col], errors="coerce")
+                if varmax_lo is not None:
+                    mask &= _np_mask(vals >= varmax_lo)
+                if varmax_hi is not None:
+                    mask &= _np_mask(vals <= varmax_hi)
     # Free-text search over the baked per-session blob (lowercased at build);
     # every whitespace-separated term must match. Ignored on an old artifact.
     blobs = _search_blob(index)
@@ -1372,6 +1512,55 @@ def _session_windows(collection_id: str, session_id: str) -> list[dict]:
 
 
 
+def _episode_vmax() -> pd.DataFrame | None:
+    """Per-binge maxima of the numeric video variables (one row per episode).
+
+    Backs the varmax filter's "binges only" scope: a session passes when at
+    least ONE of its binges' maxima falls in the requested range, so the
+    frame keeps episodes as rows (``collection_id``/``session_id`` + one max
+    column per variable, incl. per-play ``dwell_s`` from the artifact's own
+    member lists). Live-computed from the current ``video_map`` — same source
+    as the trend scan — and cached on the episodes + map fingerprints; the
+    result is tiny (episodes × variables). None when no episodes artifact
+    exists yet.
+    """
+    ep_fp = _fingerprint(session_explorer.EPISODES_FILE)
+    if ep_fp is None:
+        return None
+    map_fp = _fingerprint("video_map.parquet", location=embeddings.STORE_LOCATION)
+    key = (ep_fp, map_fp)
+    if _EPVMAX_CACHE["df"] is not None and _EPVMAX_CACHE["key"] == key:
+        return _EPVMAX_CACHE["df"]
+    with _epvmax_lock:
+        if _EPVMAX_CACHE["df"] is not None and _EPVMAX_CACHE["key"] == key:
+            return _EPVMAX_CACHE["df"]
+        frame = _artifact_frame(session_explorer.EPISODES_FILE,
+                                _EPISODES_CACHE, _episodes_lock)
+        if frame is None:
+            return None
+        exploded = pd.DataFrame({
+            "collection_id": frame["collection_id"],
+            "session_id": frame["session_id"],
+            "item_id": frame["member_item_ids"],
+            "dwell_s": frame["member_dwell_s"],
+        })
+        exploded["_eid"] = np.arange(len(exploded))
+        exploded = exploded.explode(["item_id", "dwell_s"], ignore_index=True)
+        exploded["item_id"] = exploded["item_id"].astype("string")
+        exploded["dwell_s"] = pd.to_numeric(exploded["dwell_s"], errors="coerce")
+        feat = _trend_frame(set(exploded["item_id"].dropna()))
+        if not feat.empty:
+            exploded = exploded.join(feat, on="item_id")
+        value_cols = ["dwell_s"] + [c for c in feat.columns]
+        agg = exploded.groupby("_eid")[value_cols].max()
+        out = (frame[["collection_id", "session_id"]].reset_index(drop=True)
+               .join(agg))
+        _EPVMAX_CACHE.update({"key": key, "df": out})
+    return _EPVMAX_CACHE["df"]
+
+
+
+
 @sessions_bp.route('/api/sessions/detail', methods=['GET'])
 @permission_required('tab.sessions')
 def api_sessions_detail():
@@ -1469,6 +1658,14 @@ def api_sessions_detail():
             "episode_idx": episode_idx,
         })
 
+    # Distances of the just-outside context plays to each binge/sequence's
+    # member centroid — the "why wasn't this one included" signal. Best-effort:
+    # a missing dense store simply leaves the payload without them.
+    try:
+        _attach_context_distances(episodes + windows, play_rows, _context_plays())
+    except Exception:
+        pass
+
     # Per-run creator counts and the within-binge trend scan, both computed
     # here rather than baked into the artifact: they need no embedding
     # vectors, so they stay live and a change needs no rebuild.
@@ -1492,6 +1689,18 @@ def api_sessions_detail():
     session_series["dwell_s"] = dwell_vals.to_numpy(dtype=float)
     session_ranges = _min_max_ranges(session_series)
 
+    # Per-play values of the same numeric variables, aligned with ``plays``
+    # order — the session line plot's data. (``dwell_s`` already rides on each
+    # play row.) Variables with no finite value in this session are omitted.
+    play_variables: dict[str, list] = {}
+    if not trend_feat.empty and play_rows:
+        aligned = trend_feat.reindex([p["item_id"] for p in play_rows])
+        for col in trend_feat.columns:
+            vals = aligned[col].to_numpy(dtype=float)
+            if np.isfinite(vals).any():
+                play_variables[col] = [
+                    round(float(v), 4) if np.isfinite(v) else None for v in vals]
+
     display = load_display_id_map()
     session = {col: _clean(session_row.get(col)) for col in _OVERVIEW_COLS}
     session["collection_label"] = display.get(collection_id, collection_id)
@@ -1501,6 +1710,7 @@ def api_sessions_detail():
         "episodes": episodes,
         "windows": windows,
         "session_ranges": session_ranges,
+        "play_variables": play_variables,
         "params": _display_params(_load_meta()),
     })
 
