@@ -55,8 +55,8 @@ const SESS_DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 // own build parameters + the live context_plays); these are only the fallbacks
 // for a payload that predates the `params` key.
 const SESS_PARAM_FALLBACKS = {
-    min_videos: 4, min_minutes: 1, max_skip: 2, window_n: 6, max_windows: 3,
-    context_plays: 3, drift_p: 0.05, trend_min_videos: 7,
+    min_videos: 4, min_minutes: 1, max_skip: 2, flick_seconds: 3, window_n: 6,
+    max_windows: 3, context_plays: 3, drift_p: 0.05, trend_min_videos: 7,
 };
 
 
@@ -815,8 +815,12 @@ function sessApplyParamCopy() {
             + 'semantically close to the running centre of the previous ones. Rewatches extend a '
             + 'binge but don’t count as new videos. '
             + `Up to ${p.max_skip} off-theme videos in a row (typically ads) are tolerated without `
-            + 'ending the binge — an immediate return to the theme means it never ended. Those are '
-            + 'not members and are reported separately as "off-theme skipped".';
+            + 'ending the binge — an immediate return to the theme means it never ended. '
+            + (p.flick_seconds > 0
+                ? `Off-theme videos flicked past in under ${p.flick_seconds}s don't count toward `
+                    + 'that limit — rejecting a video is not leaving the theme. '
+                : '')
+            + 'Tolerated videos are not members and are reported separately as "off-theme skipped".';
     }
     const seq = document.getElementById('sess-seq-help');
     if (seq) {
@@ -936,7 +940,7 @@ function sessFmtMinutes(m) {
 // of the UI.
 function sessFmtTs(ts) {
     if (!ts) { return '–'; }
-    return fypFmtAuto(ts, String(ts).slice(0, 16));
+    return fypFmtAuto(ts, String(ts).slice(0, 19));
 }
 
 
@@ -1536,8 +1540,9 @@ function sessSkippedHtml(ep) {
     const max = sessParams().max_skip;
     return `<span class="meta-tooltip sess-skipped" data-tooltip="${escapeHtml(
         `${n} video${n > 1 ? 's' : ''} inside this binge were off-theme — most often ads. `
-        + `The binge survives up to ${max} in a row, on the view that an immediate return `
-        + 'to the theme means the binge never ended. They are not counted as members: they '
+        + `The binge survives up to ${max} watched ones in a row (flicked-past videos don't `
+        + 'count), on the view that an immediate return to the theme means the binge never '
+        + 'ended. They are not counted as members: they '
         + 'do not enter the focus score, the distance metrics, or the creator count.')}">${n} off-theme skipped</span>`;
 }
 

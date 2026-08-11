@@ -124,6 +124,84 @@ def test_rewatched_videos_still_extend_without_becoming_members():
 
 
 
+def _seq_dwell(rows_with_dwell, seconds_apart=30.0):
+    t0 = pd.Timestamp("2026-01-01T10:00:00")
+    return [(f"v{r}", r, t0 + pd.Timedelta(seconds=seconds_apart * i), d)
+            for i, (r, d) in enumerate(rows_with_dwell)]
+
+
+
+
+def test_flicked_off_theme_videos_do_not_spend_the_skip_budget():
+    """Three 1-s off-theme flicks must not end the run (the AIO-00060 case)."""
+    U = _vectors()
+    rows = [(0, 10.0), (1, 10.0), (2, 10.0), (3, 10.0),
+            (8, 1.0), (9, 1.0), (10, 1.0),          # 3 flicks > max_skip=2
+            (4, 10.0), (5, 10.0), (6, 10.0), (7, 10.0)]
+    counted = se.segment_session(_seq_dwell(rows), U, CUT, MEM, MIN_VIDEOS,
+                                 MIN_MINUTES, max_skip=2, flick_seconds=0)
+    flicked = se.segment_session(_seq_dwell(rows), U, CUT, MEM, MIN_VIDEOS,
+                                 MIN_MINUTES, max_skip=2, flick_seconds=3.0)
+    assert len(counted) == 2, "count-only rule: the 3 flicks break the run"
+    assert len(flicked) == 1, "flick rule: one binge spanning the flicks"
+    assert len(flicked[0]["idx"]) == 8
+    assert flicked[0]["n_skipped"] == 3     # tolerated, and reported honestly
+
+
+
+
+def test_watched_off_theme_videos_still_spend_the_budget():
+    """Dwell at/above the flick threshold counts exactly as before."""
+    U = _vectors()
+    rows = [(0, 10.0), (1, 10.0), (2, 10.0), (3, 10.0),
+            (8, 3.0), (9, 5.0), (10, 30.0),         # all watched (>= 3.0 s)
+            (4, 10.0), (5, 10.0), (6, 10.0), (7, 10.0)]
+    eps = se.segment_session(_seq_dwell(rows), U, CUT, MEM, MIN_VIDEOS,
+                             MIN_MINUTES, max_skip=2, flick_seconds=3.0)
+    assert len(eps) == 2
+    assert [len(e["idx"]) for e in eps] == [4, 4]
+
+
+
+
+def test_unknown_dwell_counts_toward_the_budget():
+    """A missing play_duration cannot prove a flick, so it spends the budget."""
+    U = _vectors()
+    rows = [(0, 10.0), (1, 10.0), (2, 10.0), (3, 10.0),
+            (8, None), (9, float("nan")), (10, None),
+            (4, 10.0), (5, 10.0), (6, 10.0), (7, 10.0)]
+    eps = se.segment_session(_seq_dwell(rows), U, CUT, MEM, MIN_VIDEOS,
+                             MIN_MINUTES, max_skip=2, flick_seconds=3.0)
+    assert len(eps) == 2, "unknown dwell must behave like watched, not flicked"
+
+
+
+
+def test_flicked_videos_are_never_members():
+    U = _vectors()
+    rows = [(0, 10.0), (1, 10.0), (2, 10.0), (3, 10.0),
+            (8, 1.0), (9, 1.0), (10, 1.0),
+            (4, 10.0), (5, 10.0), (6, 10.0), (7, 10.0)]
+    ep = se.segment_session(_seq_dwell(rows), U, CUT, MEM, MIN_VIDEOS,
+                            MIN_MINUTES, max_skip=2, flick_seconds=3.0)[0]
+    assert not {"v8", "v9", "v10"} & set(ep["ids"])
+    assert not {8, 9, 10} & set(ep["idx"])
+
+
+
+
+def test_default_params_carries_flick_seconds_from_config():
+    p = se.default_params()
+    assert p["flick_seconds"] == pytest.approx(se.FLICK_SECONDS)
+    from fyp.fyp_config import fyp_cf
+    cfg = fyp_cf.get("sessions", {})
+    assert "binge_flick_seconds" in cfg, \
+        "config.toml [sessions] must carry binge_flick_seconds"
+    assert float(cfg["binge_flick_seconds"]) == p["flick_seconds"]
+
+
+
+
 def test_default_params_carries_max_skip_from_config():
     p = se.default_params()
     assert p["max_skip"] == pytest.approx(se.MAX_SKIP)
