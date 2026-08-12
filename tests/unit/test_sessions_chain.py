@@ -226,7 +226,7 @@ def test_chained_worker_matches_single_shot(corpus):
     want = _read_artifacts()
 
     reporter, links = _run_chain({"batch_size": 1})
-    assert links == 3  # one collection per link
+    assert links == 4  # setup-only link + one collection per batch link
     got = _read_artifacts()
     for kind in ("sessions", "episodes", "windows"):
         pd.testing.assert_frame_equal(want[kind], got[kind])
@@ -247,14 +247,16 @@ def test_chained_worker_matches_single_shot(corpus):
 
 def test_retry_of_a_link_does_not_duplicate_rows(corpus):
     reporter = FakeReporter()
-    task_args: dict = {"batch_size": 1}
-    chain = worker.run_sessions_refresh(reporter, task_args)
-    # Replay link 1 (Cloud Tasks at-least-once), then continue normally.
-    replay = dict(chain["next_task_args"])
+    setup = worker.run_sessions_refresh(reporter, {"batch_size": 1})
+    # Replay the first batch link (Cloud Tasks at-least-once): the first
+    # execution chains; the duplicate loses the chain-dispatch claim and
+    # stops, so a platform retry can no longer fork a second chain.
+    replay = dict(setup["next_task_args"])
     chain2 = worker.run_sessions_refresh(reporter, dict(replay))
     chain2b = worker.run_sessions_refresh(reporter, dict(replay))
-    assert chain2["next_task_args"]["chunk_index"] == chain2b["next_task_args"]["chunk_index"]
-    args = chain2b["next_task_args"]
+    assert chain2["next_task_args"]["chunk_index"] == 1
+    assert chain2b is None, "the duplicate execution must not chain"
+    args = chain2["next_task_args"]
     while True:
         nxt = worker.run_sessions_refresh(reporter, args)
         if not nxt:
@@ -279,13 +281,16 @@ def test_trailing_duplicate_chain_cannot_clobber_a_published_artifact(corpus):
     set. Row-count verification alone waves that through and a partial
     artifact silently replaces a complete one.
     """
-    # Chain A runs to completion and publishes all 3 collections.
+    # Chain A runs to completion and publishes all 3 collections. Capture the
+    # args of the SECOND batch link (chunk 1) — a trailing duplicate resumed
+    # from there covers only collections 2..3, never 1.
     reporter = FakeReporter()
     args: dict = {"batch_size": 1}
     first_link_args = None
     while True:
         chain = worker.run_sessions_refresh(reporter, args)
-        if first_link_args is None and chain:
+        if (first_link_args is None and chain
+                and chain["next_task_args"].get("chunk_index") == 1):
             first_link_args = dict(chain["next_task_args"])
         if not chain:
             break
@@ -350,7 +355,8 @@ def test_cancel_leaves_previous_artifacts_intact(corpus):
     want = _read_artifacts()
 
     reporter = FakeReporter(cancel_after=1)
-    out = worker.run_sessions_refresh(reporter, {"batch_size": 2})
+    setup = worker.run_sessions_refresh(reporter, {"batch_size": 2})
+    out = worker.run_sessions_refresh(reporter, setup["next_task_args"])
     assert out is None  # no chain, no publish
     got = _read_artifacts()
     for kind in ("sessions", "episodes", "windows"):
