@@ -102,16 +102,19 @@ _SORT_KEYS = {
 # (``vmax_<variable>`` / ``vmin_<variable>``; see session_explorer.sessions_schema).
 _VARMAX_PREFIX = "vmax_"
 
-# In-process caches, invalidated on the artifact file fingerprint (index /
-# meta / episodes / windows) or a short TTL (the enrichment id sets, which
-# have no single file). Each cache has its own lock (double-checked: probe
+# In-process caches, invalidated on their source files' fingerprints (index /
+# meta / episodes / windows / enrichment id sets / features) or a short TTL
+# (only the corpus mean). Each cache has its own lock (double-checked: probe
 # without the lock, re-check under it before building) — the app serves 8
 # gunicorn threads, and an unlocked cold cache made every concurrent request
 # rebuild a 100 MB frame.
 _INDEX_CACHE: dict = {"fingerprint": None, "df": None, "search": None}
 _DIRECTED_CACHE: dict = {"fingerprint": None, "cut": None, "counts": None}
-_FLAGS_CACHE: dict = {"ts": 0.0, "model": None, "flags": None, "emb_index": None}
-_FEAT_CACHE: dict = {"ts": 0.0, "df": None}
+# Fingerprint-keyed (not TTL): these rebuilds are corpus-scale reads, so they
+# must only happen when a source file actually changed — a TTL made an
+# unlucky click every 10 minutes pay tens of seconds of refill.
+_FLAGS_CACHE: dict = {"key": None, "model": None, "flags": None, "emb_index": None}
+_FEAT_CACHE: dict = {"key": None, "df": None}
 _META_CACHE: dict = {"fingerprint": None, "meta": None}
 _EPISODES_CACHE: dict = {"fingerprint": None, "df": None}
 _WINDOWS_CACHE: dict = {"fingerprint": None, "df": None}
@@ -126,16 +129,17 @@ _TREND_COLS_CACHE: dict = {"fingerprint": None, "cols": None}
 # backs the varmax filter's "binges only" scope. Keyed on the episodes +
 # video_map fingerprints; the frame itself is tiny (episodes × variables).
 _EPVMAX_CACHE: dict = {"key": None, "df": None}
-# The active model's corpus mean (for the context-play distances). Same TTL
-# discipline as the flag sets: a stale mean is impossible mid-TTL because the
-# mean file only changes on an embeddings rebuild.
+# The active model's corpus mean (for the context-play distances). TTL-cached
+# (a small JSON): a stale mean is impossible mid-TTL because the mean file
+# only changes on an embeddings rebuild.
 _MEAN_CACHE: dict = {"ts": 0.0, "model": None, "mean": None}
 # Short-TTL cache over data_io.stat: on GCS every fingerprint probe is a
 # network round-trip, and the overview fires on each debounced keystroke.
 _STAT_CACHE: dict = {}
 _STAT_TTL_S = 15.0
-_FLAGS_TTL_S = 600.0
-_FEAT_TTL_S = 600.0
+# TTL for the small caches with no single backing file to fingerprint
+# (currently only the corpus-mean JSON).
+_MEAN_TTL_S = 600.0
 
 _index_lock = threading.Lock()
 _epvmax_lock = threading.Lock()
@@ -305,12 +309,35 @@ def _load_meta() -> dict | None:
 
 
 
+def _flags_cache_key(model: str | None) -> tuple:
+    """Invalidation key for :func:`_flag_sets`: the fingerprints of its sources.
+
+    Scrapes parquet (scraped/downloaded), annotations parquet (annotated) and
+    the model's dense-index parquet (the ``emb_index``). Each probe rides the
+    15 s ``_STAT_CACHE``, so computing the key is a few cheap stats at most.
+    """
+    idx_fp = None
+    if model:
+        idx_fp = _fingerprint(embedding_store._index_filename(model),
+                              location=embedding_store.STORE_LOCATION)
+    return (
+        model,
+        _fingerprint(embeddings.SCRAPES_FILE, location=embeddings.STORE_LOCATION),
+        _fingerprint(embeddings.ANNOTATIONS_FILE, location=embeddings.STORE_LOCATION),
+        idx_fp,
+    )
+
+
+
+
 def _flag_sets() -> dict:
     """Return cached per-item enrichment id sets for the active model.
 
     Used for the detail payload's per-play ``annotated`` / ``embedded`` /
-    ``streamable`` flags. TTL-cached: the sets change only when enrichment
-    workers run, and a stale flag merely mislabels a card until the TTL lapses.
+    ``streamable`` flags. Fingerprint-cached on the source files (see
+    :func:`_flags_cache_key`): the sets change only when enrichment workers
+    rewrite those files, and this rebuild is a corpus-scale read — a TTL made
+    requests pay it on a schedule even when nothing had changed.
 
     ``embedded`` is deliberately left EMPTY here: filling it means scanning
     every embedding shard for ~1.35M ids to answer a few hundred membership
@@ -321,13 +348,11 @@ def _flag_sets() -> dict:
         model = embeddings.active_embedding_backend().model_id()
     except Exception:
         model = None
-    now = time.monotonic()
-    if (_FLAGS_CACHE["flags"] is not None and _FLAGS_CACHE["model"] == model
-            and now - _FLAGS_CACHE["ts"] < _FLAGS_TTL_S):
+    key = _flags_cache_key(model)
+    if _FLAGS_CACHE["flags"] is not None and _FLAGS_CACHE["key"] == key:
         return _FLAGS_CACHE["flags"]
     with _flags_lock:
-        if (_FLAGS_CACHE["flags"] is not None and _FLAGS_CACHE["model"] == model
-                and now - _FLAGS_CACHE["ts"] < _FLAGS_TTL_S):
+        if _FLAGS_CACHE["flags"] is not None and _FLAGS_CACHE["key"] == key:
             return _FLAGS_CACHE["flags"]
         flags = (session_explorer.enrichment_id_sets(model, include_embedded=False)
                  if model else {"scraped": set(), "downloaded": set(),
@@ -338,7 +363,7 @@ def _flag_sets() -> dict:
                 emb_index = embedding_store.load_index(model)
             except Exception:
                 emb_index = None
-        _FLAGS_CACHE.update({"ts": now, "model": model, "flags": flags,
+        _FLAGS_CACHE.update({"key": key, "model": model, "flags": flags,
                              "emb_index": emb_index})
     return _FLAGS_CACHE["flags"]
 
@@ -372,10 +397,10 @@ def _embedded_ids(item_ids: set[str], flags: dict) -> set[str]:
 def _corpus_mean(model: str) -> np.ndarray | None:
     """The model's cached corpus mean (TTL-cached JSON read), or None."""
     now = time.monotonic()
-    if _MEAN_CACHE["model"] == model and now - _MEAN_CACHE["ts"] < _FLAGS_TTL_S:
+    if _MEAN_CACHE["model"] == model and now - _MEAN_CACHE["ts"] < _MEAN_TTL_S:
         return _MEAN_CACHE["mean"]
     with _mean_lock:
-        if _MEAN_CACHE["model"] == model and now - _MEAN_CACHE["ts"] < _FLAGS_TTL_S:
+        if _MEAN_CACHE["model"] == model and now - _MEAN_CACHE["ts"] < _MEAN_TTL_S:
             return _MEAN_CACHE["mean"]
         try:
             mean = embedding_store.load_corpus_mean(model)
@@ -478,14 +503,18 @@ def _features() -> pd.DataFrame:
     """Return the cached per-video feature frame (item_id-indexed).
 
     The whole-corpus ``video_map`` + scrape-author read is too heavy to repeat
-    per detail request; features only change on a map rebuild, so a short TTL
-    is plenty.
+    per detail request; fingerprint-cached on its two source files, so the
+    rebuild only ever happens after a map rebuild or a consolidation — never
+    on a timer.
     """
-    now = time.monotonic()
-    if _FEAT_CACHE["df"] is not None and now - _FEAT_CACHE["ts"] < _FEAT_TTL_S:
+    key = (
+        _fingerprint("video_map.parquet", location=embeddings.STORE_LOCATION),
+        _fingerprint(embeddings.SCRAPES_FILE, location=embeddings.STORE_LOCATION),
+    )
+    if _FEAT_CACHE["df"] is not None and _FEAT_CACHE["key"] == key:
         return _FEAT_CACHE["df"]
     with _feat_lock:
-        if _FEAT_CACHE["df"] is not None and now - _FEAT_CACHE["ts"] < _FEAT_TTL_S:
+        if _FEAT_CACHE["df"] is not None and _FEAT_CACHE["key"] == key:
             return _FEAT_CACHE["df"]
         try:
             # Corpus-wide, so no scrape text (desc/hashtags are hundreds of MB at
@@ -495,7 +524,7 @@ def _features() -> pd.DataFrame:
             df = pd.DataFrame(columns=["niche_name", "category", "story",
                                        "political_score", "sensitivity_score",
                                        "advertising", "author", "duration"])
-        _FEAT_CACHE.update({"ts": now, "df": df})
+        _FEAT_CACHE.update({"key": key, "df": df})
     return _FEAT_CACHE["df"]
 
 
@@ -572,6 +601,35 @@ def _scrape_text_map(item_ids: set[str]) -> dict[str, dict]:
         if desc or hashtags:
             out[str(row["item_id"])] = {"desc": desc, "hashtags": hashtags}
     return out
+
+
+
+
+def _play_text_maps(plays: pd.DataFrame) -> tuple[dict[str, str], dict[str, dict]]:
+    """Story/scrape-text maps from a plays frame with baked-in text columns.
+
+    The plays artifact stores per-item ``story``/``desc``/``hashtags``
+    (already capped at build time — see ``session_explorer.PLAY_TEXT_CAP``),
+    so a detail request needs no corpus-parquet reads at all. Returns the
+    same shapes as :func:`_story_map` and :func:`_scrape_text_map`.
+    """
+    stories: dict[str, str] = {}
+    scrape_text: dict[str, dict] = {}
+    hashtags_col = (plays["hashtags"] if "hashtags" in plays.columns
+                    else [None] * len(plays))
+    desc_col = plays["desc"] if "desc" in plays.columns else [None] * len(plays)
+    for iid, story, desc, hashtags in zip(
+            plays["item_id"].astype("string"), plays["story"],
+            desc_col, hashtags_col):
+        iid = str(iid)
+        story = _text_value(story)
+        if story and iid not in stories:
+            stories[iid] = story
+        desc = _text_value(desc)
+        hashtags = _text_value(hashtags)
+        if (desc or hashtags) and iid not in scrape_text:
+            scrape_text[iid] = {"desc": desc, "hashtags": hashtags}
+    return stories, scrape_text
 
 
 
@@ -1615,8 +1673,15 @@ def api_sessions_detail():
     study_ids = _study_item_ids(study) or frozenset()
     session_item_ids = {str(i) for i in plays["item_id"]}
     embedded_ids = _embedded_ids(session_item_ids, flags)
-    stories = _story_map(session_item_ids)
-    scrape_text = _scrape_text_map(session_item_ids)
+    # A plays artifact built with baked-in text answers story/desc/hashtags
+    # directly; only the fallback path (activity file / pre-upgrade artifact)
+    # still needs the per-request pushdown reads — which decode the whole
+    # text column of the corpus parquets, the tab's dominant per-click cost.
+    if "story" in plays.columns:
+        stories, scrape_text = _play_text_maps(plays)
+    else:
+        stories = _story_map(session_item_ids)
+        scrape_text = _scrape_text_map(session_item_ids)
 
     # A play belongs to an episode when its timestamp falls inside the
     # episode's span and its item is one of the episode's members.

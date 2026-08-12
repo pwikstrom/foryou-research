@@ -167,6 +167,62 @@ def test_embedded_ids_prefers_injected_flags_then_sidecar_index():
 
 
 
+def test_features_cache_invalidates_on_source_fingerprints(monkeypatch):
+    """_features reloads only when video_map/scrapes actually change — never
+    on a timer (the rebuild is a corpus-scale read)."""
+    loads = {"n": 0}
+
+    def fake_load():
+        loads["n"] += 1
+        return pd.DataFrame({"author": ["a"]},
+                            index=pd.Index(["v1"], name="item_id"))
+
+    monkeypatch.setattr(mod.session_explorer, "load_video_features", fake_load)
+    fps = {"video_map.parquet": "m1", mod.embeddings.SCRAPES_FILE: "s1"}
+    monkeypatch.setattr(mod, "_fingerprint", lambda fn, location=None: fps[fn])
+
+    f1 = mod._features()
+    f2 = mod._features()
+    assert loads["n"] == 1 and f1 is f2
+    fps["video_map.parquet"] = "m2"
+    mod._features()
+    assert loads["n"] == 2
+    fps[mod.embeddings.SCRAPES_FILE] = "s2"
+    mod._features()
+    assert loads["n"] == 3
+
+
+
+
+def test_flag_sets_cache_invalidates_on_source_fingerprints(monkeypatch):
+    builds = {"n": 0}
+
+    def fake_sets(model, item_ids=None, include_embedded=True):
+        builds["n"] += 1
+        return {"scraped": set(), "downloaded": set(),
+                "annotated": {"v1"}, "embedded": set()}
+
+    class FakeBackend:
+        def model_id(self):
+            return "model-x"
+
+    monkeypatch.setattr(mod.session_explorer, "enrichment_id_sets", fake_sets)
+    monkeypatch.setattr(mod.embeddings, "active_embedding_backend",
+                        lambda: FakeBackend())
+    monkeypatch.setattr(mod.embedding_store, "load_index", lambda model: None)
+    fps = {"fp": "A"}
+    monkeypatch.setattr(mod, "_fingerprint", lambda fn, location=None: fps["fp"])
+
+    s1 = mod._flag_sets()
+    s2 = mod._flag_sets()
+    assert builds["n"] == 1 and s1 is s2
+    fps["fp"] = "B"
+    mod._flag_sets()
+    assert builds["n"] == 2
+
+
+
+
 def test_admin_settings_cache_invalidated_by_save(monkeypatch, tmp_path):
     from web_interface import admin_settings
 
