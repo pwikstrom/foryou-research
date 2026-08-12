@@ -86,9 +86,9 @@ def _reset_perf_caches():
         routes._EPISODES_CACHE.update({"fingerprint": None, "df": None})
         routes._WINDOWS_CACHE.update({"fingerprint": None, "df": None})
         routes._DIRECTED_CACHE.update({"fingerprint": None, "cut": None, "counts": None})
-        routes._FLAGS_CACHE.update({"ts": 0.0, "model": None, "flags": None,
+        routes._FLAGS_CACHE.update({"key": None, "model": None, "flags": None,
                                     "emb_index": None})
-        routes._FEAT_CACHE.update({"ts": 0.0, "df": None})
+        routes._FEAT_CACHE.update({"key": None, "df": None})
         routes._TREND_COLS_CACHE.update({"fingerprint": None, "cols": None})
         routes._EPVMAX_CACHE.update({"key": None, "df": None})
         routes._MEAN_CACHE.update({"ts": 0.0, "model": None, "mean": None})

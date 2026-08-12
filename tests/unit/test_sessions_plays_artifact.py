@@ -82,7 +82,67 @@ def test_plays_table_empty_is_schema_correct():
     tbl = se.plays_table(None)
     assert tbl.num_rows == 0
     assert set(tbl.schema.names) == {"collection_id", "session_id", "item_id",
-                                     "ts", "play_duration", "source_platform"}
+                                     "ts", "play_duration", "source_platform",
+                                     "story", "desc", "hashtags"}
+
+
+
+
+def test_plays_table_without_text_columns_publishes_nulls():
+    """A frame that never went through attach_play_texts stays schema-stable."""
+    tbl = se.plays_table(_plays_frame())
+    assert tbl.column("story").null_count == tbl.num_rows
+    assert tbl.column("desc").null_count == tbl.num_rows
+    assert tbl.column("hashtags").null_count == tbl.num_rows
+
+
+
+
+def test_attach_play_texts_maps_caps_and_joins():
+    plays = _plays_frame()
+    feat = pd.DataFrame(
+        {"desc": ["a caption", None, "x" * 500],
+         "desc_hashtags": [["#one", "#two"], None, None]},
+        index=pd.Index(["v1", "v2", "v3"], name="item_id", dtype="string"))
+    stories = {"v1": "a story", "v3": "y" * 500}
+    out = se.attach_play_texts(plays, feat, stories)
+    by_item = {str(r["item_id"]): r for _, r in out.iterrows()}
+    assert by_item["v1"]["story"] == "a story"
+    assert by_item["v1"]["desc"] == "a caption"
+    assert by_item["v1"]["hashtags"] == "#one #two"
+    # Caps apply at build time; the endpoint's own cap becomes a no-op.
+    assert by_item["v3"]["desc"] == "x" * se.PLAY_TEXT_CAP + "…"
+    assert by_item["v3"]["story"] == "y" * se.PLAY_TEXT_CAP + "…"
+    # Items with no text stay null, and play order/rows are unchanged.
+    assert pd.isna(by_item["v2"]["desc"]) and pd.isna(by_item["v2"]["story"])
+    assert len(out) == len(plays)
+    # The baked columns round-trip through the artifact table.
+    tbl = se.plays_table(out)
+    stories_col = dict(zip(tbl.column("item_id").to_pylist(),
+                           tbl.column("story").to_pylist()))
+    assert stories_col["v1"] == "a story"
+
+
+
+
+def test_publish_skips_plays_on_mixed_shard_schemas(storage):
+    """Mid-run schema widening degrades to the fallback, never a failed publish."""
+    plays = _plays_frame()
+    se.write_batch_shards("runM", 0, [], [], [], plays=plays)
+    se.write_batch_shards("runM", 1, [], [], [], plays=plays)
+    # Simulate a pre-deploy link 1: overwrite its plays shard with one that
+    # lacks the text columns.
+    old = se.plays_table(plays).drop_columns(["story", "desc", "hashtags"])
+    data_io.write_parquet_stream(
+        storage_location="cache",
+        filename=se.shard_filename("plays", "runM", 1),
+        batches=[old], schema=old.schema)
+    se.publish_artifacts(
+        "runM", n_chunks=2,
+        expected={"sessions": 0, "episodes": 0, "windows": 0, "plays": 8},
+        meta={})
+    assert not data_io.exists(storage_location="cache", filename=se.PLAYS_FILE)
+    assert data_io.exists(storage_location="cache", filename=se.SESSIONS_FILE)
 
 
 

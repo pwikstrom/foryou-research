@@ -1104,6 +1104,48 @@ def test_detail_carries_duration_desc_hashtags_and_session_ranges(
 
 
 
+def test_detail_uses_baked_play_texts_and_skips_corpus_reads(
+        client, patched_routes, monkeypatch):
+    """A plays artifact with baked text columns answers story/desc/hashtags
+    without touching the corpus annotation/scrape parquets."""
+    import web_interface.routes.api_sessions_routes as mod
+    import web_interface.routes.api_viewer_routes as viewer
+
+    plays = pd.DataFrame({
+        "item_id": pd.Series(["v1", "v2"], dtype="string"),
+        "_ts": pd.to_datetime(["2026-01-01T10:00:00", "2026-01-01T10:05:00"]),
+        "play_duration": [12.0, 45.0],
+        "source_platform": ["tiktok"] * 2,
+        "story": pd.Series(["a baked story", None], dtype="string"),
+        "desc": pd.Series(["a baked caption", None], dtype="string"),
+        "hashtags": pd.Series(["#one #two", None], dtype="string"),
+    })
+
+    def _must_not_read(ids):
+        raise AssertionError("corpus pushdown read on the baked-text path")
+
+    monkeypatch.setattr(mod, "_session_plays", lambda cid, row: plays)
+    monkeypatch.setattr(mod, "_session_episodes", lambda cid, sid: [])
+    monkeypatch.setattr(mod, "_session_windows", lambda cid, sid: [])
+    monkeypatch.setattr(mod, "_features", lambda: pd.DataFrame())
+    monkeypatch.setattr(mod, "_trend_frame", lambda ids: pd.DataFrame())
+    monkeypatch.setattr(mod, "_story_map", _must_not_read)
+    monkeypatch.setattr(mod, "_scrape_text_map", _must_not_read)
+    monkeypatch.setattr(mod, "_flag_sets", lambda: {
+        "scraped": set(), "downloaded": set(), "annotated": set(), "embedded": set()})
+    monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset())
+
+    body = client.get("/api/sessions/detail?study=s&collection_id=colA"
+                      "&session_id=colA__0").get_json()
+    p1, p2 = body["plays"]
+    assert p1["story"] == "a baked story"
+    assert p1["desc"] == "a baked caption"
+    assert p1["hashtags"] == "#one #two"
+    assert p2["story"] is None and p2["desc"] is None and p2["hashtags"] is None
+
+
+
+
 
 
 def test_detail_includes_per_play_variable_series(client, patched_routes, monkeypatch):
@@ -1150,7 +1192,7 @@ def test_attach_context_distances_measures_from_the_member_centroid(monkeypatch)
     import web_interface.routes.api_sessions_routes as mod
 
     monkeypatch.setattr(mod, "_FLAGS_CACHE", {
-        "ts": 0.0, "model": "m", "flags": None, "emb_index": object()})
+        "key": None, "model": "m", "flags": None, "emb_index": object()})
     monkeypatch.setattr(mod, "_corpus_mean", lambda model: np.zeros(2))
     vecs = {
         "v1": np.array([1.0, 0.0]), "v2": np.array([1.0, 0.0]),   # members
@@ -1185,7 +1227,7 @@ def test_attach_context_distances_is_a_noop_without_a_dense_store(monkeypatch):
     import web_interface.routes.api_sessions_routes as mod
 
     monkeypatch.setattr(mod, "_FLAGS_CACHE", {
-        "ts": 0.0, "model": None, "flags": None, "emb_index": None})
+        "key": None, "model": None, "flags": None, "emb_index": None})
     ep = {"members": [{"item_id": "v1", "ts": "t1"}]}
     mod._attach_context_distances([ep], [{"item_id": "v0", "ts": "t0"},
                                          {"item_id": "v1", "ts": "t1"}], 3)

@@ -1170,7 +1170,83 @@ _PLAYS_SCHEMA: dict[str, pa.DataType] = {
     "collection_id": pa.string(), "session_id": pa.string(),
     "item_id": pa.string(), "ts": pa.timestamp("us"),
     "play_duration": pa.float64(), "source_platform": pa.string(),
+    # Per-item display text, baked in at build time so the detail endpoint
+    # never has to pushdown-read the corpus annotation/scrape parquets (those
+    # files are not clustered by item_id, so such a "pushdown" decodes the
+    # whole text column per request). Null on rows whose item has no text.
+    "story": pa.string(), "desc": pa.string(), "hashtags": pa.string(),
 }
+
+# The plays artifact stores display text capped at the same length the detail
+# endpoint ships (api_sessions_routes._STORY_CAP): the artifact is a serving
+# cache, not an archive — full text stays in the annotation/scrape parquets.
+PLAY_TEXT_CAP = 400
+_PLAY_TEXT_COLS = ("story", "desc", "hashtags")
+
+
+
+
+def _capped_text(value) -> str | None:
+    """A trimmed, ``PLAY_TEXT_CAP``-capped string, or None for empty cells.
+
+    List cells (``desc_hashtags``) are space-joined before capping.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple, np.ndarray)):
+        parts = [str(v).strip() for v in value if v is not None and str(v).strip()]
+        value = " ".join(parts)
+    else:
+        try:
+            if pd.isna(value):
+                return None
+        except (TypeError, ValueError):
+            pass
+        value = str(value).strip()
+    if not value:
+        return None
+    return value[:PLAY_TEXT_CAP] + "…" if len(value) > PLAY_TEXT_CAP else value
+
+
+
+
+def attach_play_texts(plays: pd.DataFrame, feat: pd.DataFrame,
+                      stories: dict[str, str]) -> pd.DataFrame:
+    """Attach capped ``story``/``desc``/``hashtags`` columns to a plays frame.
+
+    Per-item text mapped onto the play rows (repeated plays repeat the text —
+    parquet compression within the (collection, ts)-sorted row groups absorbs
+    that). Arrow-backed strings, so a link-0-sized batch stays in contiguous
+    buffers rather than one Python str per cell.
+
+    Args:
+        plays: A :func:`load_plays`-shaped frame.
+        feat: :func:`load_video_features` result WITH scrape text
+            (``include_scrape_text=True``), item_id-indexed.
+        stories: :func:`load_story_texts` result (item_id → story).
+
+    Returns:
+        ``plays`` with the three text columns added (all-null when the
+        sources are empty).
+    """
+    if plays is None or not len(plays):
+        return plays
+    item_ids = [str(i) for i in plays["item_id"].drop_duplicates()]
+    text = {"story": [_capped_text(stories.get(iid) if stories else None)
+                      for iid in item_ids],
+            "desc": [None] * len(item_ids),
+            "hashtags": [None] * len(item_ids)}
+    if feat is not None and len(feat):
+        sub = feat.reindex(item_ids)
+        for col, src in (("desc", "desc"), ("hashtags", "desc_hashtags")):
+            if src in sub.columns:
+                text[col] = [_capped_text(v) for v in sub[src]]
+    text_df = pd.DataFrame({"item_id": pd.array(item_ids, dtype="string[pyarrow]")})
+    for col in _PLAY_TEXT_COLS:
+        text_df[col] = pd.array(text[col], dtype="string[pyarrow]")
+    plays = plays.copy()
+    plays["item_id"] = plays["item_id"].astype("string[pyarrow]")
+    return plays.merge(text_df, on="item_id", how="left")
 
 
 
@@ -1184,13 +1260,15 @@ def plays_table(plays: pd.DataFrame) -> pa.Table:
 
     Args:
         plays: A :func:`load_plays`-shaped frame (``_ts`` parsed, play rows
-            only). An empty frame yields an empty, schema-correct table.
+            only), optionally carrying the :func:`attach_play_texts` text
+            columns (absent ones publish as all-null). An empty frame yields
+            an empty, schema-correct table.
     """
     if plays is None or not len(plays):
         return pa.table({col: pa.array([], type=typ)
                          for col, typ in _PLAYS_SCHEMA.items()})
     df = plays.sort_values(["collection_id", "_ts"])
-    return pa.table({
+    data = {
         "collection_id": pa.array(df["collection_id"].astype("string"), type=pa.string()),
         "session_id": pa.array(df["session_id"].astype("string"), type=pa.string()),
         "item_id": pa.array(df["item_id"].astype("string"), type=pa.string()),
@@ -1198,7 +1276,12 @@ def plays_table(plays: pd.DataFrame) -> pa.Table:
         "play_duration": pa.array(
             pd.to_numeric(df["play_duration"], errors="coerce"), type=pa.float64()),
         "source_platform": pa.array(df["source_platform"].astype("string"), type=pa.string()),
-    })
+    }
+    for col in _PLAY_TEXT_COLS:
+        data[col] = (pa.array(df[col].astype("string"), type=pa.string())
+                     if col in df.columns
+                     else pa.nulls(len(df), type=pa.string()))
+    return pa.table(data)
 
 
 
@@ -1264,6 +1347,9 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
     stories = load_story_texts(set(batch_ids))
     id_sets = enrichment_id_sets(model, item_ids=set(batch_ids),
                                  include_embedded=False)
+    # Bake the per-item display text into the plays frame here, so both the
+    # chained worker and the in-process driver publish it with no extra reads.
+    plays = attach_play_texts(plays, feat, stories)
 
     if index is None and corpus_mean is not None:
         index = embedding_store.load_index(model)
@@ -1471,6 +1557,21 @@ def publish_artifacts(run_id: str, n_chunks: int, expected: dict,
                 f"({len(all_shards) - len(shards)} of {n_chunks} missing) — "
                 f"refusing to publish. Another chain sharing this run_id most "
                 f"likely published first.")
+        if kind == "plays":
+            # A schema-widening deploy mid-run leaves early shards without the
+            # newer columns; concat binds every shard to the first shard's
+            # schema, so a mixed set cannot publish. Same degradation as an
+            # absent set: skip plays, read side falls back.
+            col_sets = set()
+            for s in shards:
+                cols = data_io.get_parquet_columns(
+                    storage_location=ARTIFACT_LOCATION, filename=s)
+                col_sets.add(tuple(sorted(cols or [])))
+            if len(col_sets) > 1:
+                if reporter is not None:
+                    reporter.log("Mixed 'plays' shard schemas (mid-run deploy) "
+                                 "— skipping the plays artifact.")
+                continue
         n = data_io.concat_parquet_files(
             src_storage_location=ARTIFACT_LOCATION, src_filenames=shards,
             dst_storage_location=ARTIFACT_LOCATION, dst_filename=final,
