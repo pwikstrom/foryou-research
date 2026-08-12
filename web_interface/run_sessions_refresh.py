@@ -57,6 +57,46 @@ def _progress_filename(run_id: str) -> str:
 
 
 
+def _claim_chain_dispatch(run_id: str, chunk: int) -> bool:
+    """Atomically claim the right to dispatch link ``chunk + 1``.
+
+    A link that outlives its Cloud Tasks dispatch deadline is retried by the
+    platform while the original execution keeps running — both eventually try
+    to chain, and without this claim the chain FORKS into concurrent
+    duplicates (2026-08-11/12: four chains re-segmented the corpus in
+    parallel; the anti-partial-publish guard then failed the stragglers).
+    The first execution to CAS its chunk into the progress file's
+    ``dispatched`` set chains; every other execution of the same link stops.
+
+    Args:
+        run_id: The chain's run id (names the progress file).
+        chunk: The link that wants to dispatch its successor.
+
+    Returns:
+        True when this execution won the claim.
+    """
+    import fyp.data_io as data_io
+    from fyp.analysis import session_explorer
+
+    claimed = {"won": False}
+
+    def _mutate(progress):
+        progress = progress if isinstance(progress, dict) else {}
+        dispatched = progress.setdefault("dispatched", {})
+        claimed["won"] = str(chunk) not in dispatched
+        dispatched[str(chunk)] = True
+        return progress
+
+    data_io.update_json(
+        storage_location=session_explorer.ARTIFACT_LOCATION,
+        filename=_progress_filename(run_id), mutate=_mutate, default=None)
+    return claimed["won"]
+
+
+
+
+
+
 def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
     """Segment one batch of collections and optionally chain to the next.
 
@@ -101,7 +141,39 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         base["chain_restarts"] = restarts + 1
         return base
 
-    if chunk == 0:
+    def _chain_args(next_chunk: int, remaining: list[str], run_id: str,
+                    params: dict, trend_cols: list[str], model: str,
+                    store_fp: str, total: int) -> dict:
+        args = {
+            "chunk_index": next_chunk,
+            "batch_size": batch_size,
+            # \x1f (unit separator): collection ids are user-derived strings,
+            # so a comma join would be ambiguous.
+            "remaining_collections": "\x1f".join(remaining),
+            "run_id": run_id,
+            "params_json": json.dumps(params),
+            "trend_cols_json": json.dumps(trend_cols),
+            "embedding_model": model,
+            "corpus_mean_fp": store_fp,
+            "total_collections": total,
+            "chain_restarts": restarts,
+        }
+        for key, _ in _OVERRIDE_KEYS:
+            if task_args.get(key) is not None:
+                args[key] = task_args[key]
+        if collections_str:
+            args["collections"] = collections_str
+        return args
+
+    # The initial dispatch (no run_id yet) is SETUP-ONLY: discovery, corpus-
+    # mean pinning, stale-file sweep — then it chains immediately. It must
+    # never process a batch: the initial task runs under the Cloud Tasks
+    # dispatch deadline (1800s max for HTTP targets), and a batch link can
+    # exceed that (44 min observed 2026-08-12), which makes the platform
+    # retry the "failed" dispatch and fork a duplicate chain while the
+    # original keeps running. Setup completes in seconds, so the deadline is
+    # trivially met and retries of the initial task can no longer fork.
+    if "run_id" not in task_args:
         reporter.log("Starting Sessions refresh...")
         params = {**session_explorer.default_params(), **overrides}
         collections = None
@@ -120,7 +192,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         discovered = session_explorer.discover_collections(collections)
         remaining = [c for c, _ in discovered]
         total = len(remaining)
-        # Pinned at link 0 and carried through the chain: every shard must use
+        # Pinned at setup and carried through the chain: every shard must use
         # the same session-extreme column set or the publish concat would see
         # mismatched schemas (e.g. a video_map rebuild landing mid-chain).
         trend_cols = session_explorer.trend_numeric_columns()
@@ -137,6 +209,15 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             reporter.update_progress(100, "Done")
             reporter.log("No collections with play rows; wrote empty artifacts.")
             return None if not meta.get("cancelled") else None
+
+        reporter.log(f"Setup complete: {total} collection(s) to segment; "
+                     "chaining to the first batch.")
+        return {
+            "chain": True,
+            "next_task_args": _chain_args(0, remaining, run_id, params,
+                                          trend_cols, model, store_fp, total),
+            "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
+        }
     else:
         params = json.loads(task_args["params_json"])
         model = str(task_args["embedding_model"])
@@ -221,28 +302,15 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         if reporter.check_cancelled():
             reporter.log("Cancellation requested. Stopping without publishing.")
             return None
-        next_task_args = {
-            "chunk_index": chunk + 1,
-            "batch_size": batch_size,
-            # \x1f (unit separator): collection ids are user-derived strings,
-            # so a comma join would be ambiguous.
-            "remaining_collections": "\x1f".join(rest),
-            "run_id": run_id,
-            "params_json": json.dumps(params),
-            "trend_cols_json": json.dumps(trend_cols),
-            "embedding_model": model,
-            "corpus_mean_fp": store_fp,
-            "total_collections": total,
-            "chain_restarts": restarts,
-        }
-        for key, _ in _OVERRIDE_KEYS:
-            if task_args.get(key) is not None:
-                next_task_args[key] = task_args[key]
-        if collections_str:
-            next_task_args["collections"] = collections_str
+        if not _claim_chain_dispatch(run_id, chunk):
+            reporter.log(
+                f"Link {chunk} was already chained by a concurrent execution "
+                "(a platform retry of this link) — stopping this duplicate.")
+            return None
         return {
             "chain": True,
-            "next_task_args": next_task_args,
+            "next_task_args": _chain_args(chunk + 1, rest, run_id, params,
+                                          trend_cols, model, store_fp, total),
             "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
         }
 

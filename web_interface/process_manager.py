@@ -784,6 +784,11 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             # (2026-08-09): link 0 compacts the dense sidecar, streams the whole
             # collection_id column, then segments the largest batch — over 600s,
             # so Cloud Tasks re-dispatched it from scratch every 10 minutes.
+            # 1800s is the Cloud Tasks MAXIMUM for HTTP targets, and a batch
+            # link can exceed even that (44 min observed 2026-08-12), so
+            # sessions_refresh's initial link is setup-only (returns in
+            # seconds) and its links claim their successor via CAS before
+            # chaining — see run_sessions_refresh._claim_chain_dispatch.
             # Keep this list in sync with the workers that define
             # _DISPATCH_DEADLINE; test_dispatch_deadlines pins that.
             deadline = 1800
