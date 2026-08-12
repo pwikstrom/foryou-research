@@ -393,16 +393,18 @@ def _attach_context_distances(seqs: list[dict], play_rows: list[dict],
 
     For every binge/low-entropy sequence, the up-to-``n_ctx`` plays just
     before its first member and just after its last are the "context" steps
-    the player shows. Each gets its cosine distance to the centroid of the
-    sequence's member vectors (same directional geometry as the artifact's
-    ``rolling_cosdist``), so the researcher can see WHY a neighbouring video
-    was not part of the run. Stored as ``context_distances`` on the sequence,
-    keyed ``"<item_id>@<ts>"`` — the pair the client identifies a step by.
+    the player shows, and the non-member plays between the first and last
+    member are its "off-theme" steps. Each gets its cosine distance to the
+    centroid of the sequence's member vectors (same directional geometry as
+    the artifact's ``rolling_cosdist``), so the researcher can see WHY a
+    neighbouring or skipped video was not part of the run. Stored as
+    ``context_distances`` on the sequence, keyed ``"<item_id>@<ts>"`` — the
+    pair the client identifies a step by.
 
     Silently a no-op when the dense store / corpus mean is unavailable (the
     payload simply carries no distances) — never an error path.
     """
-    if not seqs or not play_rows or n_ctx <= 0:
+    if not seqs or not play_rows or n_ctx < 0:
         return
     model = _FLAGS_CACHE.get("model")
     index = _FLAGS_CACHE.get("emb_index")
@@ -432,6 +434,10 @@ def _attach_context_distances(seqs: list[dict], play_rows: list[dict],
         ctx: list[dict] = []
         if first is not None and first > 0:
             ctx.extend(play_rows[max(0, first - n_ctx):first])
+        if first is not None and last is not None and last > first:
+            member_keys = {(m["item_id"], m["ts"]) for m in members}
+            ctx.extend(p for p in play_rows[first:last + 1]
+                       if (p["item_id"], p["ts"]) not in member_keys)
         if last is not None and last + 1 < len(play_rows):
             ctx.extend(play_rows[last + 1:last + 1 + n_ctx])
         if not ctx:

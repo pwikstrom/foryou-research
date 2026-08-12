@@ -1357,7 +1357,8 @@ function sessRenderStrip(data) {
         if (idx === undefined) { return; }
         const p = plays[Number(idx)];
         const bits = [
-            p.niche_name ? `<b>${escapeHtml(p.niche_name)}</b>` : '<i>no niche</i>',
+            `#${Number(idx) + 1}` + (p.niche_name
+                ? ` · <b>${escapeHtml(p.niche_name)}</b>` : ' · <i>no niche</i>'),
             p.story ? escapeHtml(p.story.slice(0, 160)) : null,
             `${sessFmtTs(p.ts)} · dwell ${sessDwellText(p.dwell_s, p.duration_s) || '–'}`,
             p.embedded ? null : 'not embedded',
@@ -1727,9 +1728,11 @@ function sessRenderSeqList(data) {
 
 
 // Build the full step list for one sequence: up to [sessions] context_plays
-// session plays before the first member, the members themselves, and up to
-// context_plays plays after the last member. Context steps are what the donor
-// actually saw around the sequence — explicitly NOT part of it.
+// session plays before the first member, every play between the first and the
+// last member — members plus the "off-theme" plays the detector skipped — and
+// up to context_plays plays after the last member. Context and off-theme
+// steps are what the donor actually saw; both are explicitly NOT part of the
+// sequence and flagged as such in the player.
 function sessBuildSteps(kind, idx) {
     const d = sessState.detail;
     if (!d) { return null; }
@@ -1763,8 +1766,28 @@ function sessBuildSteps(kind, idx) {
             item_id: p.item_id, ts: p.ts, dwell_s: p.dwell_s,
         }));
     }
-    const memberStart = steps.length;
-    for (const m of src.members) { steps.push({ context: null, ...m }); }
+    // Members interleaved with the off-theme plays the detector skipped:
+    // walk every session play between the first and last member, emitting a
+    // member step (with its 1-based memberPos) or an off-theme step.
+    const memberByKey = new Map();
+    src.members.forEach((m, i) => memberByKey.set(`${m.item_id}@${m.ts}`, i + 1));
+    if (firstIdx >= 0 && lastIdx >= firstIdx) {
+        for (let i = firstIdx; i <= lastIdx; i++) {
+            const p = plays[i];
+            const memberPos = memberByKey.get(`${p.item_id}@${p.ts}`);
+            if (memberPos != null) {
+                steps.push({ context: null, memberPos, ...src.members[memberPos - 1] });
+            } else {
+                steps.push({
+                    context: null, offTheme: true,
+                    item_id: p.item_id, ts: p.ts, dwell_s: p.dwell_s,
+                });
+            }
+        }
+    } else {
+        // Members not found in the play list (defensive) — show them alone.
+        src.members.forEach((m, i) => steps.push({ context: null, memberPos: i + 1, ...m }));
+    }
     if (contextPlays > 0 && lastIdx >= 0 && lastIdx + 1 < plays.length) {
         const after = plays.slice(lastIdx + 1, lastIdx + 1 + contextPlays);
         after.forEach((p, i) => steps.push({
@@ -1772,7 +1795,21 @@ function sessBuildSteps(kind, idx) {
             item_id: p.item_id, ts: p.ts, dwell_s: p.dwell_s,
         }));
     }
-    return { steps, memberStart, memberCount: src.members.length };
+    return { steps, memberCount: src.members.length };
+}
+
+
+
+
+// Session-wide id of a play: its 1-based position in the chronological play
+// list of the current detail payload (#1–n). Null when the play is not found.
+function sessPlayNumber(itemId, ts) {
+    const d = sessState.detail;
+    if (!d || !d.plays) { return null; }
+    for (let i = 0; i < d.plays.length; i++) {
+        if (d.plays[i].item_id === itemId && d.plays[i].ts === ts) { return i + 1; }
+    }
+    return null;
 }
 
 
@@ -1782,10 +1819,10 @@ function sessSelectSeq(kind, idx, memberPos) {
     pauseSessionsVideos();
     const built = sessBuildSteps(kind, idx);
     if (!built) { return; }
-    sessState.activeSeq = {
-        kind, idx, ...built,
-        pos: built.memberStart + Math.min(memberPos || 0, built.memberCount - 1),
-    };
+    const wantPos = Math.min(memberPos || 0, built.memberCount - 1) + 1;
+    let pos = built.steps.findIndex(s => s.memberPos === wantPos);
+    if (pos < 0) { pos = Math.max(built.steps.findIndex(s => s.memberPos != null), 0); }
+    sessState.activeSeq = { kind, idx, ...built, pos };
     document.querySelectorAll('.sess-seq-entry').forEach(c =>
         c.classList.toggle('active', c.dataset.seq === `${kind}:${idx}`));
     sessRenderPlayer();
@@ -1815,7 +1852,7 @@ function sessRenderPlayer(autoplay) {
     const pane = document.getElementById('sess-player-pane');
     const a = sessState.activeSeq;
     if (!a || !a.steps || !a.steps.length) {
-        pane.classList.remove('is-context');
+        pane.classList.remove('is-context', 'is-offtheme');
         pane.innerHTML = '<div class="text-sm" style="padding: 24px; color: var(--color-text-muted);">'
             + 'Select a binge or low-entropy sequence to inspect its videos.</div>';
         sessUpdateStripCursor(null);
@@ -1824,6 +1861,7 @@ function sessRenderPlayer(autoplay) {
     pauseSessionsVideos();
     const m = a.steps[a.pos];
     const isContext = !!m.context;
+    const isOffTheme = !!m.offTheme;
     const play = sessState.playsById[m.item_id] || {};
     const seqLabel = a.kind === 'binge' ? `Binge ${a.idx + 1}` : `Sequence ${a.idx + 1}`;
     const kindNoun = a.kind === 'binge' ? 'binge' : 'sequence';
@@ -1832,15 +1870,18 @@ function sessRenderPlayer(autoplay) {
 
     const posLabel = isContext
         ? `${m.offset} ${m.context === 'before' ? 'before' : 'after'}`
-        : `${a.pos - a.memberStart + 1} / ${a.memberCount}`;
+        : (isOffTheme ? 'off-theme' : `${m.memberPos} / ${a.memberCount}`);
     const banner = isContext
         ? `<div class="sess-context-banner text-xs">Note: not part of the ${kindNoun}.</div>`
-        : '';
+        : (isOffTheme
+            ? `<div class="sess-offtheme-banner text-xs">Off-theme: played during the ${kindNoun} but not part of it.</div>`
+            : '');
 
     pane.classList.toggle('is-context', isContext);
+    pane.classList.toggle('is-offtheme', isOffTheme);
     pane.innerHTML = `
         <div class="sess-player-head text-sm">
-            <span class="font-medium" style="color: ${seqColor};">${seqLabel}${isContext ? ' <span class="sess-badge text-xxs">context</span>' : ''}</span>
+            <span class="font-medium" style="color: ${seqColor};">${seqLabel}</span>
             <span class="sess-player-nav">
                 <button type="button" class="btn-discreet" id="sess-prev" aria-label="Previous video" ${a.pos === 0 ? 'disabled' : ''}>◀</button>
                 <span class="text-xs" style="color: var(--color-text-tertiary);">${posLabel}</span>
@@ -1885,6 +1926,10 @@ function sessRenderPlayer(autoplay) {
         rows.push(`<div class="sess-meta-row"><span class="sess-meta-label text-xs">${lbl}</span>`
             + `<span class="text-xs">${value}</span></div>`);
     };
+    const playNum = sessPlayNumber(m.item_id, m.ts);
+    add('Session index',
+        playNum != null ? `#${playNum} of ${sessState.detail.plays.length}` : null,
+        'Position of this video within the whole session’s chronological play list.');
     add('Niche', play.niche_name ? escapeHtml(play.niche_name) : null);
     add('Category', play.category ? escapeHtml(play.category) : null);
     add('Creator', play.author ? escapeHtml(play.author) : null);
@@ -1894,14 +1939,14 @@ function sessRenderPlayer(autoplay) {
               + 'parentheses (watch time ÷ video length, capped at 100%).'
             : null);
     add('Played at', escapeHtml(sessFmtTs(m.ts)));
-    if (a.kind === 'binge' && !isContext) {
+    if (a.kind === 'binge' && !isContext && !isOffTheme) {
         add('Δ distance',
             m.rolling_cosdist != null ? m.rolling_cosdist.toFixed(3) : 'start of binge',
             'Semantic distance from the running centre of the binge so far — how tightly this video continued the thread.');
     }
-    if (isContext) {
+    if (isContext || isOffTheme) {
         // Distance from the sequence's member centroid, server-computed —
-        // the "why was this one left out" number for context steps.
+        // the "why was this one left out" number for context/off-theme steps.
         const src = a.kind === 'binge'
             ? sessState.detail.episodes.find(e => e.episode_idx === a.idx)
             : (sessState.detail.windows || []).find(w => w.window_idx === a.idx);

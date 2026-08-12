@@ -5548,3 +5548,19 @@ body:has(.public-page) {
     color: var(--color-warning);
     background: var(--color-bg-elevated);
 }
+
+/* Off-theme steps: plays inside the sequence's span that the detector
+   skipped — shown while stepping, but flagged as not part of it. Same idea
+   as the context treatment, deliberately distinct (dotted, info colour). */
+.sess-player-pane.is-offtheme {
+    border-style: dotted;
+    border-color: var(--color-info);
+}
+
+.sess-offtheme-banner {
+    padding: 6px 10px;
+    border: 1px dotted var(--color-info);
+    border-radius: 4px;
+    color: var(--color-info);
+    background: var(--color-bg-elevated);
+}
