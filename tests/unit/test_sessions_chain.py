@@ -131,6 +131,13 @@ def corpus(tmp_path, monkeypatch):
     })
     data_io.save_parquet(df=vm, storage_location="recoded", filename="video_map.parquet")
 
+    # The worker only builds collections covered by >=1 study; a study with no
+    # date bounds covers everything (wide defaults), so the golden-equivalence
+    # comparisons against the unscoped in-process driver still hold.
+    data_io.save_json(
+        data={"Chain Study": {"SELECTED_COLLECTIONS": ["coll0", "coll1", "coll2"]}},
+        storage_location="recoded", filename="studies.json")
+
     embedding_store.ensure_dense_store(model)
     return {"model": model, "ids": ids, "n_collections": 3}
 
@@ -380,3 +387,160 @@ def test_publish_order_sessions_index_last(corpus, monkeypatch):
     _run_chain({"batch_size": 2})
     assert order[-1] == se.SESSIONS_FILE
     assert set(order[:-1]) == {se.PLAYS_FILE, se.EPISODES_FILE, se.WINDOWS_FILE}
+
+
+
+
+
+# ---- Incremental (stale_only / merge) modes ----
+
+
+def _set_study_defs(defs: dict) -> None:
+    data_io.save_json(data=defs, storage_location="recoded",
+                      filename="studies.json")
+
+
+
+
+def test_full_run_writes_per_collection_block(corpus):
+    _run_chain({"batch_size": 2})
+    meta = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    block = meta["collections"]
+    assert sorted(block) == ["coll0", "coll1", "coll2"]
+    for rec in block.values():
+        assert rec["windows"] and rec["n_plays"] > 0 and rec["built_at"]
+
+
+
+
+def test_stale_only_noops_when_nothing_changed(corpus, monkeypatch):
+    _run_chain({"batch_size": 2})
+    want = _read_artifacts()
+
+    swept = []
+    monkeypatch.setattr(se, "sweep_stale_run_files",
+                        lambda run_id: swept.append(run_id))
+    reporter, links = _run_chain({"stale_only": True})
+    assert links == 1, "noop must not chain"
+    assert reporter.progress[-1] == (100, "Up to date")
+    assert swept == [], "noop must never sweep another run's files"
+    got = _read_artifacts()
+    for kind in ("sessions", "episodes", "windows"):
+        pd.testing.assert_frame_equal(want[kind], got[kind])
+
+
+
+
+def test_stale_only_merges_only_the_changed_collection(corpus):
+    _run_chain({"batch_size": 2})
+    before = _read_artifacts()
+
+    # Narrow coll1's window to before any of its plays: its rows must go,
+    # while coll0/coll2 rows stay byte-identical (they are not re-segmented).
+    _set_study_defs({
+        "Chain Study": {"SELECTED_COLLECTIONS": ["coll0", "coll2"]},
+        "Old Study": {"SELECTED_COLLECTIONS": ["coll1"],
+                      "START_DATE": "2020-01-01", "END_DATE": "2020-01-02"},
+    })
+    reporter, links = _run_chain({"stale_only": True})
+    assert links == 1, "a pure-drop merge publishes inline at setup"
+    after = _read_artifacts()
+    for kind in ("sessions", "episodes", "windows"):
+        assert not (after[kind]["collection_id"] == "coll1").any()
+        pd.testing.assert_frame_equal(
+            before[kind][before[kind]["collection_id"] != "coll1"]
+            .reset_index(drop=True),
+            after[kind].reset_index(drop=True))
+    meta = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    assert sorted(meta["collections"]) == ["coll0", "coll2"]
+    assert meta["n_collections"] == 2
+
+
+
+
+def test_stale_only_resegments_a_window_change(corpus):
+    _run_chain({"batch_size": 2})
+    before = _read_artifacts()
+    meta_before = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+
+    # Give coll2 its own explicit (still-covering) window: the fingerprint's
+    # windows differ, so exactly coll2 is re-segmented; its data is unchanged
+    # so its rows come back identical — but its built_at advances.
+    _set_study_defs({
+        "Chain Study": {"SELECTED_COLLECTIONS": ["coll0", "coll1"]},
+        "New Study": {"SELECTED_COLLECTIONS": ["coll2"],
+                      "START_DATE": "2026-02-01", "END_DATE": "2026-04-01"},
+    })
+    reporter, links = _run_chain({"stale_only": True})
+    assert links == 2, "setup + one batch link for the single stale collection"
+    after = _read_artifacts()
+    for kind in ("sessions", "episodes", "windows"):
+        pd.testing.assert_frame_equal(before[kind].reset_index(drop=True),
+                                      after[kind].reset_index(drop=True))
+    meta = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    assert meta["collections"]["coll2"]["built_at"] > \
+        meta_before["collections"]["coll2"]["built_at"]
+    assert meta["collections"]["coll0"]["built_at"] == \
+        meta_before["collections"]["coll0"]["built_at"]
+
+
+
+
+def test_targeted_collections_merge_preserves_the_rest(corpus):
+    _run_chain({"batch_size": 2})
+    before = _read_artifacts()
+
+    reporter, links = _run_chain({"collections": "coll1"})
+    assert links == 2  # setup + one batch link
+    after = _read_artifacts()
+    # Nothing changed in the data, so the merged artifacts equal the originals
+    # — crucially INCLUDING coll0/coll2, which a targeted run used to drop.
+    for kind in ("sessions", "episodes", "windows"):
+        pd.testing.assert_frame_equal(
+            before[kind].reset_index(drop=True),
+            after[kind].reset_index(drop=True))
+    meta = data_io.load_json(storage_location="cache", filename=se.META_FILE)
+    assert meta["n_collections"] == 3
+
+
+
+
+def test_skip_if_busy_yields_to_a_live_run(corpus):
+    _run_chain({"batch_size": 2})
+    want = _read_artifacts()
+    # A fresh foreign progress file looks like an in-flight chain.
+    data_io.save_json(data={"chunks": {}}, storage_location="cache",
+                      filename=f"{se.PROGRESS_PREFIX}otherrun.json")
+
+    reporter, links = _run_chain({"skip_if_busy": True})
+    assert links == 1
+    assert any("skipping" in m.lower() for m in reporter.lines)
+    assert data_io.exists(storage_location="cache",
+                          filename=f"{se.PROGRESS_PREFIX}otherrun.json"), \
+        "the busy guard must not sweep the live run's files"
+    got = _read_artifacts()
+    for kind in ("sessions", "episodes", "windows"):
+        pd.testing.assert_frame_equal(want[kind], got[kind])
+
+
+
+
+def test_restart_args_keep_stale_only_but_strip_skip_if_busy(corpus, monkeypatch):
+    # Make one collection stale so a stale_only run actually chains.
+    data_io.remove(storage_location="cache", filename=se.META_FILE) \
+        if data_io.exists(storage_location="cache", filename=se.META_FILE) else None
+    reporter = FakeReporter()
+    setup = worker.run_sessions_refresh(
+        reporter, {"batch_size": 1, "stale_only": True, "skip_if_busy": True})
+    args = setup["next_task_args"]
+    assert args["stale_only"] is True
+    assert "skip_if_busy" not in args
+
+    def drifted(model, expected_fp=None, reporter=None):
+        raise embedding_store.CorpusMeanDrift("store moved")
+
+    monkeypatch.setattr(embedding_store, "get_corpus_mean", drifted)
+    restart = worker.run_sessions_refresh(reporter, args)
+    rargs = restart["next_task_args"]
+    assert rargs["stale_only"] is True
+    assert "skip_if_busy" not in rargs

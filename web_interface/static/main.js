@@ -636,6 +636,18 @@ async function rebuildNicheMap() {
     if (started && reset && box) box.checked = false;
 }
 
+// Sessions refresh: the default is incremental — only collections whose study
+// date windows or in-window scraped/annotated data changed since the last
+// build are re-segmented (and collections that left every study are dropped).
+// "Force full rebuild" re-segments every covered collection; untick after a
+// started run so a later click doesn't silently force again.
+async function startSessionsRefresh() {
+    const box = document.getElementById('sessions_refresh-force');
+    const force = !!(box && box.checked);
+    const started = await startProcess('sessions_refresh', force ? {} : { stale_only: true });
+    if (started && force && box) box.checked = false;
+}
+
 // ── Generic pretty dialogs — the app-wide replacement for native alert()/
 // confirm(). Both return Promises so callers can await a choice; the look
 // reuses the stop-worker modal (.stop-confirm-overlay / .stop-confirm-card).

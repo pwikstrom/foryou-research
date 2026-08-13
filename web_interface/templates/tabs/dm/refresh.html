@@ -165,13 +165,17 @@
         style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
         <div class="font-bold" style="margin-bottom: 10px;">Sessions</div>
         <div class="text-xs" style="color: var(--color-text-tertiary); margin-bottom: 10px;">
-            Rebuilds the Sessions tab's session index and focus-episode tables from the embedding store. Run after embeddings have been refreshed.
+            Rebuilds the Sessions tab's session index and focus-episode tables from the embedding store, covering each collection within its studies' date windows. By default only collections whose study windows or in-window data changed are re-segmented; tick "Force full rebuild" to re-segment everything. Also runs automatically after a study save.
         </div>
         <div class="controls"
-            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px;">
             <span id="sessions_refresh-status" class="status-indicator status-stopped"></span>
             <button id="sessions_refresh-toggle" class="btn-primary" data-start-label="Refresh"
-                onclick="startProcess('sessions_refresh')" style="padding: 4px 12px;">Refresh</button>
+                data-start-handler="startSessionsRefresh" onclick="startSessionsRefresh()" style="padding: 4px 12px;">Refresh</button>
+            <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="checkbox" id="sessions_refresh-force">
+                <span style="color: var(--color-text-secondary);">Force full rebuild</span>
+            </label>
         </div>
         <div class="progress-container">
             <div class="progress-bar" id="sessions_refresh-bar"></div>

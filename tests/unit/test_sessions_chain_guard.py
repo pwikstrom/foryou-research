@@ -85,10 +85,17 @@ def test_initial_dispatch_is_setup_only(monkeypatch):
     monkeypatch.setattr(embeddings, "active_embedding_backend", lambda: _Backend())
     monkeypatch.setattr(embedding_store, "get_corpus_mean",
                         lambda model, reporter=None: ("mean", 42, "fp42"))
-    monkeypatch.setattr(session_explorer, "discover_collections",
-                        lambda collections: [("c1", 10), ("c2", 5)])
+    wide = [["1970-01-01", "2100-01-01"]]
+    monkeypatch.setattr(session_explorer, "compute_coverage_spec",
+                        lambda *a, **k: {"c1": wide, "c2": wide})
+    monkeypatch.setattr(session_explorer, "discover_covered_collections",
+                        lambda coverage, collections=None: [("c1", 10, 4), ("c2", 5, 2)])
     monkeypatch.setattr(session_explorer, "trend_numeric_columns", lambda: ["log_plays"])
     monkeypatch.setattr(session_explorer, "sweep_stale_run_files", lambda run_id: None)
+    # Hermetic storage: no artifacts exist (-> full plan), manifest seeding
+    # goes to an in-memory store.
+    monkeypatch.setattr(data_io, "exists", lambda **kwargs: False)
+    monkeypatch.setattr(data_io, "update_json", _fake_update_json({}))
 
     def _boom(*args, **kwargs):
         raise AssertionError("setup link must not build a batch")
