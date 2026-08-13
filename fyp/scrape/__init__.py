@@ -21,6 +21,7 @@ from fyp.scrape.scrape import (
     download_single_video,
     download_video_threads,
     load_failed_scrapes,
+    load_failed_scrapes_detail,
     make_slideshow,
     queue_scraper_loop,
     scraper_loop_from_list,

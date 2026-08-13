@@ -101,12 +101,17 @@ def test_scrape_future_success_predicate():
 
 
 def test_requests_cookiejar_local_dev_falls_back_to_chrome(monkeypatch):
-    """With no cookie file, local dev sources plain-requests cookies from Chrome."""
+    """With no cookie file, local dev sources plain-requests cookies from Chrome.
+
+    The per-TTL Chrome export is tried first; direct per-call profile reading
+    is the fallback when the export fails.
+    """
     from fyp.scrape import scraper_cookies as sc
 
     sentinel = object()
     monkeypatch.setattr(sc, "ensure_cookie_file", lambda platform: None)
     monkeypatch.setattr(sc, "_env_cookie_file", lambda platform: "")
+    monkeypatch.setattr(sc, "_export_chrome_cookies", lambda platform: None)
     monkeypatch.setattr(sc, "_chrome_requests_cookies", lambda platform: sentinel)
 
     monkeypatch.setattr(sc, "_is_local_dev", lambda: True)

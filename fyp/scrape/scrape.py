@@ -1296,7 +1296,6 @@ def download_video_threads(
                 media_retry_ids.append(interesting_videos[idx])
         else:
             vid = interesting_videos[idx]
-            failed_items += [vid]
             error_type = res.attrs.get('error_type', 'unknown') if isinstance(res, pd.DataFrame) else 'unknown'
             # The scraper owns its platform's permanent-vs-transient taxonomy.
             classification = scraper.classify_error(error_type)
@@ -1305,12 +1304,15 @@ def download_video_threads(
                     # Suspect storm verdict: keep the id queued and off the
                     # failed record — a later healthy session re-scrapes it.
                     transient_failed_ids.append(vid)
-                    failed_items.remove(vid)
                     storm_demoted += 1
-                else:
-                    permanent_failed_ids.append(vid)
+                    continue
+                permanent_failed_ids.append(vid)
             else:
                 transient_failed_ids.append(vid)
+            # The category travels with the id so a later run can single out one
+            # kind of failure — an "ip_blocked" verdict reached from one vantage
+            # point may not hold from another, unlike a removed or private post.
+            failed_items += [{"item_id": vid, "category": classification}]
 
     if storm_state["tripped"]:
         logger.warning(f"  Permanent-storm guard: {storm_demoted} "
@@ -2142,33 +2144,70 @@ def consolidate_and_save_scrape_data(
 
 
 
-def load_failed_scrapes(
+def _merge_failed_scrape_records(
+    records: dict[str, str | None],
+    raw: list) -> None:
+    """Merge one loaded failed-scrapes file into ``records`` in place.
+
+    Two on-disk shapes coexist. Records written before the category was
+    recorded are bare item-id strings carrying no reason; newer ones are
+    ``{"item_id": ..., "category": "permanent:ip_blocked"}`` dicts. A known
+    category always wins over a legacy id for the same item.
+
+    Args:
+        records: Accumulator mapping item id to category (``None`` if unknown).
+        raw: The parsed contents of one failed-scrapes JSON file.
+    """
+    for entry in raw:
+        if isinstance(entry, dict):
+            item_id = entry.get("item_id")
+            if item_id is not None:
+                records[str(item_id)] = entry.get("category")
+        else:
+            records.setdefault(str(entry), None)
+
+
+
+
+
+
+def _load_failed_scrape_records(
     verbose = False,
-    super_verbose = False):
-    # Load list of failed scraped attempts.
+    super_verbose = False) -> dict[str, str | None]:
+    """Load every recorded failed scrape as ``{item_id: category}``.
 
+    Consolidates multiple on-disk records into one file and archives the
+    originals, exactly as before; the consolidated file is written in the
+    category-carrying shape, so a legacy id whose reason was never recorded
+    survives consolidation with a ``None`` category rather than being dropped.
 
+    Args:
+        verbose: Log progress.
+        super_verbose: Log each file name as it is read.
+
+    Returns:
+        Mapping of item id to its recorded category, ``None`` when unknown.
+    """
     if verbose:
         logger.info("Loading failed scrapes...")
 
     failed_scrapes_files = [gg for gg in data_io.listdir(storage_location="scrape", verbose=verbose) if gg.startswith(_failed_scrapes_label())]
 
-    failed_scrapes = []
+    records: dict[str, str | None] = {}
     for fn in failed_scrapes_files:
         if super_verbose:
             logger.info(fn)
         some_dict = data_io.load_json(storage_location="scrape", filename=fn, verbose=verbose)
         if some_dict is not None:
-            failed_scrapes += some_dict
-
-    failed_scrapes = list(set(map(lambda one_item_id:str(one_item_id), failed_scrapes)))
+            _merge_failed_scrape_records(records, some_dict)
 
     if len(failed_scrapes_files) > 1:
         fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
         if verbose:
-            logger.info(f"{len(failed_scrapes):,} of these are unique and will be saved as a new consolidated file {_failed_scrapes_label()}_{fine_ts}.json.")
+            logger.info(f"{len(records):,} of these are unique and will be saved as a new consolidated file {_failed_scrapes_label()}_{fine_ts}.json.")
 
-        result = data_io.save_json(data=failed_scrapes, storage_location="scrape", filename=f"{_failed_scrapes_label()}_{fine_ts}.json", verbose=verbose)
+        payload = [{"item_id": item_id, "category": category} for item_id, category in records.items()]
+        result = data_io.save_json(data=payload, storage_location="scrape", filename=f"{_failed_scrapes_label()}_{fine_ts}.json", verbose=verbose)
 
         if result == 0:
             for fn in failed_scrapes_files:
@@ -2177,9 +2216,45 @@ def load_failed_scrapes(
                     logger.info(f"Moved {fn} to archive")
 
     if verbose:
-        logger.info(f"Loaded list of all failed scrapes: {len(failed_scrapes):,}")
+        logger.info(f"Loaded list of all failed scrapes: {len(records):,}")
 
-    return failed_scrapes
+    return records
+
+
+
+
+
+
+def load_failed_scrapes(
+    verbose = False,
+    super_verbose = False):
+    # Load list of failed scraped attempts.
+
+    return list(_load_failed_scrape_records(verbose=verbose, super_verbose=super_verbose))
+
+
+
+
+
+
+def load_failed_scrapes_detail(
+    verbose = False,
+    super_verbose = False) -> dict[str, str | None]:
+    """Load failed scrapes with the reason each one failed.
+
+    Use this instead of :func:`load_failed_scrapes` to select one kind of
+    failure — e.g. re-queueing only the ``permanent:ip_blocked`` items after
+    the scraper gains a different vantage point.
+
+    Args:
+        verbose: Log progress.
+        super_verbose: Log each file name as it is read.
+
+    Returns:
+        Mapping of item id to its recorded category. ``None`` marks a record
+        written before categories were stored, whose reason is unrecoverable.
+    """
+    return _load_failed_scrape_records(verbose=verbose, super_verbose=super_verbose)
 
 
 
