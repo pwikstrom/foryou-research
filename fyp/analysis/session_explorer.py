@@ -561,6 +561,291 @@ def discover_collections(collections: list[str] | None = None) -> list[tuple[str
 
 
 
+# Days added on each side of a study's saved date window when building the
+# per-collection coverage intervals: a viewing session straddling a window
+# edge would otherwise be truncated at the boundary. The tab still filters to
+# the exact study window at read time, so the pad only affects what gets
+# segmented, never what a study displays.
+COVERAGE_PAD_DAYS = 3
+
+# Same wide fallbacks the study builder applies when a bound is absent or
+# unparseable (services/study_data.get_study_date_window) — the window becomes
+# a no-op rather than an accidental cut.
+_WIDE_START = "1970-01-01"
+_WIDE_END = "2099-12-31"
+
+
+
+
+def _study_bound(cfg: dict, key: str, default: str) -> pd.Timestamp:
+    """Parse a study's saved date bound, falling back to the wide default."""
+    raw = cfg.get(key)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            return pd.Timestamp(raw.strip())
+        except ValueError:
+            pass
+    return pd.Timestamp(default)
+
+
+
+
+def merge_intervals(intervals: list[tuple[pd.Timestamp, pd.Timestamp]],
+                    ) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """Merge overlapping/adjacent half-open ``[start, end)`` intervals."""
+    merged: list[list[pd.Timestamp]] = []
+    for start, end in sorted(intervals):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [(s, e) for s, e in merged]
+
+
+
+
+def compute_coverage_spec(study_defs: dict | None = None,
+                          pad_days: int = COVERAGE_PAD_DAYS) -> dict[str, list[list[str]]]:
+    """Per-collection date windows the sessions build must cover.
+
+    The sessions artifacts only need to span what studies can display: for
+    each study, each collection in its ``SELECTED_COLLECTIONS`` contributes
+    the study's saved date window (``START_DATE`` inclusive through the end of
+    ``END_DATE``, the builder's half-open ``[start, end+1d)`` convention),
+    padded by ``pad_days`` on each side so edge-straddling sessions stay
+    intact. Overlapping windows from different studies merge into disjoint
+    intervals. Collections selected by **no** study are absent from the spec
+    — they are not built at all.
+
+    Args:
+        study_defs: Study definitions dict (None loads ``studies.json`` from
+            the ``recoded`` location directly — no dependency on a
+            pre-initialised ``fyp_cf['study_defs']``).
+        pad_days: Padding applied to each side of every window.
+
+    Returns:
+        ``{collection_id: [["YYYY-MM-DD", "YYYY-MM-DD"], ...]}`` — sorted,
+        disjoint, half-open ``[start, end)`` intervals as ISO date strings
+        (JSON-stable, so the staleness comparison is exact).
+    """
+    if study_defs is None:
+        if data_io.exists(storage_location="recoded", filename="studies.json"):
+            study_defs = data_io.load_json(storage_location="recoded",
+                                           filename="studies.json") or {}
+        else:
+            study_defs = {}
+
+    pad = pd.Timedelta(days=pad_days)
+    raw: dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]] = {}
+    for cfg in study_defs.values():
+        if not isinstance(cfg, dict):
+            continue
+        start = _study_bound(cfg, "START_DATE", _WIDE_START) - pad
+        # Stored END_DATE means "through the end of that day": +1d exclusive.
+        end = _study_bound(cfg, "END_DATE", _WIDE_END) + pd.Timedelta(days=1) + pad
+        if end <= start:
+            continue
+        for cid in cfg.get("SELECTED_COLLECTIONS") or []:
+            raw.setdefault(str(cid), []).append((start, end))
+
+    return {
+        cid: [[s.strftime("%Y-%m-%d"), e.strftime("%Y-%m-%d")]
+              for s, e in merge_intervals(intervals)]
+        for cid, intervals in sorted(raw.items())
+    }
+
+
+
+
+def coverage_mask(ts: pd.Series, windows: list[list[str]]) -> pd.Series:
+    """Boolean mask of timestamps inside any half-open coverage interval."""
+    vals = ts.to_numpy(dtype="datetime64[ns]")
+    mask = np.zeros(len(vals), dtype=bool)
+    for start, end in windows:
+        mask |= ((vals >= np.datetime64(pd.Timestamp(start)))
+                 & (vals < np.datetime64(pd.Timestamp(end))))
+    return pd.Series(mask, index=ts.index)
+
+
+
+
+def discover_covered_collections(coverage: dict[str, list[list[str]]],
+                                 collections: list[str] | None = None,
+                                 ) -> list[tuple[str, int, int]]:
+    """Coverage-scoped discovery with within-window staleness counts.
+
+    The window-scoped counterpart of :func:`discover_collections`: one
+    streamed pass over the play rows, restricted to collections present in
+    ``coverage``, counting only plays inside each collection's coverage
+    intervals — plus how many of those plays are of annotated videos. The two
+    counts are exactly what :func:`compute_refresh_plan` compares against the
+    per-collection block in ``sessions_meta.json``.
+
+    Args:
+        coverage: Per-collection intervals from :func:`compute_coverage_spec`.
+        collections: Optional allow-list narrowing the scan further.
+
+    Returns:
+        ``[(collection_id, n_plays, n_annotated), ...]`` sorted by
+        ``(-n_plays, id)`` (collections with zero in-window plays are
+        omitted — there is nothing to segment).
+    """
+    fn = f"{COLLECTIONS_LABEL}_recoded.parquet"
+    if not coverage or not data_io.exists(
+            storage_location=embeddings.STORE_LOCATION, filename=fn):
+        return []
+    allow = set(coverage)
+    if collections is not None:
+        allow &= {str(c) for c in collections}
+    if not allow:
+        return []
+    available = data_io.get_parquet_columns(
+        storage_location=embeddings.STORE_LOCATION, filename=fn) or []
+    columns = ["collection_id", "local_timestamp"]
+    has_annotated = "annotated_ok" in available
+    if has_annotated:
+        columns.append("annotated_ok")
+
+    plays: dict[str, int] = {}
+    annotated: dict[str, int] = {}
+    for rb in data_io.iter_parquet_batches(
+            storage_location=embeddings.STORE_LOCATION, filename=fn,
+            columns=columns,
+            filters=[("activity_type", "==", "play"),
+                     ("collection_id", "in", sorted(allow))],
+            batch_size=1_048_576):
+        df = rb.to_pandas()
+        df["_ts"] = pd.to_datetime(df["local_timestamp"], errors="coerce")
+        df = df.dropna(subset=["_ts"])
+        if has_annotated:
+            ann = df["annotated_ok"].fillna(False).astype(bool)
+        else:
+            ann = pd.Series(False, index=df.index)
+        for cid, grp in df.groupby("collection_id", observed=True):
+            cid = str(cid)
+            mask = coverage_mask(grp["_ts"], coverage[cid])
+            n = int(mask.sum())
+            if n:
+                plays[cid] = plays.get(cid, 0) + n
+                annotated[cid] = annotated.get(cid, 0) + int((mask & ann[grp.index]).sum())
+    return sorted(((cid, n, annotated.get(cid, 0)) for cid, n in plays.items()),
+                  key=lambda t: (-t[1], t[0]))
+
+
+
+
+def collections_meta_block(discovered: list[tuple[str, int, int]],
+                           coverage: dict[str, list[list[str]]],
+                           built_at: str | None = None) -> dict:
+    """Per-collection provenance entries for ``sessions_meta.json``.
+
+    Args:
+        discovered: ``(cid, n_plays, n_annotated)`` tuples from
+            :func:`discover_covered_collections`.
+        coverage: The coverage spec the counts were taken against.
+        built_at: ISO timestamp to stamp (None: now).
+
+    Returns:
+        ``{cid: {"windows", "n_plays", "n_annotated", "built_at"}}``.
+    """
+    stamp = built_at or pd.Timestamp.now(tz="UTC").isoformat()
+    return {
+        cid: {"windows": coverage.get(cid, []), "n_plays": int(n_plays),
+              "n_annotated": int(n_annotated), "built_at": stamp}
+        for cid, n_plays, n_annotated in discovered
+    }
+
+
+
+
+def compute_refresh_plan(discovered: list[tuple[str, int, int]],
+                         coverage: dict[str, list[list[str]]],
+                         meta: dict | None, params: dict, model: str,
+                         trend_cols: list[str], artifacts_exist: bool,
+                         plays_schema_ok: bool = True,
+                         scope: set[str] | None = None) -> dict:
+    """Decide what a sessions refresh must rebuild. Pure — no I/O.
+
+    A collection is **stale** when its current fingerprint — coverage
+    windows, in-window play count, in-window annotated count — differs from
+    the one recorded in the meta's per-collection block (or it has no
+    record). A collection recorded in the meta but absent from ``discovered``
+    is **dropped** (it left every study, or its data is gone). Global
+    invalidators escalate to a full rebuild because a merge would mix
+    incompatible rows: a different embedding model, different segmentation
+    params, a different trend-column set (sessions schema drift), a changed
+    plays-artifact schema, or missing artifacts/meta (including a meta from
+    before the per-collection block existed — the migration path).
+
+    Corpus-mean fingerprint drift is deliberately **not** an invalidator:
+    the mean over the full store is statistically stable across appends, so
+    refreshed collections centred on the new mean coexist with untouched
+    ones on the old. The worker records the drift in the published meta;
+    a forced full rebuild realigns everything.
+
+    Args:
+        discovered: Current ``(cid, n_plays, n_annotated)`` fingerprint side.
+        coverage: Current per-collection windows.
+        meta: The existing ``sessions_meta.json`` payload (None when absent).
+        params: The run's resolved segmentation params.
+        model: The active embedding model id.
+        trend_cols: The run's pinned trend-column list.
+        artifacts_exist: Whether all published artifact files exist.
+        plays_schema_ok: False when the on-disk plays artifact's columns
+            differ from the current plays schema (mid-deploy drift).
+        scope: Optional allow-list intersecting the refresh set (never the
+            drop set — drops are corpus facts, not scoped requests).
+
+    Returns:
+        ``{"mode": "full"|"merge"|"noop", "reason": str,
+           "refresh": [cid...], "drop": [cid...]}`` — ``refresh`` keeps the
+        discovery order (biggest first); in full mode it is every discovered
+        collection and ``drop`` is empty (a full publish overwrites).
+    """
+    all_cids = [cid for cid, _, _ in discovered]
+
+    def _full(reason: str) -> dict:
+        return {"mode": "full", "reason": reason, "refresh": all_cids, "drop": []}
+
+    if not artifacts_exist:
+        return _full("artifacts missing")
+    if not isinstance(meta, dict) or not meta:
+        return _full("no meta")
+    known = meta.get("collections")
+    if not isinstance(known, dict):
+        return _full("meta has no per-collection block (pre-upgrade build)")
+    if str(meta.get("embedding_model") or "") != str(model):
+        return _full(f"embedding model changed "
+                     f"({meta.get('embedding_model')} -> {model})")
+    if meta.get("params") != params:
+        return _full("segmentation params changed")
+    if sorted(meta.get("trend_vars") or []) != sorted(trend_cols):
+        return _full("trend-column set changed (sessions schema drift)")
+    if not plays_schema_ok:
+        return _full("plays artifact schema changed (deploy drift)")
+
+    refresh: list[str] = []
+    for cid, n_plays, n_annotated in discovered:
+        rec = known.get(cid)
+        if (not isinstance(rec, dict)
+                or rec.get("windows") != coverage.get(cid, [])
+                or int(rec.get("n_plays", -1)) != int(n_plays)
+                or int(rec.get("n_annotated", -1)) != int(n_annotated)):
+            refresh.append(cid)
+    if scope is not None:
+        refresh = [cid for cid in refresh if cid in scope]
+    drop = sorted(set(known) - {cid for cid, _, _ in discovered})
+
+    if not refresh and not drop:
+        return {"mode": "noop", "reason": "all collections up to date",
+                "refresh": [], "drop": []}
+    return {"mode": "merge",
+            "reason": f"{len(refresh)} stale, {len(drop)} removed",
+            "refresh": refresh, "drop": drop}
+
+
+
+
 def segment_session(seq: list[tuple], U: np.ndarray, cut: float, mem: int,
                     min_videos: int, min_minutes: float,
                     max_skip: int = MAX_SKIP,
@@ -1302,7 +1587,8 @@ def _arrow_frame(rows: list[dict], schema: dict[str, pa.DataType]) -> pd.DataFra
 def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
                 index=None, params: dict | None = None, reporter=None,
                 max_vectors: int = MAX_VECTORS_PER_LINK,
-                trend_cols: list[str] | None = None):
+                trend_cols: list[str] | None = None,
+                coverage: dict[str, list[list[str]]] | None = None):
     """Segment one batch of collections against the dense embedding sidecar.
 
     Peak memory is O(batch): only the batch's plays, features, id sets and
@@ -1327,6 +1613,10 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
         trend_cols: Numeric feature columns for the session-extreme
             ``vmin_``/``vmax_`` columns (None resolves the live list — a
             chained worker must pass the list pinned at link 0 instead).
+        coverage: Optional per-collection date-window spec (see
+            :func:`compute_coverage_spec`). When given, each collection's
+            plays are restricted to its intervals before segmentation — a
+            collection absent from the spec contributes nothing.
 
     Returns:
         ``(session_rows, episode_rows, window_rows, plays, stats)`` — ``plays``
@@ -1335,6 +1625,15 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
     """
     p = {**default_params(), **(params or {})}
     plays = load_plays(cids)
+    if coverage is not None and not plays.empty:
+        keep = pd.Series(False, index=plays.index)
+        for cid in plays["collection_id"].drop_duplicates():
+            windows = coverage.get(str(cid))
+            if not windows:
+                continue
+            sel = (plays["collection_id"] == cid).to_numpy(dtype=bool)
+            keep[sel] = coverage_mask(plays.loc[sel, "_ts"], windows).to_numpy()
+        plays = plays[keep]
     stats = {"n_plays": int(len(plays)), "n_vectors": 0, "tier": 1}
     if plays.empty:
         return [], [], [], plays, stats
@@ -1596,10 +1895,175 @@ def publish_artifacts(run_id: str, n_chunks: int, expected: dict,
 
 
 
+def _target_schema(kind: str, trend_cols: list[str]) -> pa.Schema:
+    """The published arrow schema for one artifact kind."""
+    if kind == "plays":
+        return plays_table(None).schema
+    dict_schema = {"sessions": sessions_schema(trend_cols),
+                   "episodes": _EPISODES_SCHEMA,
+                   "windows": _WINDOWS_SCHEMA}[kind]
+    return _arrow_table([], dict_schema).schema
+
+
+
+
+def _align_batch(rb: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
+    """Reorder/cast a batch to ``schema`` (no-op when it already matches)."""
+    if rb.schema.equals(schema):
+        return rb
+    return rb.select(schema.names).cast(schema)
+
+
+
+
+def merge_publish_artifacts(run_id: str, n_chunks: int, refresh_cids: list[str],
+                            drop_cids: list[str], expected: dict, meta: dict,
+                            trend_cols: list[str], reporter=None,
+                            covered_collections: int | None = None) -> dict:
+    """Fold the run's shards into the existing artifacts, replacing rows.
+
+    The incremental counterpart of :func:`publish_artifacts`: instead of the
+    shards *becoming* the artifacts, each artifact is rewritten as (its
+    existing rows minus every refreshed/dropped collection) + the run's shard
+    rows. Streaming end to end — peak memory is one record batch. The write
+    itself stages to a tempfile and lands in one move
+    (:func:`fyp.data_io.write_parquet_stream`), and the publish order keeps
+    ``sessions_index.parquet`` last, so the read side's freshness gate holds.
+
+    Guard differences from the full publish: coverage/row-count totals are
+    the **targeted set's**, not the corpus's; every kind's shard set must be
+    complete (there is no plays grace-skip — a merge that skipped plays would
+    strand stale rows for the refreshed collections, and setup escalates
+    schema drift to a full rebuild before a merge run ever starts); and the
+    new-row counts are verified from the shard footers **before** any
+    artifact is touched.
+
+    Args:
+        run_id: The run whose shards to fold in.
+        n_chunks: Number of links (shards per kind).
+        refresh_cids: Collections this run re-segmented (their old rows go).
+        drop_cids: Collections to remove without replacement (left every
+            study, or vanished from the data).
+        expected: ``{"sessions": n, ...}`` NEW-row totals from the run.
+        meta: The ``sessions_meta.json`` payload; its ``n_*`` counts are
+            overwritten with the merged totals here.
+        trend_cols: The run's pinned trend columns (sessions schema).
+        reporter: Optional status reporter.
+        covered_collections: Collections actually segmented by this run —
+            compared against ``len(refresh_cids)``.
+
+    Returns:
+        ``meta`` (persisted, with merged counts).
+
+    Raises:
+        RuntimeError: incomplete run, count mismatch, or schema mismatch.
+            Nothing is published in that case; the artifacts stay intact.
+    """
+    total = len(refresh_cids)
+    if covered_collections is not None and int(covered_collections) != total:
+        raise RuntimeError(
+            f"merge publish: run {run_id} covered {covered_collections} of "
+            f"{total} targeted collections — refusing to publish a partial "
+            f"merge. Shards kept for inspection.")
+
+    remove_ids = pa.array(sorted({str(c) for c in refresh_cids}
+                                 | {str(c) for c in drop_cids}),
+                          type=pa.string())
+    kinds = (("plays", PLAYS_FILE), ("episodes", EPISODES_FILE),
+             ("windows", WINDOWS_FILE), ("sessions", SESSIONS_FILE))
+
+    # Validate every kind BEFORE touching any artifact: complete shard set,
+    # new-row totals (from footers — no data read), old-artifact schema.
+    shard_sets: dict[str, list[str]] = {}
+    for kind, final in kinds:
+        shards = [shard_filename(kind, run_id, k) for k in range(n_chunks)]
+        missing = [s for s in shards if not data_io.exists(
+            storage_location=ARTIFACT_LOCATION, filename=s)]
+        if missing:
+            raise RuntimeError(
+                f"merge publish: run {run_id} has an incomplete '{kind}' "
+                f"shard set ({len(missing)} of {n_chunks} missing) — "
+                f"refusing to publish.")
+        new_rows = sum(data_io.get_parquet_num_rows(
+            storage_location=ARTIFACT_LOCATION, filename=s) or 0 for s in shards)
+        if kind in expected and new_rows != int(expected[kind]):
+            raise RuntimeError(
+                f"merge publish: '{kind}' shard rows {new_rows} != expected "
+                f"{expected[kind]} — artifacts untouched, shards kept.")
+        schema = _target_schema(kind, trend_cols)
+        old_cols = data_io.get_parquet_columns(
+            storage_location=ARTIFACT_LOCATION, filename=final)
+        if old_cols is not None and sorted(old_cols) != sorted(schema.names):
+            raise RuntimeError(
+                f"merge publish: existing {final} columns differ from the "
+                f"current schema (mid-run deploy?) — setup should have "
+                f"escalated to a full rebuild. Shards kept.")
+        shard_sets[kind] = shards
+
+    merged_counts: dict[str, int] = {}
+    for kind, final in kinds:
+        schema = _target_schema(kind, trend_cols)
+        old_exists = data_io.exists(storage_location=ARTIFACT_LOCATION,
+                                    filename=final)
+        counts = {"old_kept": 0, "new": 0}
+
+        def _batches(kind=kind, final=final, schema=schema,
+                     old_exists=old_exists, counts=counts):
+            if old_exists:
+                idx = schema.names.index("collection_id")
+                for rb in data_io.iter_parquet_batches(
+                        storage_location=ARTIFACT_LOCATION, filename=final,
+                        batch_size=PLAYS_ROW_GROUP if kind == "plays" else 131_072):
+                    rb = _align_batch(rb, schema)
+                    mask = pa_compute.invert(
+                        pa_compute.is_in(rb.column(idx), value_set=remove_ids))
+                    kept = rb.filter(pa_compute.fill_null(mask, True))
+                    if kept.num_rows:
+                        counts["old_kept"] += kept.num_rows
+                        yield kept
+            for s in shard_sets[kind]:
+                for rb in data_io.iter_parquet_batches(
+                        storage_location=ARTIFACT_LOCATION, filename=s,
+                        batch_size=PLAYS_ROW_GROUP if kind == "plays" else 131_072):
+                    counts["new"] += rb.num_rows
+                    yield _align_batch(rb, schema)
+
+        n = data_io.write_parquet_stream(
+            storage_location=ARTIFACT_LOCATION, filename=final,
+            batches=_batches(), schema=schema)
+        if n != counts["old_kept"] + counts["new"]:
+            raise RuntimeError(
+                f"merge publish: '{kind}' wrote {n} rows != kept "
+                f"{counts['old_kept']} + new {counts['new']}")
+        merged_counts[kind] = n
+        if reporter is not None:
+            reporter.log(
+                f"Merged {final}: kept {counts['old_kept']:,} rows, "
+                f"replaced/added {counts['new']:,} "
+                f"({len(refresh_cids)} refreshed, {len(drop_cids)} dropped)"
+                + ("" if old_exists else " [no previous artifact]"))
+
+    meta["n_sessions"] = merged_counts["sessions"]
+    meta["n_episodes"] = merged_counts["episodes"]
+    meta["n_windows"] = merged_counts["windows"]
+    meta["n_plays"] = merged_counts["plays"]
+    meta["n_collections"] = len(meta.get("collections") or {})
+    data_io.save_json(data=meta, storage_location=ARTIFACT_LOCATION, filename=META_FILE)
+    for kind in SHARD_PREFIXES:
+        for k in range(n_chunks):
+            fn = shard_filename(kind, run_id, k)
+            if data_io.exists(storage_location=ARTIFACT_LOCATION, filename=fn):
+                data_io.remove(storage_location=ARTIFACT_LOCATION, filename=fn)
+    return meta
+
+
+
+
 def build_artifacts(reporter=None, params: dict | None = None,
                     collections: list[str] | None = None,
                     batch_size: int = 8,
-                    max_vectors: int = MAX_VECTORS_PER_LINK) -> dict:
+                    max_vectors: int = MAX_VECTORS_PER_LINK,
+                    coverage: dict[str, list[list[str]]] | None = None) -> dict:
     """Build and persist the session + episode artifacts for all collections.
 
     In-process driver over :func:`build_batch` — the same batch-scoped
@@ -1612,6 +2076,10 @@ def build_artifacts(reporter=None, params: dict | None = None,
         collections: Optional collection-id subset (None = every collection).
         batch_size: Collections per batch.
         max_vectors: Per-batch vector budget (see :func:`build_batch`).
+        coverage: Optional per-collection date-window spec — discovery and
+            segmentation restrict to it, and the meta gains the
+            per-collection provenance block (see
+            :func:`compute_coverage_spec`).
 
     Returns:
         A summary dict (the persisted ``sessions_meta.json`` payload).
@@ -1636,8 +2104,12 @@ def build_artifacts(reporter=None, params: dict | None = None,
         corpus_mean, n_vectors, store_fp, index = None, 0, "", None
     _log(f"  {n_vectors:,} vectors")
 
-    discovered = discover_collections(collections)
-    cids = [c for c, _ in discovered]
+    if coverage is not None:
+        discovered = discover_covered_collections(coverage, collections)
+        cids = [c for c, _, _ in discovered]
+    else:
+        discovered = discover_collections(collections)
+        cids = [c for c, _ in discovered]
     _log(f"  {len(cids)} collections to segment")
     trend_cols = trend_numeric_columns()
     _log(f"  session min/max columns for {len(trend_cols)} trend variable(s)")
@@ -1653,7 +2125,7 @@ def build_artifacts(reporter=None, params: dict | None = None,
         batch = cids[start:start + batch_size]
         srows, erows, wrows, plays, stats = build_batch(
             batch, model, corpus_mean, index, params=p, reporter=reporter,
-            max_vectors=max_vectors, trend_cols=trend_cols)
+            max_vectors=max_vectors, trend_cols=trend_cols, coverage=coverage)
         if srows is None:
             _log("Cancelled by user.")
             return {"cancelled": True}
@@ -1703,5 +2175,8 @@ def build_artifacts(reporter=None, params: dict | None = None,
         "n_windows": len(all_windows),
         "n_plays": n_plays,
     }
+    if coverage is not None:
+        meta["collections"] = collections_meta_block(
+            discovered, coverage, built_at=meta["built_at"])
     data_io.save_json(data=meta, storage_location=ARTIFACT_LOCATION, filename=META_FILE)
     return meta

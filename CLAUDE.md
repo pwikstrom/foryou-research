@@ -180,7 +180,7 @@ fyp_main_v02/
 │   ├── run_embeddings_refresh.py   # Embed not-yet-embedded annotated videos (Cloud Task)
 │   ├── run_video_map_refresh.py    # Cluster embedding store into niches + 2D map (Cloud Task)
 │   ├── run_sequence_refresh.py  # Refresh sequence-analysis artifacts (Cloud Task)
-│   ├── run_sessions_refresh.py  # Build the Sessions tab's session index + binge-episode/window artifacts (self-chaining Cloud Task; O(batch) memory, per-link shards, corpus-mean drift guard)
+│   ├── run_sessions_refresh.py  # Build the Sessions tab's session index + binge-episode/window artifacts (self-chaining Cloud Task; O(batch) memory, per-link shards, corpus-mean drift guard). Study-window-scoped: only collections in >=1 study, within the padded union of their studies' date windows. Incremental: stale_only mode refreshes only collections whose windows/in-window counts changed (merge publish replaces just their rows; per-collection provenance in sessions_meta.json); a targeted `collections` run also merges; no-args = force-full. Chained automatically after every study save (pipeline_remaining, skip_if_busy)
 │   ├── run_benchmark_parquet_read.py  # Benchmark parquet read paths (Cloud Task)
 │   ├── run_queue_annotator_batch.py   # Batch-mode Gemini annotation (Cloud Task)
 │   ├── run_ab_eval.py           # Prompt A/B eval run (Cloud Task)

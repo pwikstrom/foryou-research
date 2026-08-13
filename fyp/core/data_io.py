@@ -403,6 +403,29 @@ def get_parquet_columns(storage_location: str = "cache", filename: str = "") -> 
 
 
 
+def get_parquet_num_rows(storage_location: str = "cache", filename: str = "") -> int | None:
+    """Return a parquet file's row count from its footer, without reading rows.
+
+    The row-count counterpart of :func:`get_parquet_columns`. Returns None
+    when the file does not exist.
+    """
+
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
+    if not exists(storage_location=storage_location, filename=filename):
+        return None
+
+    primary, _secondary, _mode, _blob_name = _resolve_paths(storage_location, filename)
+    return int(pq.read_metadata(primary).num_rows)
+
+
+
+
+
+
 
 
 def remove(storage_location: str = "cache", filename: str = "", verbose: bool = False):

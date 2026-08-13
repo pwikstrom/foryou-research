@@ -227,6 +227,16 @@ def save_study():
         "study_name": study_name,
         "refresh_pca": refresh_pca_flag,
         "refresh_metadata": refresh_meta_flag,
+        # Follow the study refresh with an auto sessions refresh: a saved
+        # window/collection change alters the coverage spec, so the chained
+        # run rebuilds exactly the affected collections (and no-ops when
+        # nothing changed). skip_if_busy keeps two study saves from killing
+        # each other's sessions chains. Study DELETE is deliberately not
+        # chained — the next auto run drops the departed collections' rows.
+        "pipeline_remaining": [{
+            "task": "sessions_refresh",
+            "task_args": {"stale_only": True, "skip_if_busy": True},
+        }],
     }
 
     if is_cloud_run():
@@ -258,6 +268,9 @@ def save_study():
 
         status_key = f"study_refresh__{study_name}"
         reporter = LocalThreadStatusReporter(status_key)
+        # Captured here — _actor() reads the request context, which is gone
+        # by the time the thread's follow-on dispatch runs.
+        _actor_name = _actor()
 
         def _run_in_thread():
             try:
@@ -266,6 +279,21 @@ def save_study():
             except Exception as e:
                 print(f"Study refresh failed: {e}")
                 reporter.fail(str(e))
+                return
+            # Local-dev counterpart of the Cloud path's pipeline_remaining:
+            # the subprocess mode has no pipeline advance, so start the
+            # follow-on sessions refresh here. Failure only logs — the study
+            # refresh itself already succeeded.
+            try:
+                from fyp.fyp_config import SESSIONS_REFRESH_SCRIPT
+                ok, start_msg = start_process(
+                    "sessions_refresh", SESSIONS_REFRESH_SCRIPT,
+                    task_args={"stale_only": True, "skip_if_busy": True},
+                    started_by=_actor_name)
+                if not ok:
+                    print(f"Sessions auto-refresh not started: {start_msg}")
+            except Exception as e:
+                print(f"Sessions auto-refresh dispatch failed: {e}")
 
         _threading.Thread(target=_run_in_thread, daemon=True, name=status_key).start()
 

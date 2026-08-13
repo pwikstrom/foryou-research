@@ -923,6 +923,12 @@ def _cli_args_to_dict(name: str, args: list, study_name: str | None) -> dict:
         elif arg == "--force":
             task_args["force_full_rebuild"] = True
             i += 1
+        elif arg == "--stale-only":
+            task_args["stale_only"] = True
+            i += 1
+        elif arg == "--skip-if-busy":
+            task_args["skip_if_busy"] = True
+            i += 1
         elif not arg.startswith("--"):
             # Positional arg (study_name)
             if "study_name" not in task_args:
@@ -959,6 +965,10 @@ def _task_args_to_cli(name: str, task_args: dict) -> list[str]:
         out += ["--auto-refresh"]
     if task_args.get("force_full_rebuild"):
         out += ["--force"]
+    if task_args.get("stale_only"):
+        out += ["--stale-only"]
+    if task_args.get("skip_if_busy"):
+        out += ["--skip-if-busy"]
     if task_args.get("hours_back") is not None:
         out += ["--hours-back", str(task_args["hours_back"])]
     if task_args.get("collection_id"):

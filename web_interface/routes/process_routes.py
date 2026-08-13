@@ -171,6 +171,11 @@ def api_start(name):
 
     if name == "timelines_refresh" and data.get("collections"):
         args.extend(["--collections", str(data["collections"])])
+    if name == "sessions_refresh":
+        if data.get("stale_only"):
+            args.append("--stale-only")
+        if data.get("collections"):
+            args.extend(["--collections", str(data["collections"])])
     if name in ["recode_refresh_studies", "pca_refresh"] and data.get("studies"):
         args.extend(["--studies", str(data["studies"])])
     if name == "recode_refresh_studies" and data.get("force_full_rebuild"):
