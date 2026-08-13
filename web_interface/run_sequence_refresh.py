@@ -131,9 +131,15 @@ if __name__ == "__main__":
         arg_specs=[
             (("--studies",), {"type": str, "default": None,
                               "help": "Comma-separated study names to refresh (default: all)"}),
-            (("--window-n",), {"type": int, "default": None}),
-            (("--session-gap-s",), {"type": int, "default": None}),
-            (("study_name",), {"nargs": "?", "default": None}),
+            (("--window-n",), {"type": int, "default": None,
+                               "help": "Videos per sequence window "
+                                       "(default: sequence_analysis.DEFAULT_WINDOW_N)"}),
+            (("--session-gap-s",), {"type": int, "default": None,
+                                    "help": "Idle seconds that end a session "
+                                            "(default: sequence_analysis.SESSION_GAP_S)"}),
+            (("study_name",), {"nargs": "?", "default": None,
+                               "help": "Single study to refresh; ignored when --studies is given"}),
         ],
         make_task_args=_make_task_args,
+        description="Refresh sequence-analysis artifacts (dwell -> next-window lift)",
     )

@@ -138,4 +138,5 @@ if __name__ == "__main__":
                               'help': 'Comma-separated study names to refresh (default: all)'}),
         ],
         make_task_args=_make_task_args,
+        description="Refresh Group comparisons + Video Analysis metadata",
     )

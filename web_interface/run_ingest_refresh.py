@@ -411,4 +411,8 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
 if __name__ == "__main__":
     from web_interface.worker_runner import run_worker
 
-    run_worker(run_ingest_refresh, "ingest_refresh")
+    run_worker(
+        run_ingest_refresh,
+        "ingest_refresh",
+        description="Ingest new raw uploads and refresh per-file row counts + provenance",
+    )

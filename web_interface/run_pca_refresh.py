@@ -104,6 +104,8 @@ if __name__ == "__main__":
         task_args = {}
         if args.studies:
             task_args["studies"] = args.studies
+        elif args.study_name:
+            task_args["studies"] = args.study_name
         return task_args
 
     run_worker(
@@ -112,7 +114,9 @@ if __name__ == "__main__":
         arg_specs=[
             (('--studies',), {'type': str, 'default': None,
                               'help': 'Comma-separated study names to refresh (default: all)'}),
-            (('study_name',), {'nargs': '?', 'default': None}),
+            (('study_name',), {'nargs': '?', 'default': None,
+                               'help': 'Single study to refresh; ignored when --studies is given'}),
         ],
         make_task_args=_make_task_args,
+        description="Refresh PCA / Correlations data for studies",
     )

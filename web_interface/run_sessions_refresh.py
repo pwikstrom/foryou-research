@@ -671,14 +671,28 @@ if __name__ == "__main__":
                                            "refresh appears to be running"}),
             (("--batch-size",), {"type": int, "default": None,
                                  "help": f"Collections per link (default {COLLECTIONS_PER_BATCH})"}),
-            (("--cut",), {"type": float, "default": None}),
-            (("--mem",), {"type": int, "default": None}),
-            (("--min-videos",), {"type": int, "default": None}),
-            (("--min-minutes",), {"type": float, "default": None}),
+            (("--cut",), {"type": float, "default": None,
+                          "help": "Focus threshold on mean cosine distance to the "
+                                  "recent centroid (default: config [sessions])"}),
+            (("--mem",), {"type": int, "default": None,
+                          "help": "Recent episode members the centroid is taken over "
+                                  "(default: config [sessions])"}),
+            (("--min-videos",), {"type": int, "default": None,
+                                 "help": "Minimum distinct videos to keep an episode "
+                                         "(default: config [sessions])"}),
+            (("--min-minutes",), {"type": float, "default": None,
+                                  "help": "Minimum episode span in minutes "
+                                          "(default: config [sessions])"}),
             (("--max-skip",), {"type": int, "default": None,
                                "help": "Consecutive off-theme videos a binge survives"}),
-            (("--window-n",), {"type": int, "default": None}),
-            (("--max-windows",), {"type": int, "default": None}),
+            (("--window-n",), {"type": int, "default": None,
+                               "help": "Videos per low-entropy window "
+                                       "(default: config [sessions])"}),
+            (("--max-windows",), {"type": int, "default": None,
+                                  "help": "Low-entropy windows kept per session "
+                                          "(default: config [sessions])"}),
         ],
         make_task_args=_make_task_args,
+        description="Build the Sessions-tab artifacts (session index, binge "
+                    "episodes, low-entropy windows)",
     )

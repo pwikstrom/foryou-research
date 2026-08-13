@@ -11,6 +11,7 @@ the ``GENERATED MATRIX BELOW`` marker down:
     python scripts/gen_import_graph.py > /tmp/matrix.md
 """
 
+import argparse
 import ast
 import re
 import sys
@@ -148,4 +149,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    ).parse_args()
     main()
