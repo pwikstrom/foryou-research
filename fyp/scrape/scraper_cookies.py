@@ -56,6 +56,23 @@ _PLATFORM_COOKIE_DOMAIN = {
     "youtube": "youtube.com",
 }
 
+# How long a local-dev Chrome cookie export stays trusted before re-extracting
+# (see _export_chrome_cookies). Short enough to pick up a fresh login or
+# rotated session mid-drain, long enough that a multi-hour drain pays the
+# profile scan a handful of times instead of several times per item.
+_CHROME_EXPORT_TTL_SEC = 30 * 60
+
+# Domain substrings each platform's Chrome export keeps. yt-dlp's
+# ``cookiesfrombrowser`` hands the extractor the whole browser jar, but only
+# the platform's own domains matter for auth — and the export lands on disk,
+# so unrelated sessions (mail, banking) must not travel with it. YouTube auth
+# lives on .google.com, and Instagram's can span the Facebook domains.
+_PLATFORM_EXPORT_DOMAINS = {
+    "tiktok": ("tiktok",),
+    "instagram": ("instagram", "facebook", "fbcdn"),
+    "youtube": ("youtube", "google"),
+}
+
 
 
 
@@ -216,6 +233,79 @@ def _is_local_dev() -> bool:
 
 
 
+
+def _chrome_export_fresh(path: str) -> bool:
+    """True if a Chrome cookie export exists, is within TTL, and is well-formed."""
+    if not os.path.exists(path):
+        return False
+    try:
+        age = time.time() - os.path.getmtime(path)
+    except OSError:
+        return False
+    return age < _CHROME_EXPORT_TTL_SEC and _looks_like_netscape(path)
+
+
+
+
+
+def _export_chrome_cookies(platform: str) -> str | None:
+    """Extract the platform's Chrome cookies once and cache them as a file.
+
+    ``cookiesfrombrowser`` makes yt-dlp re-scan the entire Chrome profile and
+    re-decrypt every cookie on each ``YoutubeDL`` construction — and the
+    scraper constructs several per item across many worker threads, so a local
+    queue drain spends much of its wall clock in profile scans. Extracting once
+    per TTL through yt-dlp's own extractor (same cookies, same Keychain
+    decryption) and handing later calls a ``cookiefile`` pays that cost once
+    per half hour instead of several times per item.
+
+    Only the platform's own domains are written out (``_PLATFORM_EXPORT_DOMAINS``)
+    — the export lands on disk, so unrelated browser sessions stay in Chrome.
+
+    Returns:
+        Path to the Netscape-format export, or ``None`` if extraction failed
+        (no Chrome profile, denied Keychain prompt) — callers fall back to
+        per-call ``cookiesfrombrowser`` so auth behavior degrades, not breaks.
+    """
+    path = os.path.join(tempfile.gettempdir(), f"{platform}_chrome_cookies.txt")
+    with _download_lock(f"{platform}_chrome_export"):
+        if _chrome_export_fresh(path):
+            return path
+        try:
+            # Function-level import: yt_dlp is a heavy optional dependency of
+            # this module, needed only on this local-dev path (like
+            # browser_cookie3 in _chrome_requests_cookies).
+            from yt_dlp.cookies import YoutubeDLCookieJar, extract_cookies_from_browser
+
+            full_jar = extract_cookies_from_browser("chrome")
+        except Exception as e:
+            logger.warning("Chrome cookie export failed for %s (%s) — falling "
+                           "back to per-call browser extraction", platform, e)
+            return None
+        needles = _PLATFORM_EXPORT_DOMAINS.get(platform, (platform,))
+        export_jar = YoutubeDLCookieJar()
+        for cookie in full_jar:
+            if any(needle in cookie.domain for needle in needles):
+                export_jar.set_cookie(cookie)
+        try:
+            # Write-then-replace so a concurrent process never reads a
+            # half-written file (the lock only covers this process's threads).
+            tmp_path = f"{path}.{os.getpid()}.tmp"
+            export_jar.save(filename=tmp_path, ignore_discard=True,
+                            ignore_expires=True)
+            os.replace(tmp_path, path)
+        except OSError as e:
+            logger.warning("Could not persist %s Chrome cookie export (%s) — "
+                           "falling back to per-call browser extraction",
+                           platform, e)
+            return None
+        logger.info("Exported %d Chrome cookies for %s (re-extracted every %d min)",
+                    len(export_jar), platform, _CHROME_EXPORT_TTL_SEC // 60)
+        return path
+
+
+
+
 def _chrome_session_status(platform: str, session_cookie: str) -> tuple[str, int | None, str | None]:
     """Probe the local Chrome profile for a platform's login session cookie.
 
@@ -355,6 +445,11 @@ def cookie_opts(platform: str) -> dict:
             return {"cookiefile": _private_cookie_copy(platform, path)}
         return {}
 
+    # Local dev: same Chrome cookies, but extracted once per TTL instead of on
+    # every YoutubeDL construction (see _export_chrome_cookies).
+    exported = _export_chrome_cookies(platform)
+    if exported:
+        return {"cookiefile": _private_cookie_copy(platform, exported)}
     return {"cookiesfrombrowser": ("chrome",)}
 
 
@@ -389,13 +484,15 @@ def requests_cookiejar(platform: str):
     (e.g. TikTok's page-JSON and carousel-image fetches, Instagram's
     media-info endpoint and image downloads). Sources the GCS-cached cookie
     file (Cloud Run) or the env-var file first; in local dev, where neither
-    exists, falls back to the Chrome profile — the same store yt-dlp's
-    ``cookiesfrombrowser`` uses.
+    exists, the per-TTL Chrome export — falling back to reading the Chrome
+    profile directly (per call) only if the export fails.
 
     Args:
         platform: platform key, e.g. ``"tiktok"``.
     """
     path = ensure_cookie_file(platform) or _env_cookie_file(platform)
+    if (not path or not os.path.exists(path)) and _is_local_dev():
+        path = _export_chrome_cookies(platform)
     if not path or not os.path.exists(path):
         if _is_local_dev():
             return _chrome_requests_cookies(platform)

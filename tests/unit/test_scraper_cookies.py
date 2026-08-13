@@ -14,6 +14,8 @@ import os
 import sys
 import tempfile
 import time
+from http.cookiejar import Cookie, MozillaCookieJar
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -66,13 +68,87 @@ def test_env_var_precedence():
 
 
 def test_cookie_opts_local_dev():
-    # On a dev macOS box (no K_SERVICE, /Applications exists) cookies come
-    # from the Chrome profile.
+    # On a dev macOS box (no K_SERVICE, /Applications exists) cookies come from
+    # the Chrome profile — via the per-TTL export when it succeeds, degrading
+    # to per-call ``cookiesfrombrowser`` when it doesn't.
     if os.environ.get("K_SERVICE") or not os.path.exists("/Applications"):
         print("SKIP: not a local-dev environment")
         return
-    assert scraper_cookies.cookie_opts("instagram") == {"cookiesfrombrowser": ("chrome",)}
-    print("PASS: cookie_opts local dev → Chrome")
+
+    with patch.object(scraper_cookies, "_export_chrome_cookies", return_value=None):
+        assert scraper_cookies.cookie_opts("instagram") == {"cookiesfrombrowser": ("chrome",)}
+
+    exported = _netscape_file([("sessionid", int(time.time()) + 3600)])
+    try:
+        with patch.object(scraper_cookies, "_export_chrome_cookies", return_value=exported):
+            opts = scraper_cookies.cookie_opts("instagram")
+        assert list(opts) == ["cookiefile"], opts
+        # A private copy, not the export itself (yt-dlp rewrites its cookiefile).
+        assert opts["cookiefile"] != exported
+        assert scraper_cookies._looks_like_netscape(opts["cookiefile"])
+        os.remove(opts["cookiefile"])
+    finally:
+        os.remove(exported)
+    print("PASS: cookie_opts local dev → Chrome export, cookiesfrombrowser fallback")
+
+
+
+
+def _chrome_cookie(name: str, domain: str):
+    """A minimal http.cookiejar.Cookie as Chrome extraction would yield."""
+    return Cookie(
+        version=0, name=name, value="v", port=None, port_specified=False,
+        domain=domain, domain_specified=True, domain_initial_dot=domain.startswith("."),
+        path="/", path_specified=True, secure=True, expires=int(time.time()) + 3600,
+        discard=False, comment=None, comment_url=None, rest={},
+    )
+
+
+
+
+def test_chrome_export_filters_domains_and_caches():
+    # The export keeps only the platform's domains and is extracted once per
+    # TTL — repeat calls within TTL must not touch Chrome again.
+    from yt_dlp.cookies import YoutubeDLCookieJar
+
+    jar = YoutubeDLCookieJar()
+    for name, domain in [("sessionid", ".tiktok.com"), ("tt_csrf", ".tiktokv.com"),
+                         ("SID", ".google.com"), ("other", ".example.com")]:
+        jar.set_cookie(_chrome_cookie(name, domain))
+
+    export_path = os.path.join(tempfile.gettempdir(), "tiktok_chrome_cookies.txt")
+    if os.path.exists(export_path):
+        os.remove(export_path)
+    try:
+        with patch("yt_dlp.cookies.extract_cookies_from_browser",
+                   return_value=jar) as extract:
+            first = scraper_cookies._export_chrome_cookies("tiktok")
+            second = scraper_cookies._export_chrome_cookies("tiktok")
+        assert first == second == export_path
+        assert extract.call_count == 1, "second call within TTL must reuse the export"
+
+        loaded = MozillaCookieJar(export_path)
+        loaded.load(ignore_discard=True, ignore_expires=True)
+        names = {c.name for c in loaded}
+        assert names == {"sessionid", "tt_csrf"}, names
+    finally:
+        if os.path.exists(export_path):
+            os.remove(export_path)
+    print("PASS: Chrome export filters domains and caches within TTL")
+
+
+
+
+def test_chrome_export_failure_returns_none():
+    # A denied Keychain prompt / missing profile must degrade, not raise.
+    export_path = os.path.join(tempfile.gettempdir(), "tiktok_chrome_cookies.txt")
+    if os.path.exists(export_path):
+        os.remove(export_path)
+    with patch("yt_dlp.cookies.extract_cookies_from_browser",
+               side_effect=RuntimeError("keychain denied")):
+        assert scraper_cookies._export_chrome_cookies("tiktok") is None
+    assert not os.path.exists(export_path)
+    print("PASS: Chrome export failure returns None")
 
 
 
@@ -151,6 +227,8 @@ if __name__ == "__main__":
     test_path_derivation()
     test_env_var_precedence()
     test_cookie_opts_local_dev()
+    test_chrome_export_filters_domains_and_caches()
+    test_chrome_export_failure_returns_none()
     test_health_expiring_soon()
     test_health_expired()
     test_health_degrades_to_file_age_without_session_row()
