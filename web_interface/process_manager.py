@@ -372,6 +372,7 @@ def local_pipeline_script_map() -> dict:
         META_REFRESH_GROUPS_SCRIPT,
         PCA_REFRESH_SCRIPT,
         RECODE_REFRESH_STUDIES_SCRIPT,
+        SESSIONS_REFRESH_SCRIPT,
         TIMELINES_REFRESH_SCRIPT,
         VIDEO_MAP_REFRESH_SCRIPT,
     )
@@ -383,6 +384,7 @@ def local_pipeline_script_map() -> dict:
         "timelines_refresh": TIMELINES_REFRESH_SCRIPT,
         "embeddings_refresh": EMBEDDINGS_REFRESH_SCRIPT,
         "video_map_refresh": VIDEO_MAP_REFRESH_SCRIPT,
+        "sessions_refresh": SESSIONS_REFRESH_SCRIPT,
     }
 
 
@@ -421,6 +423,10 @@ def _run_local_pipeline(pipeline: list, summary_owner: str, summary_fn) -> None:
                 cli_args += ["--studies", str(step_args["studies"])]
             if step_args.get("collections"):
                 cli_args += ["--collections", str(step_args["collections"])]
+            if step_args.get("stale_only"):
+                cli_args.append("--stale-only")
+            if step_args.get("skip_if_busy"):
+                cli_args.append("--skip-if-busy")
 
             stage_index = i + 2  # stage 1 was the trigger task
 

@@ -3,28 +3,30 @@
 Covers:
   Order / invariants:
     1. test_order_lists_in_sync          (_PIPELINE_STEPS_ORDER == PIPELINE_STEPS_ORDER)
-    2. test_dependency_invariants        (embeddings < video_map < recode < {meta,pca,timelines})
+    2. test_dependency_invariants        (embeddings < video_map < recode < the leaves;
+                                          video_map < sessions)
     3. test_every_step_has_a_stage_label
     4. test_every_step_has_a_local_script (the bug this fix closed: video_map missing)
 
   Candidate builder (_build_downstream_pipeline):
     5. test_candidate_full_order
     6. test_video_map_gated_on_new_annotations
-    7. test_video_map_uses_empty_task_args   (no auto_refresh → no double-dispatch)
-    8. test_no_candidates_when_impact_empty
+    7. test_sessions_gated_on_changed_data
+    8. test_video_map_uses_empty_task_args   (no auto_refresh → no double-dispatch)
+    9. test_no_candidates_when_impact_empty
 
   Fork chain (build_pipeline_chain):
-    9.  test_fork_at_recode
-    10. test_no_fork_without_recode
-    11. test_stage_depth_not_task_count
-    12. test_manual_video_map_path_forks
+    10. test_fork_at_recode
+    11. test_no_fork_without_recode
+    12. test_stage_depth_not_task_count
+    13. test_manual_video_map_path_forks
 
   Barrier (_maybe_finish_forked_pipeline) — the race-free completion detector:
-    13. test_barrier_fires_when_all_leaves_completed
-    14. test_barrier_waits_for_running_leaf
-    15. test_barrier_ignores_stale_status_before_fork
-    16. test_barrier_marks_partial_on_leaf_failure
-    17. test_barrier_waits_for_missing_status
+    14. test_barrier_fires_when_all_leaves_completed
+    15. test_barrier_waits_for_running_leaf
+    16. test_barrier_ignores_stale_status_before_fork
+    17. test_barrier_marks_partial_on_leaf_failure
+    18. test_barrier_waits_for_missing_status
 
 Run:
     python tests/unit/test_pipeline_order.py
@@ -108,6 +110,8 @@ def test_dependency_invariants():
         and _idx("recode_refresh_studies") < _idx("meta_refresh_groups")
         and _idx("recode_refresh_studies") < _idx("pca_refresh")
         and _idx("recode_refresh_studies") < _idx("timelines_refresh")
+        # sessions reads the embedding store and the map's trend columns.
+        and _idx("video_map_refresh") < _idx("sessions_refresh")
     )
     _check("test_dependency_invariants", ok, str(_PIPELINE_STEPS_ORDER))
 
@@ -149,6 +153,31 @@ def test_video_map_gated_on_new_annotations():
     got = [p["task"] for p in _build_downstream_pipeline(impact)]
     ok = "video_map_refresh" not in got and "embeddings_refresh" not in got
     _check("test_video_map_gated_on_new_annotations", ok, str(got))
+
+
+def test_sessions_gated_on_changed_data():
+    # Sessions staleness is driven by in-window play/annotated counts, so it
+    # rides along whenever collections changed or annotations landed — and stays
+    # out when neither did (a studies-only impact).
+    changed = {
+        "affected_study_names": ["A"],
+        "affected_collection_ids": [],
+        "new_annotation_item_count": 3,
+    }
+    unchanged = {
+        "affected_study_names": ["A"],
+        "affected_collection_ids": [],
+        "new_annotation_item_count": 0,
+    }
+    with_sessions = _build_downstream_pipeline(changed)
+    sess = next((p for p in with_sessions if p["task"] == "sessions_refresh"), None)
+    ok = (
+        sess is not None
+        and sess["task_args"] == {"stale_only": True, "skip_if_busy": True}
+        and not any(p["task"] == "sessions_refresh"
+                    for p in _build_downstream_pipeline(unchanged))
+    )
+    _check("test_sessions_gated_on_changed_data", ok, str(sess))
 
 
 def test_video_map_uses_empty_task_args():
@@ -198,7 +227,8 @@ def test_fork_at_recode():
     recode_args = _find_step_args(chain, _FORK_PARENT)
     fanout = [c["task"] for c in (recode_args or {}).get("pipeline_fanout", [])]
     leaves = (recode_args or {}).get("pipeline_leaves")
-    expected = ["meta_refresh_groups", "pca_refresh", "timelines_refresh"]
+    expected = ["meta_refresh_groups", "pca_refresh", "timelines_refresh",
+                "sessions_refresh"]
     # leaves are not in the linear spine:
     spine = [chain["next_task"]] + [p["task"] for p in chain["next_task_args"]["pipeline_remaining"]]
     ok = (
@@ -210,7 +240,8 @@ def test_fork_at_recode():
 
 
 def test_no_fork_without_recode():
-    # collections-only: no recode → no fork; timelines runs as a linear tail.
+    # collections-only: no recode → no fork parent, so the leaves run as a
+    # linear spine (timelines then sessions) rather than concurrently.
     impact = {
         "affected_study_names": [],
         "affected_collection_ids": ["c1"],
@@ -218,8 +249,10 @@ def test_no_fork_without_recode():
     }
     chain = build_pipeline_chain(_build_downstream_pipeline(impact))
     nta = chain["next_task_args"]
+    remaining = [p["task"] for p in nta.get("pipeline_remaining", [])]
     ok = (
         chain["next_task"] == "timelines_refresh"
+        and remaining == ["sessions_refresh"]
         and "pipeline_fanout" not in nta
         and "pipeline_leaves" not in nta
     )
@@ -227,7 +260,7 @@ def test_no_fork_without_recode():
 
 
 def test_stage_depth_not_task_count():
-    # Full pipeline has 6 tasks but a tree DEPTH of 5 (the 3 leaves share a stage).
+    # Full pipeline has 7 tasks but a tree DEPTH of 5 (the 4 leaves share a stage).
     impact = {
         "affected_study_names": ["A"],
         "affected_collection_ids": ["c1"],
@@ -432,6 +465,7 @@ TESTS = [
     test_every_step_has_a_local_script,
     test_candidate_full_order,
     test_video_map_gated_on_new_annotations,
+    test_sessions_gated_on_changed_data,
     test_video_map_uses_empty_task_args,
     test_no_candidates_when_impact_empty,
     test_fork_at_recode,

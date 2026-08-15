@@ -20,6 +20,9 @@ from web_interface.task_status import TaskStatusReporter
 # study dataset. meta/pca/timelines then consume the recoded outputs. Embedding
 # and map rebuilds therefore run BEFORE the study/collection refreshes, not
 # after, so the niche columns are fresh when the studies recode.
+# sessions_refresh reads the embedding store and the map's trend columns, so it
+# must follow video_map; it needs nothing recode writes, but riding along as a
+# fork leaf keeps the tree single-forked.
 _PIPELINE_STEPS_ORDER = [
     "embeddings_refresh",
     "video_map_refresh",
@@ -27,6 +30,7 @@ _PIPELINE_STEPS_ORDER = [
     "meta_refresh_groups",
     "pca_refresh",
     "timelines_refresh",
+    "sessions_refresh",
 ]
 
 _PIPELINE_STAGE_LABELS = {
@@ -37,16 +41,19 @@ _PIPELINE_STAGE_LABELS = {
     "meta_refresh_groups": "Refreshing explore metadata",
     "pca_refresh": "Refreshing correlations",
     "timelines_refresh": "Refreshing timelines",
+    "sessions_refresh": "Rebuilding session index",
 }
 
 # The downstream pipeline is an out-tree: a linear spine
 # (consolidate → embeddings → video_map → recode) that fans out at recode into
 # the terminal leaves below, which run concurrently. meta/pca read the per-study
-# recoded datasets and timelines reads the global recoded datasets; none of them
-# feed another step, so no join is needed. recode is their shared parent (the
-# niche columns it writes are what meta/pca surface).
+# recoded datasets, timelines reads the global recoded datasets, and sessions
+# reads the embedding store + the consolidated activity file; none of them feed
+# another step, so no join is needed. recode is their shared parent (the niche
+# columns it writes are what meta/pca surface).
 _FORK_PARENT = "recode_refresh_studies"
-_FORK_LEAF_TASKS = ("meta_refresh_groups", "pca_refresh", "timelines_refresh")
+_FORK_LEAF_TASKS = ("meta_refresh_groups", "pca_refresh", "timelines_refresh",
+                    "sessions_refresh")
 
 
 def build_pipeline_chain(pipeline: list[dict]) -> dict | None:
@@ -143,6 +150,8 @@ def build_pipeline_summary(impact: dict | None, steps_ran: list[str]) -> str:
     if "timelines_refresh" in steps_set and collections:
         n = len(collections)
         parts.append(f"{n} timeline{'s' if n != 1 else ''}")
+    if "sessions_refresh" in steps_set:
+        parts.append("session index")
 
     if parts:
         return f"Refreshed {', '.join(parts)}."
@@ -184,6 +193,17 @@ def _build_downstream_pipeline(impact: dict | None) -> list[dict]:
         candidates.append({
             "task": "timelines_refresh",
             "task_args": {"collections": collection_csv} if collection_csv else {},
+        })
+    if affected_collections or new_annotation_count > 0:
+        # The sessions artifacts go stale when a covered collection's in-window
+        # play or annotated count moves, which is exactly what new scrapes and
+        # annotations do. stale_only lets the worker decide: it re-segments only
+        # the collections whose fingerprint changed and returns immediately when
+        # none did. skip_if_busy keeps it off the toes of a sessions run already
+        # in flight (e.g. one chained from a study save).
+        candidates.append({
+            "task": "sessions_refresh",
+            "task_args": {"stale_only": True, "skip_if_busy": True},
         })
     # Semantic embeddings are corpus-global and depend only on new annotations
     # (not on which studies are affected), so they top up whenever new
