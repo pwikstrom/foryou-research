@@ -2368,8 +2368,9 @@ function renderConsolidateStatus(stats) {
     if (!statusEl || !stats) return;
     const lines = [];
     if (stats.last_consolidation) {
-        const dt = formatShortDate(stats.last_consolidation);
-        lines.push(`Last consolidation ${dt}: ${stats.new_scrape_files ?? 0} new scrape file(s) and ${stats.new_annotation_files ?? 0} new annotation file(s).`);
+        // The when/how-long/outcome of the run is the card's own last-run line
+        // now, so this one carries only what is unique to it: what came in.
+        lines.push(`Last run: ${stats.new_scrape_files ?? 0} new scrape file(s) and ${stats.new_annotation_files ?? 0} new annotation file(s).`);
     }
     if (stats.last_status_refresh) {
         const dt = formatShortDate(stats.last_status_refresh);
@@ -3323,6 +3324,11 @@ function consolidateEnrichmentData(btn) {
                 btn.textContent = 'Consolidating...';
                 btn.className = 'btn-running';
                 _setConsolidateOptionsDisabled(true);
+                // Same optimistic flip every other card gets on Start: turns the
+                // dot green and the bar to "Starting…" through the dispatch +
+                // task-runner boot gap, and guards it from a poll that still
+                // reports the previous run.
+                if (typeof markStarting === 'function') markStarting('consolidate_enrichment');
                 statusEl.textContent = 'Consolidation running...';
                 statusEl.style.color = 'var(--color-text-secondary)';
                 pollConsolidationStatus();

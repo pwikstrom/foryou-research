@@ -14,10 +14,13 @@
 <div style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); margin-bottom: 20px;">
     <div class="font-bold" style="margin-bottom: 10px;">Consolidate Enrichment Data{{ card_info(
         "Folds newly scraped and newly annotated items into the consolidated datasets every study reads: the scrape and machine-annotation tables plus the per-item enrichment status. It then reports its impact — how many items changed, and which collections and studies they belong to. With \"Refresh caches afterwards\" ticked it goes on to run the downstream pipeline (below) for exactly those studies and collections; each step is skipped when nothing it owns changed.") }}</div>
-    <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
-        <button type="button" class="action-btn" id="btn-consolidate"
-            onclick="consolidateEnrichmentData(this)"
-            style="padding: 6px 12px;">Consolidate</button>
+    <div class="controls" style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;">
+        <span style="display: flex; align-items: center; gap: 6px;">
+            <span id="consolidate_enrichment-status" class="status-indicator status-stopped"></span>
+            <button type="button" class="action-btn" id="btn-consolidate"
+                onclick="consolidateEnrichmentData(this)"
+                style="padding: 6px 12px;">Consolidate</button>
+        </span>
         <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
             <input type="checkbox" id="consolidate-auto-refresh" checked
                 onchange="onConsolidateOptionChange()">
@@ -30,6 +33,16 @@
             <span class="meta-tooltip" style="color: var(--color-text-secondary);"
                 data-tooltip="Reconsolidate every scrape and annotation file from scratch instead of folding in only the new ones. Slow; needs every worker idle.">Force full rebuild</span>
         </label>
+    </div>
+    <!-- Same chrome as every other worker card, and scoped the same way: the bar
+         tracks the consolidate worker itself, never the downstream pipeline —
+         that lives in the step list below. -->
+    <div class="progress-container">
+        <div class="progress-bar" id="consolidate_enrichment-bar"></div>
+        <div class="progress-text" id="consolidate_enrichment-text">Idle</div>
+    </div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+        <span id="consolidate_enrichment-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
         {% if current_user.is_admin() %}
         <a class="text-xs view-log-link"
             onclick="openLogModal('consolidate_enrichment', 'Consolidate Enrichment')">View Log</a>
