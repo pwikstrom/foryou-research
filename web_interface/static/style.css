@@ -1704,6 +1704,31 @@ button.meta-tooltip:disabled {
     right: 0;
 }
 
+/* Modifier: a wider box for tooltips carrying a paragraph rather than a label.
+   The default 280px turns an explanation into a tall narrow column. */
+.meta-tooltip.tooltip-wide::after {
+    max-width: 420px;
+}
+
+/* The (i) affordance next to a card title. Reveals what a worker does on hover
+   or focus; keeps the title line uncluttered. */
+.card-info {
+    margin-left: 5px;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-normal);
+}
+
+.card-info.meta-tooltip {
+    text-decoration: none;
+    cursor: help;
+}
+
+.card-info:hover,
+.card-info:focus-visible {
+    color: var(--color-text-secondary);
+}
+
 /* floating_tooltip.js re-homes every tooltip onto #fyp-tooltip so it can escape
    clipping ancestors (the scrolling details panel, the overflow-hidden tab
    panes). It stamps this class on <html> once loaded; the ::after rendering
@@ -1737,6 +1762,12 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 
 #fyp-tooltip.is-visible {
     opacity: 1;
+}
+
+/* Mirrors .meta-tooltip.tooltip-wide — floating_tooltip.js copies the modifier
+   onto the shared element, so the two renderings stay identical. */
+#fyp-tooltip.tooltip-wide {
+    max-width: 420px;
 }
 
 

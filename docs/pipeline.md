@@ -123,12 +123,16 @@ planned per-study export.
 Refresh dependencies (each a background job, chained from the UI):
 
 ```
-consolidate → embeddings → video_map (niches) → study definitions → { meta ‖ pca ‖ timelines }
+consolidate → embeddings → video_map (niches) → study definitions → { meta ‖ pca ‖ timelines ‖ sessions }
 ```
 
-`sessions_refresh` sits deliberately **outside** this chain: it is launched
-manually (Data Management → Refresh Caches) and goes silently stale after an
-embeddings refresh until rerun.
+`sessions_refresh` joins the fan-out as a fourth terminal leaf, in
+`stale_only` mode: it re-segments only the collections whose coverage windows
+or in-window play/annotated counts moved, and returns immediately when none
+did. `skip_if_busy` keeps it off the toes of a sessions run already in flight
+(one is also chained after every study save). It can still be run on its own
+from Data Management → Refresh Caches, where "Force full rebuild" re-segments
+every covered collection.
 
 ## Adding a platform — checklist
 

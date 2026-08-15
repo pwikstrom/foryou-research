@@ -1230,7 +1230,10 @@ def _write_pipeline_summary_cloud(partial: bool = False, failed_at: str | None =
     last_run_end_time to determine which steps ran as part of this
     pipeline; a step "ran" when its end_time is newer.
     """
-    from web_interface.run_consolidate_enrichment import build_pipeline_summary
+    from web_interface.run_consolidate_enrichment import (
+        _PIPELINE_STEPS_ORDER,
+        build_pipeline_summary,
+    )
 
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
@@ -1243,16 +1246,8 @@ def _write_pipeline_summary_cloud(partial: bool = False, failed_at: str | None =
         except (ValueError, TypeError):
             pass
 
-    candidate_steps = [
-        "embeddings_refresh",
-        "video_map_refresh",
-        "recode_refresh_studies",
-        "meta_refresh_groups",
-        "pca_refresh",
-        "timelines_refresh",
-    ]
     steps_ran: list[str] = []
-    for step in candidate_steps:
+    for step in _PIPELINE_STEPS_ORDER:
         step_end = process_stats.get(step, {}).get("last_run_end_time")
         if not step_end or not consol_end_dt:
             continue

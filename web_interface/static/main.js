@@ -1062,6 +1062,7 @@ async function updateStatus() {
         setStatus('pca_refresh', data.pca_refresh);
         setStatus('embeddings_refresh', data.embeddings_refresh);
         setStatus('video_map_refresh', data.video_map_refresh);
+        setStatus('sessions_refresh', data.sessions_refresh);
 
         // Spinner on the "Refresh Caches" sidebar item (same style as the
         // global badge spinner) while any of that page's processes runs.
@@ -1070,7 +1071,7 @@ async function updateStatus() {
             const refreshProcs = [
                 'consolidate_enrichment', 'embeddings_refresh', 'video_map_refresh',
                 'recode_refresh_studies', 'meta_refresh_groups', 'pca_refresh',
-                'timelines_refresh',
+                'timelines_refresh', 'sessions_refresh',
             ];
             const anyRefreshRunning = refreshProcs.some(n => {
                 const p = data[n];

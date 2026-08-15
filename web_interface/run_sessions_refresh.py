@@ -293,6 +293,10 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
     # trivially met and retries of the initial task can no longer fork.
     if "run_id" not in task_args:
         reporter.log("Starting Sessions refresh...")
+        # The setup link streams the whole play file to discover coverage, which
+        # takes minutes on a large corpus. Report progress from the first moment
+        # so the card shows a live phase instead of a bare "Initializing...".
+        reporter.update_progress(0, "Planning refresh...")
         if _flag(task_args.get("skip_if_busy", "")) and restarts == 0:
             if _foreign_run_active():
                 reporter.log("Another sessions refresh appears to be running "
@@ -317,6 +321,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         # only their in-window plays. Always global — an explicit collections
         # list narrows the plan below, never the discovery, so staleness and
         # drops are computed against the whole corpus.
+        reporter.update_progress(0, "Discovering covered collections...")
         coverage = session_explorer.compute_coverage_spec()
         discovered = session_explorer.discover_covered_collections(coverage)
         # Pinned at setup and carried through the chain: every shard must use
@@ -476,6 +481,16 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
 
     batch = remaining[:batch_size]
     rest = remaining[batch_size:]
+
+    # Report before segmenting, not only after: a link runs for many minutes and
+    # each link's reporter starts from a blank progress dict (link 0) or the
+    # previous link's last write, so without this the bar sits still for the
+    # whole batch.
+    started = total - len(remaining)
+    reporter.update_progress(
+        min(int(started / max(total, 1) * 95), 95),
+        f"Segmenting collections {started + 1}-{started + len(batch)} of {total}...")
+
     index = embedding_store.load_index(model) if corpus_mean is not None else None
 
     # The run manifest (seeded at setup) carries each collection's coverage

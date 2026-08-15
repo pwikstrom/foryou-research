@@ -98,8 +98,8 @@ def run_retokenise_hashtags(
         f"rows_changed={rows_changed}"
     )
     reporter.log(
-        "Done. Run a Force Reconsolidate (Data Management -> Enrichment) to "
-        "apply these changes to studies and dashboards."
+        "Done. Run Consolidate with 'Force full rebuild' ticked (Data Pipeline "
+        "-> Refresh Caches) to apply these changes to studies and dashboards."
     )
     return None
 

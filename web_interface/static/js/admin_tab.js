@@ -718,7 +718,7 @@
                     const d = entry.data || {};
                     _iwApplySetStatus('var(--color-success)',
                         `Updated ${d.rows_changed || 0} hashtag row(s) in ${d.files_changed || 0} file(s). `
-                        + 'Now run Force Reconsolidate (Data Pipeline → Refresh Caches) to apply to studies.');
+                        + 'Now run Consolidate with "Force full rebuild" ticked (Data Pipeline → Refresh Caches) to apply to studies.');
                 }
             } catch (e) {
                 console.error('_pollIrrelevantWordsApply:', e);
