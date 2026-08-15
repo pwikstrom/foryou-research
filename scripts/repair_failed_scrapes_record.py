@@ -164,6 +164,44 @@ def load_records(verbose: bool) -> tuple[dict[str, str | None], dict[str, int], 
 
 
 
+def load_sidecar_categories() -> dict[str, str]:
+    """Recover categories parked in the archive by an earlier id-shape repair.
+
+    The ``ids`` repair deliberately drops categories from the live record so it
+    cannot be re-mangled by an old loader, keeping them in an archive sidecar
+    instead. A later ``records`` restoration must read them back from there —
+    by then the live record is bare ids and carries no categories at all.
+
+    Returns:
+        Mapping of item id to category, newest sidecar winning.
+    """
+    try:
+        filenames = [
+            fn for fn in data_io.listdir(storage_location="archive")
+            if fn.startswith(SIDECAR_PREFIX)
+        ]
+    except Exception as exc:
+        print(f"  WARNING: could not list the archive for sidecars ({exc})")
+        return {}
+
+    categories: dict[str, str] = {}
+    for filename in sorted(filenames):
+        raw = data_io.load_json(storage_location="archive", filename=filename)
+        if not isinstance(raw, list):
+            continue
+        for entry in raw:
+            if isinstance(entry, dict) and entry.get("item_id") and entry.get("category"):
+                categories[str(entry["item_id"])] = entry["category"]
+    if filenames:
+        print(f"  recovered {len(categories):,} categories from "
+              f"{len(filenames)} archive sidecar(s)")
+    return categories
+
+
+
+
+
+
 def sanity_check(records: dict[str, str | None]) -> list[str]:
     """Return recovered ids that do not look like real item ids.
 
@@ -199,6 +237,13 @@ def main() -> int:
         return 2
 
     records, counts, filenames = load_records(args.verbose)
+
+    # Categories only need recovering when they are going back into the live
+    # record; the ids shape drops them by design.
+    if args.shape == "records":
+        for item_id, category in load_sidecar_categories().items():
+            if item_id in records and records[item_id] is None:
+                records[item_id] = category
 
     print(f"Source files ({len(filenames)}): {', '.join(filenames)}")
     print(f"  entries already in record shape: {counts['dict']:,}")
