@@ -91,6 +91,54 @@ def test_load_embeddings_empty_for_unseen_model(mixed_store, monkeypatch):
 
 
 
+def test_load_embeddings_dedupes_twin_shards(monkeypatch):
+    """Duplicate item_ids across shards collapse to the last occurrence.
+
+    Regression for 2026-08-14: two concurrent embeddings_refresh runs wrote
+    the same backlog slice as two uuid-named shards, and the duplicated ids
+    flowed through video_map into a sessions_refresh crash. The last
+    occurrence must win — the same winner the dense sidecar's index picks.
+    """
+    first = _shard_frame(["g1", "g2", "g3"], 8, _GEMINI)
+    twin_a = _shard_frame(["g4", "g5"], 8, _GEMINI)
+    twin_b = _shard_frame(["g4", "g5"], 8, _GEMINI)
+    # The real twins held independent embedding calls' outputs — make the
+    # copies distinguishable so keep="last" is actually asserted.
+    twin_b["embedding"] = pd.array(
+        [np.full(8, i + 1, dtype=np.float16).tobytes() for i in range(2)],
+        dtype=pd.ArrowDtype(pa.large_binary()))
+    shards = {
+        "video_embeddings__aaa.parquet": first,
+        "video_embeddings__bbb.parquet": twin_a,
+        "video_embeddings__ccc.parquet": twin_b,
+    }
+    monkeypatch.setattr(embeddings.data_io, "listdir", lambda **kw: list(shards))
+    monkeypatch.setattr(
+        embeddings.data_io, "load_parquet_selective",
+        lambda storage_location, filename, columns=None, **kw:
+            shards[filename][columns] if columns else shards[filename])
+
+    ids, matrix = embeddings.load_embeddings(model=_GEMINI)
+    assert ids == ["g1", "g2", "g3", "g4", "g5"]
+    assert matrix.shape == (5, 8)
+    # The later twin's vectors win (keep="last" in shard-listing order).
+    expected = np.stack([
+        np.frombuffer(twin_b["embedding"][i], dtype=np.float16).astype(np.float32)
+        for i in range(2)
+    ])
+    np.testing.assert_array_equal(matrix[3:], expected)
+    # The unaffected leading shard decodes into the same rows as before.
+    lead = np.stack([
+        np.frombuffer(first["embedding"][i], dtype=np.float16).astype(np.float32)
+        for i in range(3)
+    ])
+    np.testing.assert_array_equal(matrix[:3], lead)
+
+
+
+
+
+
 def test_model_mask_attributes_legacy_shards_to_gemini():
     """A hypothetical pre-provenance shard counts as the original model."""
     df = pd.DataFrame({"item_id": ["a", "b"]})

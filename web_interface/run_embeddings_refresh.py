@@ -11,6 +11,8 @@ empty.
 
 import os
 import sys
+import time
+import uuid
 from pathlib import Path
 
 # Add project root to sys.path
@@ -26,6 +28,83 @@ from web_interface.task_status import TaskStatusReporter
 DEFAULT_BATCH_SIZE = 20000
 _DISPATCH_DEADLINE = 1800
 
+# Single-flight lease: one shared CAS-guarded file names the live run and the
+# links it has executed. Guards the three dispatch paths that bypass
+# process_manager's busy check (Cloud Tasks redelivery of a live task, the
+# consolidate pipeline's raw dispatch, and self-chaining) — 2026-08-14 two
+# concurrent runs embedded the same backlog slice and wrote twin shards.
+_LEASE_FILE = "embeddings_run_lease.json"
+_LEASE_LOCATION = "cache"
+# A crashed run's lease stops blocking after this long — matches the Cloud
+# Tasks task timeout, past which the original execution cannot still be alive.
+_LEASE_STALE_S = 3600
+
+
+
+
+def _claim_link(run_id: str, chunk: int) -> bool:
+    """Atomically claim the right to execute link ``chunk`` of ``run_id``.
+
+    Link 0 claims the whole run: it loses when a fresh lease names another
+    run (a live chain — however it was dispatched). Later links lose when the
+    lease moved to another run or their chunk was already executed (a Cloud
+    Tasks redelivery of a link that outlived its dispatch deadline while the
+    original execution kept running — the duplicate-shard failure mode).
+
+    Args:
+        run_id: This execution's run id.
+        chunk: The link index it wants to execute.
+
+    Returns:
+        True when this execution won the claim.
+    """
+    import fyp.data_io as data_io
+
+    claimed = {"won": False}
+
+    def _mutate(lease):
+        lease = lease if isinstance(lease, dict) else {}
+        fresh = time.time() - float(lease.get("updated_at") or 0) <= _LEASE_STALE_S
+        if chunk == 0:
+            if fresh and lease.get("run_id") not in (None, run_id):
+                return lease
+            lease = {"run_id": run_id, "executed": {}}
+        elif lease.get("run_id") != run_id:
+            return lease
+        executed = lease.setdefault("executed", {})
+        if str(chunk) in executed:
+            return lease
+        executed[str(chunk)] = True
+        lease["updated_at"] = time.time()
+        claimed["won"] = True
+        return lease
+
+    data_io.update_json(storage_location=_LEASE_LOCATION, filename=_LEASE_FILE,
+                        mutate=_mutate, default=None)
+    return claimed["won"]
+
+
+
+
+def _release_lease(run_id: str) -> None:
+    """Blank the lease if this run still owns it (best-effort).
+
+    A run that dies without releasing goes stale after ``_LEASE_STALE_S``
+    and stops blocking on its own.
+    """
+    import fyp.data_io as data_io
+
+    def _mutate(lease):
+        if isinstance(lease, dict) and lease.get("run_id") == run_id:
+            return {}
+        return lease
+
+    try:
+        data_io.update_json(storage_location=_LEASE_LOCATION,
+                            filename=_LEASE_FILE, mutate=_mutate, default=None)
+    except Exception:
+        pass
+
 
 def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
     """Embed one batch of pending videos and optionally chain to the next.
@@ -33,7 +112,8 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
     Args:
         reporter: Status reporter (GCS or local).
         task_args: Optional ``batch_size``, ``max_batches``, ``chunk_index``,
-            ``initial_total``.
+            ``initial_total``. Chain-internal: ``run_id`` (the single-flight
+            lease owner; minted at link 0 when absent).
 
     Returns:
         Dict with ``chain=True`` and ``next_task_args`` if more batches remain,
@@ -48,6 +128,15 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
         max_batches = int(max_batches)
     chunk_index = int(task_args.get("chunk_index", 0))
     initial_total = int(task_args.get("initial_total", 0))
+    run_id = str(task_args.get("run_id") or uuid.uuid4().hex)
+
+    if not _claim_link(run_id, chunk_index):
+        reporter.log(
+            "Another embeddings refresh is already live (or this link already "
+            "ran) — skipping this dispatch to avoid duplicate shards."
+        )
+        reporter.update_progress(100, "Skipped — refresh already running")
+        return None
 
     backend = active_embedding_backend()
     reporter.log(
@@ -86,21 +175,25 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
 
     if remaining <= 0:
         reporter.log("Embedding backlog exhausted.")
+        _release_lease(run_id)
         return None
 
     if embedded == 0:
         # Nothing was written (e.g. the whole batch failed); stop rather than
         # spin a chain that re-attempts the same failing head slice forever.
         reporter.log("No new embeddings written this batch; stopping chain.")
+        _release_lease(run_id)
         return None
 
     if reporter.check_cancelled():
         reporter.log("Cancellation requested. Stopping after this batch.")
+        _release_lease(run_id)
         return None
 
     next_chunk = chunk_index + 1
     if max_batches is not None and next_chunk >= max_batches:
         reporter.log(f"Reached max_batches limit ({max_batches}).")
+        _release_lease(run_id)
         return None
 
     next_task_args = {
@@ -108,6 +201,7 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
         "max_batches": max_batches,
         "chunk_index": next_chunk,
         "initial_total": initial_total,
+        "run_id": run_id,
     }
     reporter.log(f"Chaining to next batch (chunk_index={next_chunk})...")
     return {

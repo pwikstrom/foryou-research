@@ -293,3 +293,38 @@ def test_sessions_schema_extends_the_base_with_extremes_and_roundtrips(space, fe
     assert isinstance(sdf["search_text"].iloc[0], str)
     tbl = se._arrow_table(srows, schema)
     assert tbl.num_rows == 1
+
+
+
+
+def test_load_video_features_dedupes_a_duplicated_video_map(monkeypatch):
+    """A duplicated video_map row must not duplicate the item_id index.
+
+    Regression for 2026-08-15: twin embedding shards duplicated 10k items in
+    video_map.parquet, and the duplicated feature index made every
+    feat.reindex() caller raise "cannot reindex on an axis with duplicate
+    labels" — killing each sessions_refresh batch. keep="last" matches the
+    embedding store's duplicate winner.
+    """
+    dup_map = pd.DataFrame({
+        "item_id": ["a", "b", "a"],
+        "niche_name": ["first", "n_b", "last"],
+        "category": "x", "story": "s",
+        "political_score": 0.0, "sensitivity_score": 0.0,
+        "advertising": "none",
+    })
+
+    def _load(storage_location, filename, columns=None, **kw):
+        return dup_map[columns].copy() if columns else dup_map.copy()
+
+    monkeypatch.setattr(se.data_io, "load_parquet_selective", _load)
+    monkeypatch.setattr(se.data_io, "get_parquet_columns", lambda **kw: [])
+
+    feat = se.load_video_features(item_ids={"a", "b"})
+    assert feat.index.is_unique
+    assert feat.loc["a", "niche_name"] == "last"
+
+    out = se.attach_play_texts(_plays(["a", "b", "a"]), feat,
+                               stories={"a": "story a"})
+    assert len(out) == 3
+    assert out.loc[out["item_id"] == "a", "story"].iloc[0] == "story a"
