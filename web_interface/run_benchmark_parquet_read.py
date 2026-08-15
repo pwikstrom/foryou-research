@@ -158,4 +158,8 @@ def run_benchmark_parquet_read(reporter: TaskStatusReporter, task_args: dict | N
 if __name__ == "__main__":
     from web_interface.worker_runner import run_worker
 
-    run_worker(run_benchmark_parquet_read, "benchmark_parquet_read")
+    run_worker(
+        run_benchmark_parquet_read,
+        "benchmark_parquet_read",
+        description="Benchmark the three parquet read paths against the recoded parquets",
+    )

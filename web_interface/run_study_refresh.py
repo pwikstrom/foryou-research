@@ -280,25 +280,30 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
 
 
 if __name__ == "__main__":
-    from web_interface.task_status import LocalStatusReporter
+    from web_interface.worker_runner import run_worker
 
-    if len(sys.argv) < 2:
-        print("Usage: python run_study_refresh.py <study_name> [--no-pca] [--no-metadata] [--force]")
-        sys.exit(1)
+    def _make_task_args(args) -> dict:
+        task_args = {"study_name": args.study_name}
+        if args.no_pca:
+            task_args["refresh_pca"] = False
+        if args.no_metadata:
+            task_args["refresh_metadata"] = False
+        if args.force:
+            task_args["force_full_rebuild"] = True
+        return task_args
 
-    study_name = sys.argv[1]
-    args = {"study_name": study_name}
-    if "--no-pca" in sys.argv:
-        args["refresh_pca"] = False
-    if "--no-metadata" in sys.argv:
-        args["refresh_metadata"] = False
-    if "--force" in sys.argv:
-        args["force_full_rebuild"] = True
-
-    reporter = LocalStatusReporter("study_refresh")
-    try:
-        run_study_refresh(reporter=reporter, task_args=args)
-        reporter.complete()
-    except Exception as e:
-        reporter.fail(str(e))
-        sys.exit(1)
+    run_worker(
+        run_study_refresh,
+        "study_refresh",
+        arg_specs=[
+            (("study_name",), {"help": "Name of the study to refresh"}),
+            (("--no-pca",), {"action": "store_true",
+                             "help": "Skip the PCA / correlations phase"}),
+            (("--no-metadata",), {"action": "store_true",
+                                  "help": "Skip the metadata phase"}),
+            (("--force",), {"action": "store_true",
+                            "help": "Force a full rebuild, ignoring sidecar fingerprints"}),
+        ],
+        make_task_args=_make_task_args,
+        description="Refresh stats, PCA, and metadata for a single study",
+    )

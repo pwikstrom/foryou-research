@@ -128,4 +128,8 @@ def _as_list(value) -> list:
 if __name__ == "__main__":
     from web_interface.worker_runner import run_worker
 
-    run_worker(run_retokenise_hashtags, "retokenise_hashtags")
+    run_worker(
+        run_retokenise_hashtags,
+        "retokenise_hashtags",
+        description="Re-apply the current hashtag stoplist to already-stored hashtags",
+    )

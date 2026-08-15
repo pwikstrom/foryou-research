@@ -143,6 +143,8 @@ if __name__ == "__main__":
         task_args = {}
         if args.studies:
             task_args["studies"] = args.studies
+        elif args.study_name:
+            task_args["studies"] = args.study_name
         if args.force:
             task_args["force_full_rebuild"] = True
         return task_args
@@ -155,7 +157,9 @@ if __name__ == "__main__":
                               'help': 'Comma-separated study names to refresh (default: all)'}),
             (('--force',), {'action': 'store_true',
                             'help': 'Force full rebuild of every study, ignoring sidecar fingerprints'}),
-            (('study_name',), {'nargs': '?', 'default': None}),
+            (('study_name',), {'nargs': '?', 'default': None,
+                               'help': 'Single study to refresh; ignored when --studies is given'}),
         ],
         make_task_args=_make_task_args,
+        description="Refresh recoded datasets and stats for studies",
     )

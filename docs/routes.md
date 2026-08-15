@@ -131,6 +131,7 @@ python scripts/gen_route_inventory.py
 | management_bp | `/api/manage/studies/daily_activities` | POST | `management_bp.daily_activities` |
 | management_bp | `/api/manage/studies/delete` | POST | `management_bp.delete_study` |
 | management_bp | `/api/manage/studies/prewarm_check` | POST | `management_bp.prewarm_study_check` |
+| management_bp | `/api/manage/studies/rename` | POST | `management_bp.rename_study` |
 | management_bp | `/api/manage/studies/save` | POST | `management_bp.save_study` |
 | process_bp | `/api/logs/<name>` | GET | `process_bp.api_logs` |
 | process_bp | `/api/logs/clear/<name>` | POST | `process_bp.api_clear_logs` |
@@ -162,4 +163,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-151 routes total.
+152 routes total.

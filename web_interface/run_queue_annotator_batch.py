@@ -405,8 +405,10 @@ if __name__ == "__main__":
     from web_interface.task_status import LocalStatusReporter
 
     parser = argparse.ArgumentParser(description="Run batch queue annotator (submit + poll to done)")
-    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
-    parser.add_argument("--max-batches", type=int, default=None)
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE,
+                        help="Items per submitted batch job (default: %(default)s)")
+    parser.add_argument("--max-batches", type=int, default=None,
+                        help="Max batches (default: unlimited)")
     parser.add_argument("--launched-by", type=str, default=None,
                         help="Email of the launching user, for milestone notifications.")
     args = parser.parse_args()

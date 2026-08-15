@@ -38,9 +38,13 @@ from fyp.ingest.demo_dataset import (  # noqa: E402
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate the synthetic demo dataset.")
-    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    parser.add_argument("--donors", type=int, default=DEFAULT_DONORS)
-    parser.add_argument("--days", type=int, default=DEFAULT_DAYS)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED,
+                        help="Random seed; fixed default keeps output deterministic "
+                             "(default: %(default)s)")
+    parser.add_argument("--donors", type=int, default=DEFAULT_DONORS,
+                        help="Synthetic donors to generate (default: %(default)s)")
+    parser.add_argument("--days", type=int, default=DEFAULT_DAYS,
+                        help="Days of activity per donor (default: %(default)s)")
     parser.add_argument("--as-of", default=DEFAULT_AS_OF,
                         help="Anchor date (YYYY-MM-DD); fixed default keeps output deterministic.")
     mode = parser.add_mutually_exclusive_group(required=True)

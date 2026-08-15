@@ -104,4 +104,8 @@ def run_collection_metadata_refresh(reporter: TaskStatusReporter, task_args: dic
 if __name__ == "__main__":
     from web_interface.worker_runner import run_worker
 
-    run_worker(run_collection_metadata_refresh, "collection_metadata_refresh")
+    run_worker(
+        run_collection_metadata_refresh,
+        "collection_metadata_refresh",
+        description="Regenerate collections_metadata.parquet from collections_recoded.parquet",
+    )

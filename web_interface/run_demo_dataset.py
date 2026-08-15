@@ -66,4 +66,8 @@ def run_demo_dataset(reporter: TaskStatusReporter, task_args: dict | None = None
 if __name__ == "__main__":
     from web_interface.worker_runner import run_worker
 
-    run_worker(run_demo_dataset, "demo_dataset")
+    run_worker(
+        run_demo_dataset,
+        "demo_dataset",
+        description="Generate and install the synthetic demo dataset into the data store",
+    )
