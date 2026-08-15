@@ -1359,6 +1359,9 @@ def _join_niche_columns(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame
             columns=["item_id", *join_cols],
         )
         niche_map["item_id"] = niche_map["item_id"].astype("string[pyarrow]")
+        # A duplicated map item_id would silently row-duplicate every play
+        # matching it in the left join.
+        niche_map = niche_map.drop_duplicates("item_id", keep="last")
         df["item_id"] = df["item_id"].astype("string[pyarrow]")
         df = fast_join(df, niche_map, on="item_id", how="left")
 

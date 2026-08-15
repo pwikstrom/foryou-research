@@ -69,8 +69,11 @@ FORK_START_GRACE_SECONDS = 600
 #       downstream refresh pipeline.
 #   collection_delete                  — destructive and partially-applied.
 #   ingest_refresh                     — ledger-guarded but partial writes.
-#   embeddings_refresh                 — idempotent per shard, but a retry
-#       re-spends embedding credits.
+#   embeddings_refresh                 — NOT idempotent: shards are uuid-named
+#       appends, so a retried live link would write a duplicate shard
+#       (2026-08-14 twin-shard incident). The worker's single-flight lease
+#       makes a redelivered link exit cleanly, and a retry would also
+#       re-spend embedding credits.
 #   ab_eval                            — has its own 409 concurrency gate.
 QUEUE_RETRY_SAFE: set[str] = {
     "recode_refresh_studies",

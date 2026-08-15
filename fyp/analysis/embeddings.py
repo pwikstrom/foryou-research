@@ -553,6 +553,22 @@ def embed_pending(batch_size: int = 20000, reporter=None) -> dict:
     if failed:
         _log(f"WARNING: {failed} videos failed embedding; will retry on next run.")
 
+    # Re-read the embedded set just before writing: a concurrent run (e.g. a
+    # Cloud Tasks redelivery of a still-running batch) may have landed the
+    # same slice while this one was embedding. Dropping the overlap narrows
+    # the duplicate-shard window to the seconds between this check and the
+    # write; readers additionally dedupe as a backstop.
+    if len(kept_ids) > 0:
+        have_now = embedded_item_ids(model=model)
+        fresh = [i not in have_now for i in kept_ids]
+        n_overlap = len(kept_ids) - sum(fresh)
+        if n_overlap:
+            _log(f"WARNING: {n_overlap:,} of this batch's items were embedded "
+                 f"by a concurrent run while this one worked; dropping them "
+                 f"from the shard.")
+            kept_ids = [i for i, f in zip(kept_ids, fresh) if f]
+            kept_matrix = kept_matrix[np.asarray(fresh, dtype=bool)]
+
     shard = None
     if len(kept_ids) > 0:
         shard = _write_shard(kept_ids, kept_matrix, model=model, dim=dim)
@@ -581,6 +597,12 @@ def load_embeddings(reporter=None, model: str | None = None) -> tuple[list[str],
     Args:
         reporter: Optional status reporter.
         model: Embedding model id to load; None = the active backend's.
+
+    Duplicate item_ids across shards (e.g. two concurrent embed runs writing
+    the same backlog slice) are collapsed to the **last** occurrence in
+    shard-listing order — the same winner the dense sidecar's index picks
+    (``ensure_dense_store`` drops duplicates with ``keep="last"``), so both
+    read paths return the same vector for a duplicated item.
 
     Returns:
         A tuple of the item_id list and an ``(n, dim)`` float32 matrix.
@@ -630,19 +652,42 @@ def load_embeddings(reporter=None, model: str | None = None) -> tuple[list[str],
         dim = len(probe["embedding"].iloc[0]) // 2
         del probe
 
+    # Duplicate ids collapse to their last occurrence (see docstring). The
+    # mask is computed up front so the result matrix is allocated at its
+    # final, deduplicated size.
+    keep = ~pd.Index(ids).duplicated(keep="last")
+    n_dupes = int(len(ids) - keep.sum())
+    if n_dupes:
+        logger.warning(
+            f"Embedding store holds {n_dupes:,} duplicate item_id rows for "
+            f"model {model}; keeping the last occurrence of each."
+        )
+
     # Pass 2 — decode each shard's vectors straight into the preallocated
-    # matrix (zero-copy Arrow view on the uniform-offset fast path).
-    out = np.empty((len(ids), dim), dtype=np.float32)
+    # matrix (zero-copy Arrow view on the uniform-offset fast path). A shard
+    # containing dropped duplicates decodes via a shard-sized temp instead.
+    kept_ids = [iid for iid, k in zip(ids, keep) if k]
+    out = np.empty((len(kept_ids), dim), dtype=np.float32)
     row = 0
+    wrote = 0
     for shard, n_rows in plan:
         df = data_io.load_parquet_selective(
             storage_location=STORE_LOCATION, filename=shard,
             columns=["embedding", "model"],
         )
         df = df[_model_mask(df, model)]
-        decode_embeddings_arrow(df["embedding"], out=out, offset=row)
+        shard_keep = keep[row:row + n_rows]
+        n_kept = int(shard_keep.sum())
+        if n_kept == n_rows:
+            decode_embeddings_arrow(df["embedding"], out=out, offset=wrote)
+        elif n_kept:
+            tmp = np.empty((n_rows, dim), dtype=np.float32)
+            decode_embeddings_arrow(df["embedding"], out=tmp, offset=0)
+            out[wrote:wrote + n_kept] = tmp[shard_keep]
+            del tmp
         row += n_rows
+        wrote += n_kept
         del df
         if reporter is not None:
             reporter.log(f"Loaded shard {shard} ({n_rows:,} rows)")
-    return ids, out
+    return kept_ids, out

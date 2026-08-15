@@ -387,6 +387,10 @@ def load_video_features(item_ids: set[str] | None = None,
         scr["duration"] = pd.Series([None] * len(scr), dtype="float64[pyarrow]")
     scr["item_id"] = scr["item_id"].astype("string")
     scr = scr.drop_duplicates("item_id")
+    # A duplicated map row would duplicate the index and break every
+    # feat.reindex() caller; keep="last" matches the embedding store's
+    # duplicate winner.
+    feat = feat.drop_duplicates("item_id", keep="last")
     return feat.merge(scr, on="item_id", how="left").set_index("item_id")
 
 
