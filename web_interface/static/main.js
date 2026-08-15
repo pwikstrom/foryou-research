@@ -1063,6 +1063,11 @@ async function updateStatus() {
         setStatus('embeddings_refresh', data.embeddings_refresh);
         setStatus('video_map_refresh', data.video_map_refresh);
         setStatus('sessions_refresh', data.sessions_refresh);
+        // The consolidate card carries the same dot/bar/last-run chrome as the
+        // rest. It has no `-toggle` element (its button is bespoke: arm,
+        // disarm, two option checkboxes), and setStatus skips that block when
+        // the element is absent.
+        setStatus('consolidate_enrichment', data.consolidate_enrichment);
 
         // Spinner on the "Refresh Caches" sidebar item (same style as the
         // global badge spinner) while any of that page's processes runs.
