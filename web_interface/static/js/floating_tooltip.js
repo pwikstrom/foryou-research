@@ -16,10 +16,11 @@
  * (`html.fyp-floating-tooltips`), so exactly one tooltip is ever drawn.
  *
  * The class placement is the contract: an element opts in by carrying
- * `.meta-tooltip` and a non-empty `data-tooltip`. Two optional modifiers, kept
+ * `.meta-tooltip` and a non-empty `data-tooltip`. Three optional modifiers, kept
  * for compatibility with the CSS they were written for:
  *   .tooltip-below           — open downward first instead of upward
  *   .tooltip-right-anchored  — align the tooltip's right edge to the trigger's
+ *   .tooltip-wide            — a wider box, for a paragraph of explanation
  */
 
 (function (global) {
@@ -97,6 +98,9 @@
         const el = _ensureEl();
         activeTrigger = trigger;
         el.textContent = trigger.getAttribute('data-tooltip');
+        // Width modifier must be applied before the measure below, or a wide
+        // tooltip is placed using the narrow box's height.
+        el.classList.toggle('tooltip-wide', trigger.classList.contains('tooltip-wide'));
         // Measure at final width before positioning: the element must already be
         // laid out, so make it visible-but-transparent for this frame.
         el.style.top = '-9999px';

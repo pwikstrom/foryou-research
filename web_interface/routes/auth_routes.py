@@ -582,7 +582,7 @@ def api_irrelevant_words_apply():
     Re-tokenises the stored ``desc_hashtags`` from the preserved captions across
     the source scrape parquets with the current stoplist (see
     ``run_retokenise_hashtags``). Clean-only — the response tells the caller to
-    run a Force Reconsolidate afterward. Refuses (409) while a scraper/annotator/
+    run a forced full reconsolidation afterward. Refuses (409) while a scraper/annotator/
     consolidation is running, since it rewrites the same scrape parquets.
     """
     from fyp.fyp_config import RETOKENISE_HASHTAGS_SCRIPT

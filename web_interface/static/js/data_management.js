@@ -2438,7 +2438,7 @@ function checkConsolidationNeeded(data) {
     if (!lastConsolidation) {
         // Never consolidated — warn if any process has run
         if (scraperSuccess || annotatorSuccess) {
-            warningEl.textContent = 'New enrichment data has not been consolidated yet. Click "Consolidate & Refresh" to update.';
+            warningEl.textContent = 'New enrichment data has not been consolidated yet. Click "Consolidate" to update.';
             warningEl.style.display = '';
             setNeedsAction(true);
         } else {
@@ -2461,7 +2461,7 @@ function checkConsolidationNeeded(data) {
         const parts = [];
         if (scraperNewer) parts.push('scraper');
         if (annotatorNewer) parts.push('annotator');
-        warningEl.textContent = `The ${parts.join(' and ')} completed after the last consolidation. Click "Consolidate & Refresh" to incorporate new data.`;
+        warningEl.textContent = `The ${parts.join(' and ')} completed after the last consolidation. Click "Consolidate" to incorporate new data.`;
         warningEl.style.display = '';
         setNeedsAction(true);
     } else {
@@ -3175,6 +3175,7 @@ const _PIPELINE_STEPS = [
     "meta_refresh_groups",
     "pca_refresh",
     "timelines_refresh",
+    "sessions_refresh",
 ];
 
 // Short human labels for pipeline steps — mirrors _PIPELINE_STAGE_LABELS on the
@@ -3187,6 +3188,7 @@ const _PIPELINE_STEP_LABELS = {
     meta_refresh_groups: "Explore metadata",
     pca_refresh: "Correlations",
     timelines_refresh: "Timelines",
+    sessions_refresh: "Sessions",
 };
 
 function _humanizePipelineSteps(csv) {
@@ -3252,25 +3254,42 @@ function _renderStageText(statusEl, stepName, progress) {
     statusEl.style.color = 'var(--color-text-secondary)';
 }
 
-function consolidateEnrichmentData(btn, force = false, skipRefresh = false) {
-    const statusEl = document.getElementById('consolidate-status');
-    const btnC = document.getElementById('btn-consolidate');
-    const btnI = document.getElementById('btn-consolidate-incremental');
-    const btnF = document.getElementById('btn-consolidate-force');
+// The two option checkboxes next to the Consolidate button. They replace the
+// former three buttons: "Consolidate & Refresh" = refresh ticked, "Consolidate
+// Only" = refresh unticked, "Force Reconsolidate" = force ticked.
+function _consolidateOptions() {
+    const refreshBox = document.getElementById('consolidate-auto-refresh');
+    const forceBox = document.getElementById('consolidate-force');
+    return {
+        autoRefresh: refreshBox ? !!refreshBox.checked : true,
+        force: forceBox ? !!forceBox.checked : false,
+    };
+}
 
-    // Three modes map to two flags:
-    //   default     → {}                  (incremental consolidate + refresh)
-    //   force       → {force:true}        (full rebuild, no refresh)
-    //   skipRefresh → {auto_refresh:false}(incremental consolidate, no refresh)
-    const body = force ? { force: true } : (skipRefresh ? { auto_refresh: false } : {});
+// Re-render the button when an option is toggled: a forced rebuild cannot be
+// armed, so ticking Force while a worker runs must disable the button rather
+// than let the click 409.
+function onConsolidateOptionChange() {
+    if (window._lastEnrichmentStats) {
+        applyConsolidateButtonState(window._lastEnrichmentStats);
+    }
+}
+
+function consolidateEnrichmentData(btn) {
+    const statusEl = document.getElementById('consolidate-status');
+    const { autoRefresh, force } = _consolidateOptions();
+
+    // Both options are sent explicitly — auto_refresh server-side defaults to
+    // "not force", which is not what the checkboxes mean.
+    const body = { auto_refresh: autoRefresh };
+    if (force) body.force = true;
 
     // Hide the impact panel up-front so the old run's summary doesn't linger
     // while the new run is in flight. It will re-render on completion.
     renderConsolidationImpact(null);
 
-    // If the button is already armed, a click disarms. Both non-force buttons
-    // can be the armed one (dataset.armed is routed by applyConsolidateButtonState).
-    if (!force && btn.dataset.armed === '1') {
+    // If the button is already armed, a click disarms.
+    if (btn.dataset.armed === '1') {
         fetch('/api/manage/enrichment/consolidate/disarm', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
@@ -3303,7 +3322,7 @@ function consolidateEnrichmentData(btn, force = false, skipRefresh = false) {
             if (data.status === 'started') {
                 btn.textContent = 'Consolidating...';
                 btn.className = 'btn-running';
-                [btnC, btnI, btnF].forEach(b => { if (b && b !== btn) b.disabled = true; });
+                _setConsolidateOptionsDisabled(true);
                 statusEl.textContent = 'Consolidation running...';
                 statusEl.style.color = 'var(--color-text-secondary)';
                 pollConsolidationStatus();
@@ -3332,12 +3351,44 @@ function consolidateEnrichmentData(btn, force = false, skipRefresh = false) {
         });
 }
 
-function _applyArmableButton(btn, idleLabel, isArmed, blocking, workersRunning) {
-    // Render a non-force consolidate button's idle/armed state. Leaves the
-    // btn-has-pending class alone in the idle branch — it is owned by
-    // checkConsolidationNeeded() — but clears it when armed.
+function _setConsolidateOptionsDisabled(disabled) {
+    ['consolidate-auto-refresh', 'consolidate-force'].forEach(id => {
+        const box = document.getElementById(id);
+        if (box) box.disabled = disabled;
+    });
+}
+
+function applyConsolidateButtonState(data) {
+    // Drive the Consolidate button + its two option checkboxes off the latest
+    // enrichment-stats response. Called from fetchEnrichmentStats every tick.
+    // Cached so a checkbox toggle between ticks can re-render immediately.
+    window._lastEnrichmentStats = data;
+
+    const btn = document.getElementById('btn-consolidate');
     if (!btn) return;
-    if (isArmed) {
+
+    const blocking = data.workers_blocking_consolidate || [];
+    const armed = !!data.consolidate_auto_armed;
+    const workersRunning = blocking.length > 0;
+    const pipelineActive = !!data.consolidate_pipeline_active;
+
+    if (_consolidatePollActive) {
+        // Polling loop owns the button text/state during an active run.
+        return;
+    }
+
+    const refreshBox = document.getElementById('consolidate-auto-refresh');
+    const forceBox = document.getElementById('consolidate-force');
+    // While armed, the checkboxes must show what is actually armed — the server
+    // stored the refresh choice at arm time, and a forced rebuild can never be
+    // armed (it needs every worker idle).
+    if (armed) {
+        if (refreshBox) refreshBox.checked = !!data.consolidate_auto_armed_auto_refresh;
+        if (forceBox) forceBox.checked = false;
+    }
+    _setConsolidateOptionsDisabled(pipelineActive || armed);
+
+    if (armed) {
         btn.dataset.armed = '1';
         btn.textContent = '⏳ Armed — click to cancel';
         btn.classList.add('action-btn', 'btn-armed-pulse');
@@ -3345,59 +3396,31 @@ function _applyArmableButton(btn, idleLabel, isArmed, blocking, workersRunning) 
         btn.title = blocking.length
             ? `Runs when ${blocking.join(', ')} finish.`
             : 'Runs when scraper/annotator finish.';
+        btn.disabled = false;
+        return;
+    }
+
+    btn.dataset.armed = '';
+    btn.textContent = 'Consolidate';
+    btn.classList.add('action-btn');
+    btn.classList.remove('btn-running', 'btn-armed-pulse');
+
+    // A forced rebuild is refused server-side while a worker runs or the
+    // pipeline is in flight — disable rather than let the click 409. The
+    // incremental modes stay clickable: they arm instead of firing.
+    const force = forceBox ? !!forceBox.checked : false;
+    if (pipelineActive) {
+        btn.disabled = true;
+        btn.title = 'Wait for the refresh pipeline to finish.';
+    } else if (force && workersRunning) {
+        btn.disabled = true;
+        btn.title = `A full rebuild needs ${blocking.join(', ')} to finish first.`;
     } else {
-        btn.dataset.armed = '';
-        btn.textContent = idleLabel;
-        btn.classList.add('action-btn');
-        btn.classList.remove('btn-running', 'btn-armed-pulse');
+        btn.disabled = false;
         btn.title = workersRunning
             ? 'Click to arm — will run when scraper/annotator finish.'
             : '';
     }
-    btn.disabled = false;
-}
-
-function applyConsolidateButtonState(data) {
-    // Drive button styling off the latest enrichment-stats response.
-    // Called from fetchEnrichmentStats every poll tick.
-    const btnC = document.getElementById('btn-consolidate');
-    const btnI = document.getElementById('btn-consolidate-incremental');
-    const btnF = document.getElementById('btn-consolidate-force');
-    if (!btnC || !btnF) return;
-
-    const blocking = data.workers_blocking_consolidate || [];
-    const armed = !!data.consolidate_auto_armed;
-    // Both non-force buttons share the single armed slot. The saved refresh
-    // preference tells us WHICH button is the armed one.
-    const armedRefresh = !!data.consolidate_auto_armed_auto_refresh;
-    const workersRunning = blocking.length > 0;
-    const pipelineActive = !!data.consolidate_pipeline_active;
-
-    // Force button: disabled while any worker runs OR the pipeline is in
-    // flight (so users can't kick off a force rebuild while studies/timelines
-    // are still refreshing). Reenables only when everything is idle.
-    if (workersRunning || pipelineActive || _consolidatePollActive) {
-        btnF.disabled = true;
-        if (workersRunning) {
-            btnF.title = `Wait for ${blocking.join(', ')} to finish.`;
-        } else if (pipelineActive || _consolidatePollActive) {
-            btnF.title = 'Wait for consolidation pipeline to finish.';
-        }
-    } else {
-        btnF.disabled = false;
-        btnF.title = '';
-    }
-
-    // Non-force buttons: tri-state (idle, armed, running).
-    if (_consolidatePollActive) {
-        // Polling loop owns the button text/state during an active run.
-        return;
-    }
-
-    // Route the armed indicator to whichever button's mode is armed; the other
-    // shows its normal idle label.
-    _applyArmableButton(btnC, 'Consolidate & Refresh', armed && armedRefresh, blocking, workersRunning);
-    _applyArmableButton(btnI, 'Consolidate Only', armed && !armedRefresh, blocking, workersRunning);
 }
 
 function pollConsolidationStatus() {
@@ -3411,16 +3434,14 @@ function pollConsolidationStatus() {
 
     const statusEl = document.getElementById('consolidate-status');
     const btnC = document.getElementById('btn-consolidate');
-    const btnI = document.getElementById('btn-consolidate-incremental');
-    const btnF = document.getElementById('btn-consolidate-force');
     if (btnC) {
         btnC.disabled = true;
+        btnC.dataset.armed = '';
         btnC.textContent = 'Consolidating...';
         btnC.classList.add('action-btn', 'btn-running');
         btnC.classList.remove('btn-armed-pulse', 'btn-has-pending');
     }
-    if (btnI) { btnI.disabled = true; btnI.classList.remove('btn-armed-pulse'); }
-    if (btnF) btnF.disabled = true;
+    _setConsolidateOptionsDisabled(true);
 
     // Hide the "scraper/annotator completed after last consolidation" warning
     // as soon as the run starts. fetchEnrichmentStats isn't called every tick
@@ -3443,6 +3464,14 @@ function pollConsolidationStatus() {
 
                 const active = _activePipelineStep(data);
                 if (active) {
+                    // This loop runs for any pipeline member, including one
+                    // started on its own card (a sessions refresh chained from
+                    // a study save, say) — so name the phase honestly instead
+                    // of always claiming a consolidation is under way.
+                    if (btnC) {
+                        btnC.textContent = active.name === 'consolidate_enrichment'
+                            ? 'Consolidating...' : 'Refreshing caches...';
+                    }
                     _renderStageText(statusEl, active.name, active.state.progress || {});
                     return;
                 }
@@ -3472,18 +3501,11 @@ function pollConsolidationStatus() {
                 if (btnC) {
                     btnC.classList.remove('btn-running', 'btn-armed-pulse');
                     btnC.classList.add('action-btn');
-                    btnC.textContent = 'Consolidate & Refresh';
+                    btnC.textContent = 'Consolidate';
                     btnC.disabled = false;
                     btnC.dataset.armed = '';
                 }
-                if (btnI) {
-                    btnI.classList.remove('btn-running', 'btn-armed-pulse');
-                    btnI.classList.add('action-btn');
-                    btnI.textContent = 'Consolidate Only';
-                    btnI.disabled = false;
-                    btnI.dataset.armed = '';
-                }
-                if (btnF) btnF.disabled = false;
+                _setConsolidateOptionsDisabled(false);
 
                 if (outcome === 'Success') {
                     // The persistent summary now lives in consolidate_stats
@@ -3504,15 +3526,10 @@ function pollConsolidationStatus() {
                 _consolidatePollActive = false;
                 if (btnC) {
                     btnC.className = 'action-btn';
-                    btnC.textContent = 'Consolidate & Refresh';
+                    btnC.textContent = 'Consolidate';
                     btnC.disabled = false;
                 }
-                if (btnI) {
-                    btnI.className = 'action-btn btn-discreet';
-                    btnI.textContent = 'Consolidate Only';
-                    btnI.disabled = false;
-                }
-                if (btnF) btnF.disabled = false;
+                _setConsolidateOptionsDisabled(false);
             });
     }, 2000);
 }

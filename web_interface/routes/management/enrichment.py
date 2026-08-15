@@ -1232,9 +1232,9 @@ def api_consolidate_enrichment():
 
     data = request.json or {}
     force = bool(data.get("force"))
-    # auto_refresh defaults to True — the button means "consolidate + fix the
-    # consolidation impact automatically". Force Reconsolidate skips the
-    # downstream chain by default to keep it debuggable.
+    # The Refresh Caches page sends both flags explicitly (its two checkboxes).
+    # The default is for other callers: refresh unless this is a full rebuild,
+    # which stays chain-free by default to keep it debuggable.
     auto_refresh = bool(data.get("auto_refresh", not force))
 
     blocking = _consolidate_blockers()
@@ -1242,7 +1242,7 @@ def api_consolidate_enrichment():
         if force:
             return jsonify({
                 "status": "error",
-                "message": f"Cannot force reconsolidate while {', '.join(blocking)} running.",
+                "message": f"Cannot run a full rebuild while {', '.join(blocking)} running.",
             }), 409
 
         # Arm instead of firing — pipeline kicks off when workers go idle.
