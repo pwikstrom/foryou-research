@@ -185,8 +185,11 @@ class QwenLocalBackend(AnnotationBackend):
         Returns:
             The raw-row dict (failures in-band, DNF finish_reasons).
         """
-        import fyp.annotation_versioning as annotation_versioning
-        from fyp.annotation_schema import get_annotation_json_schema
+        # Canonical subpackage paths, NOT the flat alias shims — see the
+        # backends package docstring. max_workers is 1 today, but the rule is
+        # the pool body's, not this backend's.
+        from fyp.annotation import annotation_versioning
+        from fyp.annotation.annotation_schema import get_annotation_json_schema
 
         qwen_cf = {**self._effective_cf(),
                    **{k: v for k, v in (gen_overrides or {}).items() if v is not None}}
@@ -268,7 +271,7 @@ class QwenLocalBackend(AnnotationBackend):
 
 def _default_platform() -> str:
     """The default source platform (mirrors ``call_machine``'s fallback)."""
-    import fyp.scrape_queues as scrape_queues
+    from fyp.scrape import scrape_queues
 
     return scrape_queues.default_platform()
 
@@ -290,7 +293,7 @@ def _fetch_media(item_id: str, platform: str | None):
         object was fetched from GCS (``None`` for genuinely local files);
         ``(None, None)`` when the media does not exist anywhere.
     """
-    import fyp.media_paths as media_paths
+    from fyp.core import media_paths
 
     resolved = media_paths.resolve_media(item_id, platform=platform)
     if resolved is None:

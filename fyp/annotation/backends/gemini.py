@@ -122,7 +122,11 @@ class GeminiBackend(AnnotationBackend):
         Returns:
             The production raw-row dict.
         """
-        import fyp.machine_annotation as machine_annotation
+        # Canonical subpackage path, NOT the fyp.machine_annotation alias shim:
+        # a gemini *variant* runs this from 50 pool threads, and a shim resolved
+        # cold inside a pool thread can hand back the partially-initialized
+        # module (see fyp/annotation/backends/__init__.py's module docstring).
+        from fyp.annotation import machine_annotation
 
         merged = {**self.overrides, **(gen_overrides or {})}
         return machine_annotation.call_machine(item_id, platform=platform,

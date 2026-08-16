@@ -180,7 +180,7 @@ class QwenApiBackend(AnnotationBackend):
         which is output-affecting for json_object mode (the schema rides in
         the prompt, not in the request's response_format).
         """
-        from fyp.annotation_schema import get_annotation_json_schema
+        from fyp.annotation.annotation_schema import get_annotation_json_schema
 
         return _schema_suffix(get_annotation_json_schema())
 
@@ -230,8 +230,10 @@ class QwenApiBackend(AnnotationBackend):
         Returns:
             The raw-row dict (failures in-band, DNF finish_reasons).
         """
-        import fyp.annotation_versioning as annotation_versioning
-        from fyp.annotation_schema import get_annotation_json_schema
+        # Canonical subpackage paths, NOT the flat alias shims — this runs in a
+        # max_workers-wide pool (see the backends package docstring).
+        from fyp.annotation import annotation_versioning
+        from fyp.annotation.annotation_schema import get_annotation_json_schema
 
         api_cf = {**self._effective_cf(),
                   **{k: v for k, v in (gen_overrides or {}).items() if v is not None}}
