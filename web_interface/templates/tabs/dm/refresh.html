@@ -60,90 +60,72 @@
     <div id="consolidate-pipeline-steps" class="pipeline-steps" style="display: none; margin-top: 10px;">
         <div class="text-sm font-bold" style="margin-bottom: 6px;">Refresh pipeline{{ card_info(
             "The steps of the last (or currently running) refresh pipeline, in dispatch order, with a live state for each. It is a record of one run, not a fixed menu: a step only appears when that run planned it, so the list changes with what the consolidation actually touched. Study definitions is the fork point — explore metadata, correlations, timelines and sessions run concurrently after it.") }}</div>
+        <div id="pipeline-steps-note" class="text-xxs" style="display: none; margin-bottom: 6px; color: var(--color-text-tertiary);">
+            Planned steps. The consolidation narrows this to the steps its impact actually needs.
+        </div>
         <div id="pipeline-steps-list"></div>
     </div>
 </div>
 
-<div style="display: flex; gap: 20px; flex-wrap: wrap;">
+<!-- Ordered as the refresh pipeline dispatches them: embeddings feed the map,
+     the map's niches feed the study definitions, and the last four fork off the
+     study refresh and run concurrently (their order among themselves is free). -->
+<div class="refresh-card-stack">
 
-    <!-- 1. Group Comparisons Metadata -->
-    <div
-        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-        <div class="font-bold" style="margin-bottom: 10px;">'Explore' Metadata{{ card_info(
-            "Rebuilds each study's Explore metadata: the variable catalogue, the filter value lists and the distribution statistics that the Explore and Video Analysis tabs read. It reads the study's recoded dataset, so refresh Study Definitions first if the underlying rows changed. Run this when a study's filters or variable lists look stale.") }}
-            <span id="meta_refresh_groups-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
+    <!-- 1. Semantic Embeddings -->
+    <div class="refresh-card">
+        <div class="font-bold" style="margin-bottom: 10px;">Semantic Embeddings{{ card_info(
+            "Turns each newly annotated video's text into a dense vector with the active embedding backend and appends it to the embedding store — the corpus the semantic map and the Sessions tab are both built from. Only videos that are not embedded yet are processed, in batches, so repeat runs are cheap. Runs automatically as part of the Consolidate refresh pipeline; refresh here to top up on demand.") }}
+            <span id="embeddings_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
         </div>
         <div class="controls"
             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
-            <span id="meta_refresh_groups-status" class="status-indicator status-stopped"></span>
-            <button id="meta_refresh_groups-toggle" class="btn-primary" data-start-label="Refresh"
-                onclick="startProcess('meta_refresh_groups')" style="padding: 4px 12px;">Refresh</button>
+            <span id="embeddings_refresh-status" class="status-indicator status-stopped"></span>
+            <button id="embeddings_refresh-toggle" class="btn-primary" data-start-label="Refresh"
+                onclick="startProcess('embeddings_refresh')" style="padding: 4px 12px;">Refresh</button>
         </div>
         <div class="progress-container">
-            <div class="progress-bar" id="meta_refresh_groups-bar"></div>
-            <div class="progress-text" id="meta_refresh_groups-text">Idle</div>
+            <div class="progress-bar" id="embeddings_refresh-bar"></div>
+            <div class="progress-text" id="embeddings_refresh-text">Idle</div>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-            <span id="meta_refresh_groups-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            <span id="embeddings_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
             {% if current_user.is_admin() %}
-            <a class="text-xs view-log-link" onclick="openLogModal('meta_refresh_groups', 'Explore Metadata')">View Log</a>
+            <a class="text-xs view-log-link" onclick="openLogModal('embeddings_refresh', 'Semantic Embeddings')">View Log</a>
             {% endif %}
         </div>
     </div>
 
-    <!-- 3. Timelines -->
-    <div
-        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-        <div class="font-bold" style="margin-bottom: 10px;">Timelines{{ card_info(
-            "Recomputes the per-collection timeline caches behind the Timelines tab — each collection's activity aggregated per day and week for the timeline variables — and the analysis layered on top: trend lines, anomalous days, structural breaks and volatility. Collections with too few active days are skipped. Runs in batches of 30 collections, chaining one batch per task.") }}
-            <span id="timelines_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
+    <!-- 2. Semantic Map -->
+    <div class="refresh-card">
+        <div class="font-bold" style="margin-bottom: 10px;">Semantic Map{{ card_info(
+            "Rebuilds the Semantic Space map from the embedding store: clusters the vectors into niches, names them, and lays them out in 2D. The niche columns it writes are joined into every study dataset, so a rebuild is followed by a study refresh. Runs automatically after the Consolidate refresh pipeline in preserve-labels mode, so new videos get niches — niche names stay stable, but the 2D layout still reshuffles each rebuild. Tick \"Reset all labels\" to regenerate every niche name from scratch instead of preserving stable ones.") }}
+            <span id="video_map_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
         </div>
         <div class="controls"
-            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
-            <span id="timelines_refresh-status" class="status-indicator status-stopped"></span>
-            <button id="timelines_refresh-toggle" class="btn-primary" data-start-label="Refresh"
-                onclick="startProcess('timelines_refresh')" style="padding: 4px 12px;">Refresh</button>
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px;">
+            <span id="video_map_refresh-status" class="status-indicator status-stopped"></span>
+            <button id="video_map_refresh-toggle" class="btn-primary" data-start-label="Rebuild"
+                data-start-handler="rebuildNicheMap" onclick="rebuildNicheMap()" style="padding: 4px 12px;">Rebuild</button>
+            <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="checkbox" id="video_map_reset-labels">
+                <span style="color: var(--color-text-secondary);">Reset all labels</span>
+            </label>
         </div>
         <div class="progress-container">
-            <div class="progress-bar" id="timelines_refresh-bar"></div>
-            <div class="progress-text" id="timelines_refresh-text">Idle</div>
+            <div class="progress-bar" id="video_map_refresh-bar"></div>
+            <div class="progress-text" id="video_map_refresh-text">Idle</div>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-            <span id="timelines_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            <span id="video_map_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
             {% if current_user.is_admin() %}
-            <a class="text-xs view-log-link" onclick="openLogModal('timelines_refresh', 'Timelines')">View Log</a>
+            <a class="text-xs view-log-link" onclick="openLogModal('video_map_refresh', 'Semantic Map')">View Log</a>
             {% endif %}
         </div>
     </div>
 
-    <!-- 4. Correlations (PCA) -->
-    <div
-        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-        <div class="font-bold" style="margin-bottom: 10px;">Correlations{{ card_info(
-            "Recomputes what the Correlations tab shows for each study: the PCA scores that place videos in a reduced variable space, and the group-difference statistics (effect sizes and significance tests) compared across the study's groups. Reads the study's recoded dataset, so refresh Study Definitions first if the underlying rows changed.") }}
-            <span id="pca_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
-        </div>
-        <div class="controls"
-            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
-            <span id="pca_refresh-status" class="status-indicator status-stopped"></span>
-            <button id="pca_refresh-toggle" class="btn-primary" data-start-label="Refresh"
-                onclick="startProcess('pca_refresh')" style="padding: 4px 12px;">Refresh</button>
-        </div>
-        <div class="progress-container">
-            <div class="progress-bar" id="pca_refresh-bar"></div>
-            <div class="progress-text" id="pca_refresh-text">Idle</div>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-            <span id="pca_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
-            {% if current_user.is_admin() %}
-            <a class="text-xs view-log-link" onclick="openLogModal('pca_refresh', 'Correlations')">View Log</a>
-            {% endif %}
-        </div>
-    </div>
-
-    <!-- 5. Study Definitions -->
-    <div
-        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
+    <!-- 3. Study Definitions -->
+    <div class="refresh-card">
         <div class="font-bold" style="margin-bottom: 10px;">Study Definitions{{ card_info(
             "Rebuilds each study's dataset from its saved definition: the selected collections' activity within the study's date window, merged with scrape and annotation enrichment and the current niche columns, then recoded into analysis variables. It also recomputes the study's headline counts and rewrites its methods note. Everything else study-level is built from this file, so it runs before Explore metadata, Correlations and Timelines. The button here forces a full rebuild rather than reusing the cached dataset.") }}
             <span id="recode_refresh_studies-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
@@ -167,34 +149,84 @@
         </div>
     </div>
 
-    <!-- 6. Semantic Embeddings -->
-    <div
-        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-        <div class="font-bold" style="margin-bottom: 10px;">Semantic Embeddings{{ card_info(
-            "Turns each newly annotated video's text into a dense vector with the active embedding backend and appends it to the embedding store — the corpus the semantic map and the Sessions tab are both built from. Only videos that are not embedded yet are processed, in batches, so repeat runs are cheap. Runs automatically as part of the Consolidate refresh pipeline; refresh here to top up on demand.") }}</div>
+    <!-- 4. 'Explore' Metadata (parallel with 5-7) -->
+    <div class="refresh-card">
+        <div class="font-bold" style="margin-bottom: 10px;">'Explore' Metadata{{ card_info(
+            "Rebuilds each study's Explore metadata: the variable catalogue, the filter value lists and the distribution statistics that the Explore and Video Analysis tabs read. It reads the study's recoded dataset, so refresh Study Definitions first if the underlying rows changed. Run this when a study's filters or variable lists look stale.") }}
+            <span id="meta_refresh_groups-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
+        </div>
         <div class="controls"
             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
-            <span id="embeddings_refresh-status" class="status-indicator status-stopped"></span>
-            <button id="embeddings_refresh-toggle" class="btn-primary" data-start-label="Refresh"
-                onclick="startProcess('embeddings_refresh')" style="padding: 4px 12px;">Refresh</button>
+            <span id="meta_refresh_groups-status" class="status-indicator status-stopped"></span>
+            <button id="meta_refresh_groups-toggle" class="btn-primary" data-start-label="Refresh"
+                onclick="startProcess('meta_refresh_groups')" style="padding: 4px 12px;">Refresh</button>
         </div>
         <div class="progress-container">
-            <div class="progress-bar" id="embeddings_refresh-bar"></div>
-            <div class="progress-text" id="embeddings_refresh-text">Idle</div>
+            <div class="progress-bar" id="meta_refresh_groups-bar"></div>
+            <div class="progress-text" id="meta_refresh_groups-text">Idle</div>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-            <span id="embeddings_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            <span id="meta_refresh_groups-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
             {% if current_user.is_admin() %}
-            <a class="text-xs view-log-link" onclick="openLogModal('embeddings_refresh', 'Semantic Embeddings')">View Log</a>
+            <a class="text-xs view-log-link" onclick="openLogModal('meta_refresh_groups', 'Explore Metadata')">View Log</a>
             {% endif %}
         </div>
     </div>
 
-    <!-- 6b. Sessions -->
-    <div
-        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
+    <!-- 5. Correlations (PCA) -->
+    <div class="refresh-card">
+        <div class="font-bold" style="margin-bottom: 10px;">Correlations{{ card_info(
+            "Recomputes what the Correlations tab shows for each study: the PCA scores that place videos in a reduced variable space, and the group-difference statistics (effect sizes and significance tests) compared across the study's groups. Reads the study's recoded dataset, so refresh Study Definitions first if the underlying rows changed.") }}
+            <span id="pca_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
+        </div>
+        <div class="controls"
+            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+            <span id="pca_refresh-status" class="status-indicator status-stopped"></span>
+            <button id="pca_refresh-toggle" class="btn-primary" data-start-label="Refresh"
+                onclick="startProcess('pca_refresh')" style="padding: 4px 12px;">Refresh</button>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar" id="pca_refresh-bar"></div>
+            <div class="progress-text" id="pca_refresh-text">Idle</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <span id="pca_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            {% if current_user.is_admin() %}
+            <a class="text-xs view-log-link" onclick="openLogModal('pca_refresh', 'Correlations')">View Log</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- 6. Timelines -->
+    <div class="refresh-card">
+        <div class="font-bold" style="margin-bottom: 10px;">Timelines{{ card_info(
+            "Recomputes the per-collection timeline caches behind the Timelines tab — each collection's activity aggregated per day and week for the timeline variables — and the analysis layered on top: trend lines, anomalous days, structural breaks and volatility. Collections with too few active days are skipped. Runs in batches of 30 collections, chaining one batch per task.") }}
+            <span id="timelines_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
+        </div>
+        <div class="controls"
+            style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+            <span id="timelines_refresh-status" class="status-indicator status-stopped"></span>
+            <button id="timelines_refresh-toggle" class="btn-primary" data-start-label="Refresh"
+                onclick="startProcess('timelines_refresh')" style="padding: 4px 12px;">Refresh</button>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar" id="timelines_refresh-bar"></div>
+            <div class="progress-text" id="timelines_refresh-text">Idle</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <span id="timelines_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+            {% if current_user.is_admin() %}
+            <a class="text-xs view-log-link" onclick="openLogModal('timelines_refresh', 'Timelines')">View Log</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- 7. Sessions -->
+    <div class="refresh-card">
         <div class="font-bold" style="margin-bottom: 10px;">Sessions{{ card_info(
-            "Rebuilds the Sessions tab's session index and focus-episode tables from the embedding store, covering each collection within its studies' date windows — collections in no study are not built at all. By default only collections whose study windows or in-window data changed are re-segmented; tick \"Force full rebuild\" to re-segment everything. Also runs automatically after a study save and as the last step of the Consolidate refresh pipeline.") }}</div>
+            "Rebuilds the Sessions tab's session index and focus-episode tables from the embedding store, covering each collection within its studies' date windows — collections in no study are not built at all. By default only collections whose study windows or in-window data changed are re-segmented; tick \"Force full rebuild\" to re-segment everything. Also runs automatically after a study save and as the last step of the Consolidate refresh pipeline.") }}
+            <span id="sessions_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
+        </div>
         <div class="controls"
             style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px;">
             <span id="sessions_refresh-status" class="status-indicator status-stopped"></span>
@@ -213,33 +245,6 @@
             <span id="sessions_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
             {% if current_user.is_admin() %}
             <a class="text-xs view-log-link" onclick="openLogModal('sessions_refresh', 'Sessions')">View Log</a>
-            {% endif %}
-        </div>
-    </div>
-
-    <!-- 7. Semantic Map -->
-    <div
-        style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); flex: 1; min-width: 300px;">
-        <div class="font-bold" style="margin-bottom: 10px;">Semantic Map{{ card_info(
-            "Rebuilds the Semantic Space map from the embedding store: clusters the vectors into niches, names them, and lays them out in 2D. The niche columns it writes are joined into every study dataset, so a rebuild is followed by a study refresh. Runs automatically after the Consolidate refresh pipeline in preserve-labels mode, so new videos get niches — niche names stay stable, but the 2D layout still reshuffles each rebuild. Tick \"Reset all labels\" to regenerate every niche name from scratch instead of preserving stable ones.") }}</div>
-        <div class="controls"
-            style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px;">
-            <span id="video_map_refresh-status" class="status-indicator status-stopped"></span>
-            <button id="video_map_refresh-toggle" class="btn-primary" data-start-label="Rebuild"
-                data-start-handler="rebuildNicheMap" onclick="rebuildNicheMap()" style="padding: 4px 12px;">Rebuild</button>
-            <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                <input type="checkbox" id="video_map_reset-labels">
-                <span style="color: var(--color-text-secondary);">Reset all labels</span>
-            </label>
-        </div>
-        <div class="progress-container">
-            <div class="progress-bar" id="video_map_refresh-bar"></div>
-            <div class="progress-text" id="video_map_refresh-text">Idle</div>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-            <span id="video_map_refresh-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
-            {% if current_user.is_admin() %}
-            <a class="text-xs view-log-link" onclick="openLogModal('video_map_refresh', 'Semantic Map')">View Log</a>
             {% endif %}
         </div>
     </div>

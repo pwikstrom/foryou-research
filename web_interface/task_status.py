@@ -375,13 +375,23 @@ class GCSStatusReporter(TaskStatusReporter):
         if stage_name is not None:
             payload_dict["stage_name"] = stage_name
         self._status["progress"] = payload_dict
+        # "Stage i/N" counts DEPTH IN THE DISPATCH TREE (consolidate, then each
+        # spine step, then one stage for all the parallel leaves). It is a fact
+        # about the pipeline, not about this worker's run, so on a card's own
+        # log it was noise at best and misleading at worst — every one of
+        # timelines' ~200 lines read "[Stage 5/5]" while the run's real position
+        # was in the message ("Collection 38/93"), and the same worker launched
+        # from its own Refresh button logged no prefix at all. The pipeline's
+        # position is shown where it belongs, in the Refresh pipeline step list.
+        # Kept on stdout, where correlating a pipeline across Cloud Logging is
+        # the whole point.
         stage_prefix = ""
         if stage_index is not None and stage_total is not None:
             stage_prefix = f"[Stage {stage_index}/{stage_total}] "
         print(f"[{self.name}] {stage_prefix}{percent}% - {message}")
         if message and message != self._last_logged_progress:
             self._last_logged_progress = message
-            run_logs.append(self.name, f"{stage_prefix}{message}")
+            run_logs.append(self.name, message)
         self._write_status()
 
     def emit_data(self, payload: dict) -> None:

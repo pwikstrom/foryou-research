@@ -53,7 +53,7 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
         if reporter.check_cancelled():
             reporter.log("Cancelled by user.")
             break
-        reporter.update_progress(int((i / total) * 100), f"Processing {study_name} ({i + 1}/{total})...")
+        reporter.update_progress(int((i / total) * 100), f"Study {i + 1}/{total}: {study_name}")
         reporter.log(f"Processing study: {study_name}")
 
         try:
@@ -114,7 +114,11 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
             import traceback
             traceback.print_exc()
 
-        reporter.update_progress(int(((i + 1) / total) * 100), f"Done {i + 1}/{total}")
+        # Same message as the emit above: advances the bar without adding a
+        # second, content-free line to the run log (the reporter dedupes
+        # consecutive identical progress messages).
+        reporter.update_progress(int(((i + 1) / total) * 100),
+                                 f"Study {i + 1}/{total}: {study_name}")
 
     reporter.log("Group Comparisons Metadata refresh completed.")
 

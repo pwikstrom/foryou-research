@@ -941,6 +941,23 @@ button {
 /* Consolidate → downstream refresh pipeline step list (Data Management →
    Enrichment). Status is conveyed by a coloured dot; all colours are semantic
    tokens so both themes resolve. */
+/* Refresh Caches worker cards: one full-width column, in pipeline order. The
+   cards used to share rows in a wrapping flex row, which made the dispatch
+   order read as a grid and left the progress bars at arbitrary widths. */
+.refresh-card-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.refresh-card {
+    background: var(--section-bg);
+    padding: 15px;
+    border-radius: 4px;
+    border: 1px solid var(--color-border);
+    width: 100%;
+}
+
 .pipeline-steps {
     padding: 10px;
     background: var(--section-bg);

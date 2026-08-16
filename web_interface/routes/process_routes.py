@@ -27,6 +27,7 @@ from ..permissions import user_has_permission
 from ..process_manager import (
     CLOUD_TASK_ELIGIBLE,
     SCRAPER_PROCESS_NAMES,
+    dispatch_deadline_for,
     graceful_stop_process,
     load_process_stats,
     process_stats,
@@ -783,7 +784,10 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
             # and status key.
             next_task_name = chain_result.get("next_task") or name
             next_args = chain_result["next_task_args"]
-            deadline = chain_result.get("dispatch_deadline_seconds")
+            # A worker may name its own chain deadline; otherwise fall back to
+            # the shared table rather than to Cloud Tasks' 600s default.
+            deadline = (chain_result.get("dispatch_deadline_seconds")
+                        or dispatch_deadline_for(next_task_name, next_args))
             cross_task = next_task_name != name
 
             if cross_task:
@@ -927,7 +931,9 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
             next_args["started_by"] = _pipeline_actor(task_args, name)
             next_args["log_run_id"] = run_logs.new_run_id()
 
-            success, msg = _dispatch_cloud_task(next_name, next_args)
+            success, msg = _dispatch_cloud_task(
+                next_name, next_args,
+                dispatch_deadline_seconds=dispatch_deadline_for(next_name, next_args))
             if success:
                 print(f"[{name}] Pipeline: advanced to {next_name}: {msg}")
                 run_logs.open_run(next_name, run_id=next_args["log_run_id"],
@@ -972,7 +978,9 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
                     child_name, "queued", "Queued — waiting for a worker…",
                     stage=leaf_stage,
                 )
-                success, msg = _dispatch_cloud_task(child_name, child_args)
+                success, msg = _dispatch_cloud_task(
+                    child_name, child_args,
+                    dispatch_deadline_seconds=dispatch_deadline_for(child_name, child_args))
                 if success:
                     print(f"[{name}] Pipeline: forked {child_name}: {msg}")
                     run_logs.open_run(child_name, run_id=child_args["log_run_id"],
@@ -1083,7 +1091,9 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> None:
     if auto_refresh:
         task_args["auto_refresh"] = True
 
-    success, msg = _dispatch_cloud_task("consolidate_enrichment", task_args)
+    success, msg = _dispatch_cloud_task(
+        "consolidate_enrichment", task_args,
+        dispatch_deadline_seconds=dispatch_deadline_for("consolidate_enrichment", task_args))
     if success:
         print(f"[{just_finished}] Armed Consolidate & Refresh fired: {msg}")
         _set_pipeline_in_flight(True)

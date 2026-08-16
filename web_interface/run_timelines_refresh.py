@@ -32,6 +32,30 @@ _DISPATCH_DEADLINE = 1800
 
 
 
+def _warm_worker_imports() -> None:
+    """Resolve everything ``process_one_collection`` imports, single-threaded.
+
+    The per-collection imports below are lazy, so on a cold task-runner the
+    first N pool threads all execute them at once. Two threads importing
+    different branches of the ``fyp`` tree can deadlock CPython's per-module
+    locks, and its deadlock detector resolves that by handing back a
+    PARTIALLY-INITIALIZED module rather than raising — so a thread can observe
+    an alias shim (``fyp/timeline_analysis.py`` does
+    ``sys.modules[__name__] = _real`` as its last statement) before the swap and
+    fail with "cannot import name 'analyse_timeline'". It reproduces
+    8-times-in-9 with a barrier in front of the same three imports.
+
+    Prod lost 5-7 collections per batch to exactly this on 2026-08-15, and only
+    on CHAIN LINKS: link 0 runs ``_discover_collections`` first, which resolves
+    the same module single-threaded, so its pool was always warm. Links 1..n
+    skip discovery and went straight to the pool. Calling this from the parent
+    thread gives every link link-0's head start.
+    """
+    import fyp.core.data_io  # noqa: F401
+    from fyp.analysis import timeline_analysis  # noqa: F401
+    from web_interface import data_service  # noqa: F401
+
+
 def process_one_collection(
     collection_id: str,
     preloaded_slice: pd.DataFrame | None,
@@ -43,8 +67,8 @@ def process_one_collection(
     Returns:
         True if the collection was processed successfully.
     """
-    import fyp.data_io as data_io
-    from fyp.timeline_analysis import analyse_timeline
+    import fyp.core.data_io as data_io
+    from fyp.analysis.timeline_analysis import analyse_timeline
     from web_interface.data_service import check_and_update_timeline_cache, get_timeline_data
 
     # Remove existing cache to force recalculation
@@ -286,6 +310,9 @@ def _process_batch(reporter: TaskStatusReporter,
     max_workers = min(batch_total, os.cpu_count() or 1)
     valid_count = 0
 
+    # Must happen before any pool thread runs — see _warm_worker_imports.
+    _warm_worker_imports()
+
     if max_workers <= 1:
         for i, cid in enumerate(collection_ids):
             if reporter.check_cancelled():
@@ -413,7 +440,17 @@ def run_timelines_refresh(reporter: TaskStatusReporter,
 
         all_sorted, collection_first_event = _discover_collections(reporter, targeted_ids)
         total_collections = len(all_sorted)
-        reporter.log(f"Found {total_collections} collections to process.")
+        # Say why the number shrank — "Targeted refresh for 94" followed by
+        # "Found 93" reads like a bug otherwise. Discovery drops anything not
+        # accepted or under MIN_ACTIVE_DAYS_FOR_TIMELINE.
+        if targeted_ids and total_collections != len(targeted_ids):
+            reporter.log(
+                f"Found {total_collections} collections to process "
+                f"({len(targeted_ids) - total_collections} of the "
+                f"{len(targeted_ids)} requested are not eligible — not "
+                f"accepted, or too few active days).")
+        else:
+            reporter.log(f"Found {total_collections} collections to process.")
 
     if not all_sorted:
         reporter.log("No collections to process.")
