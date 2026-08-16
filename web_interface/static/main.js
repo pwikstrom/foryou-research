@@ -1141,26 +1141,6 @@ async function updateStatus() {
             if (pData) previousProcessStates[name] = pData.state;
         });
 
-        // Discreet processes
-        const discreetProcesses = ['create_event_log', 'recode_event_log', 'calculate_pca'];
-
-        discreetProcesses.forEach(name => {
-            const pData = data[name];
-            setDiscreetStatus(name, pData);
-
-            if (pData) {
-                // Check for process completion to refresh file list
-                if (previousProcessStates[name] === 'running' && pData.state !== 'running') {
-                    // Process just finished
-                    const buildStudySelect = document.getElementById('build-study-name');
-                    if (buildStudySelect && buildStudySelect.value) {
-                        fetchStudyFiles(buildStudySelect.value);
-                    }
-                }
-                previousProcessStates[name] = pData.state;
-            }
-        });
-
     } catch (e) {
         console.error(e);
     }
@@ -1243,8 +1223,18 @@ function setStatus(name, data) {
         }
     }
 
+    // Status-light colour logic (consistent across worker cards and the
+    // pipeline step list): green = running, blue = standing by (idle, queued,
+    // stopping), amber = last run didn't work, red = critical (couldn't start).
     const el = document.getElementById(`${name}-status`);
-    if (el) el.className = `status-indicator status-${status}`;
+    if (el) {
+        let dotClass = `status-${status}`;
+        if ((status === 'stopped' || status === 'completed')
+            && data.last_run_outcome === 'Fail') {
+            dotClass = 'status-warn';
+        }
+        el.className = `status-indicator ${dotClass}`;
+    }
 
     // Toggle button state
     const toggleBtn = document.getElementById(`${name}-toggle`);
@@ -1329,8 +1319,9 @@ function setStatus(name, data) {
             const fallback = status === 'queued' ? 'Queued…' : "Couldn't start";
             text.innerText = (info && info.message) || data.error || fallback;
             if (data.error) text.title = data.error;
+            // Queued = standing by (blue), failed-to-start = critical (red).
             text.style.color = status === 'queued'
-                ? 'var(--color-warning)'
+                ? 'var(--color-info)'
                 : 'var(--color-danger-soft)';
             bar.style.width = '0%';
         } else if (Object.keys(info).length > 0 && (info.total > 0 || info.percent !== undefined)) {
@@ -1439,85 +1430,6 @@ function setStatus(name, data) {
         }
     }
 }
-
-
-
-function setDiscreetStatus(name, data) {
-    const dot = document.getElementById(`dot-${name}`);
-    const text = document.getElementById(`text-${name}`);
-    if (!dot || !text || !data) return;
-
-    const state = data.state;
-
-    // Update Dot
-    dot.className = 'status-dot'; // reset
-    if (state === 'running') {
-        dot.classList.add('running');
-    } else {
-        dot.classList.add('stopped');
-    }
-
-    // Update Text
-    if (state === 'running') {
-        text.style.color = 'var(--color-text-tertiary)'; // Reset to neutral color
-        if (data.last_message && data.last_message.trim() !== '') {
-            let msg = data.last_message;
-            if (msg.length > 80) {
-                msg = msg.substring(0, 80) + "...";
-            }
-            text.innerText = msg;
-            text.title = data.last_message; // Full text on hover
-        } else if (data.start_time) {
-            const start = fypParseInstant(data.start_time);
-            const diff = start ? Date.now() - start.getTime() : 0;
-            // Format duration HH:MM:SS
-            const duration = new Date(diff).toISOString().substr(11, 8);
-            text.innerText = duration;
-        } else {
-            text.innerText = "Running...";
-        }
-    } else {
-        // Updated formatting: "Last run for study 'study_name'. <Success/Fail> <mm:ss>"
-        if (data.last_run_end_time) {
-            let runInfo = "Last run";
-            if (data.last_run_study) {
-                runInfo += ` for study '${data.last_run_study}'`;
-            }
-
-            let outcome = data.last_run_outcome || "Unknown";
-            // Colour code outcome? simpler to just text for now as requested.
-
-            let durationStr = "00:00";
-            if (data.last_run_duration !== undefined) {
-                let s = Math.floor(data.last_run_duration);
-                let m = Math.floor(s / 60);
-                s = s % 60;
-                // format mm:ss
-                durationStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-            }
-
-            text.innerText = `${runInfo}. ${outcome} ${durationStr}`;
-
-            // Dynamic color for text based on outcome
-            if (outcome === 'Success') {
-                text.style.color = 'var(--color-success-light)';
-            } else if (outcome === 'Fail') {
-                text.style.color = 'var(--color-danger-soft)';
-            } else {
-                text.style.color = 'var(--color-text-tertiary)';
-            }
-
-        } else if (data.last_success) {
-            text.innerText = `Last success: ${fypFmtDateTimeShort(data.last_success)}`;
-            text.title = fypFmtDateTimeFull(data.last_success);
-            text.style.color = 'var(--color-text-tertiary)';
-        } else {
-            text.innerText = "Last success: Never"; // Or empty
-            text.style.color = 'var(--color-text-tertiary)';
-        }
-    }
-}
-
 
 
 
