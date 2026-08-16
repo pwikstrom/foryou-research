@@ -9,6 +9,17 @@ this package never pulls optional dependencies (the local Qwen backend needs
 additionally accepts config-declared variant names (see ``variants.py``) —
 named selections that bind an implementation to config overrides such as a
 pinned model version.
+
+IMPORT RULE for ``annotate_one``: it is a thread-pool body
+(``machine_annotation.call_machine_threads`` submits one call per item, up to
+``backend.max_workers``), so every import inside it must use the canonical
+``fyp.<subpackage>.<module>`` path — never a flat ``fyp.<name>`` alias shim.
+A shim's last statement is ``sys.modules[__name__] = _real``; when two pool
+threads resolve shims cold at the same time, CPython's per-module-lock deadlock
+detector hands one of them the PARTIALLY-INITIALIZED shim instead of raising,
+and the import fails with "cannot import name X". Two cold shims in one worker
+body reproduce this at 11-of-12 threads; canonical paths have no swap window
+and are unaffected. ``tests/unit/test_pool_import_race.py`` guards this.
 """
 
 from fyp.annotation.backends.base import AnnotationBackend, BackendAvailability

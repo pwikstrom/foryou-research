@@ -179,8 +179,11 @@ class MiniCPMLocalBackend(AnnotationBackend):
         Returns:
             The raw-row dict (failures in-band, DNF finish_reasons).
         """
-        import fyp.annotation_versioning as annotation_versioning
-        from fyp.annotation_schema import get_annotation_json_schema
+        # Canonical subpackage paths, NOT the flat alias shims — see the
+        # backends package docstring. max_workers is 1 today, but the rule is
+        # the pool body's, not this backend's.
+        from fyp.annotation import annotation_versioning
+        from fyp.annotation.annotation_schema import get_annotation_json_schema
 
         minicpm_cf = {**self._effective_cf(),
                       **{k: v for k, v in (gen_overrides or {}).items() if v is not None}}

@@ -616,7 +616,7 @@ def _build_contents(item_id: str, platform: str | None):
     """
     import google.genai.types as gt
 
-    from fyp import media_paths
+    from fyp.core import media_paths
 
     resolved = media_paths.resolve_media(item_id, platform=platform)
     if resolved is None:
@@ -657,7 +657,12 @@ def annotate_one(item_id: str, platform: str | None, prompt_text: str, response_
     """
     import google.genai.types as gt
 
-    from fyp.machine_annotation import initialize_machine
+    # Canonical subpackage path, NOT the fyp.machine_annotation alias shim:
+    # SyncThreadedRunner calls this from MAX_WORKERS pool threads. Until now it
+    # was safe only because execute_run happens to import platform_map_for off
+    # the same shim first — delete that line and the pool would race a cold
+    # shim. See tests/unit/test_pool_import_race.py.
+    from fyp.annotation.machine_annotation import initialize_machine
 
     initialize_machine()
     machine = _cf()["machine"]["gemini"]
