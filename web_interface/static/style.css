@@ -172,11 +172,14 @@
     --chip-selected-border: #7A9AB5;
     --chip-selected-text: var(--white);
 
-    /* Status indicators */
-    --status-idle: var(--gray-500);
-    --status-running: var(--color-accent);
-    --status-stopped: var(--color-danger-soft);
-    --status-error: var(--color-danger-soft);
+    /* Status indicators — one convention everywhere: green = running,
+       blue = standing by (idle/queued/stopping), amber = last run didn't
+       work, red = critical fault (couldn't start / aborted). */
+    --status-idle: var(--color-info);
+    --status-running: var(--color-success);
+    --status-stopped: var(--color-info);
+    --status-warn: var(--color-warning);
+    --status-error: var(--color-danger);
 
     /* Modal */
     --modal-bg: var(--color-bg-surface);
@@ -335,9 +338,10 @@
     --chip-selected-border: #4A6F8A;
     --chip-selected-text: var(--white);
 
-    --status-idle: #ACB3BB;
-    --status-running: var(--color-accent);
-    --status-stopped: var(--color-danger);
+    --status-idle: var(--color-info);
+    --status-running: var(--color-success);
+    --status-stopped: var(--color-info);
+    --status-warn: var(--color-warning);
     --status-error: var(--color-danger);
 
     --modal-bg: var(--color-bg-surface);
@@ -1001,15 +1005,21 @@ button {
     color: var(--color-text-secondary);
 }
 
+/* Same convention as the worker status lights: green = running/succeeded,
+   blue = standing by (queued/pending), red = failed, grey = not part of
+   this run. */
 .pipeline-step--success .pipeline-step-dot { background: var(--color-success); }
-.pipeline-step--failed .pipeline-step-dot { background: var(--color-danger); }
-.pipeline-step--queued .pipeline-step-dot { background: var(--color-warning); }
-.pipeline-step--pending .pipeline-step-dot { background: var(--color-text-tertiary); }
+.pipeline-step--failed .pipeline-step-dot { background: var(--status-error); }
+.pipeline-step--queued .pipeline-step-dot {
+    background: var(--status-idle);
+    animation: pipeline-dot-pulse 1.4s ease-in-out infinite;
+}
+.pipeline-step--pending .pipeline-step-dot { background: var(--status-idle); }
 .pipeline-step--skipped { opacity: 0.55; }
 .pipeline-step--skipped .pipeline-step-dot { background: var(--color-text-tertiary); }
 
 .pipeline-step--running .pipeline-step-dot {
-    background: var(--color-info);
+    background: var(--status-running);
     animation: pipeline-dot-pulse 1.4s ease-in-out infinite;
 }
 
@@ -1267,55 +1277,44 @@ button {
     margin-right: 5px;
 }
 
+/* Green + pulse: the worker is actively doing something. */
 .status-running {
     background: var(--status-running);
     box-shadow: 0 0 5px var(--status-running);
+    animation: btn-running-pulse 1.5s ease-in-out infinite;
 }
 
-.status-stopped {
+/* Blue: standing by — idle after a clean run (or never run). */
+.status-stopped,
+.status-completed {
     background: var(--status-stopped);
 }
 
+/* Blue + pulse: waiting — on the worker to wind down, or on capacity. */
 .status-stopping {
-    background: var(--color-warning);
-    box-shadow: 0 0 5px var(--color-warning);
+    background: var(--status-idle);
+    box-shadow: 0 0 5px var(--status-idle);
     animation: btn-running-pulse 1.5s ease-in-out infinite;
 }
 
 /* A forked pipeline leaf that was dispatched but not yet picked up by a worker.
    Distinct from running so the card reads "queued", not "in progress". */
 .status-queued {
-    background: var(--color-warning);
-    box-shadow: 0 0 5px var(--color-warning);
+    background: var(--status-idle);
+    box-shadow: 0 0 5px var(--status-idle);
     animation: btn-running-pulse 1.5s ease-in-out infinite;
 }
 
-/* A task that failed or could not be started (e.g. dropped by a 429). */
+/* Amber: idle, but the last run didn't work. */
+.status-warn {
+    background: var(--status-warn);
+}
+
+/* Red: critical — the task failed to start (e.g. dropped by a 429). */
 .status-failed,
 .status-error {
-    background: var(--color-danger);
-    box-shadow: 0 0 5px var(--color-danger);
-}
-
-.status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--status-idle);
-    display: inline-block;
-}
-
-.status-dot.running {
-    background: var(--status-running);
-    box-shadow: 0 0 4px var(--status-running);
-}
-
-.status-dot.stopped {
-    background: var(--status-idle);
-}
-
-.status-dot.error {
     background: var(--status-error);
+    box-shadow: 0 0 5px var(--status-error);
 }
 
 .tiny-text {

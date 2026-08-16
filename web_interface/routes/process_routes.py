@@ -319,8 +319,11 @@ def api_status():
                 gcs_status = _study_refresh_gcs
             else:
                 gcs_status = read_task_status(name)
-            if gcs_status and gcs_status.get("state") == "running":
-                # Check for stale status (task timed out without updating)
+            if gcs_status and gcs_status.get("state") in ("running", "queued"):
+                # Check for stale status (task timed out without updating).
+                # Applies to "queued" too: a queued stamp has no heartbeat, so
+                # a leaf dropped before the fork grace check could flip it
+                # would otherwise show "queued" forever.
                 updated_str = gcs_status.get("updated_at", "")
                 if updated_str:
                     from datetime import datetime
@@ -332,7 +335,29 @@ def api_status():
                     except (ValueError, TypeError):
                         pass
 
-            if gcs_status and gcs_status.get("state") == "running":
+            # A "failed" status (worker .fail() or a dropped dispatch stamped by
+            # the fork grace check) only wins while it is NEWER than the last
+            # recorded run end — a completed later run supersedes it. A dropped
+            # dispatch writes no stats row, so it keeps surfacing as failed;
+            # a worker failure writes last_run_end_time moments after fail(),
+            # so it falls through to the idle path with outcome=Fail.
+            if gcs_status and gcs_status.get("state") in ("failed", "error"):
+                from datetime import datetime
+                stats_end = process_stats.get(name, {}).get("last_run_end_time")
+                updated_str = gcs_status.get("updated_at", "")
+                try:
+                    newer = bool(updated_str) and (
+                        not stats_end
+                        or datetime.fromisoformat(updated_str)
+                        > datetime.fromisoformat(stats_end)
+                    )
+                except (ValueError, TypeError):
+                    newer = False
+                if not newer:
+                    gcs_status = None
+
+            if gcs_status and gcs_status.get("state") in ("running", "queued",
+                                                          "failed", "error"):
                 stats_entry = process_stats.get(name, {})
                 status_data[name] = {
                     "state": gcs_status["state"],
@@ -346,6 +371,7 @@ def api_status():
                     "last_run_outcome": stats_entry.get("last_run_outcome"),
                     "last_run_study": stats_entry.get("last_run_study"),
                     "task_args": gcs_status.get("task_args", {}),
+                    "error": gcs_status.get("error"),
                 }
                 continue
 
@@ -662,6 +688,35 @@ def _ledger_stale_predecessor(name: str, status_key: str) -> None:
 
 
 
+def _chain_run_start(link_start: datetime, status_start: str | None) -> datetime:
+    """The whole run's start time, spanning every link of a self-chain.
+
+    A self-chaining task boots one process per link, so the final link's local
+    ``link_start`` is only minutes old even when the run began an hour ago. The
+    status file's ``start_time`` — written by link 0's ``start()`` and carried
+    forward by every ``resume()`` — is the run's true origin, so the recorded
+    ``last_run_duration`` must be measured from it, not from the last batch.
+
+    Args:
+        link_start: When THIS link's task function started.
+        status_start: The reporter status's ``start_time`` (ISO string), if any.
+
+    Returns:
+        The earlier of the two instants; ``link_start`` when the status value
+        is absent or unparsable.
+    """
+    if status_start:
+        try:
+            return min(link_start, datetime.fromisoformat(status_start))
+        except (ValueError, TypeError):
+            pass
+    return link_start
+
+
+
+
+
+
 def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bool:
     """Execute a task function and update process_stats on completion.
 
@@ -880,7 +935,8 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
 
     # Update process_stats (same logic as monitor_process_completion)
     end_time = datetime.now(UTC)
-    duration = (end_time - start_time).total_seconds()
+    duration = (end_time - _chain_run_start(
+        start_time, reporter._status.get("start_time"))).total_seconds()
 
     load_process_stats()
     merged = {**process_stats.get(status_key, {}), **reporter._status.get("data", {})}
