@@ -7,6 +7,11 @@ web scraping and LLM annotation (Google Gemini by default; pluggable hosted
 and local backends), runs statistical analysis
 (PCA, ANOVA, PERMANOVA, sequence and timeline analysis), and presents
 findings through a Flask web dashboard with role-based access control.
+Dashboard tabs cover data exploration, per-video analysis, correlations
+(with a statistical-rigor layer and AI-assisted interpretation — see
+[docs/correlations-tab-guide.md](docs/correlations-tab-guide.md)),
+timelines, a **Semantic Space** map of video embeddings, and a
+**Sessions** explorer for binge episodes and low-entropy feed sequences.
 
 Transparency is built in: ingestion produces a per-file intake report
 (rows read, rows kept, plain-language drop reasons), and every study carries
@@ -109,6 +114,7 @@ Project" and [docs/architecture.md](docs/architecture.md).
 - [docs/configuration.md](docs/configuration.md) — config.toml sections, contracts, environment variables
 - [docs/pipeline.md](docs/pipeline.md) — ingestion → scrape → annotation → recode → analysis
 - [docs/web_interface.md](docs/web_interface.md) — Flask app structure, auth, workers, route inventory
+- [docs/correlations-tab-guide.md](docs/correlations-tab-guide.md) — the Correlations tab: statistics, views, interpretation
 - [docs/python-versions.md](docs/python-versions.md) — Python 3.12 everywhere (dev and prod)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — workflow, coding style, invariants you must not break
 
