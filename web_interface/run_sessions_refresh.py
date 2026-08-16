@@ -18,9 +18,10 @@ run modes, decided at the setup link:
   fold its rows into the existing artifacts, replacing only that subset's
   rows (plus dropping collections that left every study). ``stale_only``
   derives the subset by comparing each collection's coverage windows and
-  in-window play/annotated counts against the per-collection provenance
-  block in sessions_meta.json; global invalidators (model/params/schema
-  change, missing meta) escalate to full.
+  in-window play count against the per-collection provenance block in
+  sessions_meta.json; global invalidators (model/params/schema change,
+  missing meta, and — since 2026-08-16 — a changed embedding store or
+  annotation corpus) escalate to full.
 * **noop** (``stale_only`` with nothing stale): return immediately without
   touching anything.
 
@@ -32,9 +33,10 @@ The chain is pinned to one corpus-mean fingerprint at link 0: if the shard
 store moves mid-run (an embeddings_refresh appended a shard), later links see
 CorpusMeanDrift and restart the chain from scratch — bounded at
 MAX_CHAIN_RESTARTS — rather than publish an artifact whose halves were
-centred on different means. A merge run tolerates the *previous* build having
-used a drifted mean (recorded as ``corpus_mean_drift`` in the meta); only a
-model change forces realignment.
+centred on different means. Since 2026-08-16 a store that moved *between*
+runs escalates to a full rebuild too, so the residual ``corpus_mean_drift``
+meta flag only marks the degraded case where the store could not be read at
+all.
 
 Locally it loops the same links in one subprocess.
 """
@@ -89,9 +91,27 @@ def _flag(value) -> bool:
 
 
 
+def _manifest_n_plays(value) -> int:
+    """Read a manifest ``counts`` entry as a play count.
+
+    Before 2026-08-16 the entry was ``[n_plays, n_annotated]``; the annotated
+    term was dropped (it was structurally always 0 — see
+    :func:`session_explorer.discover_covered_collections`). A chain that was
+    already in flight across the deploy still carries the list shape in its
+    progress file, and its final link runs on the new code.
+    """
+    if isinstance(value, (list, tuple)):
+        return int(value[0]) if value else 0
+    return int(value or 0)
+
+
+
+
+
+
 def _merge_meta(meta_old, manifest: dict, params: dict, model: str,
                 store_fp: str, n_vectors: int, dim: int,
-                trend_cols: list[str]) -> dict:
+                trend_cols: list[str], annotations_fp: str) -> dict:
     """Meta payload for a merge publish.
 
     The per-collection block is the previous build's block minus dropped and
@@ -113,15 +133,16 @@ def _merge_meta(meta_old, manifest: dict, params: dict, model: str,
     cov = manifest.get("coverage") or {}
     cnt = manifest.get("counts") or {}
     for cid in refresh:
-        n_plays, n_annotated = (list(cnt.get(cid) or [0, 0]) + [0, 0])[:2]
-        block[cid] = {"windows": cov.get(cid, []), "n_plays": int(n_plays),
-                      "n_annotated": int(n_annotated), "built_at": built_at}
+        block[cid] = {"windows": cov.get(cid, []),
+                      "n_plays": _manifest_n_plays(cnt.get(cid)),
+                      "built_at": built_at}
     meta = {
         "built_at": built_at,
         "embedding_model": model,
         "embedding_dim": int(dim),
         "corpus_mean_count": int(n_vectors),
         "store_fingerprint": store_fp,
+        "annotations_fingerprint": annotations_fp,
         "params": params,
         "trend_vars": trend_cols,
         "collections": block,
@@ -258,7 +279,8 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
 
     def _chain_args(next_chunk: int, remaining: list[str], run_id: str,
                     params: dict, trend_cols: list[str], model: str,
-                    store_fp: str, total: int, mode: str) -> dict:
+                    store_fp: str, total: int, mode: str,
+                    annotations_fp: str) -> dict:
         args = {
             "chunk_index": next_chunk,
             "batch_size": batch_size,
@@ -271,6 +293,10 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             "trend_cols_json": json.dumps(trend_cols),
             "embedding_model": model,
             "corpus_mean_fp": store_fp,
+            # Pinned at setup like corpus_mean_fp: the final link stamps it
+            # into the published meta, and it must describe the corpus the
+            # chain actually read, not whatever landed while it ran.
+            "annotations_fp": annotations_fp,
             "total_collections": total,
             "chain_restarts": restarts,
         }
@@ -316,6 +342,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         except (ValueError, embedding_store.CorpusMeanDrift):
             corpus_mean, n_vectors, store_fp = None, 0, ""
         reporter.log(f"Embedding store: {n_vectors:,} vectors (model={model})")
+        annotations_fp = session_explorer.annotation_corpus_fingerprint()
 
         # Coverage-scoped discovery: only collections selected by >=1 study,
         # only their in-window plays. Always global — an explicit collections
@@ -354,11 +381,12 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         scope = {str(c) for c in collections} if collections else None
         plan = session_explorer.compute_refresh_plan(
             discovered, coverage, meta_old, params, model, trend_cols,
-            artifacts_exist, plays_schema_ok=plays_schema_ok, scope=scope)
+            artifacts_exist, plays_schema_ok=plays_schema_ok, scope=scope,
+            store_fp=store_fp, annotations_fp=annotations_fp)
         if not stale_only and plan["mode"] != "full":
             # Forced refresh: rebuild the requested set regardless of
             # staleness. Unscoped -> full overwrite; scoped -> merge.
-            refresh = [cid for cid, _, _ in discovered
+            refresh = [cid for cid, _ in discovered
                        if scope is None or cid in scope]
             if scope is None:
                 plan = {"mode": "full", "reason": "forced full rebuild",
@@ -379,8 +407,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             reporter.log("Sessions artifacts are up to date — nothing to do.")
             return None
 
-        counts = {cid: (n_plays, n_annotated)
-                  for cid, n_plays, n_annotated in discovered}
+        counts = dict(discovered)
         remaining = plan["refresh"]
         total = len(remaining)
         run_id = str(task_args.get("log_run_id") or uuid.uuid4().hex[:12])
@@ -393,7 +420,8 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             meta = _merge_meta(
                 meta_old, {"refresh": [], "drop": plan["drop"]}, params,
                 model, store_fp, n_vectors,
-                embeddings.active_embedding_backend().dim(), trend_cols)
+                embeddings.active_embedding_backend().dim(), trend_cols,
+                annotations_fp)
             session_explorer.merge_publish_artifacts(
                 run_id, n_chunks=0, refresh_cids=[], drop_cids=plan["drop"],
                 expected={}, meta=meta, trend_cols=trend_cols,
@@ -424,7 +452,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             "refresh": plan["refresh"],
             "drop": plan["drop"],
             "coverage": {cid: coverage.get(cid, []) for cid in plan["refresh"]},
-            "counts": {cid: list(counts.get(cid, (0, 0)))
+            "counts": {cid: int(counts.get(cid, 0))
                        for cid in plan["refresh"]},
         }
 
@@ -443,13 +471,14 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             "chain": True,
             "next_task_args": _chain_args(0, remaining, run_id, params,
                                           trend_cols, model, store_fp, total,
-                                          plan["mode"]),
+                                          plan["mode"], annotations_fp),
             "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
         }
     else:
         params = json.loads(task_args["params_json"])
         model = str(task_args["embedding_model"])
         store_fp = str(task_args.get("corpus_mean_fp", ""))
+        annotations_fp = str(task_args.get("annotations_fp", ""))
         run_id = str(task_args["run_id"])
         # Legacy in-flight chains (started pre-upgrade) carry no mode and have
         # no manifest: they publish full, unscoped, without the per-collection
@@ -565,7 +594,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             "chain": True,
             "next_task_args": _chain_args(chunk + 1, rest, run_id, params,
                                           trend_cols, model, store_fp, total,
-                                          mode),
+                                          mode, annotations_fp),
             "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
         }
 
@@ -592,7 +621,8 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
                 storage_location=session_explorer.ARTIFACT_LOCATION,
                 filename=session_explorer.META_FILE)
         meta = _merge_meta(meta_old, manifest, params, model, store_fp,
-                           int(n_vectors), int(index_dim), trend_cols)
+                           int(n_vectors), int(index_dim), trend_cols,
+                           annotations_fp)
         session_explorer.merge_publish_artifacts(
             run_id, n_chunks=chunk + 1,
             refresh_cids=list(manifest.get("refresh") or []),
@@ -607,6 +637,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             "embedding_dim": int(index_dim),
             "corpus_mean_count": int(n_vectors),
             "store_fingerprint": store_fp,
+            "annotations_fingerprint": annotations_fp,
             "params": params,
             "trend_vars": trend_cols,
             "n_collections": total,
@@ -616,10 +647,10 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             "n_plays": int(progress["plays"]),
         }
         if manifest:
+            manifest_counts = manifest.get("counts") or {}
             meta["collections"] = {
                 cid: {"windows": (manifest.get("coverage") or {}).get(cid, []),
-                      "n_plays": int((list((manifest.get("counts") or {}).get(cid) or [0, 0]) + [0, 0])[0]),
-                      "n_annotated": int((list((manifest.get("counts") or {}).get(cid) or [0, 0]) + [0, 0])[1]),
+                      "n_plays": _manifest_n_plays(manifest_counts.get(cid)),
                       "built_at": meta["built_at"]}
                 for cid in manifest.get("refresh") or []}
         session_explorer.publish_artifacts(
