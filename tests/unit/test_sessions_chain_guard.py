@@ -89,7 +89,7 @@ def test_initial_dispatch_is_setup_only(monkeypatch):
     monkeypatch.setattr(session_explorer, "compute_coverage_spec",
                         lambda *a, **k: {"c1": wide, "c2": wide})
     monkeypatch.setattr(session_explorer, "discover_covered_collections",
-                        lambda coverage, collections=None: [("c1", 10, 4), ("c2", 5, 2)])
+                        lambda coverage, collections=None: [("c1", 10), ("c2", 5)])
     monkeypatch.setattr(session_explorer, "trend_numeric_columns", lambda: ["log_plays"])
     monkeypatch.setattr(session_explorer, "sweep_stale_run_files", lambda run_id: None)
     # Hermetic storage: no artifacts exist (-> full plan), manifest seeding

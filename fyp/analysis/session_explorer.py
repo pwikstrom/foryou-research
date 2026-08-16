@@ -675,24 +675,35 @@ def coverage_mask(ts: pd.Series, windows: list[list[str]]) -> pd.Series:
 
 def discover_covered_collections(coverage: dict[str, list[list[str]]],
                                  collections: list[str] | None = None,
-                                 ) -> list[tuple[str, int, int]]:
-    """Coverage-scoped discovery with within-window staleness counts.
+                                 ) -> list[tuple[str, int]]:
+    """Coverage-scoped discovery with the within-window play count.
 
     The window-scoped counterpart of :func:`discover_collections`: one
     streamed pass over the play rows, restricted to collections present in
     ``coverage``, counting only plays inside each collection's coverage
-    intervals — plus how many of those plays are of annotated videos. The two
-    counts are exactly what :func:`compute_refresh_plan` compares against the
-    per-collection block in ``sessions_meta.json``.
+    intervals. That count is what :func:`compute_refresh_plan` compares
+    against the per-collection block in ``sessions_meta.json``.
+
+    This tracks the **activity** side only, because the activity file is all
+    it can see: ``collections_recoded.parquet`` is written by ingest and
+    carries no enrichment columns. Until 2026-08-16 this function also tried
+    to count plays of annotated videos, probing for an ``annotated_ok``
+    column that file has never had — so the count was silently 0 on every
+    install and new annotations could not mark anything stale. Enrichment
+    staleness is now a pair of global fingerprints instead
+    (:func:`annotation_corpus_fingerprint`,
+    :func:`embedding_store.store_fingerprint`); do not reintroduce a
+    per-collection enrichment count here without joining a file that
+    actually holds one.
 
     Args:
         coverage: Per-collection intervals from :func:`compute_coverage_spec`.
         collections: Optional allow-list narrowing the scan further.
 
     Returns:
-        ``[(collection_id, n_plays, n_annotated), ...]`` sorted by
-        ``(-n_plays, id)`` (collections with zero in-window plays are
-        omitted — there is nothing to segment).
+        ``[(collection_id, n_plays), ...]`` sorted by ``(-n_plays, id)``
+        (collections with zero in-window plays are omitted — there is
+        nothing to segment).
     """
     fn = f"{COLLECTIONS_LABEL}_recoded.parquet"
     if not coverage or not data_io.exists(
@@ -703,77 +714,93 @@ def discover_covered_collections(coverage: dict[str, list[list[str]]],
         allow &= {str(c) for c in collections}
     if not allow:
         return []
-    available = data_io.get_parquet_columns(
-        storage_location=embeddings.STORE_LOCATION, filename=fn) or []
-    columns = ["collection_id", "local_timestamp"]
-    has_annotated = "annotated_ok" in available
-    if has_annotated:
-        columns.append("annotated_ok")
 
     plays: dict[str, int] = {}
-    annotated: dict[str, int] = {}
     for rb in data_io.iter_parquet_batches(
             storage_location=embeddings.STORE_LOCATION, filename=fn,
-            columns=columns,
+            columns=["collection_id", "local_timestamp"],
             filters=[("activity_type", "==", "play"),
                      ("collection_id", "in", sorted(allow))],
             batch_size=1_048_576):
         df = rb.to_pandas()
         df["_ts"] = pd.to_datetime(df["local_timestamp"], errors="coerce")
         df = df.dropna(subset=["_ts"])
-        if has_annotated:
-            ann = df["annotated_ok"].fillna(False).astype(bool)
-        else:
-            ann = pd.Series(False, index=df.index)
         for cid, grp in df.groupby("collection_id", observed=True):
             cid = str(cid)
-            mask = coverage_mask(grp["_ts"], coverage[cid])
-            n = int(mask.sum())
+            n = int(coverage_mask(grp["_ts"], coverage[cid]).sum())
             if n:
                 plays[cid] = plays.get(cid, 0) + n
-                annotated[cid] = annotated.get(cid, 0) + int((mask & ann[grp.index]).sum())
-    return sorted(((cid, n, annotated.get(cid, 0)) for cid, n in plays.items()),
-                  key=lambda t: (-t[1], t[0]))
+    return sorted(plays.items(), key=lambda t: (-t[1], t[0]))
 
 
 
 
-def collections_meta_block(discovered: list[tuple[str, int, int]],
+def collections_meta_block(discovered: list[tuple[str, int]],
                            coverage: dict[str, list[list[str]]],
                            built_at: str | None = None) -> dict:
     """Per-collection provenance entries for ``sessions_meta.json``.
 
     Args:
-        discovered: ``(cid, n_plays, n_annotated)`` tuples from
+        discovered: ``(cid, n_plays)`` tuples from
             :func:`discover_covered_collections`.
         coverage: The coverage spec the counts were taken against.
         built_at: ISO timestamp to stamp (None: now).
 
     Returns:
-        ``{cid: {"windows", "n_plays", "n_annotated", "built_at"}}``.
+        ``{cid: {"windows", "n_plays", "built_at"}}``.
     """
     stamp = built_at or pd.Timestamp.now(tz="UTC").isoformat()
     return {
         cid: {"windows": coverage.get(cid, []), "n_plays": int(n_plays),
-              "n_annotated": int(n_annotated), "built_at": stamp}
-        for cid, n_plays, n_annotated in discovered
+              "built_at": stamp}
+        for cid, n_plays in discovered
     }
 
 
 
 
-def compute_refresh_plan(discovered: list[tuple[str, int, int]],
+def annotation_corpus_fingerprint() -> str:
+    """Fingerprint of the consolidated annotation corpus (``size:mtime``).
+
+    The sessions build reads the annotation corpus three ways — the
+    ``annotated`` id set (per-session coverage counters), the story texts
+    baked into the plays artifact, and the annotation-derived trend columns
+    behind the session extremes — so a rewritten corpus invalidates the
+    artifacts even when the embedding store did not move (annotations landing
+    while the embedding backend is local-only is the motivating case; the
+    consolidate pipeline skips embeddings there).
+
+    Size-and-mtime rather than a row count, matching
+    :func:`embedding_store.store_fingerprint`: a re-annotation that replaces
+    rows without adding any must still register. It errs toward triggering a
+    rebuild — the cheap direction.
+
+    Returns:
+        ``"{size}:{mtime}"``, or ``""`` when no annotation corpus exists
+        (a fresh install — nothing to invalidate against).
+    """
+    st = data_io.stat(storage_location=embeddings.STORE_LOCATION,
+                      filename=embeddings.ANNOTATIONS_FILE)
+    if st is None:
+        return ""
+    return f"{int(st.get('size', 0))}:{float(st.get('mtime', 0.0))}"
+
+
+
+
+def compute_refresh_plan(discovered: list[tuple[str, int]],
                          coverage: dict[str, list[list[str]]],
                          meta: dict | None, params: dict, model: str,
                          trend_cols: list[str], artifacts_exist: bool,
                          plays_schema_ok: bool = True,
-                         scope: set[str] | None = None) -> dict:
+                         scope: set[str] | None = None,
+                         store_fp: str = "", annotations_fp: str = "") -> dict:
     """Decide what a sessions refresh must rebuild. Pure — no I/O.
 
     A collection is **stale** when its current fingerprint — coverage
-    windows, in-window play count, in-window annotated count — differs from
-    the one recorded in the meta's per-collection block (or it has no
-    record). A collection recorded in the meta but absent from ``discovered``
+    windows and in-window play count — differs from the one recorded in the
+    meta's per-collection block (or it has no record). A collection recorded
+    in the meta but absent from ``discovered``
     is **dropped** (it left every study, or its data is gone). Global
     invalidators escalate to a full rebuild because a merge would mix
     incompatible rows: a different embedding model, different segmentation
@@ -781,14 +808,28 @@ def compute_refresh_plan(discovered: list[tuple[str, int, int]],
     plays-artifact schema, or missing artifacts/meta (including a meta from
     before the per-collection block existed — the migration path).
 
-    Corpus-mean fingerprint drift is deliberately **not** an invalidator:
-    the mean over the full store is statistically stable across appends, so
-    refreshed collections centred on the new mean coexist with untouched
-    ones on the old. The worker records the drift in the published meta;
-    a forced full rebuild realigns everything.
+    **Enrichment invalidators** (2026-08-16). A changed embedding-store or
+    annotation-corpus fingerprint also escalates to full. The per-collection
+    fingerprint cannot see either: it is computed from the activity file,
+    which carries no enrichment columns at all. It used to carry an
+    ``n_annotated`` term that was structurally always 0 for exactly that
+    reason, so every ``stale_only`` run returned "noop" no matter how many
+    annotations landed (prod, 2026-08-15/16: two chains, 6,000 newly
+    annotated items, 5,891 new vectors, nothing rebuilt). These two scalars
+    are the coarse but honest substitute — they cost one stat call each, and
+    being wrong in the cheap direction (an unnecessary full rebuild) is the
+    point. The trade is deliberate: any enrichment change rebuilds every
+    covered collection, not just the ones it touched.
+
+    This supersedes the previous decision to tolerate corpus-mean drift. That
+    reasoning — the mean over the full store is statistically stable across
+    appends, so collections centred on the old mean coexist with the new —
+    is still true of the *mean*, but the fingerprint was also the only
+    available signal that the vector *set* grew, and new vectors change which
+    plays the segmenter can see.
 
     Args:
-        discovered: Current ``(cid, n_plays, n_annotated)`` fingerprint side.
+        discovered: Current ``(cid, n_plays)`` fingerprint side.
         coverage: Current per-collection windows.
         meta: The existing ``sessions_meta.json`` payload (None when absent).
         params: The run's resolved segmentation params.
@@ -799,6 +840,12 @@ def compute_refresh_plan(discovered: list[tuple[str, int, int]],
             differ from the current plays schema (mid-deploy drift).
         scope: Optional allow-list intersecting the refresh set (never the
             drop set — drops are corpus facts, not scoped requests).
+        store_fp: The run's embedding-store fingerprint. Empty means the
+            store could not be read (a transient corpus-mean failure yields
+            ``""``), which must NOT escalate: a full rebuild with no vectors
+            would replace real episodes with none.
+        annotations_fp: The run's annotation-corpus fingerprint, with the
+            same empty-means-unknown contract.
 
     Returns:
         ``{"mode": "full"|"merge"|"noop", "reason": str,
@@ -806,7 +853,7 @@ def compute_refresh_plan(discovered: list[tuple[str, int, int]],
         discovery order (biggest first); in full mode it is every discovered
         collection and ``drop`` is empty (a full publish overwrites).
     """
-    all_cids = [cid for cid, _, _ in discovered]
+    all_cids = [cid for cid, _ in discovered]
 
     def _full(reason: str) -> dict:
         return {"mode": "full", "reason": reason, "refresh": all_cids, "drop": []}
@@ -827,18 +874,22 @@ def compute_refresh_plan(discovered: list[tuple[str, int, int]],
         return _full("trend-column set changed (sessions schema drift)")
     if not plays_schema_ok:
         return _full("plays artifact schema changed (deploy drift)")
+    if store_fp and str(meta.get("store_fingerprint") or "") != store_fp:
+        return _full("embedding store changed (new or rewritten shards)")
+    if annotations_fp and \
+            str(meta.get("annotations_fingerprint") or "") != annotations_fp:
+        return _full("annotation corpus changed")
 
     refresh: list[str] = []
-    for cid, n_plays, n_annotated in discovered:
+    for cid, n_plays in discovered:
         rec = known.get(cid)
         if (not isinstance(rec, dict)
                 or rec.get("windows") != coverage.get(cid, [])
-                or int(rec.get("n_plays", -1)) != int(n_plays)
-                or int(rec.get("n_annotated", -1)) != int(n_annotated)):
+                or int(rec.get("n_plays", -1)) != int(n_plays)):
             refresh.append(cid)
     if scope is not None:
         refresh = [cid for cid in refresh if cid in scope]
-    drop = sorted(set(known) - {cid for cid, _, _ in discovered})
+    drop = sorted(set(known) - {cid for cid, _ in discovered})
 
     if not refresh and not drop:
         return {"mode": "noop", "reason": "all collections up to date",
@@ -2110,10 +2161,9 @@ def build_artifacts(reporter=None, params: dict | None = None,
 
     if coverage is not None:
         discovered = discover_covered_collections(coverage, collections)
-        cids = [c for c, _, _ in discovered]
     else:
         discovered = discover_collections(collections)
-        cids = [c for c, _ in discovered]
+    cids = [c for c, _ in discovered]
     _log(f"  {len(cids)} collections to segment")
     trend_cols = trend_numeric_columns()
     _log(f"  session min/max columns for {len(trend_cols)} trend variable(s)")
@@ -2171,6 +2221,7 @@ def build_artifacts(reporter=None, params: dict | None = None,
         "embedding_dim": int(index.dim) if index is not None else backend.dim(),
         "corpus_mean_count": n_vectors,
         "store_fingerprint": store_fp,
+        "annotations_fingerprint": annotation_corpus_fingerprint(),
         "params": p,
         "trend_vars": trend_cols,
         "n_collections": len(cids),
