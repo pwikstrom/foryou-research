@@ -686,3 +686,43 @@ corpus-scale robustness rather than starting the M-track:
   fixes.
 
 The M-track (M1 study export bundle first) remains the next planned thrust.
+
+## Status addendum (2026-08-16)
+
+The week after the 2026-08-10 addendum continued the same consolidate-and-deepen
+posture; the M-track has still not started.
+
+- **Sessions tab, hardened and integrated** (multiple deploys 2026-08-11 →
+  2026-08-16): a performance overhaul (locks + caches, a `sessions_plays`
+  artifact with baked-in play texts, fingerprint caches — detail views drop
+  from ~30s to sub-second warm); usability round (context deltas, strip cursor,
+  off-theme videos visible when stepping a binge, per-session variable step
+  plot); the refresh made **study-window-scoped and incremental**
+  (`run_sessions_refresh.py` `stale_only` mode, per-collection provenance,
+  chained automatically after every study save) with coarse global enrichment
+  invalidators (embedding-store / annotation-corpus fingerprints force a full
+  rebuild — fixing a bug where new annotations never marked anything stale);
+  and the sessions worker wired into the refresh-pipeline UI and pipeline
+  membership.
+- **Reliability**: a thread-pool **alias-shim import race** (bit timelines on
+  chain links) fixed and then audited repo-wide with a guard test
+  (`tests/unit/test_pool_import_race.py`); the Cloud Tasks **dispatch-deadline
+  trap** closed on the pipeline side (every pipeline dispatch now carries the
+  deadline); embedding-store **dedupe + a single-flight lease** on
+  `embeddings_refresh` after a duplicate-shard incident; chain-spanning
+  `last_run_duration` + unified status-light colours; a refresh-pipeline step
+  list and card info tooltips; Consolidate button restructure.
+- **Scraper resilience**: a **transient-storm guard** (companion to the
+  permanent-storm guard, born of the TikTok bot-wall incident); failed-scrapes
+  records now carry per-item failure categories (plus a repair of the corrupted
+  prod record); cached local Chrome cookie extraction.
+- **Study management**: **Duplicate** and **Rename** actions in the study modal
+  (rename moves artifacts without a rebuild), and per-endpoint **study
+  date-window control** (independent start/end with steppers and chart edge
+  handles).
+- **Annotation ops**: coverage-based annotation targeting — queue items by
+  collection-day scrape coverage, cheapest-day-first
+  (`scripts/adhoc/queue_high_coverage_days.py`; applied to prod).
+
+M1 (study export + reproducibility package) is still the next planned M-track
+item.

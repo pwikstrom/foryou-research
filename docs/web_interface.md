@@ -72,6 +72,19 @@ which processes may run as Cloud Tasks. Long-running queue workers
 `{"chain": True, "next_task_args": ...}`. A task whose GCS heartbeat is
 older than 600 s is treated as dead.
 
+The reported `last_run_duration` spans the **whole** run of a self-chaining
+task, not just its final link: `process_routes._chain_run_start()` measures
+from the first link's start (carried through the chain), and `api_status`
+forwards the queued/failed GCS states so the UI reflects them.
+
+Every run also lands in a **durable per-process log** (`run_logs.py`): a ring
+of the last 10 runs per process (`proc_logs/<status_key>.json` in the
+`"cache"` location), each run timestamped line-by-line and opened with a
+`Started by <user>` banner. Both execution modes write it (CAS writes + a
+per-key flusher thread), so logs survive restarts and are shared across
+admins; `GET /api/logs/<name>` serves them to the log modal, and
+`POST /api/logs/clear/<name>` empties a process's ring.
+
 ## Frontend
 
 No-build-step SPA: `templates/index.html` is the shell, `templates/tabs/`
@@ -99,6 +112,33 @@ The global free-text search is a separate mechanism: it scans every
 searchable column (`explorer_backend.search_columns` derives the set, and
 the filter/ids endpoints project the frame to it instead of loading full
 width) with one string cast per column per request.
+
+**Process UI (Data Management → Refresh).** The worker cards live in the
+`templates/tabs/dm/` partials (`refresh.html` and friends); a card is inert
+until `main.js`'s poll loop calls `setStatus()` for its process name — new
+workers (e.g. `sessions_refresh`) must be wired there. Every card carries a
+`card_info()` ⓘ tooltip (one Jinja macro; the tooltip text doubles as the
+accessible name). Status lights use the unified `--status-*` tokens in
+`style.css`: green = running, blue = idle/stopped, amber = warn, red =
+error/failed. The Consolidate card owns the pipeline: a "Refresh caches
+afterwards" checkbox (run the downstream refresh pipeline for exactly the
+studies/collections the consolidation touched) plus "Force full rebuild",
+and below it a live **pipeline step list** showing the last (or running)
+refresh pipeline's planned steps in dispatch order with per-step state —
+study definitions is the fork point, after which explore metadata,
+correlations, timelines and **sessions** run concurrently
+(`sessions_refresh` is a pipeline member and also chains automatically after
+every study save).
+
+**Study modal.** The edit-study modal's footer groups
+Delete | Rename | Duplicate: delete and rename have their own endpoints
+(`POST /api/manage/studies/delete` / `.../rename` — rename moves the study's
+cached artifacts in place, no rebuild), while duplicate is client-side
+(`data_management.js duplicateStudy()` saves a copy under a suggested unique
+name). The study date window has per-end controls — date inputs, −/+ day
+steppers, and draggable chart edge handles over the daily-activities chart
+(`POST /api/manage/studies/daily_activities` serves the full-span series so
+the user can pick a window).
 
 Per-user variable preferences (which variables show on each surface) are
 composed client-side by `static/js/variable_prefs.js` as
