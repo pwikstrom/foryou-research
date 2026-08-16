@@ -2372,10 +2372,9 @@ function renderConsolidateStatus(stats) {
         // now, so this one carries only what is unique to it: what came in.
         lines.push(`Last run: ${stats.new_scrape_files ?? 0} new scrape file(s) and ${stats.new_annotation_files ?? 0} new annotation file(s).`);
     }
-    if (stats.last_status_refresh) {
-        const dt = formatShortDate(stats.last_status_refresh);
-        lines.push(`Last enrichment status refresh: ${dt}`);
-    }
+    // No "Last enrichment status refresh" line: the worker stamps
+    // last_status_refresh and finishes within the same few seconds, so it only
+    // ever restated the card's own "Last: <date> OK" line above.
     // Persistent pipeline outcome — written by the orchestrator at the end
     // of a consolidate+refresh run (or by the consolidate worker itself when
     // no downstream refresh was needed). Shown in success green so the user
@@ -3209,11 +3208,19 @@ function renderPipelineSteps(steps) {
     // active step — an inline progress message/percent.
     const container = document.getElementById('consolidate-pipeline-steps');
     const list = document.getElementById('pipeline-steps-list');
+    const note = document.getElementById('pipeline-steps-note');
     if (!container || !list) return;
     if (!steps || !steps.length) {
         container.style.display = 'none';
         list.innerHTML = '';
+        if (note) note.style.display = 'none';
         return;
+    }
+    // While the plan is the dispatch-time forecast, say so — the consolidation
+    // narrows it to the steps its impact actually needs, so rows can drop off.
+    if (note) {
+        const forecast = steps.some(s => s.provisional);
+        note.style.display = forecast ? '' : 'none';
     }
     list.innerHTML = steps.map(s => {
         const state = s.state || 'pending';
@@ -3240,19 +3247,6 @@ function _activePipelineStep(statusData) {
         if (p && p.state === 'running') return { name, state: p };
     }
     return null;
-}
-
-function _renderStageText(statusEl, stepName, progress) {
-    if (!statusEl) return;
-    const msg = progress && progress.message ? progress.message : '';
-    const idx = progress && progress.stage_index;
-    const total = progress && progress.stage_total;
-    if (idx && total) {
-        statusEl.textContent = `Stage ${idx}/${total} — ${msg || stepName}`;
-    } else {
-        statusEl.textContent = msg || `${stepName} running...`;
-    }
-    statusEl.style.color = 'var(--color-text-secondary)';
 }
 
 // The two option checkboxes next to the Consolidate button. They replace the
@@ -3329,8 +3323,9 @@ function consolidateEnrichmentData(btn) {
                 // task-runner boot gap, and guards it from a poll that still
                 // reports the previous run.
                 if (typeof markStarting === 'function') markStarting('consolidate_enrichment');
-                statusEl.textContent = 'Consolidation running...';
-                statusEl.style.color = 'var(--color-text-secondary)';
+                // No status line here: the card's own bar shows the phase and
+                // the step list below shows the pipeline. pollConsolidationStatus
+                // clears the previous run's summary.
                 pollConsolidationStatus();
             } else if (data.status === 'armed') {
                 // Auto-arm accepted. fetchEnrichmentStats will re-render the
@@ -3455,6 +3450,13 @@ function pollConsolidationStatus() {
     const warningEl = document.getElementById('consolidate-warning');
     if (warningEl) warningEl.style.display = 'none';
 
+    // Clear the previous run's summary for the duration of this one. The step
+    // list below is the live narration now — this line used to echo the active
+    // worker's message with a "Stage i/N" prefix counted over the dispatch
+    // TREE's depth, which matched neither the step list nor anything the user
+    // could act on. It is repopulated from the fresh stats when the run ends.
+    if (statusEl) statusEl.innerHTML = '';
+
     const interval = setInterval(() => {
         // Fetch both /api/status (for live step progress) and the enrichment
         // stats (for pipeline_in_flight across the gap between steps) each
@@ -3478,20 +3480,13 @@ function pollConsolidationStatus() {
                         btnC.textContent = active.name === 'consolidate_enrichment'
                             ? 'Consolidating...' : 'Refreshing caches...';
                     }
-                    _renderStageText(statusEl, active.name, active.state.progress || {});
                     return;
                 }
 
                 // No step is currently "running". If the pipeline is still
-                // flagged as in-flight, we're in the gap between steps —
-                // keep polling (render a neutral placeholder).
-                if (estats && estats.consolidate_pipeline_active) {
-                    if (statusEl) {
-                        statusEl.textContent = 'Advancing to next stage...';
-                        statusEl.style.color = 'var(--color-text-secondary)';
-                    }
-                    return;
-                }
+                // flagged as in-flight, we're in the gap between steps — keep
+                // polling. The step list carries that state on its own.
+                if (estats && estats.consolidate_pipeline_active) return;
 
                 // Pipeline fully settled. Check the consolidate step's outcome.
                 const consolidate = data.consolidate_enrichment;
@@ -3540,12 +3535,20 @@ function pollConsolidationStatus() {
     }, 2000);
 }
 
+// Every refresh card that carries a "(N ... need refresh)" badge, i.e. every
+// step of the refresh pipeline. Drives both the render and the clear-all pass,
+// so a card can never be left showing a badge the server no longer reports.
+const _STALE_BADGE_STEPS = [
+    'embeddings_refresh', 'video_map_refresh', 'recode_refresh_studies',
+    'meta_refresh_groups', 'pca_refresh', 'timelines_refresh', 'sessions_refresh',
+];
+
 function fetchStalenessStatus() {
     return fetch('/api/manage/refresh/staleness')
         .then(res => res.json())
         .then(data => {
             if (!data.has_impact) {
-                ['recode_refresh_studies', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'].forEach(name => {
+                _STALE_BADGE_STEPS.forEach(name => {
                     const el = document.getElementById(`${name}-stale`);
                     if (el) el.style.display = 'none';
                 });
@@ -3556,13 +3559,14 @@ function fetchStalenessStatus() {
                 }
             } else {
                 const procs = data.processes || {};
-                for (const [name, info] of Object.entries(procs)) {
+                for (const name of _STALE_BADGE_STEPS) {
                     const el = document.getElementById(`${name}-stale`);
                     if (!el) continue;
-                    if (info.stale) {
-                        const count = info.affected ? info.affected.length : 0;
-                        const unit = name === 'timelines_refresh' ? 'collection(s)' : 'study/studies';
-                        el.textContent = `(${count} ${unit} need refresh)`;
+                    const info = procs[name];
+                    // The server ships the rendered phrase — each step counts a
+                    // different thing (studies, collections, annotations).
+                    if (info && info.stale && info.note) {
+                        el.textContent = info.note;
                         el.style.display = '';
                     } else {
                         el.style.display = 'none';

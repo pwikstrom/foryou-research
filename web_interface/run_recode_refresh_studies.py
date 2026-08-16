@@ -56,7 +56,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
         if reporter.check_cancelled():
             reporter.log("Cancelled by user.")
             break
-        reporter.update_progress(int((i / total) * 100), f"Processing {study_name} ({i + 1}/{total})...")
+        reporter.update_progress(int((i / total) * 100), f"Study {i + 1}/{total}: {study_name}")
         reporter.log(f"Processing study: {study_name}")
         _t_study_start = time.perf_counter()
 
@@ -120,7 +120,11 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
 
         _t_study = time.perf_counter() - _t_study_start
         reporter.log(f"  [TIMING] study={study_name} total={_t_study:.2f}s")
-        reporter.update_progress(int(((i + 1) / total) * 100), f"Done {i + 1}/{total}")
+        # Same message as the emit above: advances the bar without adding a
+        # second, content-free line to the run log (the reporter dedupes
+        # consecutive identical progress messages).
+        reporter.update_progress(int(((i + 1) / total) * 100),
+                                 f"Study {i + 1}/{total}: {study_name}")
 
     # Persist updated stats to studies.json
     # Merge updated studies back into the full study_defs to avoid clobbering

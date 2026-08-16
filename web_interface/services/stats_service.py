@@ -663,6 +663,14 @@ def _evaluate_consolidation_staleness() -> dict:
     impact timestamp. Returns a dict with ``has_impact``, ``impact``, and a
     per-process ``processes`` map — safe to call from any endpoint that needs
     to reason about whether the consolidation impact panel should be visible.
+
+    Each ``processes`` entry carries a ready-to-render ``note`` and a ``gates``
+    flag. Only gating processes decide whether the impact is resolved; the
+    corpus-global steps (embeddings, semantic map, sessions) report staleness
+    for their cards but never pin the impact, because the pipeline can
+    legitimately skip them — a local-only embedding backend is not dispatchable
+    from Cloud Run, and an impact waiting on a step that will never run would
+    never clear.
     """
     load_process_stats()
 
@@ -675,23 +683,71 @@ def _evaluate_consolidation_staleness() -> dict:
     impact_ts = impact["timestamp"]
     affected_studies = impact.get("affected_study_names", [])
     affected_collections = impact.get("affected_collection_ids", [])
+    new_annotations = int(impact.get("new_annotation_item_count") or 0)
 
+    def _n(count: int, singular: str, plural: str) -> str:
+        return f"{count:,} {singular if count == 1 else plural}"
+
+    def _studies(n: int) -> str:
+        return f"({_n(n, 'study', 'studies')} need{'s' if n == 1 else ''} refresh)"
+
+    def _collections(n: int) -> str:
+        return f"({_n(n, 'collection', 'collections')} need{'s' if n == 1 else ''} refresh)"
+
+    # One entry per card on the Refresh Caches page. ``count`` is how much the
+    # step would process and drives both the badge and its visibility; it
+    # mirrors the condition _build_downstream_pipeline uses to decide whether to
+    # dispatch the step at all, so a badge appears exactly when the next
+    # Consolidate & Refresh would run it. ``affected`` stays the concrete
+    # name list where there is one (it is what the impact panel enumerates).
     downstream = {
         "recode_refresh_studies": {
             "label": "Study Definitions",
             "affected": affected_studies,
+            "count": len(affected_studies),
+            "note": _studies,
         },
         "meta_refresh_groups": {
             "label": "Explore Metadata",
             "affected": affected_studies,
+            "count": len(affected_studies),
+            "note": _studies,
         },
         "timelines_refresh": {
             "label": "Timelines",
             "affected": affected_collections,
+            "count": len(affected_collections),
+            "note": _collections,
         },
         "pca_refresh": {
             "label": "Correlations",
             "affected": affected_studies,
+            "count": len(affected_studies),
+            "note": _studies,
+        },
+        # Corpus-global steps: display-only (gates=False), see the docstring.
+        # All three key off new annotations; sessions also off new activity.
+        "embeddings_refresh": {
+            "label": "Semantic Embeddings",
+            "affected": [],
+            "count": new_annotations,
+            "note": lambda n: f"({_n(n, 'new annotation', 'new annotations')} to embed)",
+            "gates": False,
+        },
+        "video_map_refresh": {
+            "label": "Semantic Map",
+            "affected": [],
+            "count": new_annotations,
+            "note": lambda n: f"({_n(n, 'new embedding', 'new embeddings')} to map)",
+            "gates": False,
+        },
+        "sessions_refresh": {
+            "label": "Sessions",
+            "affected": affected_collections,
+            "count": len(affected_collections) or new_annotations,
+            "note": (_collections if affected_collections
+                     else lambda n: "(new annotations — refresh needed)"),
+            "gates": False,
         },
     }
 
@@ -704,7 +760,7 @@ def _evaluate_consolidation_staleness() -> dict:
         # collections), the corresponding refresh is never dispatched by the
         # auto-pipeline or the manual cascade — so requiring it to have run
         # would pin the impact forever.
-        if not info["affected"]:
+        if not info["count"]:
             stale = False
         else:
             stale = not last_success or last_success < impact_ts
@@ -712,8 +768,11 @@ def _evaluate_consolidation_staleness() -> dict:
             "stale": stale,
             "label": info["label"],
             "affected": info["affected"],
+            "count": info["count"],
+            "note": info["note"](info["count"]) if stale else "",
+            "gates": info.get("gates", True),
         }
-        if stale:
+        if stale and info.get("gates", True):
             all_fresh = False
 
     if all_fresh:

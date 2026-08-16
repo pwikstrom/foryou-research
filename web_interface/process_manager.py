@@ -62,6 +62,58 @@ CLOUD_TASK_ELIGIBLE = {
 CLOUD_TASK_ELIGIBLE |= set(SCRAPER_PROCESS_NAMES)
 
 
+# Corpus-scale sweeps that run well past Cloud Tasks' 600s default dispatch
+# deadline. pca_refresh regenerates every study's recoded frame + runs the
+# group-stats sweep (~26 min at 12 studies); recode_refresh_studies is ~7 min.
+# sessions_refresh / timelines_refresh / embeddings_refresh are self-chaining:
+# their own _DISPATCH_DEADLINE governs only the links they dispatch themselves.
+# 1800s is the Cloud Tasks MAXIMUM for HTTP targets, and a batch link can exceed
+# even that (44 min observed 2026-08-12), so sessions_refresh's initial link is
+# setup-only and its links claim their successor via CAS before chaining — see
+# run_sessions_refresh._claim_chain_dispatch.
+# Keep in sync with the workers that define _DISPATCH_DEADLINE;
+# tests/unit/test_dispatch_deadlines.py pins that.
+_LONG_RUNNING_DEADLINES = {
+    "pca_refresh": 1800,
+    "recode_refresh_studies": 1800,
+    "sessions_refresh": 1800,
+    "timelines_refresh": 1800,
+    "embeddings_refresh": 1800,
+    "queue_annotator_batch": 1800,
+}
+
+
+def dispatch_deadline_for(name: str, task_args: dict | None = None) -> int | None:
+    """Cloud Tasks dispatch deadline for a task, or None for the 600s default.
+
+    THE single source of truth, because a deadline is a property of the worker,
+    not of who launched it. Cloud Tasks' default is 600s: a handler that runs
+    longer never gets to respond, so the queue re-dispatches it from scratch up
+    to max-attempts while the original attempt keeps running — the run "starts
+    over and over", and for a self-chaining worker each doomed attempt spawns
+    its own chain. 2026-08-04 pca_refresh looped this way; 2026-08-16 the same
+    trap hit timelines_refresh from the *pipeline* side, where every dispatch
+    site (spine advance, fork leaves, refresh-downstream) omitted the deadline
+    that ``start_process`` was careful to pass — four concurrent chains writing
+    one status file, which is what made the progress bar jump backwards.
+
+    Args:
+        name: Process name (per-platform scrapers included).
+        task_args: The task's arguments; only the annotator reads them (its
+            deadline scales with batch size).
+
+    Returns:
+        Deadline in seconds, or None to accept the Cloud Tasks default.
+    """
+    if name == "queue_annotator":
+        batch_size = int((task_args or {}).get("batch_size", 500))
+        return 3600 if batch_size > 1000 else 1800
+    if name.startswith("queue_scraper_"):
+        return 1800
+    return _LONG_RUNNING_DEADLINES.get(name)
+
+
+
 # --- Global State ---
 # Store process handles and logs
 processes = {
@@ -758,49 +810,9 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         task_args["started_by"] = started_by or task_args.get("started_by") or ""
         task_args["log_run_id"] = task_args.get("log_run_id") or run_logs.new_run_id()
 
-        # Set dispatch_deadline for self-chaining processes and for the long
-        # single-shot refreshes. Cloud Tasks' default dispatch deadline is 600s:
-        # a handler that runs longer never gets to respond, so the task is
-        # re-dispatched from scratch up to max-attempts — the run "starts over
-        # and over" even though each attempt would eventually succeed
-        # (2026-08-04: pca_refresh at ~12 min looped exactly this way).
-        deadline = None
-        if name == "queue_annotator" and task_args:
-            batch_size = int(task_args.get("batch_size", 500))
-            deadline = 3600 if batch_size > 1000 else 1800
-        elif name == "queue_annotator_batch":
-            # Submit + poll phases are short relative to the (async) job itself;
-            # poll re-chains on its own wall-clock budget.
-            deadline = 1800
-        elif name.startswith("queue_scraper_"):
-            deadline = 1800
-        elif name in ("pca_refresh", "recode_refresh_studies",
-                      "sessions_refresh", "timelines_refresh",
-                      "embeddings_refresh"):
-            # Corpus-scale sweeps that run well past the 600s default.
-            #
-            # pca_refresh regenerates every study's recoded frame + runs the
-            # group-stats sweep (~26 min at 12 studies); recode_refresh_studies
-            # is ~7 min. sessions_refresh / timelines_refresh / embeddings_refresh
-            # are self-chaining: their own _DISPATCH_DEADLINE governs only the
-            # links they dispatch themselves — the INITIAL dispatch comes from
-            # here, and without this it takes the 600s default.
-            #
-            # sessions_refresh hit exactly that on its first prod run
-            # (2026-08-09): link 0 compacts the dense sidecar, streams the whole
-            # collection_id column, then segments the largest batch — over 600s,
-            # so Cloud Tasks re-dispatched it from scratch every 10 minutes.
-            # 1800s is the Cloud Tasks MAXIMUM for HTTP targets, and a batch
-            # link can exceed even that (44 min observed 2026-08-12), so
-            # sessions_refresh's initial link is setup-only (returns in
-            # seconds) and its links claim their successor via CAS before
-            # chaining — see run_sessions_refresh._claim_chain_dispatch.
-            # Keep this list in sync with the workers that define
-            # _DISPATCH_DEADLINE; test_dispatch_deadlines pins that.
-            deadline = 1800
-
-        success, msg = _dispatch_cloud_task(name, task_args,
-                                            dispatch_deadline_seconds=deadline)
+        success, msg = _dispatch_cloud_task(
+            name, task_args,
+            dispatch_deadline_seconds=dispatch_deadline_for(name, task_args))
         if success:
             run_logs.open_run(status_key, run_id=task_args["log_run_id"],
                               started_by=task_args["started_by"],

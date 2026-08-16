@@ -6,13 +6,25 @@ max-attempts and the run "starts over and over" even though each attempt
 would eventually succeed.
 
 A self-chaining worker's own ``_DISPATCH_DEADLINE`` governs only the links it
-dispatches *itself* — the INITIAL dispatch comes from
-``process_manager.start_process``. sessions_refresh shipped with the worker
-constant but no start_process entry and looped on its first prod run
-(2026-08-09); timelines_refresh and embeddings_refresh had the same latent
-gap. This test pins the two sides together.
+dispatches *itself* — the INITIAL dispatch comes from whoever launched it.
+sessions_refresh shipped with the worker constant but no start_process entry and
+looped on its first prod run (2026-08-09); timelines_refresh and
+embeddings_refresh had the same latent gap. This test pins the two sides
+together.
+
+``start_process`` is not the only launcher. The consolidate pipeline dispatches
+its steps directly — spine advance, recode's fan-out to the leaves, and
+"Refresh All Affected" — and every one of those omitted the deadline, so a
+worker that got 1800s from its card's Refresh button got 600s from the pipeline.
+2026-08-15 prod: timelines_refresh link 0 ran 622s inside the pipeline, Cloud
+Tasks re-dispatched it up to max-attempts while the original kept going, and
+four concurrent chains wrote one status file (the progress bar jumped
+23/94 -> 54/94 -> 90/94). The deadline now comes from one table,
+``process_manager.dispatch_deadline_for``, and the tests below cover every
+dispatch site rather than just start_process.
 """
 
+import ast
 import re
 from pathlib import Path
 
@@ -98,3 +110,75 @@ def test_known_long_runners_exceed_the_600s_default(dispatched, name):
     assert dispatched and dispatched[0]["deadline"] is not None
     assert dispatched[0]["deadline"] > 600, (
         f"{name} would take Cloud Tasks' 600s default and loop")
+
+
+
+
+def test_worker_declared_deadlines_are_in_the_shared_table():
+    """dispatch_deadline_for is the single source of truth for every launcher."""
+    missing = []
+    for name, want in _workers_declaring_a_deadline().items():
+        probe = "queue_scraper_tiktok" if name == "queue_scraper" else name
+        if probe not in process_manager.CLOUD_TASK_ELIGIBLE:
+            continue
+        got = process_manager.dispatch_deadline_for(probe, {})
+        if got is None or got < want:
+            missing.append(f"{probe}: worker declares {want}s, table gives {got}")
+    assert not missing, "\n  ".join(["deadline table is out of sync:"] + missing)
+
+
+
+
+
+
+def _dispatch_call_sites() -> list[str]:
+    """Every _dispatch_cloud_task(...) call that omits dispatch_deadline_seconds.
+
+    A missing deadline silently means Cloud Tasks' 600s default, which for a
+    long worker means the queue re-dispatches it mid-run — and for a
+    self-chaining one, a second concurrent chain.
+    """
+    root = Path(process_manager.__file__).parent
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            fname = getattr(fn, "id", None) or getattr(fn, "attr", None)
+            if fname != "_dispatch_cloud_task":
+                continue
+            if not any(kw.arg == "dispatch_deadline_seconds" for kw in node.keywords):
+                offenders.append(
+                    f"{path.relative_to(root.parent)}:{node.lineno}")
+    return offenders
+
+
+
+
+
+
+def test_every_dispatch_site_sets_a_deadline_explicitly():
+    offenders = _dispatch_call_sites()
+    assert not offenders, (
+        "these _dispatch_cloud_task calls fall back to Cloud Tasks' 600s "
+        "default; pass dispatch_deadline_seconds=dispatch_deadline_for(name, args):\n  "
+        + "\n  ".join(offenders))
+
+
+
+
+
+
+@pytest.mark.parametrize("name", ["sessions_refresh", "timelines_refresh",
+                                  "embeddings_refresh", "pca_refresh",
+                                  "recode_refresh_studies"])
+def test_pipeline_dispatch_matches_start_process(dispatched, name):
+    """A pipeline-launched step gets the same deadline as a button-launched one."""
+    process_manager.start_process(name, None, task_args={})
+    from_button = dispatched[0]["deadline"]
+    from_pipeline = process_manager.dispatch_deadline_for(name, {})
+    assert from_pipeline == from_button, (
+        f"{name}: card Refresh gives {from_button}s but the pipeline gives "
+        f"{from_pipeline}s — the pipeline copy would loop")

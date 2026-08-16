@@ -41,6 +41,7 @@ from ...services.worker_status import (
     _cached_cookie_health,
     _is_worker_running,
     _workers_blocking_consolidate,
+    consolidate_entry_view,
 )
 
 
@@ -350,10 +351,9 @@ def get_enrichment_stats():
         # bucket) — the matching scraper start and consolidation are blocked
         # while one is held. {platform: {host, user, started_at, ...}}.
         "local_drains": _active_drain_leases(),
-        "consolidate_stats": {
-            **consolidate_entry,
-            **processes.get("consolidate_enrichment", {}).get("data", {})
-        } or None,
+        # Same read rule as the step view: the in-memory ::DATA:: copy is the
+        # subprocess mirror and is only authoritative in local dev.
+        "consolidate_stats": consolidate_entry_view() or None,
         "consolidate_auto_armed": bool(consolidate_entry.get("auto_armed")),
         "consolidate_auto_armed_auto_refresh": bool(consolidate_entry.get("auto_armed_auto_refresh")),
         "consolidate_pipeline_active": pipeline_active,
@@ -1266,11 +1266,12 @@ def api_consolidate_enrichment():
         task_args["auto_refresh"] = True
 
     # Firing now — clear any stale armed flag and seed a pipeline-plan marker so
-    # the step list shows the live "Consolidate enrichment data" step from the
-    # very first poll (steps=[] until the worker computes the real downstream
-    # plan; _build_pipeline_step_view renders a present-but-empty plan). Without
-    # this the list only appears after consolidation finishes and the user sees
-    # only a text line during the (long) consolidation phase.
+    # the whole step list is on screen from the very first poll instead of after
+    # the (long) consolidation phase. With auto_refresh the marker carries the
+    # FORECAST pipeline — every downstream step, flagged provisional — so the
+    # user can see what is queued up behind the consolidation; the worker
+    # replaces it with the real plan once the impact tells it which steps are
+    # actually needed. A consolidate-only run has no downstream plan to forecast.
     now_iso = datetime.now(UTC).isoformat()
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
@@ -1278,9 +1279,10 @@ def api_consolidate_enrichment():
     entry.pop("auto_armed_force", None)
     entry.pop("auto_armed_auto_refresh", None)
     entry["pipeline_plan"] = {
-        "steps": [],
+        "steps": list(PIPELINE_STEPS_ORDER) if auto_refresh else [],
         "started_ts": now_iso,
         "mode": "refresh" if auto_refresh else "consolidate_only",
+        "provisional": bool(auto_refresh),
     }
     entry["last_pipeline_partial"] = False
     entry["last_pipeline_failed_at"] = None
@@ -1292,10 +1294,13 @@ def api_consolidate_enrichment():
                                  started_by=_actor())
     if success:
         # start_process resets the in-memory ::DATA:: copy; mirror the marker
-        # there too so the local-dev overlay in _build_pipeline_step_view agrees
-        # with process_stats (no-op on Cloud Run, where there is no subprocess).
+        # there too so the local-dev overlay in consolidate_entry_view agrees
+        # with process_stats. Subprocess mode only — on Cloud Run that dict is
+        # never updated again (the worker runs in the other service), so a
+        # marker written here would outlive the real plan and pin this web
+        # instance to it.
         mem = processes.get("consolidate_enrichment", {}).get("data")
-        if isinstance(mem, dict):
+        if isinstance(mem, dict) and not is_cloud_run():
             mem["pipeline_plan"] = entry["pipeline_plan"]
         _log_dm("consolidate_enrichment", target="force" if force else "normal",
                 details={"auto_refresh": auto_refresh})
@@ -1376,18 +1381,21 @@ def api_refresh_downstream():
     # endpoints overlay it on top of process_stats. After a "Consolidate Only"
     # run that emission carries pipeline_plan=None, which would shadow the fresh
     # plan just written and hide the step list. Mirror the new plan into the
-    # in-memory copy so both stores agree (no-op on Cloud Run, where there is no
-    # in-process consolidate subprocess).
+    # in-memory copy so both stores agree. Subprocess mode only — on Cloud Run
+    # nothing reads that dict (see consolidate_entry_view).
     mem = processes.get("consolidate_enrichment", {}).get("data")
-    if isinstance(mem, dict):
+    if isinstance(mem, dict) and not is_cloud_run():
         mem["pipeline_plan"] = ps_entry["pipeline_plan"]
         mem["last_pipeline_partial"] = False
         mem["last_pipeline_failed_at"] = None
 
     if is_cloud_run():
-        from ...process_manager import _dispatch_cloud_task
+        from ...process_manager import _dispatch_cloud_task, dispatch_deadline_for
         chain = build_pipeline_chain(pipeline)
-        success, msg = _dispatch_cloud_task(chain["next_task"], chain["next_task_args"])
+        success, msg = _dispatch_cloud_task(
+            chain["next_task"], chain["next_task_args"],
+            dispatch_deadline_seconds=dispatch_deadline_for(
+                chain["next_task"], chain["next_task_args"]))
         if not success:
             # Roll back the in-flight flag so the UI doesn't hang.
             load_process_stats()
