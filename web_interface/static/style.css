@@ -5662,3 +5662,248 @@ body:has(.public-page) {
     color: var(--color-info);
     background: var(--color-bg-elevated);
 }
+
+
+/* ============================================================
+   Semantic Space
+   ============================================================ */
+
+/* ── Disclosure link (collection-trajectory controls) ── */
+.ss-disclosure {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: none;
+    padding: 2px 0;
+    color: var(--color-accent);
+    font-family: var(--font-sans);
+    cursor: pointer;
+}
+
+.ss-disclosure:hover {
+    text-decoration: underline;
+}
+
+.ss-disclosure-caret {
+    display: inline-block;
+    transition: transform 0.15s ease;
+}
+
+.ss-disclosure[aria-expanded="true"] .ss-disclosure-caret {
+    transform: rotate(90deg);
+}
+
+/* The disclosed row's layout lives here rather than inline: an inline
+   `display` wins over the `hidden` attribute, so the row would stay visible
+   while collapsed. */
+.ss-traj-controls {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--color-border-subtle);
+}
+
+.ss-traj-controls[hidden] {
+    display: none;
+}
+
+
+/* ── Focus-niche picker (search + sort combobox) ── */
+.ss-niche-picker {
+    position: relative;
+    display: inline-block;
+}
+
+.ss-niche-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 230px;
+    max-width: 330px;
+    padding: 5px 8px;
+    background: var(--select-bg);
+    border: 1px solid var(--select-border);
+    border-radius: 3px;
+    color: var(--select-text);
+    font-family: var(--font-sans);
+    text-align: left;
+    cursor: pointer;
+}
+
+.ss-niche-trigger:hover {
+    border-color: var(--color-accent);
+}
+
+#ss-niche-trigger-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ss-niche-caret {
+    color: var(--color-text-tertiary);
+    flex: 0 0 auto;
+}
+
+/* Clearing the focus is a one-click affordance rather than "reopen the list
+   and pick the placeholder" — hidden entirely while nothing is focused. */
+.ss-niche-clear {
+    width: 22px;
+    height: 22px;
+    line-height: 1;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 3px;
+    color: var(--color-text-tertiary);
+    font-size: var(--text-body);
+    cursor: pointer;
+}
+
+.ss-niche-clear:hover {
+    color: var(--color-text-primary);
+    border-color: var(--color-accent);
+}
+
+.ss-niche-panel {
+    position: absolute;
+    z-index: 900;
+    top: calc(100% + 4px);
+    left: 0;
+    width: 360px;
+    max-width: 80vw;
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    box-shadow: var(--shadow-md);
+    overflow: hidden;
+}
+
+.ss-niche-panel[hidden] {
+    display: none;
+}
+
+.ss-niche-panel-head {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 8px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    background: var(--color-bg-elevated);
+}
+
+.ss-niche-search {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 5px 8px;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    color: var(--input-text);
+    font-family: var(--font-sans);
+}
+
+.ss-niche-search::placeholder {
+    color: var(--color-text-muted);
+}
+
+/* Tall enough that the list reads as a list rather than a top-N preview. A
+   fixed 320px showed ~10 of several hundred niches, and macOS overlay
+   scrollbars paint nothing until you already scroll — so the remainder was
+   invisible AND unadvertised. The viewport-relative height plus the count line
+   below fix both halves of that. */
+.ss-niche-list {
+    max-height: min(52vh, 480px);
+    overflow-y: auto;
+}
+
+/* Says how many niches are in the list and, when it overflows, that there are
+   more below — the affordance the hidden scrollbar does not provide. */
+.ss-niche-count {
+    padding: 5px 10px;
+    border-top: 1px solid var(--color-border-subtle);
+    background: var(--color-bg-elevated);
+    color: var(--color-text-muted);
+}
+
+.ss-niche-option {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 5px 10px;
+    cursor: pointer;
+    color: var(--color-text-primary);
+}
+
+.ss-niche-option:hover,
+.ss-niche-option.is-active {
+    background: var(--table-row-hover);
+}
+
+.ss-niche-option.is-selected {
+    color: var(--color-accent);
+}
+
+.ss-niche-option-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ss-niche-option-meta {
+    flex: 0 0 auto;
+    color: var(--color-text-tertiary);
+    white-space: nowrap;
+}
+
+.ss-niche-empty {
+    padding: 10px;
+    color: var(--color-text-muted);
+}
+
+/* The map's click dialog offers three actions where the shared drill-down card
+   was built for two, so it needs the extra width to keep them on one row. */
+.ss-point-dialog-card {
+    max-width: 580px;
+}
+
+
+/* Each measured neighbour in the detail bar is a control, not just a name:
+   clicking one offers the same two moves as clicking a dot on the map. */
+.ss-niche-link {
+    padding: 0;
+    background: none;
+    border: none;
+    font: inherit;
+    color: var(--color-accent);
+    cursor: pointer;
+}
+
+.ss-niche-link:hover,
+.ss-niche-link:focus-visible {
+    text-decoration: underline;
+}
+
+
+/* ── "Show me where they are" pulse control, beside Closest niches ── */
+.ss-flash-btn {
+    margin-left: 4px;
+    padding: 0 5px;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 3px;
+    color: var(--color-text-tertiary);
+    line-height: 1.5;
+    cursor: pointer;
+}
+
+.ss-flash-btn:hover {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+}

@@ -12,61 +12,104 @@
     </div>
 
     <div class="panel" style="display: flex; flex-direction: column; height: calc(100vh - 150px); padding: 0;">
-        <!-- Controls -->
-        <div style="padding: 10px 14px; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-bg-elevated); display: flex; gap: 18px; align-items: center; flex-wrap: wrap;">
-            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-                <span class="font-medium" style="color: var(--color-text-secondary);">Colour by</span>
-                <select id="ss-color-mode" class="dropdown">
-                    <option value="niche">Niche</option>
-                    <option value="category">Content category</option>
-                    <option value="popularity">Popularity (plays)</option>
-                </select>
-            </label>
+        <!-- Controls. Two rows: the map's own controls always visible, and the
+             collection-trajectory overlay behind a disclosure — it answers a
+             narrower question than the map itself, so it stays out of the way
+             until asked for. -->
+        <div style="padding: 10px 14px; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-bg-elevated);">
+            <div style="display: flex; gap: 18px; align-items: center; flex-wrap: wrap;">
+                <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
+                    <span class="font-medium" style="color: var(--color-text-secondary);">Colour by</span>
+                    <select id="ss-color-mode" class="dropdown">
+                        <option value="niche">Niche</option>
+                        <option value="category">Content category</option>
+                        <option value="popularity">Popularity (plays)</option>
+                    </select>
+                </label>
 
-            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-                <span class="font-medium" style="color: var(--color-text-secondary);">Focus niche</span>
-                <select id="ss-niche-focus" class="dropdown">
-                    <option value="">— all niches —</option>
-                </select>
-            </label>
+                <!-- Focus niche: a search + sort combobox rather than a plain
+                     <select>. The niche list runs to hundreds of entries and is
+                     the tab's main instrument for finding one, so it has to be
+                     searchable and re-orderable by the readings the map
+                     publishes (size, typicality, isolation). -->
+                <div class="text-sm" style="display: flex; align-items: center; gap: 6px;">
+                    <span class="font-medium" style="color: var(--color-text-secondary);">Focus niche</span>
+                    <div class="ss-niche-picker" id="ss-niche-picker">
+                        <button type="button" id="ss-niche-trigger" class="ss-niche-trigger text-sm"
+                                aria-haspopup="listbox" aria-expanded="false">
+                            <span id="ss-niche-trigger-label">— all niches —</span>
+                            <span class="ss-niche-caret" aria-hidden="true">▾</span>
+                        </button>
+                        <div id="ss-niche-panel" class="ss-niche-panel" hidden>
+                            <div class="ss-niche-panel-head">
+                                <input type="text" id="ss-niche-search" class="ss-niche-search text-sm"
+                                       placeholder="Search niches…" autocomplete="off"
+                                       aria-label="Search niches by name or defining term">
+                                <select id="ss-niche-sort" class="dropdown text-xs"
+                                        aria-label="Sort the niche list">
+                                    <option value="size">Most videos</option>
+                                    <option value="name">A–Z</option>
+                                    <option value="typicality">Most typical</option>
+                                    <option value="isolation">Most isolated</option>
+                                </select>
+                            </div>
+                            <div id="ss-niche-list" class="ss-niche-list" role="listbox"
+                                 aria-label="Niches"></div>
+                            <div id="ss-niche-count" class="ss-niche-count text-xxs"
+                                 aria-live="polite"></div>
+                        </div>
+                    </div>
+                    <button type="button" id="ss-niche-clear" class="ss-niche-clear meta-tooltip tooltip-below"
+                            data-tooltip="Show all niches again" aria-label="Clear the focus niche" hidden>&times;</button>
+                </div>
 
-            <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                <input type="checkbox" id="ss-show-labels" checked>
-                <span style="color: var(--color-text-secondary);">Niche labels</span>
-            </label>
+                <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="ss-show-labels" checked>
+                    <span style="color: var(--color-text-secondary);">Niche labels</span>
+                </label>
 
-            <!-- Divider between map controls and the collection-trajectory overlay. -->
-            <span style="align-self: stretch; width: 1px; background: var(--color-border-subtle);"></span>
+                <button type="button" id="ss-traj-disclosure" class="ss-disclosure text-sm"
+                        aria-expanded="false" aria-controls="ss-traj-controls"
+                        style="margin-left: auto;">
+                    <span class="ss-disclosure-caret" aria-hidden="true">▸</span>
+                    <span>Explore collection trajectories</span>
+                </button>
+            </div>
 
-            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-                <span class="font-medium" style="color: var(--color-text-secondary);">Collection</span>
-                <select id="ss-collection" class="dropdown">
-                    <option value="">— select collection —</option>
-                </select>
-            </label>
+            <!-- Collection-trajectory overlay controls (hidden until disclosed).
+                 While hidden the overlay itself is not drawn either — controls
+                 the reader cannot see must not keep changing the map. -->
+            <div id="ss-traj-controls" class="ss-traj-controls" hidden>
+                <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
+                    <span class="font-medium" style="color: var(--color-text-secondary);">Collection</span>
+                    <select id="ss-collection" class="dropdown">
+                        <option value="">— select collection —</option>
+                    </select>
+                </label>
 
-            <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-                <span class="font-medium" style="color: var(--color-text-secondary);">Interval</span>
-                <select id="ss-traj-interval" class="dropdown">
-                    <option value="month">Monthly</option>
-                    <option value="week">Weekly</option>
-                    <option value="day">Daily</option>
-                    <option value="all">All-time only</option>
-                </select>
-            </label>
+                <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
+                    <span class="font-medium" style="color: var(--color-text-secondary);">Interval</span>
+                    <select id="ss-traj-interval" class="dropdown">
+                        <option value="month">Monthly</option>
+                        <option value="week">Weekly</option>
+                        <option value="day">Daily</option>
+                        <option value="all">All-time only</option>
+                    </select>
+                </label>
 
-            <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                <input type="checkbox" id="ss-show-trajectory">
-                <span style="color: var(--color-text-secondary);">Show trajectory</span>
-            </label>
+                <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="ss-show-trajectory">
+                    <span style="color: var(--color-text-secondary);">Show trajectory</span>
+                </label>
 
-            <button id="ss-anim-play" class="action-btn text-xs" type="button" style="min-width: 64px;">▶ Play</button>
+                <button id="ss-anim-play" class="action-btn text-xs" type="button" style="min-width: 64px;">▶ Play</button>
 
-            <input type="range" id="ss-scrub" min="0" max="0" step="any" value="0" disabled
-                   title="Scrub through the collection's periods"
-                   style="width: 160px; vertical-align: middle;">
+                <input type="range" id="ss-scrub" min="0" max="0" step="any" value="0" disabled
+                       title="Scrub through the collection's periods"
+                       style="width: 160px; vertical-align: middle;">
 
-            <span id="ss-traj-status" class="text-sm" style="color: var(--control-bar-info);"></span>
+                <span id="ss-traj-status" class="text-sm" style="color: var(--control-bar-info);"></span>
+            </div>
         </div>
 
         <!-- Niche detail bar: what defines the focused niche — its size,
