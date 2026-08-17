@@ -120,6 +120,28 @@ organized by what they measure:
   model scores each video 0–100; the recoded value is normalized to 0–1.
 - **Sensitive? (score 0-1)** — same construction for sensitive subject matter.
 
+**Semantic position** (where the served items sit in the embedding space):
+- **Typicality** — how mainstream each served video is: its percentile among all
+  embedded videos for closeness to the corpus mean direction (100 = closest to
+  the average of everything the corpus is about, low = distinctive). The day
+  mean answers "how mainstream was this collection-day's feed?".
+- **Niche isolation** — how much company the video's micro-genre keeps: its
+  niche's percentile distance to the *nearest other* niche (100 = the most
+  isolated niche in the corpus). Empirically independent of Typicality — a
+  niche can sit far from the corpus average and still keep close company, or be
+  thoroughly ordinary with nothing beside it.
+
+> **These two are percentiles, not distances, and they are computed by the
+> video-map build — not by annotation.** Percentiles because the underlying
+> cosine and PCA distances are re-scaled by every rebuild, so raw values would
+> not be comparable across refreshes. The practical consequence: a video that
+> is not yet in the map has *no* value for either measure, and because the PCA
+> drops any collection-day row with a missing feature, an out-of-date map
+> silently shrinks the analysed sample **for every variable in the tab**, not
+> just these two. If the tab's day count looks lower than the study's, refresh
+> in dependency order — embeddings, then the semantic map, then the study
+> definitions, then correlations (see §10).
+
 > **Heavy-tailed variables are log-transformed before averaging.** Play count,
 > plays-per-day and days-since-posted follow extreme power-law distributions
 > (one viral video would otherwise dominate a whole day's mean). Their
@@ -525,6 +547,14 @@ compare the readouts.
   that order.
 - The methods note (My Studies → study row) records how the study dataset was
   built — filters, versions, refresh dates — and is the provenance you cite.
+- **Refresh order matters** for the embedding-derived measures (§2.3, *Semantic
+  position*). They are joined into the study frame at recode time from whatever
+  the video map last produced, so the sequence is **Semantic Embeddings →
+  Semantic Map → Study Definitions → Correlations**. Rebuilding study
+  definitions before the map is current joins missing values, and missing values
+  cost you whole collection-days across every variable. The cards under
+  *Rebuild Downstream Datasets* on Data Pipeline → Dataset Assembly are listed
+  in that dependency order, top to bottom.
 - Tunable thresholds mentioned in this guide (minimum group size 10, at most 3
   components per variable, component variance floor 5%, scatter display cap
   5,000, PERMANOVA permutations 999, independence-caveat threshold 10
