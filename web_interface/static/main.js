@@ -1028,6 +1028,27 @@ function _renderLogModal(preserveScroll) {
 
 
 
+function updateDmSidebarSpinners(data) {
+    // One running-process spinner per Data Pipeline sidebar item. Each item's
+    // template markup declares the processes its page owns in `data-procs`, so
+    // the wiring lives next to the menu entry rather than in a list here that
+    // silently rots when a page gains a process. A trailing `*` matches by
+    // prefix, which is how the Scrape item covers every registered platform's
+    // queue_scraper_<platform> worker.
+    document.querySelectorAll('.dm-sidebar-spinner[data-procs]').forEach(el => {
+        const patterns = el.dataset.procs.split(',')
+            .map(s => s.trim()).filter(Boolean);
+        const matches = (name) => patterns.some(p => p.endsWith('*')
+            ? name.startsWith(p.slice(0, -1))
+            : name === p);
+        const running = Object.entries(data).some(([name, p]) =>
+            p && (p.state === 'running' || p.state === 'stopping') && matches(name));
+        el.style.display = running ? 'inline-block' : 'none';
+    });
+}
+
+
+
 function _statusPollNeededWhileHidden() {
     // Keep polling /api/status even when the tab is backgrounded if anything
     // is in flight, so completion detection and cascade-refresh chaining never
@@ -1069,21 +1090,7 @@ async function updateStatus() {
         // the element is absent.
         setStatus('consolidate_enrichment', data.consolidate_enrichment);
 
-        // Spinner on the "Refresh Caches" sidebar item (same style as the
-        // global badge spinner) while any of that page's processes runs.
-        const refreshSpinner = document.getElementById('refresh-caches-running-spinner');
-        if (refreshSpinner) {
-            const refreshProcs = [
-                'consolidate_enrichment', 'embeddings_refresh', 'video_map_refresh',
-                'recode_refresh_studies', 'meta_refresh_groups', 'pca_refresh',
-                'timelines_refresh', 'sessions_refresh',
-            ];
-            const anyRefreshRunning = refreshProcs.some(n => {
-                const p = data[n];
-                return p && (p.state === 'running' || p.state === 'stopping');
-            });
-            refreshSpinner.style.display = anyRefreshRunning ? 'inline-block' : 'none';
-        }
+        updateDmSidebarSpinners(data);
 
         // Update global running-tasks badge
         const runningNames = Object.entries(data)

@@ -469,7 +469,7 @@
                 throw new Error(body.error || res.statusText);
             } else {
                 _status("Study refresh started — this banner clears automatically when it completes. "
-                    + "You can follow its progress under Data Pipeline → Refresh Caches.");
+                    + "You can follow its progress under Data Pipeline → Dataset Assembly.");
                 _pollStalenessUntilClear();
             }
         } catch (err) {

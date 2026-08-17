@@ -3,7 +3,7 @@
 
 let allStudies = [];
 const savingStudies = new Set(); // Track studies currently being saved
-const refreshingStudies = new Map(); // Track studies being refreshed: name → {message, percent}
+const refreshingStudies = new Map(); // Track studies being refreshed: name → {message}
 
 function loadStudies() {
     fetch('/api/manage/studies')
@@ -458,14 +458,16 @@ function renderStudiesTable() {
         const isSaving = savingStudies.has(study.STUDY_NAME);
 
         if (isRefreshing || isSaving) {
+            // Dim the row's data cells to show it is not clickable, but leave
+            // the Action cell at full strength — dimming the whole row is what
+            // used to make its status message unreadable.
             tr.style.cursor = 'default';
-            tr.style.opacity = '0.45';
+            tr.classList.add('study-row-busy');
         } else {
             // My Studies opens the same modal read-only: every field disabled,
             // no Save/Delete/Access, and rendered without the Data-Management
             // endpoints a plain viewer would be refused.
             tr.style.cursor = 'pointer';
-            tr.style.opacity = '1';
             tr.onclick = () => openStudyModal(index, !allowEdit);
         }
 
@@ -474,18 +476,10 @@ function renderStudiesTable() {
 
         let actionHtml = '';
         if (isSaving) {
-            actionHtml = '<span class="text-sm font-semibold" style="color: var(--color-warning);">Saving...</span>';
+            actionHtml = '<span class="study-row-status font-semibold">Saving...</span>';
         } else if (isRefreshing) {
-            const info = refreshingStudies.get(study.STUDY_NAME);
-            const pct = info.percent !== undefined ? info.percent : 0;
-            const msg = info.message || 'Refreshing...';
-            actionHtml = `
-                <div style="display: flex; flex-direction: column; gap: 4px;">
-                    <span class="text-sm font-semibold" style="color: var(--color-warning);">${msg}</span>
-                    <div class="progress-bar" style="height: 5px; border-radius: 3px;">
-                        <div style="width: ${pct}%; height: 100%; background: var(--color-warning); border-radius: 3px; transition: width 0.3s;"></div>
-                    </div>
-                </div>`;
+            const msg = refreshingStudies.get(study.STUDY_NAME).message || 'Refreshing...';
+            actionHtml = `<span class="study-row-status font-semibold">${escapeHtml(msg)}</span>`;
         } else if (!allowEdit) {
             // Per-study provenance note (My Studies only — it lists every study
             // the user can see, so the note is offered per row rather than for
@@ -1073,7 +1067,7 @@ async function saveStudy(btn, event) {
 
 
 function _pollStudyRefresh(studyName) {
-    refreshingStudies.set(studyName, { message: 'Starting...', percent: 0 });
+    refreshingStudies.set(studyName, { message: 'Starting...' });
     renderStudiesTable();
 
     const interval = setInterval(() => {
@@ -1086,7 +1080,6 @@ function _pollStudyRefresh(studyName) {
                     const progress = proc.progress || {};
                     refreshingStudies.set(studyName, {
                         message: progress.message || 'Refreshing...',
-                        percent: progress.percent !== undefined ? progress.percent : 0,
                     });
                     renderStudiesTable();
                 } else {
@@ -2409,7 +2402,7 @@ function checkConsolidationNeeded(data) {
 
     const consolidateBtn = document.getElementById('btn-consolidate');
     const setNeedsAction = (needs) => {
-        // Mirror the state on the "Refresh Caches" sidebar item, so the
+        // Mirror the state on the "Dataset Assembly" sidebar item, so the
         // stale signal is visible without opening the page.
         const staleDot = document.getElementById('refresh-caches-stale-dot');
         if (staleDot) staleDot.style.display = needs ? 'inline-block' : 'none';
@@ -2473,7 +2466,7 @@ function checkConsolidationNeeded(data) {
 // --- Cascade Refresh State ---
 // Tracks the active cascade refresh so that:
 //   1. main.js can chain meta refreshes after study refresh completes
-//   2. Refresh Caches page buttons are disabled while a cascade is running
+//   2. Dataset Assembly page buttons are disabled while a cascade is running
 let _cascadeRefresh = null;
 
 function renderConsolidationImpact(impact, partial = null) {
@@ -2632,7 +2625,7 @@ function updateCascadeButton() {
 }
 
 function updateCascadeRefreshPageLock(locked) {
-    // Disable/enable the toggle buttons on the Refresh Caches page
+    // Disable/enable the toggle buttons on the Dataset Assembly page
     const processNames = ['recode_refresh_studies', 'meta_refresh_groups', 'timelines_refresh', 'pca_refresh'];
     processNames.forEach(name => {
         const toggleBtn = document.getElementById(`${name}-toggle`);

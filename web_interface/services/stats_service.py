@@ -694,7 +694,7 @@ def _evaluate_consolidation_staleness() -> dict:
     def _collections(n: int) -> str:
         return f"({_n(n, 'collection', 'collections')} need{'s' if n == 1 else ''} refresh)"
 
-    # One entry per card on the Refresh Caches page. ``count`` is how much the
+    # One entry per card on the Dataset Assembly page. ``count`` is how much the
     # step would process and drives both the badge and its visibility; it
     # mirrors the condition _build_downstream_pipeline uses to decide whether to
     # dispatch the step at all, so a badge appears exactly when the next

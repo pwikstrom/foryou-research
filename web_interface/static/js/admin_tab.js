@@ -421,7 +421,7 @@
             } else if (key === 'embedding_backend') {
                 if (status) {
                     status.textContent = 'Saved — to apply, run Embeddings → Refresh and then '
-                        + 'Video map → Rebuild under Data Pipeline → Refresh Caches.';
+                        + 'Video map → Rebuild under Data Pipeline → Dataset Assembly.';
                 }
                 loadEmbeddingBackendRequirements(String(value));
             } else if (status) {
@@ -718,7 +718,7 @@
                     const d = entry.data || {};
                     _iwApplySetStatus('var(--color-success)',
                         `Updated ${d.rows_changed || 0} hashtag row(s) in ${d.files_changed || 0} file(s). `
-                        + 'Now run Consolidate with "Force full rebuild" ticked (Data Pipeline → Refresh Caches) to apply to studies.');
+                        + 'Now run Consolidate with "Force full rebuild" ticked (Data Pipeline → Dataset Assembly) to apply to studies.');
                 }
             } catch (e) {
                 console.error('_pollIrrelevantWordsApply:', e);

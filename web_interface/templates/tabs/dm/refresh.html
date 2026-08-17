@@ -1,4 +1,4 @@
-<!-- Refresh Caches sub-page -->
+<!-- Dataset Assembly sub-page -->
 
 {# The (i) affordance next to a card title. One argument feeds both the visual
    tooltip and the accessible name, so the two can never drift apart. #}
@@ -7,12 +7,12 @@
     aria-label="{{ text }}" data-tooltip="{{ text }}">&#9432;</span>
 {%- endmacro %}
 
-<h2 style="margin: 0 0 16px 0;">Refresh Cached Data</h2>
+<h2 style="margin: 0 0 16px 0;">Dataset Assembly</h2>
 
 <!-- Consolidate: folds new scrape/annotation output into the consolidated
      datasets and (optionally) refreshes all affected caches. -->
 <div style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); margin-bottom: 20px;">
-    <div class="font-bold" style="margin-bottom: 10px;">Consolidate Enrichment Data{{ card_info(
+    <div class="font-bold" style="margin-bottom: 10px;">Consolidate Scrape and Annotation Data{{ card_info(
         "Folds newly scraped and newly annotated items into the consolidated datasets every study reads: the scrape and machine-annotation tables plus the per-item enrichment status. It then reports its impact — how many items changed, and which collections and studies they belong to. With \"Refresh caches afterwards\" ticked it goes on to run the downstream pipeline (below) for exactly those studies and collections; each step is skipped when nothing it owns changed.") }}</div>
     <div class="controls" style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;">
         <span style="display: flex; align-items: center; gap: 6px;">
@@ -45,7 +45,7 @@
         <span id="consolidate_enrichment-last-run" class="text-xs" style="color: var(--color-text-tertiary);"></span>
         {% if current_user.is_admin() %}
         <a class="text-xs view-log-link"
-            onclick="openLogModal('consolidate_enrichment', 'Consolidate Enrichment')">View Log</a>
+            onclick="openLogModal('consolidate_enrichment', 'Consolidate Scrape and Annotation Data')">View Log</a>
         {% endif %}
     </div>
     <div id="consolidate-status" class="text-xs" style="margin-top: 6px; color: var(--color-success-light);"></div>
@@ -67,9 +67,14 @@
     </div>
 </div>
 
-<!-- Ordered as the refresh pipeline dispatches them: embeddings feed the map,
-     the map's niches feed the study definitions, and the last four fork off the
-     study refresh and run concurrently (their order among themselves is free). -->
+<!-- Everything the consolidation feeds. The cards are ordered as the refresh
+     pipeline dispatches them: embeddings feed the map, the map's niches feed
+     the study definitions, and the last four fork off the study refresh and run
+     concurrently (their order among themselves is free). -->
+<div class="refresh-group">
+<div class="font-bold" style="margin-bottom: 10px;">Rebuild Downstream Datasets{{ card_info(
+    "Everything built from the consolidated data, each step as its own card. The Consolidate above normally runs them for you — it dispatches exactly these steps, in this order, for only the studies and collections its impact touched. Use the cards here to run one step on its own: after changing something that bypasses consolidation (a study definition, the hashtag stoplist, an embedding or annotation backend), or to redo a step that failed or was skipped. Each reads what the step before it wrote, so when you run several by hand, work down the list — embeddings feed the semantic map, the map's niches feed the study definitions, and Explore metadata, Correlations, Timelines and Sessions are all built from those definitions.") }}</div>
+
 <div class="refresh-card-stack">
 
     <!-- 1. Semantic Embeddings -->
@@ -249,4 +254,5 @@
         </div>
     </div>
 
+</div>
 </div>

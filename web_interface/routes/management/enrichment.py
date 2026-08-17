@@ -1232,7 +1232,7 @@ def api_consolidate_enrichment():
 
     data = request.json or {}
     force = bool(data.get("force"))
-    # The Refresh Caches page sends both flags explicitly (its two checkboxes).
+    # The Dataset Assembly page sends both flags explicitly (its two checkboxes).
     # The default is for other callers: refresh unless this is a full rebuild,
     # which stays chain-free by default to keep it debuggable.
     auto_refresh = bool(data.get("auto_refresh", not force))
@@ -1424,7 +1424,7 @@ def api_refresh_staleness():
 
     Also reports ``version_promotion`` staleness — a promoted preferred
     annotation version whose study refresh hasn't run yet (consumed by the
-    admin Versions page banner and the Refresh Caches page).
+    admin Versions page banner and the Dataset Assembly page).
     """
     promotion = _evaluate_version_promotion_staleness()
     status = _evaluate_consolidation_staleness()

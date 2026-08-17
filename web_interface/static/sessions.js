@@ -433,7 +433,7 @@ function sessRenderFilters(ranges) {
             hint.className = 'sess-filter-row text-xxs';
             hint.style.color = 'var(--color-text-muted)';
             hint.textContent = 'Variable-max filter unavailable — rebuild the sessions index '
-                + '(Refresh Caches → Sessions) to enable it.';
+                + '(Dataset Assembly → Sessions) to enable it.';
             body.appendChild(hint);
         }
     }
@@ -650,7 +650,7 @@ async function sessLoadStatus() {
         let msg = '';
         if (!st.artifact_exists) {
             msg = 'The sessions index has not been built yet. An admin can build it from '
-                + 'Data Pipeline → Refresh Caches → Sessions (embeddings must exist first).';
+                + 'Data Pipeline → Dataset Assembly → Sessions (embeddings must exist first).';
         } else if (st.refresh_running) {
             msg = 'The sessions index is being rebuilt — results below may be replaced shortly.';
         } else if (st.model_mismatch) {
@@ -1565,7 +1565,7 @@ function sessBingeShape(ep) {
                   + 'as "straight" as every other, so no binge this short can be shown '
                   + 'to be directed, whatever its shape.'
                 : 'This binge predates the directedness check. Rebuild the sessions '
-                  + 'artifacts (Refresh Caches → Sessions) to compute it.',
+                  + 'artifacts (Dataset Assembly → Sessions) to compute it.',
         };
     }
     const p = Number(ep.direction_p);

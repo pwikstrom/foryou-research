@@ -99,7 +99,7 @@ def run_retokenise_hashtags(
     )
     reporter.log(
         "Done. Run Consolidate with 'Force full rebuild' ticked (Data Pipeline "
-        "-> Refresh Caches) to apply these changes to studies and dashboards."
+        "-> Dataset Assembly) to apply these changes to studies and dashboards."
     )
     return None
 
