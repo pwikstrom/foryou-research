@@ -1,39 +1,53 @@
 <div id="data_management" class="tab-pane">
 
-    <!-- Sidebar Navigation -->
+    <!-- Sidebar Navigation.
+         Every item carries a running-process spinner. `data-procs` lists the
+         background processes that item's page owns; main.js lights the spinner
+         while any of them runs. A trailing `*` is a prefix match, so a newly
+         registered scraper platform needs no edit here. -->
     <nav class="dm-sidebar">
         {% if user.can_access('tab.data_management.ingestion') %}
         <div class="dm-sidebar-item active" data-page="dm-page-ingestion" onclick="openDataManagementPage('dm-page-ingestion', this)">
             Ingest Collections
+            <span class="dm-sidebar-spinner global-tasks-spinner" style="display: none;"
+                data-procs="ingest_refresh,aio_fetch,demo_dataset"></span>
         </div>
         {% endif %}
         {% if user.can_access('tab.data_management.edit_collections') %}
         <div class="dm-sidebar-item" data-page="dm-page-edit-activity" onclick="openDataManagementPage('dm-page-edit-activity', this)">
             Edit Collections
+            <span class="dm-sidebar-spinner global-tasks-spinner" style="display: none;"
+                data-procs="collection_metadata_refresh,collection_delete"></span>
         </div>
         {% endif %}
         {% if user.can_access('tab.data_management.studies') %}
         <div class="dm-sidebar-item" data-page="dm-page-studies" onclick="openDataManagementPage('dm-page-studies', this)">
             Define Studies
+            <span class="dm-sidebar-spinner global-tasks-spinner" style="display: none;"
+                data-procs="study_refresh"></span>
         </div>
         {% endif %}
         {% if user.can_access('tab.data_management.scrape') %}
         <div class="dm-sidebar-item" data-page="dm-page-scrape" onclick="openDataManagementPage('dm-page-scrape', this)">
             Scrape
+            <span class="dm-sidebar-spinner global-tasks-spinner" style="display: none;"
+                data-procs="queue_scraper_*"></span>
         </div>
         {% endif %}
         {% if user.can_access('tab.data_management.annotation') %}
         <div class="dm-sidebar-item" data-page="dm-page-annotation" onclick="openDataManagementPage('dm-page-annotation', this)">
             Annotate short videos
+            <span class="dm-sidebar-spinner global-tasks-spinner" style="display: none;"
+                data-procs="queue_annotator,queue_annotator_batch"></span>
         </div>
         {% endif %}
         {% if user.can_access('tab.data_management.refresh') %}
         <div class="dm-sidebar-item" data-page="dm-page-refresh" onclick="openDataManagementPage('dm-page-refresh', this)">
-            Refresh Caches
+            Dataset Assembly
             <span id="refresh-caches-stale-dot" class="sidebar-stale-dot meta-tooltip" style="display: none;"
                 data-tooltip="New enrichment data has not been consolidated yet — run Consolidate"></span>
-            <span id="refresh-caches-running-spinner" class="global-tasks-spinner"
-                style="display: none; margin-left: 6px; vertical-align: middle;"></span>
+            <span class="dm-sidebar-spinner global-tasks-spinner" style="display: none;"
+                data-procs="consolidate_enrichment,embeddings_refresh,video_map_refresh,recode_refresh_studies,meta_refresh_groups,pca_refresh,timelines_refresh,sessions_refresh"></span>
         </div>
         {% endif %}
     </nav>

@@ -140,7 +140,7 @@ def api_correlations_group_stats():
     if payload is None:
         return jsonify({
             "error": "Group statistics not computed yet for this study",
-            "hint": "Run Data Pipeline → Refresh Caches (PCA / Correlations), then reload.",
+            "hint": "Run Data Pipeline → Dataset Assembly (PCA / Correlations), then reload.",
         }), 404
 
     return jsonify(payload)

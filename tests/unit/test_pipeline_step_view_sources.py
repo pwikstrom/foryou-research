@@ -1,6 +1,6 @@
 """Which store the refresh-pipeline step list reads, and when.
 
-Two failure modes are pinned here, both observed on the Refresh Caches page:
+Two failure modes are pinned here, both observed on the Dataset Assembly page:
 
 1. **Per-instance divergence.** ``processes["consolidate_enrichment"]["data"]``
    is the subprocess ``::DATA::`` mirror. On Cloud Run the consolidate worker

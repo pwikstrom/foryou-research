@@ -39,7 +39,7 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.data_management.studies",          "label": "Data Management — Define Studies"},
     {"key": "tab.data_management.scrape",           "label": "Data Management — Scrape"},
     {"key": "tab.data_management.annotation",       "label": "Data Management — Annotation"},
-    {"key": "tab.data_management.refresh",          "label": "Data Management — Refresh Caches"},
+    {"key": "tab.data_management.refresh",          "label": "Data Management — Dataset Assembly"},
     {"key": "tab.admin.new_users",                  "label": "Admin — New Users"},
     {"key": "tab.admin.active_users",               "label": "Admin — Active Users"},
     {"key": "tab.admin.roles",                      "label": "Admin — User Roles"},

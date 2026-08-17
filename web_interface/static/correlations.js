@@ -100,7 +100,7 @@ async function loadCorrelationsStatus() {
         if (s && s.stale) {
             el.textContent = "The PCA scores for this study are older than its latest data, so the statistics " +
                 "below may not include recently added videos. An admin can rebuild them via " +
-                "Data Pipeline → Refresh Caches (PCA / Correlations).";
+                "Data Pipeline → Dataset Assembly (PCA / Correlations).";
             el.style.display = 'block';
         }
     } catch (e) {
@@ -1467,7 +1467,7 @@ function renderGroupStats(data) {
     if (data.version !== 2) {
         plotDiv.innerHTML = `<div class="corr-table-wrap"><p>These group statistics ` +
             `were computed by an older version of the analysis and use a layout this ` +
-            `page no longer shows. Run Data Pipeline → Refresh Caches (PCA / ` +
+            `page no longer shows. Run Data Pipeline → Dataset Assembly (PCA / ` +
             `Correlations), then reload.</p></div>`;
         setCaption('');
         return;

@@ -131,7 +131,7 @@ consolidate → embeddings → video_map (niches) → study definitions → { me
 or in-window play/annotated counts moved, and returns immediately when none
 did. `skip_if_busy` keeps it off the toes of a sessions run already in flight
 (one is also chained after every study save). It can still be run on its own
-from Data Management → Refresh Caches, where "Force full rebuild" re-segments
+from Data Management → Dataset Assembly, where "Force full rebuild" re-segments
 every covered collection.
 
 ## Adding a platform — checklist

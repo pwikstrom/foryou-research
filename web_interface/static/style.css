@@ -37,6 +37,8 @@
     --green-400: #7DB892;
     --yellow-500: #D4B870;
     --amber-500: #C49A5C;
+    --amber-400: #DFAE6E;
+    --amber-700: #8A6A2F;
     --purple-500: #8A7EB5;
 
     /* --- Tier 2: Semantic Tokens --- */
@@ -72,6 +74,10 @@
     --color-danger: var(--red-500);
     --color-danger-soft: var(--red-400);
     --color-warning: var(--amber-500);
+    /* Amber for text that has to be READ, not just noticed. --color-warning is
+       tuned for borders, dots and glows; at body size on a page background it
+       is too low-contrast to read comfortably, in the light theme especially. */
+    --color-warning-text: var(--amber-400);
     --color-save: var(--orange-400);
     --color-purple: var(--purple-500);
     --color-gold: var(--yellow-500);
@@ -288,6 +294,7 @@
     --color-danger: #A3535A;
     --color-danger-soft: #B35A5E;
     --color-warning: #A88A4E;
+    --color-warning-text: var(--amber-700);
     --color-save: #9A7E66;
     --color-link: #5B7E98;
     --color-link-hover: #3D5A72;
@@ -555,6 +562,13 @@ a:hover {
     font-weight: var(--weight-bold);
 }
 
+/* "A process this page owns is running" — one per sidebar item, shown by
+   main.js updateDmSidebarSpinners(). Same spinner as the header task badge. */
+.dm-sidebar-spinner {
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
 /* Non-clickable section header between sidebar item groups */
 .dm-sidebar-group {
     padding: 11px 16px 3px 16px;
@@ -806,6 +820,24 @@ button {
     color: var(--color-text-muted);
 }
 
+/* A study row mid-save or mid-refresh. The data cells dim to show the row is
+   not clickable; the Action cell keeps full opacity so its status message
+   stays readable — dimming the whole row is what used to wash it out. */
+.study-row-busy > td {
+    opacity: 0.45;
+}
+
+.study-row-busy > td:last-child {
+    opacity: 1;
+}
+
+/* Live status text in the studies table's Action column. Inherits the table's
+   font size so it sits on the same line as the rest of the row. */
+.study-row-status {
+    color: var(--color-warning-text);
+    white-space: nowrap;
+}
+
 .ingest-card {
     background: var(--color-bg-elevated);
     color: var(--color-text-primary);
@@ -948,7 +980,7 @@ button {
 /* Consolidate → downstream refresh pipeline step list (Data Management →
    Enrichment). Status is conveyed by a coloured dot; all colours are semantic
    tokens so both themes resolve. */
-/* Refresh Caches worker cards: one full-width column, in pipeline order. The
+/* Dataset Assembly worker cards: one full-width column, in pipeline order. The
    cards used to share rows in a wrapping flex row, which made the dispatch
    order read as a grid and left the progress bars at arbitrary widths. */
 .refresh-card-stack {
@@ -963,6 +995,22 @@ button {
     border-radius: 4px;
     border: 1px solid var(--color-border);
     width: 100%;
+}
+
+/* The "Rebuild Downstream Datasets" box wrapping those cards — same chrome as
+   the Consolidate card above it on the Dataset Assembly page. */
+.refresh-group {
+    background: var(--section-bg);
+    padding: 15px;
+    border-radius: 4px;
+    border: 1px solid var(--color-border);
+    margin-bottom: 20px;
+}
+
+/* Inside the group the cards would sit on the box's own background, so lift
+   them a shade to keep each one readable as a separate card. */
+.refresh-group .refresh-card {
+    background: var(--color-bg-elevated);
 }
 
 .pipeline-steps {

@@ -1,4 +1,4 @@
-"""Per-card staleness badges on the Refresh Caches page.
+"""Per-card staleness badges on the Dataset Assembly page.
 
 Every step of the refresh pipeline now carries a "(N ... need refresh)" badge,
 not just the four study/collection-scoped ones. The corpus-global steps
