@@ -7,7 +7,8 @@ Consumes the dense embeddings written by :mod:`fyp.embeddings` and produces:
       because a browser scatter cannot usefully render 256k points; clustering,
       however, covers every video.
     * ``recoded/video_niches.json`` — per-niche metadata (name, size,
-      distinctive terms, dominant content categories, typicality).
+      distinctive terms, dominant content categories, typicality, and the
+      genuinely nearest niches measured in the clustering space).
     * ``recoded/video_map_meta.json`` — build provenance (embedding model/dim,
       vector count, naming mode, build timestamp).
 
@@ -35,6 +36,7 @@ from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.manifold import TSNE
+from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
 import fyp.core.gemini_client as gemini_client
@@ -252,6 +254,99 @@ def _add_niche_typicality(
     for rank, niche in enumerate(ranked):
         niche_meta[niche]["typicality"] = round(means[niche], 4)
         niche_meta[niche]["typicality_pct"] = round(100.0 * rank / denom, 1)
+
+
+
+
+
+
+def _add_niche_neighbours(
+    niche_meta: dict[int, dict],
+    labels: np.ndarray,
+    reduced: np.ndarray,
+    n_neighbours: int = 5,
+) -> None:
+    """Add each niche's genuinely nearest niches, in place.
+
+    This is the one thing the 2D map cannot honestly show. t-SNE preserves a
+    point's local neighbourhood but is free to strand a whole niche far from
+    its true relatives, so which niches are drawn adjacent is a weak guide to
+    which are actually alike. Measuring it on the same reduced vectors the
+    clustering consumed answers the question the picture only gestures at.
+
+    Neighbours are stored as niche ids, not names: ids are held stable across
+    rebuilds by :func:`_align_labels_to_previous` while names can be
+    regenerated, so the reader resolves the current name itself.
+
+    Args:
+        niche_meta: Niche id → metadata dict; mutated in place.
+        labels: Niche id per video.
+        reduced: The PCA-reduced matrix the clustering ran on.
+        n_neighbours: How many nearest niches to keep per niche.
+    """
+    niches = sorted(niche_meta)
+    centroids = np.vstack([reduced[labels == niche].mean(axis=0) for niche in niches])
+    dist = np.linalg.norm(centroids[:, None, :] - centroids[None, :, :], axis=-1)
+    np.fill_diagonal(dist, np.inf)
+    for i, niche in enumerate(niches):
+        order = np.argsort(dist[i])[:n_neighbours]
+        niche_meta[niche]["nearest"] = [int(niches[j]) for j in order]
+
+
+
+
+
+
+def _neighbour_preservation(
+    reduced: np.ndarray,
+    xy: np.ndarray,
+    k: int = 10,
+    probe: int = 2000,
+) -> dict:
+    """Measure how much of the true neighbourhood structure the 2D map keeps.
+
+    For a random probe of projected videos, the share of each one's ``k``
+    nearest neighbours in the clustering space that are still among its ``k``
+    nearest on the rendered map. A 2D projection cannot honour every
+    relationship at once, and the ones it drops leave no visible trace, so
+    without this number the map's accuracy is unfalsifiable. Publishing it
+    turns the tab's "read closeness as evidence, not as measurement" caveat
+    into a reproducible statistic.
+
+    Compared against ``chance`` — the share a random neighbourhood would score
+    — which is what shows the layout is doing real work even when the absolute
+    figure looks low.
+
+    Args:
+        reduced: PCA-reduced rows of the videos that were projected.
+        xy: Their ``(n, 2)`` map coordinates, in the same row order.
+        k: Neighbourhood size.
+        probe: How many videos to measure. The exact figure is quadratic in the
+            corpus; a probe of a couple of thousand is stable to about a point.
+
+    Returns:
+        Dict with ``k``/``score``/``chance``/``probe``/``mapped``, or an empty
+        dict when the sample is too small to have neighbourhoods at all.
+    """
+    n = int(xy.shape[0])
+    k = min(k, n - 1)
+    if n < 3 or k < 1:
+        return {}
+    probe = min(probe, n)
+    idx = np.random.RandomState(0).choice(n, probe, replace=False)
+    # k+1 then drop the first column: a point is always its own nearest.
+    hi = NearestNeighbors(n_neighbors=k + 1).fit(reduced)
+    lo = NearestNeighbors(n_neighbors=k + 1).fit(xy)
+    near_hi = hi.kneighbors(reduced[idx], return_distance=False)[:, 1:]
+    near_lo = lo.kneighbors(xy[idx], return_distance=False)[:, 1:]
+    kept = np.mean([len(set(a) & set(b)) for a, b in zip(near_hi, near_lo)]) / k
+    return {
+        "k": int(k),
+        "score": round(float(kept), 4),
+        "chance": round(float(k / max(n - 1, 1)), 6),
+        "probe": int(probe),
+        "mapped": n,
+    }
 
 
 
@@ -658,6 +753,7 @@ def build_niche_map(
         carried_names=niche_carry, reporter=reporter,
     )
     _add_niche_typicality(niche_meta, labels, typicality)
+    _add_niche_neighbours(niche_meta, labels, reduced)
 
     # 2D map on a sample (the full corpus is too large to scatter in a browser).
     if reporter is not None:
@@ -683,6 +779,12 @@ def build_niche_map(
         tsne = TSNE(n_components=2, perplexity=perplexity, init="pca",
                     random_state=0, max_iter=1000)
         xy_sample = tsne.fit_transform(reduced[sample_idx])
+
+    preservation = _neighbour_preservation(reduced[sample_idx], xy_sample)
+    if preservation:
+        _log(f"Layout keeps {100 * preservation['score']:.0f}% of true k="
+             f"{preservation['k']} neighbours (chance "
+             f"{100 * preservation['chance']:.3f}%).")
 
     x = np.full(n, np.nan, dtype=np.float64)
     y = np.full(n, np.nan, dtype=np.float64)
@@ -772,6 +874,7 @@ def build_niche_map(
         "naming_mode": naming_mode,
         "built_at": pd.Timestamp.now(tz="UTC").isoformat(),
         "n_niches": len(niche_meta),
+        "neighbour_preservation": preservation,
     }
     data_io.save_json(data=meta_payload, storage_location=embeddings.STORE_LOCATION, filename=MAP_META_FILE)
 
