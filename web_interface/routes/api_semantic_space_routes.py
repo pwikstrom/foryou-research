@@ -166,11 +166,13 @@ def _build_payload() -> dict:
 
     # Resolve neighbour ids to names in a second pass — a neighbour's name lives
     # in another entry, and the build stores ids precisely so a renamed niche
-    # still resolves correctly here.
+    # still resolves correctly here. The ids stay in the payload alongside the
+    # names: the tab's "show me where they are" control has to locate each
+    # neighbour on the map, and a name is not an address.
     for meta in niches.values():
-        meta["nearest"] = [
-            niches[str(n)]["name"] for n in meta.pop("nearest_ids") if str(n) in niches
-        ]
+        kept = [n for n in meta["nearest_ids"] if str(n) in niches]
+        meta["nearest_ids"] = kept
+        meta["nearest"] = [niches[str(n)]["name"] for n in kept]
 
     # Build provenance rides along so the tab can publish the projection's own
     # accuracy rather than asking the reader to take the layout on trust. Absent

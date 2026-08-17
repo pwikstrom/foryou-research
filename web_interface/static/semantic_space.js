@@ -20,6 +20,14 @@ let _ssAnimRAF = null;            // requestAnimationFrame handle while playing
 let _ssAnimLastTime = null;       // last rAF timestamp, for dt-based advance
 let _ssAnimStepMs = 800;          // ms to morph across one period (set per run)
 let _ssAnimPlaying = false;       // whether playback is running
+let _ssFocusNiche = null;         // focused niche id, or null for "all niches"
+let _ssNicheSort = 'size';        // niche-picker ordering (see _SS_NICHE_SORTS)
+let _ssNicheQuery = '';           // niche-picker search box contents
+let _ssNicheActive = -1;          // keyboard-highlighted row in the picker list
+let _ssTrajCollapsed = true;      // trajectory controls hidden behind the disclosure
+let _ssFlashTimers = [];          // pending timers for the "flash nearest niches" pulse
+let _ssFlashNiches = null;        // niche ids currently lit by the flash (null = none)
+let _ssFlashXY = null;            // memoized {key, xs, ys} for the lit niches' points
 
 // Categorical data palette (tab20-style). Niche colour = palette[niche % 20];
 // category colours are assigned by index. Numeric overlays use _SS_NUMERIC_SCALE.
@@ -74,6 +82,56 @@ const _SS_ELLIPSE_SCALE = 0.30;
 const _SS_ANIM_FADE = 0.78;
 const _SS_ANIM_MIN_ALPHA = 0.12;
 
+// Focus-niche picker orderings. `key` returns the sort value (higher first for
+// the numeric ones); `meta` is the secondary reading shown on each row, so the
+// column the list is sorted by is also the column the reader can see.
+const _SS_NICHE_SORTS = {
+    size: {
+        cmp: (a, b) => b.size - a.size,
+        meta: c => c.size.toLocaleString()
+    },
+    name: {
+        cmp: (a, b) => a.name.localeCompare(b.name),
+        meta: c => c.size.toLocaleString()
+    },
+    typicality: {
+        cmp: (a, b) => _ssPctDesc(a.typicality_pct, b.typicality_pct) || (b.size - a.size),
+        meta: c => (c.typicality_pct == null ? c.size.toLocaleString()
+            : `${c.size.toLocaleString()} · ${_ssQualitative(c.typicality_pct, _SS_TYPICALITY_BANDS)}`)
+    },
+    isolation: {
+        cmp: (a, b) => _ssPctDesc(a.isolation_pct, b.isolation_pct) || (b.size - a.size),
+        meta: c => (c.isolation_pct == null ? c.size.toLocaleString()
+            : `${c.size.toLocaleString()} · ${_ssQualitative(c.isolation_pct, _SS_ISOLATION_BANDS)}`)
+    }
+};
+
+// Qualitative bands for the two measured readings. A percentile is a precise
+// number that most readers cannot act on; the word is what they can. The exact
+// figure stays one hover away (see _ssReadingHtml), so nothing is lost.
+// Boundaries are the percentile floors, highest first.
+const _SS_TYPICALITY_BANDS = [
+    [90, 'very typical'],
+    [70, 'fairly typical'],
+    [30, 'about average'],
+    [10, 'fairly distinctive'],
+    [0, 'very distinctive']
+];
+const _SS_ISOLATION_BANDS = [
+    [90, 'very isolated'],
+    [70, 'fairly isolated'],
+    [30, 'about average'],
+    [10, 'fairly crowded'],
+    [0, 'very crowded']
+];
+
+// "Flash the closest niches": how many on/off pulses, and how long each half
+// lasts. Three pulses is long enough to follow across a wide map without the
+// control becoming an animation the reader has to wait out.
+const _SS_FLASH_PULSES = 3;
+const _SS_FLASH_ON_MS = 420;
+const _SS_FLASH_OFF_MS = 260;
+
 
 // Called by openTab() the first time the Semantic Space tab is shown.
 function initSemanticSpace() {
@@ -103,7 +161,10 @@ async function loadSemanticSpace() {
         _ssData = data;
         _ssLoadedMapBuiltAt = (data.map_built_at !== undefined) ? data.map_built_at : null;
         _ssComputeCentroids();
-        _ssPopulateNicheFocus();
+        // A rebuilt map can renumber or drop niches, so the focus survives only
+        // if its id still names one. Either way the picker's label is refreshed
+        // from the new map rather than left describing the old one.
+        _ssSetFocusNiche(_ssCentroid(_ssFocusNiche) ? _ssFocusNiche : null, { render: false });
         _ssPopulateColorModes();
         if (status) {
             // innerHTML, not innerText: the accuracy figure carries a tooltip.
@@ -129,7 +190,12 @@ async function loadSemanticSpace() {
 }
 
 
-// Per-niche median position + size, used for centroid labels and the focus list.
+// Per-niche median position + size, used for centroid labels, the focus picker
+// and the "flash the closest niches" rings. The measured readings ride along so
+// the picker can sort by them without re-reaching into the niches lookup, and
+// `r` is the niche's drawn spread (60th percentile of the distance from its
+// median centre) — the radius that makes a flash ring cover roughly the niche
+// rather than an arbitrary blob around its middle.
 function _ssComputeCentroids() {
     const P = _ssData.points;
     const acc = {};   // niche -> {xs:[], ys:[]}
@@ -143,22 +209,171 @@ function _ssComputeCentroids() {
         const s = arr.slice().sort((a, b) => a - b);
         return s[Math.floor(s.length / 2)];
     };
-    _ssData._centroids = Object.keys(acc).map(n => ({
-        niche: +n,
-        name: (_ssData.niches[n] || {}).name || `Niche ${n}`,
-        size: (_ssData.niches[n] || {}).size || acc[n].xs.length,
-        x: median(acc[n].xs),
-        y: median(acc[n].ys)
-    }));
+    _ssData._centroids = Object.keys(acc).map(n => {
+        const meta = _ssData.niches[n] || {};
+        const cx = median(acc[n].xs);
+        const cy = median(acc[n].ys);
+        const d = acc[n].xs
+            .map((x, i) => Math.hypot(x - cx, acc[n].ys[i] - cy))
+            .sort((a, b) => a - b);
+        return {
+            niche: +n,
+            name: meta.name || `Niche ${n}`,
+            size: meta.size || acc[n].xs.length,
+            terms: meta.terms || [],
+            typicality_pct: (meta.typicality_pct == null) ? null : meta.typicality_pct,
+            isolation_pct: (meta.isolation_pct == null) ? null : meta.isolation_pct,
+            x: cx,
+            y: cy,
+            r: d.length ? d[Math.floor(0.6 * (d.length - 1))] : 0,
+            // Kept rather than discarded: the flash draws the niche's real
+            // points, so it needs their coordinates. One extra copy of the
+            // mapped coordinates, which is cheap at map scale.
+            xs: acc[n].xs,
+            ys: acc[n].ys
+        };
+    });
+    _ssData._centroidById = {};
+    _ssData._centroids.forEach(c => { _ssData._centroidById[c.niche] = c; });
 }
 
 
-function _ssPopulateNicheFocus() {
-    const sel = document.getElementById('ss-niche-focus');
-    if (!sel) { return; }
-    const sorted = _ssData._centroids.slice().sort((a, b) => b.size - a.size);
-    sel.innerHTML = '<option value="">— all niches —</option>'
-        + sorted.map(c => `<option value="${c.niche}">${c.name} (${c.size.toLocaleString()})</option>`).join('');
+function _ssCentroid(nicheId) {
+    return ((_ssData && _ssData._centroidById) || {})[nicheId] || null;
+}
+
+
+// Descending sort on a percentile that may be absent; niches without the
+// reading sink to the bottom rather than pretending to be zero.
+function _ssPctDesc(a, b) {
+    if (a == null && b == null) { return 0; }
+    if (a == null) { return 1; }
+    if (b == null) { return -1; }
+    return b - a;
+}
+
+
+// The word for a percentile, from a highest-floor-first band table.
+function _ssQualitative(pct, bands) {
+    for (const [floor, word] of bands) {
+        if (pct >= floor) { return word; }
+    }
+    return bands[bands.length - 1][1];
+}
+
+
+// ---------------------------------------------------------------------------
+// Focus-niche picker — a searchable, sortable combobox over the niche list.
+// The list runs to hundreds of entries and is the main instrument for finding
+// a niche, which a plain <select> cannot serve: it can't be searched by term,
+// can't be re-ordered by the readings the map publishes, and offers no way out
+// of a selection except scrolling back to a placeholder.
+// ---------------------------------------------------------------------------
+
+// Centroids matching the current search, in the current sort order. A niche
+// matches on its name OR one of its defining terms — the terms are often how a
+// researcher remembers a niche whose generated name they never learned.
+function _ssNicheMatches() {
+    const q = _ssNicheQuery.trim().toLowerCase();
+    let list = (_ssData && _ssData._centroids) || [];
+    if (q) {
+        list = list.filter(c => c.name.toLowerCase().includes(q)
+            || (c.terms || []).some(t => String(t).toLowerCase().includes(q)));
+    }
+    const sort = _SS_NICHE_SORTS[_ssNicheSort] || _SS_NICHE_SORTS.size;
+    return list.slice().sort(sort.cmp);
+}
+
+
+function _ssRenderNicheList() {
+    const list = document.getElementById('ss-niche-list');
+    if (!list || !_ssData) { return; }
+    const matches = _ssNicheMatches();
+    if (!matches.length) {
+        list.innerHTML = '<div class="ss-niche-empty text-sm">No niche matches that search.</div>';
+        _ssRenderNicheCount(0);
+        return;
+    }
+    const sort = _SS_NICHE_SORTS[_ssNicheSort] || _SS_NICHE_SORTS.size;
+    list.innerHTML = matches.map((c, i) => {
+        const cls = 'ss-niche-option text-sm'
+            + (c.niche === _ssFocusNiche ? ' is-selected' : '')
+            + (i === _ssNicheActive ? ' is-active' : '');
+        return `<div class="${cls}" role="option" data-niche="${c.niche}" data-idx="${i}"`
+            + ` aria-selected="${c.niche === _ssFocusNiche}">`
+            + `<span class="ss-niche-option-name">${escapeHtml(c.name)}</span>`
+            + `<span class="ss-niche-option-meta text-xs">${escapeHtml(sort.meta(c))}</span>`
+            + '</div>';
+    }).join('');
+    const active = list.querySelector('.ss-niche-option.is-active');
+    if (active) { active.scrollIntoView({ block: 'nearest' }); }
+    _ssRenderNicheCount(matches.length);
+}
+
+
+// The list holds every niche, but a hidden overlay scrollbar advertises none of
+// that — so state the count outright, and say when there is more below.
+function _ssRenderNicheCount(shown) {
+    const el = document.getElementById('ss-niche-count');
+    const list = document.getElementById('ss-niche-list');
+    if (!el) { return; }
+    const total = ((_ssData && _ssData._centroids) || []).length;
+    const overflows = !!list && list.scrollHeight > list.clientHeight + 1;
+    let text = _ssNicheQuery.trim()
+        ? `${shown.toLocaleString()} of ${total.toLocaleString()} niches match`
+        : `${total.toLocaleString()} niches`;
+    if (overflows) { text += ' · scroll for more'; }
+    el.textContent = text;
+}
+
+
+function _ssNichePanelOpen() {
+    const panel = document.getElementById('ss-niche-panel');
+    return !!(panel && !panel.hidden);
+}
+
+
+function _ssOpenNichePanel() {
+    const panel = document.getElementById('ss-niche-panel');
+    const trigger = document.getElementById('ss-niche-trigger');
+    const search = document.getElementById('ss-niche-search');
+    if (!panel) { return; }
+    panel.hidden = false;
+    if (trigger) { trigger.setAttribute('aria-expanded', 'true'); }
+    _ssNicheActive = -1;
+    _ssRenderNicheList();
+    if (search) { search.focus(); search.select(); }
+}
+
+
+function _ssCloseNichePanel() {
+    const panel = document.getElementById('ss-niche-panel');
+    const trigger = document.getElementById('ss-niche-trigger');
+    if (!panel) { return; }
+    panel.hidden = true;
+    if (trigger) { trigger.setAttribute('aria-expanded', 'false'); }
+    _ssNicheActive = -1;
+}
+
+
+// The single entry point for changing the focus. Every caller (picker, clear
+// button, the map's click dialog, map reload) goes through here, so the
+// trigger label, the clear affordance, any running flash and the redraw stay
+// in step no matter where the change came from.
+function _ssSetFocusNiche(nicheId, opts) {
+    const changed = _ssFocusNiche !== nicheId;
+    _ssFocusNiche = nicheId;
+    if (changed) { _ssStopFlash(); }
+
+    const label = document.getElementById('ss-niche-trigger-label');
+    if (label) {
+        const c = nicheId === null ? null : _ssCentroid(nicheId);
+        label.textContent = c ? `${c.name} (${c.size.toLocaleString()})` : '— all niches —';
+    }
+    const clear = document.getElementById('ss-niche-clear');
+    if (clear) { clear.hidden = nicheId === null; }
+    if (_ssNichePanelOpen()) { _ssRenderNicheList(); }
+    if (!opts || opts.render !== false) { renderSemanticSpace(); }
 }
 
 
@@ -202,7 +417,8 @@ const _SS_ISOLATION_TIP = 'How far this niche sits from its nearest neighbouring
     + 'measured in the full embedding space. This asks a different question from typicality: '
     + 'a niche can sit far from the corpus average and still keep close company — several '
     + 'related niches beside it — or be thoroughly ordinary and yet have nothing near it. '
-    + 'Unlike apparent separation on the map, this is measured.';
+    + 'Unlike apparent separation on the map, this is measured. "Crowded" here means other '
+    + 'niches sit close by, not that this niche holds many videos.';
 
 // Tooltip copy for the measured nearest niches. This is the reading the picture
 // cannot give, so the tooltip says plainly that the two can disagree.
@@ -210,6 +426,17 @@ const _SS_NEAREST_TIP = 'The niches most similar to this one, measured in the fu
     + 'space rather than read off the map. Several are usually drawn far away: the projection '
     + 'can only place a niche in one spot and cannot honour every relationship at once. Where '
     + 'this list and the picture disagree, this list is the accurate one.';
+
+
+// One measured reading, stated qualitatively with the exact percentile on the
+// tooltip. The word is what a reader can act on; the number is what they check
+// it against, so neither is dropped — they are just put in the right order.
+function _ssReadingHtml(label, comparative, pct, bands, tip) {
+    const word = _ssQualitative(pct, bands);
+    const exact = `More ${comparative} than ${pct}% of other niches. ${tip}`;
+    return `<span><span class="meta-tooltip tooltip-wide tooltip-below" `
+        + `data-tooltip="${escapeHtml(exact)}">${label}</span>: ${escapeHtml(word)}</span>`;
+}
 
 
 // Render the niche detail bar under the controls: what actually defines the
@@ -232,24 +459,42 @@ function _ssRenderNicheInfo(focusNiche) {
     // Absent on maps built before typicality was added; the bar just omits it
     // rather than showing a blank reading.
     if (meta.typicality_pct != null) {
-        parts.push(`<span class="meta-tooltip tooltip-wide tooltip-below" data-tooltip="${escapeHtml(_SS_TYPICALITY_TIP)}">`
-            + `More typical than ${meta.typicality_pct}% of other niches</span>`);
+        parts.push(_ssReadingHtml('Typicality', 'typical', meta.typicality_pct,
+            _SS_TYPICALITY_BANDS, _SS_TYPICALITY_TIP));
     }
     // Sits beside typicality as its counterpart: how far from the average vs
     // how far from the nearest company. The two rank niches independently.
     if (meta.isolation_pct != null) {
-        parts.push(`<span class="meta-tooltip tooltip-wide tooltip-below" `
-            + `data-tooltip="${escapeHtml(_SS_ISOLATION_TIP)}">`
-            + `More isolated than ${meta.isolation_pct}% of other niches</span>`);
+        parts.push(_ssReadingHtml('Isolation', 'isolated', meta.isolation_pct,
+            _SS_ISOLATION_BANDS, _SS_ISOLATION_TIP));
     }
     // Placed directly after typicality: both are measured in the full space,
     // and together they are what the picture cannot be trusted to show.
     // The build stores five; three keeps the bar readable and still makes the
     // point that the measured neighbours are not the ones drawn alongside.
+    // The pulse button answers the obvious next question — the list names the
+    // neighbours, the map is where they are, and the two rarely look related.
     if ((meta.nearest || []).length) {
+        const flashable = (meta.nearest_ids || []).some(n => _ssCentroid(n));
+        const btn = flashable
+            ? ` <button type="button" id="ss-flash-nearest" class="ss-flash-btn text-xxs meta-tooltip tooltip-below"`
+                + ` data-tooltip="Pulse these niches on the map — they are usually drawn nowhere near this one."`
+                + ` aria-label="Show the closest niches on the map">◎</button>`
+            : '';
+        // Each neighbour is a control, not just a name: the list answers "which
+        // niches are like this one", and the obvious next question — "show me
+        // that one" — is the same pair of moves a dot click offers.
+        // nearest/nearest_ids are parallel (the backend builds the names from
+        // the surviving ids), so the index carries across.
+        const links = meta.nearest.slice(0, 3).map((nm, i) => {
+            const id = (meta.nearest_ids || [])[i];
+            return (id == null || !_ssCentroid(id))
+                ? escapeHtml(nm)
+                : `<button type="button" class="ss-niche-link" data-niche="${id}">${escapeHtml(nm)}</button>`;
+        }).join(', ');
         parts.push(`<span><span class="meta-tooltip tooltip-wide tooltip-below" `
             + `data-tooltip="${escapeHtml(_SS_NEAREST_TIP)}">Closest niches</span>: `
-            + `${escapeHtml(meta.nearest.slice(0, 3).join(', '))}</span>`);
+            + `${links}${btn}</span>`);
     }
     if ((meta.terms || []).length) {
         parts.push(`<span><span class="meta-tooltip tooltip-wide tooltip-below" `
@@ -264,18 +509,33 @@ function _ssRenderNicheInfo(focusNiche) {
         parts.push(`<span>Top categories: ${cats.join(', ')}</span>`);
     }
     bar.innerHTML = parts.join('');
+    const flashBtn = document.getElementById('ss-flash-nearest');
+    if (flashBtn) { flashBtn.onclick = () => _ssFlashNearest(focusNiche); }
+    bar.querySelectorAll('.ss-niche-link').forEach(link => {
+        link.onclick = () => {
+            const id = +link.dataset.niche;
+            const c = _ssCentroid(id);
+            if (!c) { return; }
+            _ssShowNicheDialog({
+                nicheId: id, nicheName: c.name, size: c.size,
+                intro: 'Measured as one of the closest niches to the focused one:'
+            });
+        };
+    });
 }
 
 
 function _ssWireControls() {
     if (_ssHandlersWired) { return; }
     _ssHandlersWired = true;
-    ['ss-color-mode', 'ss-niche-focus', 'ss-show-labels'].forEach(id => {
+    ['ss-color-mode', 'ss-show-labels'].forEach(id => {
         const el = document.getElementById(id);
         if (el) { el.addEventListener('change', renderSemanticSpace); }
     });
     const legend = document.getElementById('ss-legend');
     if (legend) { legend.addEventListener('click', _ssOnLegendClick); }
+    _ssWireNichePicker();
+    _ssWireTrajectoryDisclosure();
 
     // Trajectory overlay controls. Selecting a collection (or changing the
     // interval) refetches; the toggle just flips overlay visibility on the
@@ -309,6 +569,123 @@ function _ssWireControls() {
         await _ssLoadCollections();
         if (before && coll && coll.value !== before) { _ssLoadTrajectory(); }
     });
+}
+
+
+function _ssWireNichePicker() {
+    const trigger = document.getElementById('ss-niche-trigger');
+    const panel = document.getElementById('ss-niche-panel');
+    const search = document.getElementById('ss-niche-search');
+    const sort = document.getElementById('ss-niche-sort');
+    const list = document.getElementById('ss-niche-list');
+    const clear = document.getElementById('ss-niche-clear');
+
+    if (trigger) {
+        trigger.addEventListener('click', () => {
+            if (_ssNichePanelOpen()) { _ssCloseNichePanel(); } else { _ssOpenNichePanel(); }
+        });
+    }
+    if (clear) {
+        clear.addEventListener('click', () => {
+            _ssCloseNichePanel();
+            _ssSetFocusNiche(null);
+        });
+    }
+    if (search) {
+        search.addEventListener('input', () => {
+            _ssNicheQuery = search.value;
+            _ssNicheActive = -1;
+            _ssRenderNicheList();
+        });
+        search.addEventListener('keydown', _ssOnNicheKeydown);
+    }
+    if (sort) {
+        sort.addEventListener('change', () => {
+            _ssNicheSort = sort.value;
+            _ssNicheActive = -1;
+            _ssRenderNicheList();
+        });
+    }
+    if (list) {
+        list.addEventListener('click', ev => {
+            const opt = ev.target.closest('.ss-niche-option');
+            if (!opt) { return; }
+            _ssCloseNichePanel();
+            _ssSetFocusNiche(+opt.dataset.niche);
+        });
+    }
+    // Click-away and Escape close the panel — it floats over the map, so it
+    // must not become something the reader has to dismiss deliberately.
+    document.addEventListener('click', ev => {
+        if (!_ssNichePanelOpen()) { return; }
+        if (panel && (panel.contains(ev.target)
+            || (trigger && trigger.contains(ev.target)))) { return; }
+        _ssCloseNichePanel();
+    });
+}
+
+
+// Arrow keys move the highlight, Enter focuses the highlighted niche, Escape
+// closes. Typing goes to the search box throughout, so the whole list is
+// reachable without the mouse.
+function _ssOnNicheKeydown(ev) {
+    if (ev.key === 'Escape') {
+        _ssCloseNichePanel();
+        const trigger = document.getElementById('ss-niche-trigger');
+        if (trigger) { trigger.focus(); }
+        return;
+    }
+    const matches = _ssNicheMatches();
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        if (!matches.length) { return; }
+        const step = ev.key === 'ArrowDown' ? 1 : -1;
+        _ssNicheActive = (_ssNicheActive < 0)
+            ? (step === 1 ? 0 : matches.length - 1)
+            : (_ssNicheActive + step + matches.length) % matches.length;
+        _ssRenderNicheList();
+        return;
+    }
+    if (ev.key === 'Enter') {
+        ev.preventDefault();
+        // No explicit highlight yet: Enter takes the top match, which is what
+        // a search-then-Enter gesture means.
+        const pick = matches[_ssNicheActive >= 0 ? _ssNicheActive : 0];
+        if (!pick) { return; }
+        _ssCloseNichePanel();
+        _ssSetFocusNiche(pick.niche);
+    }
+}
+
+
+// The collection-trajectory overlay answers a narrower question than the map,
+// so it lives behind a disclosure. Collapsing also HIDES the overlay (see
+// _ssTrajVisible): a drawn overlay whose controls are off-screen is a change
+// to the map the reader can neither explain nor undo. The selection itself is
+// kept, so re-expanding restores exactly what was there.
+function _ssWireTrajectoryDisclosure() {
+    const btn = document.getElementById('ss-traj-disclosure');
+    const panel = document.getElementById('ss-traj-controls');
+    if (!btn || !panel) { return; }
+    btn.addEventListener('click', () => {
+        _ssTrajCollapsed = !_ssTrajCollapsed;
+        panel.hidden = _ssTrajCollapsed;
+        btn.setAttribute('aria-expanded', String(!_ssTrajCollapsed));
+        if (_ssTrajCollapsed) { _ssAnimStop(); _ssAnimPos = null; }
+        renderSemanticSpace();
+        // The controls row changes the panel's height, and the scatter is
+        // aspect-locked — without an explicit resize Plotly keeps the old plot
+        // box and the map is drawn into the wrong space.
+        const div = document.getElementById('semantic-space-plot');
+        if (div && div.data) { Plotly.Plots.resize(div); }
+    });
+}
+
+
+// Whether the trajectory overlay should be drawn: the user asked for it AND
+// its controls are on screen.
+function _ssTrajVisible() {
+    return _ssTrajOn && !_ssTrajCollapsed;
 }
 
 
@@ -405,10 +782,10 @@ function _ssOnZoomRelayout(ev) {
     if (!axisChange) { return; }
     clearTimeout(_ssLabelTimer);
     _ssLabelTimer = setTimeout(() => {
-        const focus = (document.getElementById('ss-niche-focus') || {}).value || '';
         const showLabels = (document.getElementById('ss-show-labels') || {}).checked;
         Plotly.relayout(div, {
-            annotations: _ssBuildLabels(focus === '' ? null : +focus, showLabels, _ssCurrentRanges(div))
+            annotations: _ssBuildLabels(_ssFocusNiche, showLabels, _ssCurrentRanges(div))
+                .concat(_ssFlashAnnotations())
         });
     }, 100);
 }
@@ -420,11 +797,10 @@ function renderSemanticSpace() {
     if (!div || typeof Plotly === 'undefined') { return; }
 
     const mode = (document.getElementById('ss-color-mode') || {}).value || 'niche';
-    const focus = (document.getElementById('ss-niche-focus') || {}).value || '';
     const showLabels = (document.getElementById('ss-show-labels') || {}).checked;
     const P = _ssData.points;
     const n = P.x.length;
-    const focusNiche = focus === '' ? null : +focus;
+    const focusNiche = _ssFocusNiche;
 
     // Switching the colour variable clears any per-category hide toggles (the
     // hidden set only makes sense for the categories currently on screen).
@@ -462,7 +838,7 @@ function renderSemanticSpace() {
     // While the trajectory overlay is on, fade the base dots so the clouds and
     // path (which now draw above them) clearly dominate; niche colour stays for
     // context.
-    const baseOpacity = _ssTrajOn ? 0.18 : 0.75;
+    const baseOpacity = _ssTrajVisible() ? 0.18 : 0.75;
     let sizeArr = 4;
     let opacityArr = baseOpacity;
     const hideField = (overlay && overlay.kind === 'categorical' && _ssHidden.size) ? overlay.field : null;
@@ -508,7 +884,8 @@ function renderSemanticSpace() {
     // niches get labelled as the user zooms in. Carry that window into the layout
     // too, so recolouring keeps the user's zoom instead of snapping to overview.
     const ranges = _ssCurrentRanges(div);
-    const annotations = _ssBuildLabels(focusNiche, showLabels, ranges);
+    const annotations = _ssBuildLabels(focusNiche, showLabels, ranges)
+        .concat(_ssFlashAnnotations());
 
     const layout = {
         hovermode: 'closest', showlegend: false,
@@ -525,13 +902,14 @@ function renderSemanticSpace() {
         font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text') },
         annotations: annotations,
         // Per-period dispersion ellipses (layer:'above' → on top of the dots).
-        // Empty when the overlay is off, so toggling clears them.
+        // Empty when the overlay is off, so toggling clears them. The flash
+        // rings share the layer, and are likewise empty between pulses.
         shapes: _ssTrajectoryShapes()
     };
 
     // Base scatter stays trace 0; trajectory overlays (if any) are appended
     // after it, so the click/zoom/focus/legend logic above is untouched.
-    Plotly.react(div, [trace].concat(_ssTrajectoryTraces()), layout,
+    Plotly.react(div, [trace].concat(_ssTrajectoryTraces(), _ssFlashTraces()), layout,
         { responsive: true, displayModeBar: true, scrollZoom: true });
     _ssRenderLegend(mode, overlay, catColorMap);
     _ssRenderNicheInfo(focusNiche);
@@ -542,7 +920,7 @@ function renderSemanticSpace() {
             const pt = ev.points && ev.points[0];
             // Only the base scatter (curve 0) opens a video; overlay traces ignore clicks.
             if (pt && pt.curveNumber === 0 && pt.customdata) {
-                _ssOpenInVideoAnalysis(pt.customdata, pt.pointNumber);
+                _ssOnPointClick(pt.customdata, pt.pointNumber);
             }
         });
         div.on('plotly_relayout', _ssOnZoomRelayout);
@@ -550,50 +928,288 @@ function renderSemanticSpace() {
 }
 
 
-// Clicking a dot drills into Video Analysis: filter to the dot's niche and land
-// on that exact video. This map covers the whole corpus while Video Analysis is
-// scoped to the active study, so the video may not be there — the drill-down
-// carries the platform URL as a fallback and Video Analysis explains the miss.
-function _ssOpenInVideoAnalysis(itemId, i) {
+// Clicking a dot asks what the reader meant by it rather than assuming. The two
+// readings of a click are genuinely different tasks — "show me videos like this
+// one" (Video Analysis, filtered to the dot's NICHE, not the single video) and
+// "show me this part of the map" (focus the niche here) — and a click that
+// silently threw the reader onto another tab served only the first.
+function _ssOnPointClick(itemId, i) {
     const P = _ssData && _ssData.points;
     if (!P || !itemId) { return; }
     // The trace is built from the payload arrays unfiltered, so Plotly's point
     // index addresses the parallel arrays directly. Guard anyway: a mismatch
     // would attach the wrong niche to the drill-down.
     const ok = (i != null && i < P.item_id.length && P.item_id[i] === itemId);
-    const nicheId = ok ? P.niche[i] : null;
-    const nicheName = ok ? ((_ssData.niches[nicheId] || {}).name || P.niche_name[i]) : null;
-    const platform = (ok && P.source_platform) ? P.source_platform[i] : null;
-    const platformUrl = (typeof fypPlatformUrl === 'function') ? fypPlatformUrl(platform, itemId) : null;
+    if (!ok) { return; }
+    const nicheId = P.niche[i];
+    const nicheName = (_ssData.niches[nicheId] || {}).name || P.niche_name[i];
+    const size = (_ssData.niches[nicheId] || {}).size || 0;
 
-    const study = (window.studyState && window.studyState.current) || null;
-    if (!study) {
-        // Nothing to drill into — fall back to the post itself.
-        if (platformUrl) window.open(platformUrl, '_blank', 'noopener');
-        return;
-    }
+    _ssShowNicheDialog({
+        nicheId: nicheId,
+        nicheName: nicheName,
+        size: size,
+        story: P.story[i] || '',
+        intro: 'You clicked a video in:'
+    });
+}
 
+
+// Send Video Analysis to the clicked dot's niche. Deliberately NOT to the video
+// itself: one dot out of a niche is a sample, and the reader who clicked it is
+// asking about the neighbourhood it belongs to.
+function _ssDrillToNiche(nicheName) {
+    if (!nicheName) { return; }
     // Same contract Explore / Correlations / Timelines use (consumed by
     // checkPendingDrillDown, which enforces a 5s freshness window — hence the
     // synchronous tab click below).
     window._pendingDrillDown = {
-        filters: nicheName
-            ? { niche_name: { type: 'category', value: [nicheName] } }
-            : {},
+        filters: { niche_name: { type: 'category', value: [nicheName] } },
         searchQuery: '',
-        itemId: itemId,
-        platformUrl: platformUrl,
-        missNotice: `That video isn't in "${study}"${nicheName ? ` — showing the "${nicheName}" niche instead` : ''}.`,
         timestamp: Date.now()
     };
-
     const tabBtn = document.querySelector('.tab-button[onclick*="video_analysis"]');
     if (tabBtn) {
         tabBtn.click();
-    } else if (platformUrl) {
-        // No Video Analysis permission — the post itself is still useful.
+    } else {
         window._pendingDrillDown = null;
-        window.open(platformUrl, '_blank', 'noopener');
+    }
+}
+
+
+// The niche dialog, shared by both ways of naming a niche: clicking a dot on
+// the map, and clicking one of the measured neighbours in the detail bar. Both
+// raise the same question, so both get the same two answers. Reuses the
+// drill-down popup styling shared with Explore.
+// "Open in Video Analysis" is unavailable without an active study (the tab is
+// study-scoped) or without permission for that tab — in both cases the button
+// is disabled and the reason is stated, rather than the click doing nothing.
+function _ssShowNicheDialog(info) {
+    const existing = document.getElementById('ss-point-dialog');
+    if (existing) { existing.remove(); }
+
+    const study = (window.studyState && window.studyState.current) || null;
+    const hasTab = !!document.querySelector('.tab-button[onclick*="video_analysis"]');
+    const canDrill = !!(study && hasTab);
+    const blocked = !hasTab
+        ? 'You do not have access to the Video Analysis tab.'
+        : (!study ? 'Select a study first — Video Analysis is scoped to one study.' : '');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'ss-point-dialog';
+    overlay.className = 'drilldown-overlay';
+
+    const card = document.createElement('div');
+    card.className = 'drilldown-card ss-point-dialog-card';
+    const story = info.story
+        ? `<p class="text-sm" style="margin: 0 0 12px; color: var(--color-text-muted);">`
+            + `“${escapeHtml(_ssTruncate(info.story, 150))}”</p>`
+        : '';
+    card.innerHTML = `
+        <div class="drilldown-header">
+            <span class="drilldown-icon">&#x1F50E;</span>
+            <span class="text-h3 font-semibold">What would you like to do?</span>
+        </div>
+        <p class="text-body" style="margin: 12px 0 6px; color: var(--color-text-secondary);">
+            ${escapeHtml(info.intro || 'Niche:')}
+        </p>
+        <div class="drilldown-filter-preview" style="margin-bottom: 10px;">
+            <span class="font-semibold" style="color: var(--color-accent);">${escapeHtml(info.nicheName)}</span>
+            <span style="color: var(--color-text-muted); margin-left: 8px;">${info.size.toLocaleString()} videos</span>
+        </div>
+        ${story}
+        <p class="text-sm" style="margin: 0 0 16px; color: var(--color-text-muted);">
+            ${canDrill
+                ? (info.story
+                    ? 'Video Analysis will be filtered to the whole niche, not this single video.'
+                    : 'Video Analysis will be filtered to this niche.')
+                : escapeHtml(blocked)}
+        </p>
+        <div class="drilldown-actions" style="flex-wrap: wrap;">
+            <button class="btn btn-discreet ss-dlg-cancel">Cancel</button>
+            <button class="btn btn-discreet ss-dlg-focus">Focus this niche</button>
+            <button class="btn btn-primary ss-dlg-go"${canDrill ? '' : ' disabled'}>Open in Video Analysis</button>
+        </div>
+    `;
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('visible'));
+
+    const keyHandler = ev => {
+        if (ev.key === 'Escape') { dismiss(); }
+    };
+    function dismiss() {
+        document.removeEventListener('keydown', keyHandler);
+        overlay.classList.remove('visible');
+        setTimeout(() => overlay.remove(), 200);
+    }
+    document.addEventListener('keydown', keyHandler);
+
+    card.querySelector('.ss-dlg-cancel').onclick = dismiss;
+    card.querySelector('.ss-dlg-focus').onclick = () => {
+        dismiss();
+        _ssSetFocusNiche(info.nicheId);
+    };
+    const go = card.querySelector('.ss-dlg-go');
+    if (canDrill) {
+        go.onclick = () => { dismiss(); _ssDrillToNiche(info.nicheName); };
+    }
+    overlay.addEventListener('click', ev => { if (ev.target === overlay) { dismiss(); } });
+}
+
+
+function _ssTruncate(text, limit) {
+    const s = String(text || '');
+    return s.length <= limit ? s : s.slice(0, limit - 1).trimEnd() + '…';
+}
+
+
+// ---------------------------------------------------------------------------
+// "Flash the closest niches" — pulse the measured nearest niches on the map.
+// The detail bar names them; the map is where they are, and the two routinely
+// disagree because the projection can only place a niche in one spot. Pulsing
+// them is the cheapest way to show that disagreement rather than assert it.
+// ---------------------------------------------------------------------------
+
+function _ssStopFlash() {
+    _ssFlashTimers.forEach(clearTimeout);
+    _ssFlashTimers = [];
+    _ssFlashNiches = null;
+}
+
+
+// The pulsed niches' OWN points, as one bright overlay trace (empty between
+// pulses). A ring said "somewhere around here" and drew a circle over whatever
+// else lives inside it; lighting up the actual dots shows the niche's real
+// shape and extent, which on this map is rarely circular.
+//
+// Colour is the chart's text colour on the chart's background — the one pair
+// guaranteed to contrast in both themes, and the one pair no niche in the
+// tab20 palette can be confused with.
+function _ssFlashTraces() {
+    if (!_ssFlashNiches) { return []; }
+    // The pulse re-enters here once per on-phase with the same niches, so the
+    // concatenated coordinates are built once per flash, not once per pulse.
+    const key = _ssFlashNiches.join(',');
+    if (!_ssFlashXY || _ssFlashXY.key !== key) {
+        const xs = [], ys = [];
+        _ssFlashNiches.forEach(id => {
+            const c = _ssCentroid(id);
+            if (!c) { return; }
+            for (let i = 0; i < c.xs.length; i++) { xs.push(c.xs[i]); ys.push(c.ys[i]); }
+        });
+        _ssFlashXY = { key: key, xs: xs, ys: ys };
+    }
+    const { xs, ys } = _ssFlashXY;
+    if (!xs.length) { return []; }
+    return [{
+        type: 'scattergl', mode: 'markers', x: xs, y: ys,
+        marker: {
+            size: 9, color: getCSSVar('--chart-text'),
+            line: { width: 1, color: getCSSVar('--chart-bg') }
+        },
+        hoverinfo: 'skip', showlegend: false
+    }];
+}
+
+
+// Name labels for the pulsed niches — a ring alone says "over there", not
+// "that is the one called X".
+function _ssFlashAnnotations() {
+    if (!_ssFlashNiches) { return []; }
+    return _ssFlashNiches.map(id => {
+        const c = _ssCentroid(id);
+        if (!c) { return null; }
+        return {
+            x: c.x, y: c.y + Math.max(c.r, 0.6), text: c.name, showarrow: false,
+            yanchor: 'bottom',
+            font: { family: getCSSVar('--font-sans'), size: 11, color: getCSSVar('--white') },
+            bgcolor: getCSSVar('--color-accent'), borderpad: 3, opacity: 0.95
+        };
+    }).filter(Boolean);
+}
+
+
+// Redraw one pulse frame. The flash is now a trace rather than a shape, so this
+// is a react rather than a relayout — but trace 0 is passed by the SAME object
+// reference, so Plotly diffs it as unchanged and never rebuilds the corpus-sized
+// gl layer. Same technique the trajectory playback uses to hold ~60 fps.
+function _ssFlashRedraw() {
+    const div = document.getElementById('semantic-space-plot');
+    if (!div || !div.data || !div.data.length) { return; }
+    const showLabels = (document.getElementById('ss-show-labels') || {}).checked;
+    const layout = Object.assign({}, div.layout, {
+        shapes: _ssTrajectoryShapes(),
+        annotations: _ssBuildLabels(_ssFocusNiche, showLabels, _ssCurrentRanges(div))
+            .concat(_ssFlashAnnotations())
+    });
+    Plotly.react(div, [div.data[0]].concat(_ssTrajectoryTraces(), _ssFlashTraces()), layout,
+        { responsive: true, displayModeBar: true, scrollZoom: true });
+}
+
+
+// Widen the view if any pulse target sits outside it. Without this the button
+// silently does nothing whenever the reader has zoomed in — which is exactly
+// when they are most likely to ask where the neighbours went. The requested box
+// is squared first: the axes are aspect-locked, so an oblong request would be
+// silently reinterpreted by Plotly.
+function _ssEnsureVisible(div, targets) {
+    const ranges = _ssCurrentRanges(div);
+    if (!ranges) { return; }   // fully zoomed out: everything is already in view
+    const xs = [], ys = [];
+    targets.forEach(c => {
+        const r = Math.max(c.r, 0.6);
+        xs.push(c.x - r, c.x + r);
+        ys.push(c.y - r, c.y + r);
+    });
+    if (!xs.length) { return; }
+    const xlo = Math.min(ranges.x[0], ranges.x[1]), xhi = Math.max(ranges.x[0], ranges.x[1]);
+    const ylo = Math.min(ranges.y[0], ranges.y[1]), yhi = Math.max(ranges.y[0], ranges.y[1]);
+    const inside = Math.min(...xs) >= xlo && Math.max(...xs) <= xhi
+        && Math.min(...ys) >= ylo && Math.max(...ys) <= yhi;
+    if (inside) { return; }
+
+    const nx0 = Math.min(xlo, ...xs), nx1 = Math.max(xhi, ...xs);
+    const ny0 = Math.min(ylo, ...ys), ny1 = Math.max(yhi, ...ys);
+    const cx = (nx0 + nx1) / 2, cy = (ny0 + ny1) / 2;
+    const half = Math.max(nx1 - nx0, ny1 - ny0) / 2 * 1.08;   // square + a margin
+    Plotly.relayout(div, {
+        'xaxis.range': [cx - half, cx + half],
+        'yaxis.range': [cy - half, cy + half]
+    });
+}
+
+
+// Pulse the focused niche's measured nearest niches _SS_FLASH_PULSES times.
+function _ssFlashNearest(focusNiche) {
+    const div = document.getElementById('semantic-space-plot');
+    if (!div || !_ssData || focusNiche === null) { return; }
+    const meta = (_ssData.niches || {})[focusNiche] || {};
+    const ids = (meta.nearest_ids || []).slice(0, 3).filter(id => _ssCentroid(id));
+    if (!ids.length) { return; }
+
+    _ssStopFlash();
+    const focused = _ssCentroid(focusNiche);
+    _ssEnsureVisible(div, ids.map(_ssCentroid).concat(focused ? [focused] : []));
+
+    // Schedule the whole on/off sequence up front; every handle is tracked so a
+    // focus change (or a second click) can cancel a pulse mid-flight.
+    let at = 0;
+    for (let p = 0; p < _SS_FLASH_PULSES; p++) {
+        _ssFlashTimers.push(setTimeout(() => {
+            _ssFlashNiches = ids;
+            _ssFlashRedraw();
+        }, at));
+        at += _SS_FLASH_ON_MS;
+        const last = p === _SS_FLASH_PULSES - 1;
+        _ssFlashTimers.push(setTimeout(() => {
+            _ssFlashNiches = null;
+            _ssFlashRedraw();
+            // The final off-pulse retires the whole sequence, so a finished
+            // flash leaves no spent handles behind for the next one to cancel.
+            if (last) { _ssFlashTimers = []; }
+        }, at));
+        at += _SS_FLASH_OFF_MS;
     }
 }
 
@@ -679,7 +1295,7 @@ function _ssOnLegendClick(ev) {
 function _ssRenderLegend(mode, overlay, catColorMap) {
     const legend = document.getElementById('ss-legend');
     if (!legend) { return; }
-    const openHint = '<span style="margin-left:auto;white-space:nowrap;">click a point to open it in Video Analysis</span>';
+    const openHint = '<span style="margin-left:auto;white-space:nowrap;">click a point to focus or open its niche</span>';
     if (overlay && overlay.kind === 'categorical' && catColorMap) {
         _ssLegendCats = _ssDistinct(overlay.field);
         const swatches = _ssLegendCats.map((c, i) => {
@@ -690,7 +1306,7 @@ function _ssRenderLegend(mode, overlay, catColorMap) {
                 + `<span style="width:9px;height:9px;border-radius:2px;background:${catColorMap[c]};`
                 + `display:inline-block;${off ? 'filter:grayscale(1);' : ''}"></span>${c}</span>`;
         }).join('');
-        const hint = '<span style="margin-left:auto;white-space:nowrap;">click a swatch to show/hide · click a point to open it in Video Analysis</span>';
+        const hint = '<span style="margin-left:auto;white-space:nowrap;">click a swatch to show/hide · click a point to focus or open its niche</span>';
         legend.innerHTML = swatches + hint;
     } else if (overlay && overlay.kind === 'numeric') {
         _ssLegendCats = null;
@@ -814,7 +1430,7 @@ function _ssSetupScrub(n) {
 // Scrub handler: jump to the dragged period (frame mode). Stops any running
 // playback; no smooth tween — each input just renders that frame.
 function _ssOnScrub() {
-    if (!_ssTrajOn || !_ssTrajectory) { return; }
+    if (!_ssTrajVisible() || !_ssTrajectory) { return; }
     const n = (_ssTrajectory.points || []).length;
     if (n < 2) { return; }
     _ssAnimStop();
@@ -967,7 +1583,7 @@ function _ssLerpEllipse(a, b, frac) {
 // >_SS_TRAJ_MAX_ELLIPSES skip applies only to the static view (playback shows
 // just a short trailing window, so it stays cheap even at daily granularity).
 function _ssTrajectoryShapes() {
-    if (!_ssTrajOn || !_ssTrajectory) { return []; }
+    if (!_ssTrajVisible() || !_ssTrajectory) { return []; }
     const T = _ssTrajectory;
     const all = T.points || [];
     if (all.length) {
@@ -1001,7 +1617,7 @@ function _ssTrajectoryShapes() {
 // path connects the ghosts up to that gliding head. Ellipses live in
 // layout.shapes (see _ssTrajectoryShapes).
 function _ssTrajectoryTraces() {
-    if (!_ssTrajOn || !_ssTrajectory) { return []; }
+    if (!_ssTrajVisible() || !_ssTrajectory) { return []; }
     const traces = [];
     const T = _ssTrajectory;
     const at = T.all_time;
@@ -1106,8 +1722,9 @@ function _ssAnimFrame() {
     const div = document.getElementById('semantic-space-plot');
     if (!div || !div.data || !div.data.length) { renderSemanticSpace(); return; }
     const base = div.data[0];
-    const layout = Object.assign({}, div.layout, { shapes: _ssTrajectoryShapes() });
-    Plotly.react(div, [base].concat(_ssTrajectoryTraces()), layout,
+    const layout = Object.assign({}, div.layout,
+        { shapes: _ssTrajectoryShapes() });
+    Plotly.react(div, [base].concat(_ssTrajectoryTraces(), _ssFlashTraces()), layout,
         { responsive: true, displayModeBar: true, scrollZoom: true });
 }
 
@@ -1143,7 +1760,7 @@ function _ssAnimSyncScrub() {
 
 
 function _ssAnimPlay() {
-    if (!_ssTrajOn || !_ssTrajectory) { return; }
+    if (!_ssTrajVisible() || !_ssTrajectory) { return; }
     const pts = _ssTrajectory.points || [];
     if (pts.length < 2) { return; }   // need at least two periods to morph between
     if (_ssAnimPos == null || _ssAnimPos >= pts.length - 1) { _ssAnimPos = 0; }   // (re)start
@@ -1268,11 +1885,12 @@ function _ssRenderBanner(s) {
 }
 
 
-// Re-fetch the map after a rebuild, preserving the user's colour/focus
-// selections where the rebuilt map still offers them (niche IDs can change).
+// Re-fetch the map after a rebuild, preserving the user's colour selection
+// where the rebuilt map still offers it. The focus niche is preserved by
+// loadSemanticSpace itself, which drops it when the rebuild no longer has that
+// niche (ids can change across builds).
 async function _ssReloadMap() {
     const prevMode = (document.getElementById('ss-color-mode') || {}).value;
-    const prevFocus = (document.getElementById('ss-niche-focus') || {}).value;
     const banner = document.getElementById('ss-banner');
     if (banner) { banner.style.display = 'none'; }
 
@@ -1281,10 +1899,6 @@ async function _ssReloadMap() {
     const cm = document.getElementById('ss-color-mode');
     if (cm && prevMode && Array.from(cm.options).some(o => o.value === prevMode)) {
         cm.value = prevMode;
-    }
-    const nf = document.getElementById('ss-niche-focus');
-    if (nf && prevFocus && Array.from(nf.options).some(o => o.value === prevFocus)) {
-        nf.value = prevFocus;
     }
     renderSemanticSpace();
 }
