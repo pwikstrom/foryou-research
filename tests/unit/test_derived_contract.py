@@ -8,6 +8,7 @@ from fyp import derived_contract as dc
 
 _EXPECTED = {
     "days_since_created", "completion_rate", "scraped_fail", "niche", "niche_name",
+    "typicality_pct", "niche_isolation_pct",
     "desc_hashtags", "desc_raw", "scraped_ok", "annotated_ok", "annotated_fail",
     "engaged", "rewatched", "is_weekend", "videos_watched",
 }
@@ -34,6 +35,11 @@ def test_owns_the_calc_and_niche_columns() -> None:
     assert meta["niche_name"]["role"] == "measure"
     assert meta["niche"]["role"] == "skip" and meta["niche"]["scale"] == "raw"
     assert meta["scraped_fail"]["role"] == "skip"
+    # The embedding-geometry measures must stay numeric measures — that pair of
+    # values is exactly what puts them in the PCA/correlations feature set.
+    for measure in ("typicality_pct", "niche_isolation_pct"):
+        assert meta[measure]["role"] == "measure", measure
+        assert meta[measure]["scale"] == "numeric", measure
     # recode fan-out of desc + the status-flag family
     assert meta["desc_hashtags"]["scale"] == "list"
     assert meta["desc_raw"]["scale"] == "text"

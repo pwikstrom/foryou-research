@@ -79,7 +79,7 @@ fyp_main_v02/
 │   ├── annotation_contract.toml # Declarative source for the Gemini prompt + response_schema + flattener (sectionless flat prompt since 2026-07; scale inferred from field shape except free-text categorical/text)
 │   ├── scrape_contract.toml     # Declarative source for the canonical cross-platform scrape schema (base + per-platform fields)
 │   ├── activity_contract.toml   # Declarative source for the platform-agnostic activity schema (ingest required columns + required-core hard-drop set + derived local_*/session fields)
-│   └── derived_contract.toml    # Declarative source for merge-derived columns (days_since_created/completion_rate/scraped_fail, niche/niche_name, desc_hashtags/desc_raw, status flags)
+│   └── derived_contract.toml    # Declarative source for merge-derived columns (days_since_created/completion_rate/scraped_fail, niche/niche_name + the embedding-geometry measures typicality_pct/niche_isolation_pct, desc_hashtags/desc_raw, status flags)
 ├── fyp/                         # Core Python package — five subpackages (see docs/fyp-import-graph.md).
 │   │                            #   The old flat paths (fyp/data_io.py, fyp/pca.py, ...) remain importable
 │   │                            #   forever as alias shims (same module objects); prefer subpackage paths in new code.
@@ -138,7 +138,7 @@ fyp_main_v02/
 │       ├── embedding_store.py   # Random-access dense sidecar over the shards: per-model float16 parts + id→row index + fingerprint-stamped corpus mean (memmap local / ranged reads GCS)
 │       ├── embedding_backends/  # EmbeddingBackend ABC + registry: gemini (default) / qwen_local (Qwen3-Embedding via sentence-transformers)
 │       ├── niche_detection.py   # Data-driven micro-genre ("niche") detection from annotation text
-│       ├── video_map.py         # Cluster video embeddings into niches + 2D semantic map (+ video_map_meta.json provenance; term-based niche naming when Gemini is absent)
+│       ├── video_map.py         # Cluster video embeddings into niches + 2D semantic map (+ video_map_meta.json provenance; term-based niche naming when Gemini is absent). Also emits the two per-video **percentiles** `typicality_pct` / `niche_isolation_pct`, joined into every study frame by `organize_datasets._join_niche_columns` as numeric measures (so they reach the Correlations tab as group means per collection-day). Percentiles, not the raw cosine/PCA distances, because those scales drift with every rebuild. Both are NULL for videos not yet in the map, and the PCA build drops rows with any null feature — so an out-of-date map silently shrinks the correlations frame for **every** variable (logged as a warning at merge time; fix by refreshing embeddings + the video map BEFORE recoding studies)
 │       ├── session_profile.py   # Within-session begin→end profiling
 │       ├── sequence_analysis.py # Sequence-windowing analysis (dwell→next-window lift)
 │       ├── sequence_model.py    # Stage-B predictive modelling for sequence analysis
