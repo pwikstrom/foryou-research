@@ -1882,6 +1882,32 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 
 
 /* ============================================================
+   Timelines — shared time-window (zoom) control in the control bar
+   ============================================================ */
+
+.timelines-zoom-control {
+    display: flex;
+    align-items: center;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.timelines-zoom-hint {
+    color: var(--color-text-faint);
+}
+
+.timelines-zoom-window {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.timelines-zoom-window .font-medium {
+    color: var(--color-text-primary);
+}
+
+
+/* ============================================================
    Plotly modebar — themed colors, fade in only on chart hover
    ============================================================ */
 
