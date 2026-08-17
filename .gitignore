@@ -162,6 +162,18 @@ sandbox/
 tests/scratchpads/
 NMS_manuscript_scaffold.docx
 
+# Notebooks, anywhere, unconditionally — this repo holds none by policy. Their
+# saved outputs carry real feed rows (creator handles, captions, item ids), so a
+# committed .ipynb leaks participant-linked data even when its code is harmless.
+# The rules above covered only sandbox/, which is how
+# tests/_patrik_test_scratchpad_001.ipynb reached git history.
+*.ipynb
+
+# Raw / intermediate research data that must never reach the public repo
+*.npy
+*.ndjson
+users.json
+
 # Machine-local config overlay (see config/config.local.toml.example)
 config/config.local.toml
 
