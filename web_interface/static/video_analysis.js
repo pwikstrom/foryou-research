@@ -973,6 +973,10 @@ async function loadChunkFor(index) {
                 limit: chunkLimit
             })
         });
+        if (!res.ok) {
+            alert(serverFailureMessage(res.status));
+            return false;
+        }
         const data = await res.json();
         if (data.error) {
             alert(data.error);
@@ -1024,6 +1028,16 @@ async function applyViewerFilters(focusItemId = null) {
                 limit: 1000
             })
         });
+
+        // A failure inside the server — or the platform terminating it — sends
+        // back an HTML error page, not JSON. Reading the status first turns
+        // that into a message that says what happened; letting res.json() throw
+        // sends every one of them to the generic catch below instead.
+        if (!res.ok) {
+            alert(serverFailureMessage(res.status));
+            return false;
+        }
+
         const data = await res.json();
 
         if (data.error) {
@@ -1117,9 +1131,31 @@ async function applyViewerFilters(focusItemId = null) {
 
     } catch (e) {
         console.error(e);
-        alert("Failed to filter items");
+        alert("Could not reach the server to filter items. Check your connection, "
+              + "then try again.");
         return false;
     }
+}
+
+// What to tell the user when the filter request comes back as a server error
+// rather than a result. The status is the only thing that survives — the body
+// is a platform error page — so it has to carry the whole explanation.
+function serverFailureMessage(status) {
+    if (status === 502 || status === 503) {
+        return "The server could not complete this filter (HTTP " + status + "). "
+             + "It may have run out of memory or restarted. On a very large "
+             + "study, narrowing the date range or applying a filter before "
+             + "searching gives it much less to scan.";
+    }
+    if (status === 504) {
+        return "The server took too long to answer this filter (HTTP 504). On a "
+             + "very large study, narrowing the date range or applying a filter "
+             + "before searching gives it much less to scan.";
+    }
+    if (status === 403 || status === 401) {
+        return "You do not have access to this study (HTTP " + status + ").";
+    }
+    return "The server returned an error while filtering (HTTP " + status + ").";
 }
 
 // ---------------------------------------------------------------------------
