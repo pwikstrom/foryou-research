@@ -106,9 +106,11 @@ async function loadSemanticSpace() {
         _ssPopulateNicheFocus();
         _ssPopulateColorModes();
         if (status) {
-            status.innerText =
+            // innerHTML, not innerText: the accuracy figure carries a tooltip.
+            status.innerHTML =
                 `${data.total_mapped.toLocaleString()} videos shown · `
-                + `${data.n_niches} niches · ${data.total_videos.toLocaleString()} embedded`;
+                + `${data.n_niches} niches · ${data.total_videos.toLocaleString()} embedded`
+                + _ssPreservationHtml(data.neighbour_preservation);
         }
         _ssWireControls();
         // Load the study-scoped collection list once the active study is known.
@@ -160,6 +162,24 @@ function _ssPopulateNicheFocus() {
 }
 
 
+// The projection's own accuracy score, shown beside the corpus counts. A 2D
+// layout drops relationships silently, so without this figure the map's
+// fidelity is unfalsifiable — publishing it is what lets a reader judge how
+// much weight the picture will carry.
+function _ssPreservationHtml(np) {
+    if (!np || np.score == null) { return ''; }
+    const pct = Math.round(100 * np.score);
+    const chance = (100 * np.chance).toFixed(3);
+    const tip = `Of a video's ${np.k} nearest neighbours in the full embedding space, `
+        + `${pct}% are still drawn among its ${np.k} nearest here — against ${chance}% `
+        + `for a random layout. The projection cannot honour every relationship at once, `
+        + `so treat closeness on the map as evidence and check anything that matters `
+        + `against the measured readings (typicality, closest niches).`;
+    return ` · <span class="meta-tooltip tooltip-wide tooltip-below" `
+        + `data-tooltip="${escapeHtml(tip)}">layout keeps ${pct}% of true neighbours</span>`;
+}
+
+
 // Tooltip copy for the typicality reading. The map cannot express this, so the
 // tooltip says so — a niche near the middle of the picture is not the same
 // thing as a niche near the middle of the corpus.
@@ -171,8 +191,16 @@ const _SS_TYPICALITY_TIP = 'How close this niche sits to the average of the whol
 // Tooltip copy for the defining terms — the words that separate this niche from
 // the rest of the corpus, not merely the words most common inside it.
 const _SS_TERMS_TIP = 'The words that most distinguish this niche\'s videos from the rest of '
-    + 'the corpus. Two niches sit close together on the map when their videos would be '
-    + 'described in overlapping words like these.';
+    + 'the corpus. Videos are positioned by how they would be described in words like these, '
+    + 'but the map can only show part of that structure — read closeness as a hint, not a '
+    + 'measurement.';
+
+// Tooltip copy for the measured nearest niches. This is the reading the picture
+// cannot give, so the tooltip says plainly that the two can disagree.
+const _SS_NEAREST_TIP = 'The niches most similar to this one, measured in the full embedding '
+    + 'space rather than read off the map. Several are usually drawn far away: the projection '
+    + 'can only place a niche in one spot and cannot honour every relationship at once. Where '
+    + 'this list and the picture disagree, this list is the accurate one.';
 
 
 // Render the niche detail bar under the controls: what actually defines the
@@ -197,6 +225,15 @@ function _ssRenderNicheInfo(focusNiche) {
     if (meta.typicality_pct != null) {
         parts.push(`<span class="meta-tooltip tooltip-wide tooltip-below" data-tooltip="${escapeHtml(_SS_TYPICALITY_TIP)}">`
             + `More typical than ${meta.typicality_pct}% of other niches</span>`);
+    }
+    // Placed directly after typicality: both are measured in the full space,
+    // and together they are what the picture cannot be trusted to show.
+    // The build stores five; three keeps the bar readable and still makes the
+    // point that the measured neighbours are not the ones drawn alongside.
+    if ((meta.nearest || []).length) {
+        parts.push(`<span><span class="meta-tooltip tooltip-wide tooltip-below" `
+            + `data-tooltip="${escapeHtml(_SS_NEAREST_TIP)}">Closest niches</span>: `
+            + `${escapeHtml(meta.nearest.slice(0, 3).join(', '))}</span>`);
     }
     if ((meta.terms || []).length) {
         parts.push(`<span><span class="meta-tooltip tooltip-wide tooltip-below" `

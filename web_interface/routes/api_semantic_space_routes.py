@@ -158,9 +158,29 @@ def _build_payload() -> dict:
             ],
             "typicality": v.get("typicality"),
             "typicality_pct": v.get("typicality_pct"),
+            "nearest_ids": [int(n) for n in (v.get("nearest") or [])],
         }
         for k, v in niches_meta.items()
     }
+
+    # Resolve neighbour ids to names in a second pass — a neighbour's name lives
+    # in another entry, and the build stores ids precisely so a renamed niche
+    # still resolves correctly here.
+    for meta in niches.values():
+        meta["nearest"] = [
+            niches[str(n)]["name"] for n in meta.pop("nearest_ids") if str(n) in niches
+        ]
+
+    # Build provenance rides along so the tab can publish the projection's own
+    # accuracy rather than asking the reader to take the layout on trust. Absent
+    # on maps built before the score existed; the frontend then omits it.
+    build_meta = {}
+    if data_io.exists(storage_location=embeddings.STORE_LOCATION,
+                      filename=video_map.MAP_META_FILE):
+        build_meta = data_io.load_json(
+            storage_location=embeddings.STORE_LOCATION,
+            filename=video_map.MAP_META_FILE,
+        ) or {}
 
     return {
         "points": points,
@@ -169,6 +189,7 @@ def _build_payload() -> dict:
         "total_mapped": int(len(mapped)),
         "total_videos": total_videos,
         "n_niches": len(niches_meta),
+        "neighbour_preservation": build_meta.get("neighbour_preservation") or None,
     }
 
 

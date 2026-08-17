@@ -69,18 +69,24 @@
             <span id="ss-traj-status" class="text-sm" style="color: var(--control-bar-info);"></span>
         </div>
 
-        <!-- Niche detail bar: what defines the focused niche — its distinctive
-             terms, size, dominant categories and typicality. Fixed height for
-             the same reason as the legend below: the plot box must stay
-             constant, or the 1:1-locked scatter shifts every time a niche is
-             focused or cleared. Long term lists scroll sideways rather than
-             wrapping, so the height never changes with content. -->
+        <!-- Niche detail bar: what defines the focused niche — its size,
+             typicality, genuinely nearest niches, distinctive terms and
+             category shares. Fixed height for the same reason as the legend
+             below: the plot box must stay constant, or the 1:1-locked scatter
+             shifts every time a niche is focused or cleared. Items wrap onto a
+             second row (flex-wrap) while each item stays on one line
+             and long lists wrap inside their own item rather than being clipped
+             (no white-space: nowrap — a nowrap list of niche names is wider
+             than the pane). Three rows fit the longest realistic content;
+             align-content centres them, so a shorter bar reads as padding
+             rather than a gap. -->
         <div id="ss-niche-info" class="text-xs"
-             style="height: 40px; box-sizing: border-box; padding: 0 14px;
+             style="height: 76px; box-sizing: border-box; padding: 0 14px;
                     border-bottom: 1px solid var(--color-border-subtle);
                     background: var(--color-bg-elevated); color: var(--control-bar-info);
-                    display: flex; align-items: center; gap: 16px;
-                    white-space: nowrap; overflow-x: auto; overflow-y: hidden;"></div>
+                    display: flex; flex-wrap: wrap; align-items: center;
+                    align-content: center; gap: 2px 16px;
+                    overflow-x: hidden; overflow-y: auto;"></div>
 
         <!-- Plot -->
         <div id="semantic-space-plot" style="flex: 1; min-height: 0;"></div>

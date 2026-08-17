@@ -99,6 +99,86 @@ def test_niche_typicality_percentile_follows_the_mean_order():
 
 
 
+def test_niche_neighbours_are_ordered_by_real_distance():
+    """Niche 0 sits beside niche 1; niche 2 is far from both."""
+    labels = np.array([0, 0, 1, 1, 2, 2])
+    reduced = np.array([
+        [0.0, 0.0], [0.2, 0.0],
+        [1.0, 0.0], [1.2, 0.0],
+        [9.0, 0.0], [9.2, 0.0],
+    ], dtype=np.float32)
+    meta = {0: {}, 1: {}, 2: {}}
+
+    video_map._add_niche_neighbours(meta, labels, reduced, n_neighbours=2)
+
+    assert meta[0]["nearest"] == [1, 2]
+    assert meta[2]["nearest"] == [1, 0]
+    # A niche is never its own neighbour.
+    assert all(n not in meta[n]["nearest"] for n in meta)
+
+
+
+
+
+
+def test_niche_neighbours_respect_the_requested_count():
+    labels = np.array([0, 1, 2, 3])
+    reduced = np.array([[0.0], [1.0], [2.0], [3.0]], dtype=np.float32)
+    meta = {0: {}, 1: {}, 2: {}, 3: {}}
+
+    video_map._add_niche_neighbours(meta, labels, reduced, n_neighbours=2)
+
+    assert all(len(meta[n]["nearest"]) == 2 for n in meta)
+    assert meta[0]["nearest"] == [1, 2]
+
+
+
+
+
+
+def test_neighbour_preservation_is_perfect_for_a_faithful_layout():
+    """A 2D layout that is just the first two columns keeps every neighbour."""
+    rng = np.random.RandomState(0)
+    reduced = rng.rand(200, 2).astype(np.float32)
+
+    got = video_map._neighbour_preservation(reduced, reduced.copy(), k=5, probe=50)
+
+    assert got["score"] == 1.0
+    assert got["k"] == 5
+    assert got["mapped"] == 200
+    assert got["probe"] == 50
+
+
+
+
+
+
+def test_neighbour_preservation_collapses_for_a_scrambled_layout():
+    """A layout unrelated to the real space scores near chance, not near 1."""
+    rng = np.random.RandomState(0)
+    reduced = rng.rand(400, 8).astype(np.float32)
+    scrambled = rng.rand(400, 2).astype(np.float32)
+
+    got = video_map._neighbour_preservation(reduced, scrambled, k=10, probe=200)
+
+    assert got["score"] < 0.2
+    assert got["chance"] == round(10 / 399, 6)
+
+
+
+
+
+
+def test_neighbour_preservation_declines_a_sample_too_small_to_have_neighbours():
+    tiny = np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float32)
+
+    assert video_map._neighbour_preservation(tiny, tiny.copy()) == {}
+
+
+
+
+
+
 def test_niche_typicality_percentile_survives_a_single_niche():
     """One niche means no spread to rank against; it must not divide by zero."""
     meta = {0: {}}
