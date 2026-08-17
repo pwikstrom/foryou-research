@@ -332,6 +332,104 @@ def search_columns(column_types: dict, *queries) -> set:
 
 
 
+def _arrow_values(series: pd.Series):
+    """The PyArrow ChunkedArray behind an Arrow-backed Series, else ``None``.
+
+    Columns read from the recoded parquets are Arrow-backed, so the search
+    kernels below can work straight off their buffers. A column added at
+    request time on numpy storage returns ``None`` and takes the pandas path.
+    """
+    return getattr(getattr(series, "array", None), "_pa_array", None)
+
+
+
+
+
+
+def _list_column_search_mask(values, term: str) -> np.ndarray:
+    """Rows of a list-of-string column having any element that contains ``term``.
+
+    ``list_parent_indices`` numbers rows within its own chunk, so the running
+    ``base`` offset restores whole-column positions. Nothing is concatenated
+    or joined: a 600 MB list column is matched where it already lies.
+
+    Args:
+        values: Arrow ChunkedArray of a list-of-string column.
+        term: Lowercased search term; matching is case-insensitive.
+
+    Returns:
+        Positional boolean mask, one entry per row of ``values``.
+    """
+    mask = np.zeros(len(values), dtype=bool)
+    base = 0
+    for chunk in values.chunks:
+        if len(chunk):
+            hits = pc.fill_null(
+                pc.match_substring(chunk.flatten(), term, ignore_case=True),
+                False)
+            parents = np.asarray(pc.list_parent_indices(chunk))
+            mask[base + parents[np.asarray(hits)]] = True
+        base += len(chunk)
+    return mask
+
+
+
+
+
+
+def _column_search_mask(series: pd.Series, term: str) -> np.ndarray:
+    """Positional mask of rows whose value contains ``term``, case-insensitively.
+
+    ``match_substring`` is the same Arrow kernel pandas' ``str.contains(
+    case=False)`` dispatches to, but reaching it through the ``.str`` accessor
+    first casts the column to pandas' own string dtype — a full copy of every
+    byte with offsets widened 4 -> 8 bytes per row. A global search sweeps 78
+    of this schema's 119 columns, and holding a copy of each one at once
+    exhausted a 16 GiB instance on a 2.4M-row study (2026-08-17). Matching in
+    place allocates only the mask.
+
+    Columns Arrow cannot match as text directly — timestamps, booleans, and
+    the number columns a numeric term adds — still take that cast, one column
+    at a time, released as soon as its mask is built.
+
+    Args:
+        series: One column of the frame being filtered.
+        term: Lowercased search term.
+
+    Returns:
+        Positional boolean mask, one entry per row of ``series``.
+    """
+    values = _arrow_values(series)
+    if values is not None:
+        pa_type = values.type
+        if pa.types.is_string(pa_type) or pa.types.is_large_string(pa_type):
+            hits = pc.fill_null(
+                pc.match_substring(values, term, ignore_case=True), False)
+            return np.asarray(hits.to_numpy(zero_copy_only=False), dtype=bool)
+
+        is_list = pa.types.is_list(pa_type) or pa.types.is_large_list(pa_type)
+        if is_list and (pa.types.is_string(pa_type.value_type)
+                        or pa.types.is_large_string(pa_type.value_type)):
+            if " " in term:
+                # Elements used to be joined with a space before matching, so a
+                # term spanning two of them matched. Preserve that by joining
+                # only for the terms that can span — the join is transient and
+                # this column alone, not the corpus.
+                hits = pc.fill_null(
+                    pc.match_substring(pc.binary_join(values, " "), term,
+                                       ignore_case=True), False)
+                return np.asarray(hits.to_numpy(zero_copy_only=False),
+                                  dtype=bool)
+            return _list_column_search_mask(values, term)
+
+    return series.astype("string[pyarrow]").str.contains(
+        term, case=False, regex=False, na=False).to_numpy(dtype=bool)
+
+
+
+
+
+
 def filter_dataframe(df, column_types, filters, search_query=None):
 
     # Shallow copy: every narrowing step below rebinds ``filtered_df`` to a
@@ -452,9 +550,12 @@ def filter_dataframe(df, column_types, filters, search_query=None):
     if search_query and isinstance(search_query, str):
         terms = [t.strip().lower() for t in search_query.split(",") if t.strip()]
         if terms:
-            # We want rows where ALL terms appear ANYWHERE in the row
-            original_indices = filtered_df.index
-            final_mask = pd.Series(True, index=original_indices)
+            # We want rows where ALL terms appear ANYWHERE in the row.
+            # Masks are positional throughout: each one is built from this
+            # frame's own columns in row order, so the selection at the end
+            # needs no index alignment.
+            n_rows = len(filtered_df)
+            final_mask = np.ones(n_rows, dtype=bool)
 
             # Data-driven searchable set: every string/collection column except
             # identifiers. ``classify_columns`` already separates opaque IDs (huge
@@ -466,46 +567,8 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                 if column_types.get(col) in ("category", "long_text", "list")
             ]
             
-            # Each column is cast to a searchable string Series exactly once
-            # per request and reused for every term — the cast (and for list
-            # columns the object-string round-trip) dominates the scan cost,
-            # so repeating it per term multiplied the whole search by the
-            # number of comma-separated terms. Case-insensitivity comes from
-            # ``case=False`` (pyarrow ``match_substring(ignore_case=True)``),
-            # so no lowercased copy of any column is materialised.
-            casted = {}
-
-            def _list_search_text(series):
-                # Join each row's elements into one searchable string. The
-                # arrow-native join is the normal path; ``astype(str)`` raises
-                # on ArrowDtype list columns (which used to make the bare
-                # except skip list columns from global search entirely), so
-                # the fallback maps through python for object-typed lists.
-                try:
-                    joined = pc.binary_join(series.array._pa_array, " ")
-                    return pd.Series(pd.arrays.ArrowExtensionArray(joined),
-                                     index=series.index)
-                except Exception:
-                    return series.map(
-                        lambda x: " ".join(str(i) for i in x)
-                        if isinstance(x, (list, np.ndarray)) else None)
-
-            def _searchable_series(col):
-                if col not in casted:
-                    dtype = column_types.get(col)
-                    if dtype == "list":
-                        casted[col] = _list_search_text(filtered_df[col])
-                    else:
-                        try:
-                            # Attempt fast PyArrow string engine
-                            casted[col] = filtered_df[col].astype("string[pyarrow]")
-                        except Exception:
-                            # Fallback if PyArrow string conversion fails
-                            casted[col] = filtered_df[col].astype(str)
-                return casted[col]
-
             for term in terms:
-                term_mask = pd.Series(False, index=original_indices)
+                term_mask = np.zeros(n_rows, dtype=bool)
                 term_is_numeric = term.replace('.', '', 1).isdigit()
 
                 cols_to_search = searchable_cols.copy()
@@ -517,13 +580,11 @@ def filter_dataframe(df, column_types, filters, search_query=None):
 
                 for col in cols_to_search:
                     try:
-                        mask = _searchable_series(col).str.contains(
-                            term, case=False, regex=False, na=False)
-                        term_mask |= mask
+                        term_mask |= _column_search_mask(filtered_df[col], term)
                     except Exception:
                         continue
                 final_mask &= term_mask
-            
+
             filtered_df = filtered_df[final_mask]
 
     return filtered_df
