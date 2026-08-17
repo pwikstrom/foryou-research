@@ -36,6 +36,7 @@ _MAP_CACHE: dict = {"fingerprint": None, "payload": None}
 # values live well below 1, e.g. per-play engagement rates.
 _OVERLAYS = [
     {"key": "category", "label": "Content category", "kind": "categorical", "field": "category"},
+    {"key": "typicality", "label": "Typicality", "kind": "numeric", "field": "typicality"},
     {"key": "platform", "label": "Platform", "kind": "categorical", "field": "source_platform"},
     {"key": "popularity", "label": "Popularity (plays)", "kind": "numeric", "field": "log_plays"},
     {"key": "faves_per_K_play", "label": "Faves per 1K plays", "kind": "numeric", "field": "faves_per_K_play", "decimals": 3},
@@ -54,6 +55,43 @@ _OVERLAYS = [
     {"key": "main_gender", "label": "Main gender", "kind": "categorical", "field": "main_gender"},
     {"key": "main_ethnicity", "label": "Main ethnicity", "kind": "categorical", "field": "main_ethnicity"},
 ]
+
+
+
+
+
+
+def _niche_category_shares(df: pd.DataFrame, top_n: int = 3) -> dict[int, list]:
+    """Top content-category shares per niche, as ``{label, pct}`` entries.
+
+    Derived here rather than baked into the niches file at build time, so the
+    percentages appear on maps that already exist without a rebuild. Shares are
+    taken over every video in the niche — not just the mapped sample — so they
+    describe the same population as the niche's ``size``.
+
+    ``content_category`` is deliberately excluded from the embedded text, which
+    is what makes these shares an independent check on a niche rather than a
+    restatement of its own inputs.
+
+    Args:
+        df: The full map frame (every clustered video, mapped or not).
+        top_n: How many categories to keep per niche.
+
+    Returns:
+        Dict niche id → list of ``{"label", "pct"}``, most common first.
+    """
+    if "category" not in df.columns or "niche" not in df.columns:
+        return {}
+    counts = df.groupby(["niche", "category"], observed=True).size().rename("n").reset_index()
+    counts["pct"] = 100.0 * counts["n"] / counts.groupby("niche")["n"].transform("sum")
+    counts = counts.sort_values(["niche", "n"], ascending=[True, False])
+    return {
+        int(niche): [
+            {"label": str(row.category), "pct": round(float(row.pct), 1)}
+            for row in grp.head(top_n).itertuples()
+        ]
+        for niche, grp in counts.groupby("niche", observed=True)
+    }
 
 
 
@@ -103,10 +141,24 @@ def _build_payload() -> dict:
             points[field] = col.astype("string").fillna("unknown").tolist()
         overlays.append({"key": ov["key"], "label": ov["label"], "kind": ov["kind"], "field": field})
 
+    cat_shares = _niche_category_shares(df)
+
     # A missing/blank name falls back to the same "Niche N" label the frontend
     # uses, so an unnamed niche reads identically wherever it surfaces.
+    # terms/top_categories have always been in the niches file; typicality only
+    # appears in maps built after it was added, so both stay optional and the
+    # frontend omits whatever is absent.
     niches = {
-        str(k): {"name": v.get("name") or f"Niche {k}", "size": int(v.get("size", 0))}
+        str(k): {
+            "name": v.get("name") or f"Niche {k}",
+            "size": int(v.get("size", 0)),
+            "terms": [str(t) for t in (v.get("terms") or [])],
+            "top_categories": cat_shares.get(int(k)) or [
+                {"label": str(c), "pct": None} for c in (v.get("top_categories") or [])
+            ],
+            "typicality": v.get("typicality"),
+            "typicality_pct": v.get("typicality_pct"),
+        }
         for k, v in niches_meta.items()
     }
 
