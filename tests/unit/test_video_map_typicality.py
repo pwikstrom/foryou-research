@@ -2,6 +2,7 @@
 per-niche percentile rank."""
 
 import numpy as np
+import pytest
 
 import fyp.analysis.video_map as video_map
 
@@ -115,6 +116,70 @@ def test_niche_neighbours_are_ordered_by_real_distance():
     assert meta[2]["nearest"] == [1, 0]
     # A niche is never its own neighbour.
     assert all(n not in meta[n]["nearest"] for n in meta)
+
+
+
+
+
+
+def test_niche_isolation_ranks_the_lonely_niche_highest():
+    """Niches 0 and 1 sit together; niche 2 is far from both, so it is loneliest."""
+    labels = np.array([0, 0, 1, 1, 2, 2])
+    reduced = np.array([
+        [0.0, 0.0], [0.2, 0.0],
+        [1.0, 0.0], [1.2, 0.0],
+        [9.0, 0.0], [9.2, 0.0],
+    ], dtype=np.float32)
+    meta = {0: {}, 1: {}, 2: {}}
+
+    video_map._add_niche_neighbours(meta, labels, reduced)
+
+    assert meta[2]["isolation_pct"] == 100.0
+    assert meta[2]["isolation"] > meta[0]["isolation"]
+    # 0 and 1 are each other's nearest, so they are equally un-isolated.
+    assert meta[0]["isolation"] == pytest.approx(meta[1]["isolation"])
+
+
+
+
+
+
+def test_niche_isolation_is_independent_of_typicality():
+    """A niche can sit far from the corpus mean and still have close company.
+
+    Niches 0 and 1 are a tight pair way out on the +x axis — atypical, but not
+    isolated. Niche 2 sits near the corpus centre with nothing beside it.
+    """
+    labels = np.array([0, 0, 1, 1, 2, 2, 3, 3])
+    reduced = np.array([
+        [9.0, 0.0], [9.1, 0.0],
+        [9.3, 0.0], [9.4, 0.0],
+        [0.0, 3.0], [0.0, 3.1],
+        [0.0, 0.0], [0.1, 0.0],
+    ], dtype=np.float32)
+    meta = {0: {}, 1: {}, 2: {}, 3: {}}
+
+    video_map._add_niche_neighbours(meta, labels, reduced)
+
+    # The far-out pair keeps company; the mid-field loner does not.
+    assert meta[0]["isolation"] < meta[2]["isolation"]
+    assert meta[0]["nearest"][0] == 1
+
+
+
+
+
+
+def test_niche_isolation_declines_a_lone_niche():
+    """One niche has nothing to be isolated from — not an infinite distance."""
+    meta = {0: {}}
+
+    video_map._add_niche_neighbours(meta, np.array([0, 0]),
+                                    np.array([[0.0], [1.0]], dtype=np.float32))
+
+    assert meta[0]["nearest"] == []
+    assert meta[0]["isolation"] is None
+    assert meta[0]["isolation_pct"] is None
 
 
 
