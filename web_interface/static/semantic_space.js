@@ -160,6 +160,60 @@ function _ssPopulateNicheFocus() {
 }
 
 
+// Tooltip copy for the typicality reading. The map cannot express this, so the
+// tooltip says so — a niche near the middle of the picture is not the same
+// thing as a niche near the middle of the corpus.
+const _SS_TYPICALITY_TIP = 'How close this niche sits to the average of the whole corpus, '
+    + 'measured in the full embedding space. It cannot be read off the map: the projection '
+    + 'places each niche next to its nearest neighbours and is free to put that neighbourhood '
+    + 'anywhere on the page, so the middle of the picture is not the middle of the corpus.';
+
+// Tooltip copy for the defining terms — the words that separate this niche from
+// the rest of the corpus, not merely the words most common inside it.
+const _SS_TERMS_TIP = 'The words that most distinguish this niche\'s videos from the rest of '
+    + 'the corpus. Two niches sit close together on the map when their videos would be '
+    + 'described in overlapping words like these.';
+
+
+// Render the niche detail bar under the controls: what actually defines the
+// focused niche. This is the plain-language counterpart to the geometry — the
+// map shows which niches are neighbours, the bar says why.
+function _ssRenderNicheInfo(focusNiche) {
+    const bar = document.getElementById('ss-niche-info');
+    if (!bar) { return; }
+    if (focusNiche === null) {
+        bar.innerHTML = '<span>Focus a niche to see the terms that define it, how many '
+            + 'videos it holds, and how typical it is of the corpus.</span>';
+        return;
+    }
+    const meta = (_ssData.niches || {})[focusNiche] || {};
+    const parts = [
+        `<span class="font-semibold" style="color: var(--color-text-primary);">`
+        + `${escapeHtml(meta.name || ('Niche ' + focusNiche))}</span>`,
+        `<span>${(meta.size || 0).toLocaleString()} videos</span>`
+    ];
+    // Absent on maps built before typicality was added; the bar just omits it
+    // rather than showing a blank reading.
+    if (meta.typicality_pct != null) {
+        parts.push(`<span class="meta-tooltip tooltip-wide tooltip-below" data-tooltip="${escapeHtml(_SS_TYPICALITY_TIP)}">`
+            + `More typical than ${meta.typicality_pct}% of other niches</span>`);
+    }
+    if ((meta.terms || []).length) {
+        parts.push(`<span><span class="meta-tooltip tooltip-wide tooltip-below" `
+            + `data-tooltip="${escapeHtml(_SS_TERMS_TIP)}">Defining terms</span>: `
+            + `${escapeHtml(meta.terms.join(', '))}</span>`);
+    }
+    // Entries carry a share of the niche; pct is null only on a map old enough
+    // to predate the category column, where the bare names are all there is.
+    if ((meta.top_categories || []).length) {
+        const cats = meta.top_categories.map(c => escapeHtml(c.label)
+            + (c.pct == null ? '' : ` ${c.pct}%`));
+        parts.push(`<span>Top categories: ${cats.join(', ')}</span>`);
+    }
+    bar.innerHTML = parts.join('');
+}
+
+
 function _ssWireControls() {
     if (_ssHandlersWired) { return; }
     _ssHandlersWired = true;
@@ -427,6 +481,7 @@ function renderSemanticSpace() {
     Plotly.react(div, [trace].concat(_ssTrajectoryTraces()), layout,
         { responsive: true, displayModeBar: true, scrollZoom: true });
     _ssRenderLegend(mode, overlay, catColorMap);
+    _ssRenderNicheInfo(focusNiche);
 
     if (!div._ssClickWired) {
         div._ssClickWired = true;

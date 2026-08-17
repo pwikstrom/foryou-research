@@ -7,7 +7,7 @@ Consumes the dense embeddings written by :mod:`fyp.embeddings` and produces:
       because a browser scatter cannot usefully render 256k points; clustering,
       however, covers every video.
     * ``recoded/video_niches.json`` — per-niche metadata (name, size,
-      distinctive terms, dominant content categories).
+      distinctive terms, dominant content categories, typicality).
     * ``recoded/video_map_meta.json`` — build provenance (embedding model/dim,
       vector count, naming mode, build timestamp).
 
@@ -192,6 +192,66 @@ def _reduce(matrix: np.ndarray, pca_dim: int) -> np.ndarray:
     pca_dim = min(pca_dim, centred.shape[1], centred.shape[0])
     pca = PCA(n_components=pca_dim, svd_solver="randomized", random_state=0)
     return pca.fit_transform(centred).astype(np.float32)
+
+
+
+
+
+
+def _typicality(matrix: np.ndarray) -> np.ndarray:
+    """Score each video by how close it sits to the corpus average.
+
+    The score is the cosine similarity between a video and the corpus mean
+    direction: high means the video sits near the middle of what the corpus
+    is about, low means it is distinctive. Vectors are L2-normalised before
+    the mean is taken, so the score reflects semantic direction only and is
+    never inflated by an embedding's magnitude.
+
+    This cannot be read off the 2D map. t-SNE places a video next to its
+    nearest neighbours and is free to put that neighbourhood anywhere on the
+    page, so the middle of the picture is not the middle of the corpus.
+
+    Args:
+        matrix: Raw ``(n, dim)`` embedding matrix.
+
+    Returns:
+        The ``(n,)`` float32 similarity to the corpus mean direction.
+    """
+    unit = normalize(matrix)
+    mean_dir = unit.mean(axis=0)
+    norm = float(np.linalg.norm(mean_dir))
+    if norm == 0.0:
+        return np.zeros(unit.shape[0], dtype=np.float32)
+    return (unit @ (mean_dir / norm)).astype(np.float32)
+
+
+
+
+
+
+def _add_niche_typicality(
+    niche_meta: dict[int, dict],
+    labels: np.ndarray,
+    typicality: np.ndarray,
+) -> None:
+    """Add each niche's mean typicality plus its rank among niches, in place.
+
+    Raw cosine scores over dense embeddings sit in a narrow band, so the
+    absolute mean is hard to read on its own. ``typicality_pct`` is the
+    niche's percentile rank among all niches, which is what the UI states in
+    words ("more typical than 82% of niches").
+
+    Args:
+        niche_meta: Niche id → metadata dict; mutated in place.
+        labels: Niche id per video.
+        typicality: Per-video typicality aligned to ``labels``.
+    """
+    means = {niche: float(typicality[labels == niche].mean()) for niche in niche_meta}
+    ranked = sorted(means, key=lambda niche: means[niche])
+    denom = max(len(ranked) - 1, 1)
+    for rank, niche in enumerate(ranked):
+        niche_meta[niche]["typicality"] = round(means[niche], 4)
+        niche_meta[niche]["typicality_pct"] = round(100.0 * rank / denom, 1)
 
 
 
@@ -551,6 +611,10 @@ def build_niche_map(
     if reporter is not None:
         reporter.update_progress(20, "Reducing (PCA)...")
     reduced = _reduce(matrix, pca_dim)
+    # Computed on the raw vectors, before PCA: _reduce centres and normalises,
+    # which puts every video the same distance from the origin and destroys
+    # exactly the signal this measures.
+    typicality = _typicality(matrix)
 
     if reporter is not None:
         reporter.update_progress(35, f"Clustering into {n_niches} niches...")
@@ -593,6 +657,7 @@ def build_niche_map(
         item_ids, labels, reduced, stories, categories,
         carried_names=niche_carry, reporter=reporter,
     )
+    _add_niche_typicality(niche_meta, labels, typicality)
 
     # 2D map on a sample (the full corpus is too large to scatter in a browser).
     if reporter is not None:
@@ -689,6 +754,7 @@ def build_niche_map(
         "story": pd.array(story.tolist(), dtype="string[pyarrow]"),
         "category": pd.array(categories.tolist(), dtype="string[pyarrow]"),
         "log_plays": pd.array(np.round(log_plays, 3), dtype="double[pyarrow]"),
+        "typicality": pd.array(np.round(typicality, 4), dtype="double[pyarrow]"),
         **overlay_cols,
     })
     data_io.save_parquet(df=map_df, storage_location=embeddings.STORE_LOCATION, filename=MAP_FILE)
