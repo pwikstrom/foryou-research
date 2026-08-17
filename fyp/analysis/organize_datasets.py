@@ -126,8 +126,19 @@ def __getattr__(name: str):
 # fingerprint guards study-cache freshness.
 _VIDEO_MAP_LOCATION = "recoded"
 _VIDEO_MAP_FILE = "video_map.parquet"
-_NICHE_COLUMNS = ("niche", "niche_name")
+_NICHE_COLUMNS = ("niche", "niche_name", "typicality_pct", "niche_isolation_pct")
 _NICHE_UNMAPPED = "unmapped"
+# Backfill dtype + value per joined column, for rows the map does not cover and
+# for a map file too old to carry the column at all. Only the readable niche
+# label gets a stand-in value: an unmapped video has no honest typicality or
+# isolation, and inventing one (0, or the corpus mean) would be a fabricated
+# measurement in an analysis variable.
+_NICHE_COLUMN_BACKFILL = {
+    "niche": ("int32[pyarrow]", pd.NA),
+    "niche_name": ("string[pyarrow]", _NICHE_UNMAPPED),
+    "typicality_pct": ("double[pyarrow]", pd.NA),
+    "niche_isolation_pct": ("double[pyarrow]", pd.NA),
+}
 
 
 # ============================================================================
@@ -1323,13 +1334,21 @@ def consolidate_enrichment_data(
 def _join_niche_columns(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
     """Left-join the embeddings-derived niche columns onto a study dataframe.
 
-    Adds ``niche_name`` (readable categorical) and its integer ``niche`` id from
-    ``video_map.parquet``, keyed on ``item_id``, so the niche surfaces as an
-    ordinary analysis variable. Videos absent from the map (not yet
-    embedded/clustered) get ``"unmapped"`` and a null id. Idempotent: existing
-    niche columns are dropped first so a re-merge after a map rebuild refreshes
-    them cleanly, and any niche column the map does not provide is backfilled as
-    unmapped.
+    Adds four columns from ``video_map.parquet``, keyed on ``item_id``, so the
+    embedding geometry surfaces as ordinary analysis variables: ``niche_name``
+    (readable categorical) with its integer ``niche`` id, plus the two numeric
+    measures ``typicality_pct`` (how mainstream the video is within the whole
+    corpus) and ``niche_isolation_pct`` (how far the video's micro-genre sits
+    from its nearest neighbouring genre).
+
+    Videos absent from the map (not yet embedded/clustered) get ``"unmapped"``
+    and nulls. Note the asymmetry that creates downstream: the null numerics are
+    dropped row-wise by the PCA/correlations build, so an incomplete map costs
+    those rows their place in *every* correlation, not just these two variables
+    — which is why the coverage shortfall is logged rather than left silent.
+    Idempotent: existing niche columns are dropped first so a re-merge after a
+    map rebuild refreshes them cleanly, and any column the map does not provide
+    (an older map file predates the numerics) is backfilled.
 
     Args:
         df: Merged study dataframe; a no-op when it lacks ``item_id``.
@@ -1367,18 +1386,25 @@ def _join_niche_columns(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame
 
     n = len(df)
     for col in _NICHE_COLUMNS:
-        is_name = col.endswith("name")
+        dtype, fill = _NICHE_COLUMN_BACKFILL[col]
         if col not in df.columns:
-            df[col] = pd.array(
-                [_NICHE_UNMAPPED if is_name else pd.NA] * n,
-                dtype="string[pyarrow]" if is_name else "int32[pyarrow]",
-            )
-        elif is_name:
-            df[col] = df[col].astype("string[pyarrow]").fillna(_NICHE_UNMAPPED)
+            df[col] = pd.array([fill] * n, dtype=dtype)
+        elif fill is not pd.NA:
+            df[col] = df[col].astype(dtype).fillna(fill)
 
+    mapped = int((df["niche_name"] != _NICHE_UNMAPPED).sum())
     if verbose:
-        mapped = int((df["niche_name"] != _NICHE_UNMAPPED).sum())
         logger.info(f"  Joined niche columns: {mapped:,}/{n:,} rows mapped to a niche")
+    if n and mapped < n:
+        # Unmapped rows carry null typicality/isolation, and the PCA build drops
+        # any row with a null feature — so this shortfall silently shrinks the
+        # correlations frame for every variable. Run an embeddings + video-map
+        # refresh to close it.
+        logger.warning(
+            f"  {n - mapped:,}/{n:,} rows ({100 * (n - mapped) / n:.1f}%) are not in the "
+            "video map, so they carry no typicality/isolation and will be dropped from "
+            "the correlations frame. Refresh embeddings + the video map to close the gap."
+        )
     return df
 
 
