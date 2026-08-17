@@ -195,6 +195,15 @@ const _SS_TERMS_TIP = 'The words that most distinguish this niche\'s videos from
     + 'but the map can only show part of that structure — read closeness as a hint, not a '
     + 'measurement.';
 
+// Tooltip copy for the isolation reading. Deliberately spells out that this is
+// NOT typicality: the two rank the niches independently, and reading one as the
+// other is the mistake the pair exists to prevent.
+const _SS_ISOLATION_TIP = 'How far this niche sits from its nearest neighbouring niche, '
+    + 'measured in the full embedding space. This asks a different question from typicality: '
+    + 'a niche can sit far from the corpus average and still keep close company — several '
+    + 'related niches beside it — or be thoroughly ordinary and yet have nothing near it. '
+    + 'Unlike apparent separation on the map, this is measured.';
+
 // Tooltip copy for the measured nearest niches. This is the reading the picture
 // cannot give, so the tooltip says plainly that the two can disagree.
 const _SS_NEAREST_TIP = 'The niches most similar to this one, measured in the full embedding '
@@ -225,6 +234,13 @@ function _ssRenderNicheInfo(focusNiche) {
     if (meta.typicality_pct != null) {
         parts.push(`<span class="meta-tooltip tooltip-wide tooltip-below" data-tooltip="${escapeHtml(_SS_TYPICALITY_TIP)}">`
             + `More typical than ${meta.typicality_pct}% of other niches</span>`);
+    }
+    // Sits beside typicality as its counterpart: how far from the average vs
+    // how far from the nearest company. The two rank niches independently.
+    if (meta.isolation_pct != null) {
+        parts.push(`<span class="meta-tooltip tooltip-wide tooltip-below" `
+            + `data-tooltip="${escapeHtml(_SS_ISOLATION_TIP)}">`
+            + `More isolated than ${meta.isolation_pct}% of other niches</span>`);
     }
     // Placed directly after typicality: both are measured in the full space,
     // and together they are what the picture cannot be trusted to show.

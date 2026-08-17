@@ -266,7 +266,7 @@ def _add_niche_neighbours(
     reduced: np.ndarray,
     n_neighbours: int = 5,
 ) -> None:
-    """Add each niche's genuinely nearest niches, in place.
+    """Add each niche's nearest niches and its isolation, in place.
 
     This is the one thing the 2D map cannot honestly show. t-SNE preserves a
     point's local neighbourhood but is free to strand a whole niche far from
@@ -282,15 +282,36 @@ def _add_niche_neighbours(
         niche_meta: Niche id → metadata dict; mutated in place.
         labels: Niche id per video.
         reduced: The PCA-reduced matrix the clustering ran on.
-        n_neighbours: How many nearest niches to keep per niche.
+        n_neighbours: How many nearest niches to keep per niche (capped at the
+            number of other niches that exist).
     """
     niches = sorted(niche_meta)
+    limit = min(n_neighbours, len(niches) - 1)
+    if limit < 1:
+        # One niche has no neighbours, and nothing to be isolated from.
+        for niche in niches:
+            niche_meta[niche].update(nearest=[], isolation=None, isolation_pct=None)
+        return
+
     centroids = np.vstack([reduced[labels == niche].mean(axis=0) for niche in niches])
     dist = np.linalg.norm(centroids[:, None, :] - centroids[None, :, :], axis=-1)
     np.fill_diagonal(dist, np.inf)
     for i, niche in enumerate(niches):
-        order = np.argsort(dist[i])[:n_neighbours]
+        order = np.argsort(dist[i])[:limit]
         niche_meta[niche]["nearest"] = [int(niches[j]) for j in order]
+
+    # Isolation — how far a niche sits from its NEAREST neighbour. A different
+    # question from typicality (distance from the corpus mean), and measurably
+    # independent of it: a niche can sit far from the average yet keep close
+    # company, or be thoroughly ordinary yet have nothing beside it. Reported as
+    # a percentile for the same reason typicality is — the raw distances are in
+    # arbitrary PCA units and mean nothing on their own.
+    nearest = dist.min(axis=1)
+    ranked = sorted(range(len(niches)), key=lambda i: nearest[i])
+    denom = max(len(ranked) - 1, 1)
+    for rank, i in enumerate(ranked):
+        niche_meta[niches[i]]["isolation"] = round(float(nearest[i]), 4)
+        niche_meta[niches[i]]["isolation_pct"] = round(100.0 * rank / denom, 1)
 
 
 

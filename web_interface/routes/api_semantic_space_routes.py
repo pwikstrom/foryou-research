@@ -158,6 +158,7 @@ def _build_payload() -> dict:
             ],
             "typicality": v.get("typicality"),
             "typicality_pct": v.get("typicality_pct"),
+            "isolation_pct": v.get("isolation_pct"),
             "nearest_ids": [int(n) for n in (v.get("nearest") or [])],
         }
         for k, v in niches_meta.items()
