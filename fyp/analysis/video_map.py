@@ -3,9 +3,11 @@
 Consumes the dense embeddings written by :mod:`fyp.embeddings` and produces:
 
     * ``recoded/video_map.parquet`` — one row per embedded video with its niche
-      id and (for a sampled subset) 2D map coordinates. The map is sampled
-      because a browser scatter cannot usefully render 256k points; clustering,
-      however, covers every video.
+      id, its typicality and niche-isolation percentiles, and (for a sampled
+      subset) 2D map coordinates. The map is sampled because a browser scatter
+      cannot usefully render 256k points; clustering, however, covers every
+      video. The percentile columns are joined into every study frame as
+      ordinary analysis variables (organize_datasets._join_niche_columns).
     * ``recoded/video_niches.json`` — per-niche metadata (name, size,
       distinctive terms, dominant content categories, typicality, and the
       genuinely nearest niches measured in the clustering space).
@@ -225,6 +227,55 @@ def _typicality(matrix: np.ndarray) -> np.ndarray:
     if norm == 0.0:
         return np.zeros(unit.shape[0], dtype=np.float32)
     return (unit @ (mean_dir / norm)).astype(np.float32)
+
+
+
+
+
+
+def _percentile_rank(values: np.ndarray) -> np.ndarray:
+    """Rank values into 0-100 percentiles, averaging ties.
+
+    Raw typicality is a cosine against the corpus mean direction, so its
+    values sit in a narrow band whose position drifts every time the corpus
+    grows. That makes the raw score unusable as a stored analysis variable —
+    a value in one build is not comparable to the same video's value in the
+    next. The percentile is comparable: "more typical than N% of the corpus"
+    means the same thing in every build, and it is already the vocabulary the
+    Semantic Space UI states in words.
+
+    Args:
+        values: The ``(n,)`` scores to rank.
+
+    Returns:
+        The ``(n,)`` float32 percentile of each value among all the values,
+        from ``100/n`` (lowest) to ``100`` (highest).
+    """
+    if values.size == 0:
+        return values.astype(np.float32)
+    ranks = pd.Series(values).rank(pct=True, method="average").to_numpy()
+    return (100.0 * ranks).astype(np.float32)
+
+
+
+
+
+
+def _per_video_niche_value(niche_meta: dict[int, dict], labels: np.ndarray,
+                           key: str) -> np.ndarray:
+    """Spread a per-niche metric across that niche's videos.
+
+    Args:
+        niche_meta: Niche id → metadata dict.
+        labels: Niche id per video.
+        key: The ``niche_meta`` key to read.
+
+    Returns:
+        The ``(n,)`` float64 value per video, NaN wherever the niche declines
+        to report one — a corpus with a single niche has nothing to be
+        isolated from, and a null is the honest answer there.
+    """
+    return np.array([niche_meta[int(lab)].get(key) for lab in labels], dtype=np.float64)
 
 
 
@@ -823,6 +874,15 @@ def build_niche_map(
     story[~mapped_mask] = ""
     niche_names = [niche_meta[int(lab)]["name"] for lab in labels]
 
+    # Two per-video analysis variables, denormalised here so the study merge is
+    # a single join against this file (see organize_datasets._join_niche_columns).
+    # Typicality rides as its percentile because the raw cosine is not
+    # comparable across rebuilds; isolation is a per-video copy of the video's
+    # niche's isolation percentile, which answers a question typicality does not
+    # — how much company that micro-genre keeps, rather than how mainstream it is.
+    typicality_pct = _percentile_rank(typicality)
+    isolation_pct = _per_video_niche_value(niche_meta, labels, "isolation_pct")
+
     scr_available = data_io.get_parquet_columns(
         storage_location=embeddings.STORE_LOCATION, filename=embeddings.SCRAPES_FILE,
     ) or []
@@ -878,6 +938,8 @@ def build_niche_map(
         "category": pd.array(categories.tolist(), dtype="string[pyarrow]"),
         "log_plays": pd.array(np.round(log_plays, 3), dtype="double[pyarrow]"),
         "typicality": pd.array(np.round(typicality, 4), dtype="double[pyarrow]"),
+        "typicality_pct": pd.array(np.round(typicality_pct, 2), dtype="double[pyarrow]"),
+        "niche_isolation_pct": pd.array(isolation_pct, dtype="double[pyarrow]"),
         **overlay_cols,
     })
     data_io.save_parquet(df=map_df, storage_location=embeddings.STORE_LOCATION, filename=MAP_FILE)

@@ -109,6 +109,30 @@ scale = "raw"
 display_name = "Niche ID"
 description = "Integer niche cluster id (join key to video_niches.json); hidden from tabs."
 
+# The two embedding-geometry measures, joined from video_map.parquet alongside
+# the niche label. Both are percentiles, not raw scores: the underlying cosine
+# and PCA distances are in arbitrary units whose scale shifts with every map
+# rebuild, so only the rank is comparable across builds. Both are null for
+# videos that are not yet in the map, which costs those rows their place in the
+# correlations frame (see organize_datasets._join_niche_columns).
+[[fields]]
+name = "typicality_pct"
+dtype = "double[pyarrow]"
+section = "AI Annotations"
+role = "measure"
+scale = "numeric"
+display_name = "Typicality"
+description = "How mainstream the video is — its percentile among all embedded videos for closeness to the corpus mean direction (100 = closest to the average of everything the corpus is about; low = distinctive). Measured on the embedding vectors and NOT readable off the 2D semantic map, which places a video near its neighbours but is free to put that neighbourhood anywhere on the page. Group mean = how mainstream that collection-day's feed was."
+
+[[fields]]
+name = "niche_isolation_pct"
+dtype = "double[pyarrow]"
+section = "AI Annotations"
+role = "measure"
+scale = "numeric"
+display_name = "Niche isolation"
+description = "How much company the video's micro-genre keeps — its niche's percentile distance to the NEAREST other niche (100 = the most isolated niche in the corpus). Measured on the same reduced vectors the clustering consumed, and empirically independent of Typicality: a niche can sit far from the corpus average yet keep close company, or be thoroughly ordinary with nothing beside it."
+
 # Recode fan-out of the scrape-owned `desc` (produced by recode_tokenise). Owned
 # here rather than the scrape contract so they never enter BaseScraper.base_columns.
 [[fields]]
