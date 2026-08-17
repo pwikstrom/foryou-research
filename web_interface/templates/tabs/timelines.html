@@ -41,6 +41,16 @@
 
         <!-- Right-aligned controls -->
         <div style="margin-left: auto; display: flex; align-items: center; gap: 20px;">
+            <!-- Shared time window across all charts: how-to hint at the full
+                 range, visible period + reset once the user has zoomed in. -->
+            <div class="timelines-zoom-control text-xs">
+                <span id="timelines-zoom-hint" class="timelines-zoom-hint">Drag across a chart to zoom into a period</span>
+                <span id="timelines-zoom-window" class="timelines-zoom-window" style="display: none;">
+                    Showing <span id="timelines-zoom-range" class="font-medium"></span>
+                    <button type="button" class="btn-discreet text-xxs" style="padding: 2px 7px;"
+                        onclick="timelines.resetZoom()">Reset</button>
+                </span>
+            </div>
             <div id="timelines-engagement-dropdown" style="position: relative;">
                 <button type="button" id="timelines-engagement-toggle" class="btn-discreet text-xs"
                     style="padding: 3px 8px; cursor: pointer;">Engagement (<span id="timelines-engagement-count">0</span>) &#9662;</button>

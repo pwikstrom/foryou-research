@@ -78,7 +78,12 @@ window.timelines = {
         activeFilters: {},
         smoothing: 7,
         showRaw: false,
-        engagementTypes: new Set(['fave', 'share', 'comment', 'follow', 'save'])
+        engagementTypes: new Set(['fave', 'share', 'comment', 'follow', 'save']),
+        // Shared across every chart: [lo, hi] on the x-axis while zoomed into
+        // a time period, null at the full range.  Survives re-renders.
+        timeWindow: null,
+        // Shared drag behaviour ('zoom' or 'pan') — see _plotConfig().
+        dragMode: 'zoom'
     },
 
     init: async function () {
@@ -231,6 +236,8 @@ window.timelines = {
             this.timelineState.categoricalSelections = {};
             this.timelineState.analysisToggles = {};
             this.timelineState.activeFilters = {};
+            // A window from the previous collection means nothing here.
+            this.timelineState.timeWindow = null;
             this.selectDonation(select.value);
         }
     },
@@ -295,6 +302,185 @@ window.timelines = {
     _updateEngagementCount: function () {
         const el = document.getElementById('timelines-engagement-count');
         if (el) el.textContent = String(this.timelineState.engagementTypes.size);
+    },
+
+    // ------------------------------------------------------------------
+    // Time-window (zoom) controls
+    //
+    // Time is the only axis worth exploring here, so every chart locks its
+    // y-axis (layout.yaxis.fixedrange) and leaves x free.  With y locked,
+    // plotly turns the zoom drag into a full-height band along the time
+    // axis and every modebar button below acts on time only.
+    // ------------------------------------------------------------------
+
+    // Plotly config shared by every timeline chart.  Buttons are listed
+    // explicitly (rather than subtracted from the default set) so the bar
+    // reads as one ordered toolbar: pick a drag behaviour, step the zoom,
+    // reset, export.
+    _plotConfig: function () {
+        const dragButton = (name, val, icon, title) => ({
+            name: name,
+            title: title,
+            // attr/val give plotly the active-button highlight for free.
+            attr: 'dragmode',
+            val: val,
+            icon: icon,
+            click: (gd) => Plotly.relayout(gd, 'dragmode', val)
+        });
+        return {
+            displayModeBar: 'hover',
+            responsive: true,
+            displaylogo: false,
+            // Double-click returns to the full time range.
+            doubleClick: 'reset',
+            // The charts sit in a scrolling container — wheel zoom would
+            // fight the page scroll.
+            scrollZoom: false,
+            modeBarButtons: [
+                [
+                    dragButton('zoom2d', 'zoom', Plotly.Icons.zoombox, 'Drag across the chart to zoom into a time period'),
+                    dragButton('pan2d', 'pan', Plotly.Icons.pan, 'Drag sideways to move through time')
+                ],
+                ['zoomIn2d', 'zoomOut2d', 'resetScale2d'],
+                ['toImage']
+            ]
+        };
+    },
+
+    // Read a shared time window out of a plotly_relayout payload.
+    // Returns [lo, hi] for a zoom, null for "back to the full range", and
+    // undefined when the event says nothing about the time window.
+    _windowFromRelayout: function (rd) {
+        if (rd['xaxis.autorange'] || rd['xaxis2.autorange']) return null;
+        if (rd['xaxis.range[0]'] !== undefined && rd['xaxis.range[1]'] !== undefined) {
+            return [rd['xaxis.range[0]'], rd['xaxis.range[1]']];
+        }
+        if (Array.isArray(rd['xaxis.range'])) return rd['xaxis.range'].slice();
+        return undefined;
+    },
+
+    // Re-apply the shared window (and drag behaviour) after a re-render.
+    // Applied as a relayout rather than baked into the newPlot layout, so
+    // plotly still remembers the full range as the initial one and
+    // double-click / "Reset axes" zoom back out to it.
+    _applyTimeWindow: function (plotIds) {
+        const win = this.timelineState.timeWindow;
+        const update = {};
+        if (Array.isArray(win) && win.length === 2) {
+            update['xaxis.range[0]'] = win[0];
+            update['xaxis.range[1]'] = win[1];
+        }
+        if (this.timelineState.dragMode && this.timelineState.dragMode !== 'zoom') {
+            update.dragmode = this.timelineState.dragMode;
+        }
+        if (Object.keys(update).length === 0) return;
+        plotIds.forEach(id => {
+            const div = document.getElementById(id);
+            if (div) Plotly.relayout(div, update);
+        });
+    },
+
+    // Zooming one chart moves every chart to the same window, so the page
+    // keeps reading as a single timeline.  Wire this AFTER _applyTimeWindow
+    // so restoring a window doesn't bounce back through the handlers.
+    _wireTimeWindowSync: function (plotIds) {
+        let syncing = false;
+        plotIds.forEach(srcId => {
+            const srcDiv = document.getElementById(srcId);
+            if (!srcDiv) return;
+            srcDiv.on('plotly_relayout', (relayoutData) => {
+                if (syncing) return;
+
+                const win = this._windowFromRelayout(relayoutData);
+                const mode = relayoutData.dragmode;
+                if (win === undefined && mode === undefined) return;
+
+                const update = {};
+                if (win === null) {
+                    update['xaxis.autorange'] = true;
+                } else if (win !== undefined) {
+                    update['xaxis.range[0]'] = win[0];
+                    update['xaxis.range[1]'] = win[1];
+                }
+                if (mode !== undefined) update.dragmode = mode;
+
+                if (win !== undefined) {
+                    this.timelineState.timeWindow = win;
+                    this._updateZoomIndicator();
+                }
+                if (mode !== undefined) this.timelineState.dragMode = mode;
+
+                syncing = true;
+                plotIds.forEach(tgtId => {
+                    if (tgtId === srcId) return;
+                    Plotly.relayout(tgtId, update);
+                });
+                // Reset after async events have propagated
+                setTimeout(() => { syncing = false; }, 200);
+            });
+        });
+    },
+
+    // Human-readable label for the current window, or '' at the full range.
+    // The x-axis is a category axis when empty days are hidden (range values
+    // are fractional day indices) and a date axis otherwise (range values
+    // are date strings or epoch ms).
+    _timeWindowLabel: function () {
+        const win = this.timelineState.timeWindow;
+        if (!Array.isArray(win) || win.length !== 2) return '';
+        const dates = this._axisDates || [];
+        const labels = this._axisLabels || [];
+        if (dates.length === 0) return '';
+
+        if (this._axisType === 'category') {
+            const lo = Math.max(0, Math.ceil(win[0]));
+            const hi = Math.min(dates.length - 1, Math.floor(win[1]));
+            if (hi < lo) return '';
+            if (lo === 0 && hi === dates.length - 1) return '';
+            return `${labels[lo] || dates[lo]} – ${labels[hi] || dates[hi]}`;
+        }
+
+        // Date axis: plotly hands back an instant inside the day, so trim to
+        // the day and look its label up, keeping the readout worded the same
+        // in both axis modes.  A window panned past the data has no label.
+        // Axis values are participant wall-clock, hence the wall-clock helper.
+        const loDay = fypWallIsoDate(win[0], '');
+        const hiDay = fypWallIsoDate(win[1], '');
+        if (!loDay || !hiDay) return '';
+        if (loDay <= dates[0] && hiDay >= dates[dates.length - 1]) return '';
+        const labelFor = (day) => {
+            const idx = dates.indexOf(day);
+            return idx >= 0 ? (labels[idx] || day) : day;
+        };
+        return `${labelFor(loDay)} – ${labelFor(hiDay)}`;
+    },
+
+    // Control-bar readout: a "how to zoom" hint at the full range, the
+    // visible window plus a reset button once the user has zoomed in.
+    _updateZoomIndicator: function () {
+        const hint = document.getElementById('timelines-zoom-hint');
+        const windowEl = document.getElementById('timelines-zoom-window');
+        const rangeEl = document.getElementById('timelines-zoom-range');
+        if (!hint || !windowEl || !rangeEl) return;
+
+        const label = this._timeWindowLabel();
+        if (!label) {
+            hint.style.display = '';
+            windowEl.style.display = 'none';
+            return;
+        }
+        rangeEl.textContent = label;
+        hint.style.display = 'none';
+        windowEl.style.display = '';
+    },
+
+    resetZoom: function () {
+        this.timelineState.timeWindow = null;
+        (this._plotIds || []).forEach(id => {
+            const div = document.getElementById(id);
+            if (div) Plotly.relayout(div, { 'xaxis.autorange': true });
+        });
+        this._updateZoomIndicator();
     },
 
     _movingAvg: function (arr, window) {
@@ -484,6 +670,12 @@ window.timelines = {
         if (startIdx > 0) {
             dates = dates.slice(startIdx);
         }
+
+        // Shared x-axis vocabulary for the zoom readout: which axis type the
+        // charts use and what each position along it is called.
+        this._axisType = excludeNoData ? 'category' : 'date';
+        this._axisDates = dates;
+        this._axisLabels = (data.date_labels || data.dates || []).slice(startIdx);
 
         //console.log("TIMELINE DEBUG: Dates length", dates.length);
         //console.log("TIMELINE DEBUG: Variables keys", Object.keys(data.variables));
@@ -1609,6 +1801,9 @@ window.timelines = {
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
                 font: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-muted'), size: 11 },
+                // Drag selects a time period; the locked y-axis (below) makes
+                // that a full-height band rather than a rectangle.
+                dragmode: 'zoom',
                 xaxis: {
                     type: excludeNoData ? 'category' : 'date',
                     tickmode: 'array',
@@ -1619,7 +1814,8 @@ window.timelines = {
                     gridwidth: 1,
                     zeroline: false,
                     tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-faint') },
-                    anchor: 'y'
+                    anchor: 'y',
+                    fixedrange: false
                 },
                 yaxis: {
                     title: { text: yAxisTitle, font: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-muted'), size: 11 } },
@@ -1628,7 +1824,10 @@ window.timelines = {
                     gridwidth: 1,
                     zeroline: false,
                     tickfont: { family: getCSSVar('--font-sans'), color: getCSSVar('--color-text-faint') },
-                    domain: TIMELINE_DOMAIN
+                    domain: TIMELINE_DOMAIN,
+                    // Vertical zoom/pan is off: the value axis is already
+                    // scaled to the data, and only time is worth exploring.
+                    fixedrange: true
                 },
                 barmode: 'overlay',
                 hoverlabel: { align: 'left' },
@@ -1668,7 +1867,10 @@ window.timelines = {
                     showgrid: false,
                     zeroline: false,
                     showline: false,
-                    fixedrange: true
+                    // Draggable like the timeline above it, so selecting a
+                    // period works anywhere in the figure; `matches` keeps
+                    // the two axes on the same window.
+                    fixedrange: false
                 };
 
                 layout.yaxis2 = {
@@ -1726,12 +1928,7 @@ window.timelines = {
                 });
             }
 
-            Plotly.newPlot(plotId, traces, layout, {
-                displayModeBar: 'hover',
-                responsive: true,
-                modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d', 'toggleSpikelines'],
-                displaylogo: false
-            });
+            Plotly.newPlot(plotId, traces, layout, this._plotConfig());
             allPlotIds.push(plotId);
 
             // Render analysis overlays when findings panel is open
@@ -2106,33 +2303,12 @@ window.timelines = {
 
         });
 
-        // Synced zoom across all charts
-        let _syncingZoom = false;
-        allPlotIds.forEach(srcId => {
-            const srcDiv = document.getElementById(srcId);
-            if (!srcDiv) return;
-            srcDiv.on('plotly_relayout', (relayoutData) => {
-                if (_syncingZoom) return;
-
-                const update = {};
-                if (relayoutData['xaxis.range[0]'] !== undefined && relayoutData['xaxis.range[1]'] !== undefined) {
-                    update['xaxis.range[0]'] = relayoutData['xaxis.range[0]'];
-                    update['xaxis.range[1]'] = relayoutData['xaxis.range[1]'];
-                } else if (relayoutData['xaxis.autorange']) {
-                    update['xaxis.autorange'] = true;
-                } else {
-                    return;
-                }
-
-                _syncingZoom = true;
-                allPlotIds.forEach(tgtId => {
-                    if (tgtId === srcId) return;
-                    Plotly.relayout(tgtId, update);
-                });
-                // Reset after async events have propagated
-                setTimeout(() => { _syncingZoom = false; }, 200);
-            });
-        });
+        // Shared time window: restore the window the user had before this
+        // re-render, then keep every chart on the same one from here on.
+        this._plotIds = allPlotIds;
+        this._applyTimeWindow(allPlotIds);
+        this._wireTimeWindowSync(allPlotIds);
+        this._updateZoomIndicator();
 
         // Restore scroll position
         if (scrollContainer) {
