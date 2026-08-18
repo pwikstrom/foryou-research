@@ -27,8 +27,9 @@ from web_interface import explorer_backend as explorer
 from web_interface.services import study_data
 
 
-# The video the bug was reported against: watched twice in one morning, ~85
-# minutes apart, and both occurrences reported the earlier timestamp.
+# Stands in for the video the bug was reported against: watched twice in one
+# morning, ~85 minutes apart, with both occurrences reporting the earlier
+# timestamp. A synthetic id — the real one identified a donor's actual session.
 _REWATCHED = "7000000000000000004"
 
 
