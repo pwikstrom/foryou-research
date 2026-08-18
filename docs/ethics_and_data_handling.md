@@ -22,12 +22,12 @@ participant data).
 
 Donations arrive in two ways, both consent-first:
 
-- **External donation store**: the automated intake
-  (`fyp/analysis/donations.py`) fetches only records whose
-  `consentProvided` flag is true — the DynamoDB scan filters on
-  `consentProvided = :consent` with `:consent = True`, so donations
-  without an affirmative consent flag are never downloaded into the
-  platform.
+- **External donation store**: where a study operates its own donation-intake
+  service, the automated fetch (`fyp/analysis/donations.py`) retrieves only
+  records carrying an affirmative `consentProvided` flag, so a donation
+  without that flag is never downloaded into the Hub. This route depends on
+  an intake service that a particular deployment happens to run; a standard
+  installation has none, and uses researcher upload instead.
 - **Researcher upload**: zipped "Download Your Data" exports are uploaded
   manually by an authenticated researcher through the Data Management tab,
   after whatever consent procedure the study's ethics protocol requires.
@@ -51,7 +51,7 @@ what the export contains before sharing it.
   again describing the public item, not the participant.
 
 Free-text fields that may contain participant-authored content (e.g. a
-donated comment's text carried in `extra_data`) stay within the platform's
+donated comment's text carried in `extra_data`) stay within the Hub's
 access-controlled storage and are not exported by any built-in report.
 
 ## Access control and storage
@@ -77,7 +77,7 @@ robustness, but so that enrichment stays low-intensity toward the
 platforms. Media downloads respect configurable duration caps. Researchers
 deploying the Hub should satisfy themselves that this enrichment is compatible
 with their jurisdiction's rules and their institution's ethics framework;
-the platform makes the practice transparent (per-row provenance stamps
+the Hub makes the practice transparent (per-row provenance stamps
 record what was fetched, when, and under which schema version).
 
 ## LLM annotation
@@ -102,6 +102,6 @@ are never silently pooled.
 
 ## Deletion
 
-Collections (a donor's ingested data) can be deleted from the platform via
+Collections (a donor's ingested data) can be deleted from the Hub via
 the Data Management interface, which removes the collection's rows from
 the recoded and metadata stores.

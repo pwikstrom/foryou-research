@@ -46,12 +46,11 @@ repository is public and submitted". Work through it in order; items marked
       and CITATION.cff now follow this; code identifiers (the `fyp`
       package, `FYP_*` environment variables, the `fyp-*` Cloud Run
       services and images) deliberately keep the old short form.
-- [ ] Fill in the real ORCID iD in `CITATION.cff` and `paper/paper.md`.
+- [ ] Fill in the real ORCID iD in `CITATION.cff`. (Done: 0000-0003-4720-0416.)
 - [ ] Replace `<REPO-URL>` placeholders in `CITATION.cff` and
       `pyproject.toml` `[project.urls]` with the public URL.
 - [ ] Fill in the ethics-approval number in
-      `docs/ethics_and_data_handling.md` and the Acknowledgements
-      (funding, approval) in `paper/paper.md`.
+      `docs/ethics_and_data_handling.md`.
 - [ ] Check PyPI for the `fyp-pipeline` name if PyPI publication is ever
       intended (not required by JOSS).
 
@@ -84,10 +83,10 @@ API key, GCS access, or real donation data.
 - [ ] Enable the GitHub↔Zenodo integration, then tag a release
       (e.g. `v1.0.0`; bump `pyproject.toml` version to match). Check the
       Zenodo record's title/author/ORCID/license match the paper exactly.
-- [ ] Build the paper locally to check rendering:
-      `docker run --rm -v $PWD/paper:/data openjournals/inara -o pdf paper.md`
-- [ ] Submit at <https://joss.theoj.org/papers/new> (repo URL + branch
-      containing `paper/`).
+- [ ] Submit at <https://joss.theoj.org/papers/new>. **The JOSS paper is
+      maintained outside this repository**, so the submission points at the
+      repo URL for the software and supplies `paper.md` from wherever it is
+      kept. Nothing under `paper/` exists here by design.
 - [ ] Expect: editor assignment (1–4 weeks), then an open checklist review
       by ≥2 reviewers on GitHub (2–5 months wall-clock). Review requests
       arrive as issues/PRs — responsiveness matters with a single
