@@ -70,7 +70,7 @@ QUEUE_FILE = "to_annotate.json"
 
 # The activity types that count as a video impression. Mirrors
 # `organize_datasets._extract_selected_cells`, which defines the
-# (collection_id, local_date) cells the rest of the platform treats as a
+# (collection_id, local_date) cells the rest of the Hub treats as a
 # collection-day.
 PLAY_TYPES = ("play", "observe")
 

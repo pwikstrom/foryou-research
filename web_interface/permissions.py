@@ -90,7 +90,7 @@ DEFAULT_NON_ADMIN_PERMISSIONS: list[str] = [
 # plus the personal My-stuff pages. Deliberately excluded: tab.semantic_space
 # (the embedding map is corpus-global, so any holder sees the *real* corpus,
 # not just shared studies — grant per-installation if that is acceptable),
-# tab.sessions (chronological session sequences are the platform's most
+# tab.sessions (chronological session sequences are the Hub's most
 # re-identifying view of a donor), every tab.data_management.* / tab.admin.*
 # key, and feature.annotation_votes (votes are demand signals feeding the paid
 # annotation queue).

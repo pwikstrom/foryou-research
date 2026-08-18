@@ -1,5 +1,8 @@
 # The For You Data Hub
 
+[![CI](https://github.com/pwikstrom/foryou-research/actions/workflows/ci.yml/badge.svg)](https://github.com/pwikstrom/foryou-research/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Hyper-personalised short-video feeds have become one of the main ways people
 encounter culture, news, and each other. The recommender systems behind them
 decide what large audiences see each day, and their influence now reaches well
@@ -143,3 +146,21 @@ Project" and [docs/architecture.md](docs/architecture.md).
 MIT — see [LICENSE](LICENSE). If you use The For You Data Hub in your
 research, please cite it using the metadata in
 [CITATION.cff](CITATION.cff).
+
+## AI assistance
+
+The Hub was developed with substantial assistance from Anthropic's Claude
+models, used through Claude Code: code generation from specifications,
+refactoring, test scaffolding, and drafting of documentation. The author framed
+the research problem, chose the architecture and its central abstractions — the
+versioned contract system, the backend interfaces, the validation harnesses —
+and reviewed, tested and accepted every change. Responsibility for the
+correctness, originality and licensing of the code rests with the author.
+
+Distinct from that, large language models are also *runtime components* of the
+Hub: content annotation and text embedding are performed by Gemini or by
+open-weight Qwen and MiniCPM models, depending on configuration. That is a
+function of the software rather than an authoring aid, and the A/B evaluation
+and human-coding harnesses described in
+[docs/pipeline.md](docs/pipeline.md) exist precisely to make those model
+outputs auditable rather than taken on trust.

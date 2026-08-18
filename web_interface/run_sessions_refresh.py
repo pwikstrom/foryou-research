@@ -313,7 +313,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
     # mean pinning, stale-file sweep — then it chains immediately. It must
     # never process a batch: the initial task runs under the Cloud Tasks
     # dispatch deadline (1800s max for HTTP targets), and a batch link can
-    # exceed that (44 min observed 2026-08-12), which makes the platform
+    # exceed that (44 min observed 2026-08-12), which makes Cloud Tasks
     # retry the "failed" dispatch and fork a duplicate chain while the
     # original keeps running. Setup completes in seconds, so the deadline is
     # trivially met and retries of the initial task can no longer fork.

@@ -21,7 +21,7 @@ ANOVA/PERMANOVA, timelines). Two things are missing to reach the vision:
 1. **A sequence/temporal lens.** The data is fundamentally an *ordered feed* per participant, but
    almost all current analysis treats it as a bag of categorised videos. The headline new idea —
    _does how long a user lingers on videos in one stretch of feed predict the kind of videos they
-   get served next?_ — is a sequence question the platform cannot yet answer.
+   get served next?_ — is a sequence question the Hub cannot yet answer.
 2. **Platform generality.** "Messy personal sequence data from platforms" is plural; the ingestion
    layer is already abstracted for it, but no second platform has been built.
 
