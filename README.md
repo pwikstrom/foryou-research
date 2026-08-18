@@ -149,10 +149,10 @@ research, please cite it using the metadata in
 
 ## AI assistance
 
-The For You Hub was developed with substantial assistance from Anthropic's Claude
-models. Claude Code was used for code generation based on Wikstrom's design,
+The For You Data Hub was developed with substantial assistance from Anthropic's Claude
+models. Claude Code was used for code generation based on Wikstrom's designs as well as for 
 refactoring, test scaffolding, and drafting of documentation. Wikstrom framed
-the research problem, designed the architecture and its central abstractions — the
+the research problems, designed the architecture and its central abstractions — the
 versioned contract system, the backend interfaces, the validation harnesses —
 and reviewed, tested and accepted every change. Responsibility for the
 correctness, originality and licensing of the code rests with Patrik Wikstrom.
