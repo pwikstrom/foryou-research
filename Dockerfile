@@ -1,8 +1,14 @@
-# Thin app layer on top of pre-built base image.
-# Base image has Python 3.12, Rust, gcc, and all pip dependencies.
-# To rebuild the base image (only needed when requirements.txt changes):
-#   gcloud builds submit --config=cloudbuild-base.yaml --project=<gcp-project> --region=australia-southeast1
-FROM australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-base:latest
+# Thin application layer on top of the base image built from Dockerfile.base
+# (Python 3.12, gcc, Rust, and all pinned pip dependencies).
+#
+# Build the base image first, then this one:
+#   docker build -f Dockerfile.base -t foryou-hub-base:latest .
+#   docker build -t foryou-hub:latest .
+#
+# To pull the base from a registry instead, override the ARG:
+#   docker build --build-arg BASE_IMAGE=<registry>/<project>/foryou-hub-base:latest -t foryou-hub:latest .
+ARG BASE_IMAGE=foryou-hub-base:latest
+FROM ${BASE_IMAGE}
 
 WORKDIR /app
 

@@ -283,7 +283,8 @@ The app runs on **Google Cloud Run** as two services sharing the same Docker ima
 **GCP Configuration:**
 - Project: `<gcp-project>`, Region: `australia-southeast1`
 - Cloud Tasks queue: `fyp-background-tasks` (max-attempts=4 with backoff; configure via `scripts/configure_task_queue.sh`). Retry is **app-controlled**: only the idempotent refreshes in `process_routes.QUEUE_RETRY_SAFE` return 503 (→ retried); every other task returns 200 on failure and is terminal. All failures land in the `cache/task_failures.json` ledger (`web_interface/task_failures.py`) — the dead-letter record, surfaced on Admin → System info.
-- Service account: `<project-number>-compute@developer.gserviceaccount.com`
+- Service account: the project's default compute service account
+  (`<project-number>-compute@developer.gserviceaccount.com`)
 - Base image: `australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-base:latest`
 - App image: `australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-app:latest`
 
@@ -295,10 +296,9 @@ The app runs on **Google Cloud Run** as two services sharing the same Docker ima
 
 ```bash
 # 0. Rebuild base image (ONLY when requirements.txt changes — slow, ~5 min)
-#    gcloud builds submit doesn't support -f, so use --config with a build spec:
-gcloud builds submit \
-  --config=cloudbuild-base.yaml \
-  --project=<gcp-project> --region=australia-southeast1
+#    Build the base image locally, then push it to your registry:
+docker build -f Dockerfile.base -t <registry>/<gcp-project>/foryou-hub-base:latest .
+docker push <registry>/<gcp-project>/foryou-hub-base:latest
 
 # 1. Build the app image (always required before deploying — fast, ~1 min)
 gcloud builds submit \

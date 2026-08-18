@@ -1,4 +1,5 @@
 import numpy as np, pandas as pd, time, json
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sklearn.preprocessing import normalize
 from sklearn.decomposition import PCA
@@ -27,7 +28,9 @@ T = vec.fit_transform(stories); vocab = np.array(vec.get_feature_names_out())
 def top_terms(mask,n=8):
     mm=np.asarray(T[mask.values].mean(0)).ravel(); return vocab[mm.argsort()[::-1][:n]].tolist()
 
-client = genai.Client(vertexai=True, project="<gcp-project>", location="us-central1")
+client = genai.Client(vertexai=True,
+                      project=os.environ["GCP_PROJECT_ID"],
+                      location="us-central1")
 def name_cluster(c):
     mask = m["kn"]==c; idx=np.where(mask.values)[0]
     cen=P[mask.values].mean(0); d=np.linalg.norm(P[idx]-cen,axis=1); pick=idx[np.argsort(d)[:10]]

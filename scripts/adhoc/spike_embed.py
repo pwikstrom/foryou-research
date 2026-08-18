@@ -1,4 +1,5 @@
 import pandas as pd, numpy as np, pyarrow.parquet as pq, time, sys
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from google import genai
 from google.genai.types import EmbedContentConfig
@@ -49,7 +50,9 @@ def build_doc(r):
 a["doc"] = a.apply(build_doc, axis=1)
 print(f"built {len(a)} docs; median doc chars={int(a['doc'].str.len().median())}", flush=True)
 
-client = genai.Client(vertexai=True, project="<gcp-project>", location="us-central1")
+client = genai.Client(vertexai=True,
+                      project=os.environ["GCP_PROJECT_ID"],
+                      location="us-central1")
 MODEL = "gemini-embedding-001"
 docs = a["doc"].tolist()
 BS = 20

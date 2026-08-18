@@ -1,10 +1,11 @@
+import os
 import sys
 
 import google.genai
 import google.genai.types
 
 
-PROJECT = "<gcp-project>"
+PROJECT = os.environ.get("GCP_PROJECT_ID", "")
 LOCATION = "global"
 MODELS = ["gemini-3-flash-preview", "gemini-2.5-flash"]
 

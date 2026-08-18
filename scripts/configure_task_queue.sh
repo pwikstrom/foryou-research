@@ -22,7 +22,7 @@
 
 set -euo pipefail
 
-PROJECT="${FYP_GCP_PROJECT:-<gcp-project>}"
+PROJECT="${FYP_GCP_PROJECT:?set FYP_GCP_PROJECT to your GCP project id}"
 LOCATION="${FYP_TASKS_LOCATION:-australia-southeast1}"
 QUEUE="${FYP_TASKS_QUEUE:-fyp-background-tasks}"
 

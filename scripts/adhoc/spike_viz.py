@@ -1,4 +1,5 @@
 import numpy as np, pandas as pd, time, json
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sklearn.preprocessing import normalize
 from sklearn.decomposition import PCA
@@ -54,7 +55,9 @@ for c in clusters:
                     "terms":top_terms(mask), "top_cat":list(cats.index[:2])})
 
 # Gemini cluster naming from exemplars (centroid-nearest stories)
-client = genai.Client(vertexai=True, project="<gcp-project>", location="us-central1")
+client = genai.Client(vertexai=True,
+                      project=os.environ["GCP_PROJECT_ID"],
+                      location="us-central1")
 def name_cluster(item):
     c, mask = item
     idx = np.where(mask)[0]

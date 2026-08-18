@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 def main() -> int:
     ap = argparse.ArgumentParser(description="Gemini Batch API spike")
     ap.add_argument("--bucket", default="fyp_bucket_01")
-    ap.add_argument("--project", default="<gcp-project>")
+    ap.add_argument("--project", default=os.environ.get("GCP_PROJECT_ID"))
     ap.add_argument("--n", type=int, default=5)
     ap.add_argument("--poll-minutes", type=int, default=90)
     args = ap.parse_args()
