@@ -1,0 +1,33 @@
+{
+  "upload_type": "software",
+  "title": "The For You Data Hub: a research data toolbox for studying user experiences of algorithmically curated short-video platforms",
+  "description": "<p>The For You Data Hub turns participants' short-video data donations into analyzable research datasets about algorithmically curated feeds. It ingests the &quot;Download Your Data&quot; exports that TikTok, Instagram and YouTube provide to their users, enriches every watched item with scraped metadata, media and structured multimodal AI annotation, and merges the result into per-study datasets for cross-sectional and temporal analysis.</p><p>The object of study is short-form vertical video: the TikTok feed, Instagram Reels and YouTube Shorts.</p><p>Enrichment is governed by four declarative, versioned schema contracts, so every ingested, scraped or annotated row carries the hash-identified contract version that produced it. Annotation and embedding run on hosted or local open-weight models interchangeably, and ship with A/B evaluation and human intercoder-reliability harnesses for validating machine labels.</p><p>See CHANGELOG.md in the repository for the full contents of this release.</p>",
+  "creators": [
+    {
+      "name": "Wikstrom, Patrik",
+      "affiliation": "Queensland University of Technology, Australia",
+      "orcid": "0000-0003-4720-0416"
+    }
+  ],
+  "license": "mit",
+  "access_right": "open",
+  "version": "0.1.0",
+  "keywords": [
+    "data donation",
+    "short-video",
+    "TikTok",
+    "Instagram",
+    "YouTube",
+    "algorithm auditing",
+    "LLM annotation",
+    "computational social science",
+    "recommender systems"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/pwikstrom/foryou-research",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    }
+  ]
+}
