@@ -5,7 +5,7 @@ One-off migration for the "My stuff" profile feature: every user record gains
 a ``display_username`` derived from the account email — the alphanumeric run
 up to the first non-alphanumeric character, extended with subsequent runs
 while shorter than 3 characters, capped at 15, first character upper-cased
-(e.g. ``patrikwikstrom@gmail.com`` -> ``Patrikwikstrom``). Users that already
+(e.g. ``alexanderjones@example.org`` -> ``Alexanderjones``). Users that already
 have a ``display_username`` are left untouched. Display usernames are UI-only
 and not required to be unique, so derivation collisions are acceptable.
 
