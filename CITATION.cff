@@ -1,4 +1,3 @@
-# TODO after JOSS acceptance: fill in the preferred-citation DOI block at the bottom.
 cff-version: 1.2.0
 message: >-
   If you use this software in your research, please cite it using the
@@ -12,6 +11,14 @@ authors:
     affiliation: "Queensland University of Technology, Australia"
 license: MIT
 repository-code: "https://github.com/pwikstrom/foryou-research"
+doi: "10.5281/zenodo.21994399"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.21994399"
+    description: "Concept DOI — resolves to the latest version"
+  - type: doi
+    value: "10.5281/zenodo.21994400"
+    description: "Archived snapshot of version 0.1.0"
 version: 0.1.0
 date-released: "2026-08-18"
 keywords:
