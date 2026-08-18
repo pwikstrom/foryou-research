@@ -34,9 +34,11 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _FIXTURES = os.path.join(_HERE, "..", "tmp", "fixtures")
 _REQUIRED_CORE = ["activity_type", "utc_timestamp", "collection_id", "data_source", "tz_offset"]
 
-_SRC_IG = "/Users/<user>/Downloads/instagram-example-2026-06-29-EXAMPLE.zip"
-_SRC_YT = "/Users/<user>/Downloads/takeout-20260630T004137Z-3-001.zip"
-_SRC_YT_JSON = "/Users/<user>/Downloads/takeout-20260705T024230Z-3-001.zip"
+# Real donation exports are never committed. Point these at your own local
+# copies to run the end-to-end checks; the tests skip when they are unset.
+_SRC_IG = os.environ.get("FYP_TEST_IG_ZIP", "")
+_SRC_YT = os.environ.get("FYP_TEST_YT_ZIP", "")
+_SRC_YT_JSON = os.environ.get("FYP_TEST_YT_JSON_ZIP", "")
 
 _YT_CELL = (
     '<div class="outer-cell mdl-cell"><div class="mdl-grid">'

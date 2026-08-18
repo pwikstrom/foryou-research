@@ -12,7 +12,7 @@ stochastic, so two *identical* runs disagree. To tell "real effect" from
 "sampling noise" we always run a same-setting control and treat its agreement as
 the floor: a gap only counts as a real effect where it falls **below** that floor.
 
-Sample: 80 local videos, `--seed 17`, from `/Users/<user>/Desktop/fyp_mini/media`.
+Sample: 80 local videos, `--seed 17`, from `~/Desktop/fyp_mini/media`.
 Caveat: a convenience sample, not text/brand-heavy — some sensitive fields have
 low coverage (e.g. `symbols_and_brands` ~0.55), so those rates rest on ~40 videos.
 

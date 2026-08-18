@@ -1,3 +1,4 @@
+import os
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -245,7 +246,7 @@ def process_all_files(
 # ── Config & entry point ───────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    SEARCH_PATH = "/Users/<user>/fyp_local/"
+    SEARCH_PATH = os.path.expanduser("~/fyp_local/")
 
     RENAME_MAP = {
         "collection_id":       "collection_id",

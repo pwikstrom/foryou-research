@@ -4,7 +4,7 @@ import os
 
 import pandas as pd
 
-cache_dir = "/Users/<user>/fyp_local/cache"
+cache_dir = os.path.expanduser("~/fyp_local/cache")
 study_name = "dmrc_summer_mini"
 parquet_file = os.path.join(cache_dir, f"{study_name}_recoded.parquet")
 metadata_file = os.path.join(cache_dir, f"{study_name}_explorer_metadata.json")

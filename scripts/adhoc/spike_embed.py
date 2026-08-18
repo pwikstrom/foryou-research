@@ -3,7 +3,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from google import genai
 from google.genai.types import EmbedContentConfig
-RECODED = "/Users/<user>/fyp_local/recoded"
+RECODED = os.path.expanduser("~/fyp_local/recoded")
 rng = np.random.RandomState(2026)
 N = 10000
 

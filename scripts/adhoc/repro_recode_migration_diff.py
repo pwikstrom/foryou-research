@@ -27,7 +27,7 @@ def _load_parquet(path: str) -> pd.DataFrame:
                          for name in table.column_names})
 
 OLD_DEFAULT = "tmp/premigration_backup/machine_annotations_recoded.OLD.parquet"
-NEW_DEFAULT = "/Users/<user>/fyp_local/recoded/machine_annotations_recoded.parquet"
+NEW_DEFAULT = os.path.expanduser("~/fyp_local/recoded/machine_annotations_recoded.parquet")
 
 # Columns we EXPECT to change materially (documented in the plan); changes here
 # are sanity-checked, not flagged. Everything else with a big shift is flagged.

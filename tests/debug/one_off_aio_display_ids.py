@@ -1,9 +1,10 @@
 """One-off script: set display_collection_id to 'AIO-nnnnn' for all AIO-tagged collections."""
 
+import os
 import json
 from pathlib import Path
 
-ANNOTATIONS_PATH = Path("/Users/<user>/fyp_local/recoded/collection_annotations.json")
+ANNOTATIONS_PATH = Path(os.path.expanduser("~/fyp_local/recoded/collection_annotations.json"))
 
 with open(ANNOTATIONS_PATH) as f:
     annotations = json.load(f)

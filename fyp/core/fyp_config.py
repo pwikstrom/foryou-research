@@ -156,7 +156,7 @@ def _localize_default_path(configured: str, home_subdir: str) -> str:
     """Make a committed POSIX default data path usable on the current OS.
 
     The tracked ``config.toml`` ships macOS-style absolute defaults (e.g.
-    ``/Users/<user>/fyp_local``). On Windows those are drive-relative and
+    ``~/fyp_local``). On Windows those are drive-relative and
     point at another user's profile, so a POSIX-absolute default is redirected
     to a per-user location under the home directory. Anything a user set
     deliberately — a relative path or a path carrying a Windows drive/UNC
