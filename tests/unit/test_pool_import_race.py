@@ -40,7 +40,7 @@ SHIMS = {
     if p.stem != "__init__" and "sys.modules[__name__]" in p.read_text()
 }
 
-# The mandated lazy accessors (see CLAUDE.md "Import-Cycle Rule"). They exist to
+# The mandated lazy accessors (see DEVELOPING.md "Import-Cycle Rule"). They exist to
 # break the fyp_config cycle, are called on essentially every code path, and are
 # warm long before any pool starts.
 EXEMPT_FUNCTIONS = {"_cf", "_data_io", "_gcf"}

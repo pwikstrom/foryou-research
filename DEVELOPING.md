@@ -1,4 +1,4 @@
-# CLAUDE.md — FYP Research Platform
+# Developing FYP — maintainer guide
 
 ## Project Overview
 
@@ -72,7 +72,7 @@ All visual styling is managed through a **CSS custom property (token) system** i
 ```text
 foryou-research/
 ├── __proj__.py                  # Empty sentinel — marks project root
-├── CLAUDE.md                    # This file (project instructions, auto-loaded by Claude Code)
+├── DEVELOPING.md                    # This file (maintainer guide: style, layout, patterns, deployment)
 ├── config/
 │   ├── config.toml              # Active config (paths, GCS, Gemini, labels)
 │   ├── legacy_annotation_prompt.txt # Retained pre-versioning "v0_legacy" prompt — display-only, shown by the admin Annotation Versions viewer (not used for go-forward annotation)

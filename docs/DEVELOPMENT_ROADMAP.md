@@ -39,7 +39,7 @@ ANOVA/PERMANOVA, timelines). Two things are missing to reach the vision:
 - ✅ **Solid:** clean tab pattern (template + JS + blueprint + `data_service`); a genuinely
   platform-agnostic ingestion ABC (`ForYouBaseCollection`); generic analysis stack
   (PCA/ANOVA/PERMANOVA/recoding); a working dual-mode (Cloud Tasks / subprocess) job framework;
-  CSS-token design system; good docs in `CLAUDE.md`.
+  CSS-token design system; good docs in `DEVELOPING.md`.
 - ⚠️ **Fragile:** zero automated tests / no CI; no type checking (ruff only); Cloud Tasks have
   no retry / dead-letter; PCA cache has no freshness check; heavy frontend files
   (`timelines.js` ~2.5k lines, `collections.js` very large); `UserManager` bulk-loads all users
@@ -243,7 +243,7 @@ mix collections across platforms.
 > in `Dockerfile.base`, script mode via `_pot_extractor_args()`). Live validation: safeguards all
 > engage in prod, but the bot wall persists on the 2026-07-05 cookie file — next step is a fresh
 > cookie export from a closed incognito session; fallback is draining the YT queue from a
-> residential IP (that fallback is now BUILT: `FYP_FORCE_GCS` local-drain runbook in CLAUDE.md,
+> residential IP (that fallback is now BUILT: `FYP_FORCE_GCS` local-drain runbook in DEVELOPING.md,
 > `e79ba7a`, not yet run).
 >
 > **✅ Update (2026-07-07):** three more pieces shipped and deployed (`27706f4`, `94e8f57`,
@@ -311,7 +311,7 @@ mix collections across platforms.
 > embedding are now **pluggable backends** (hosted `qwen_api` passed production acceptance
 > 2026-07-23 at ~3× lower cost than Gemini; local `qwen_local`/`minicpm_local` for fully
 > offline installs; config-declared backend *variants* pin model versions). A JOSS paper is
-> drafted (branch `claude/scientific-publication-guide-af72d4`, not yet merged). Remaining:
+> drafted on an unmerged working branch. Remaining:
 > Cloud Tasks retry/dead-letter, study export + methods/provenance note.
 
 This is where "self-serve for other HASS researchers later" gets paid down without committing to a
@@ -606,7 +606,7 @@ small UI affordances, not a "classroom mode" build.
 
 ### M4. Public release / JOSS capstone
 
-The drafted package (branch `claude/scientific-publication-guide-af72d4`) becomes
+The drafted package (on an unmerged working branch) becomes
 cheap to finish once S1 (key rotation), S4 (demo path), and S3 (provenance) land:
 fill placeholders, sanitization audit, merge, Zenodo + tag + submit. Positioning:
 credibility and citability for the hosted instance, not a pivot to self-install

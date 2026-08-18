@@ -1444,7 +1444,7 @@ def build_collection(cid: str, plays: pd.DataFrame, id2idx: dict, U: np.ndarray,
 
 
 # Explicit Arrow schemas so `data_io.save_parquet` takes its all-ArrowDtype
-# fast path and readers see stable dtypes (CLAUDE.md: PyArrow dtypes always).
+# fast path and readers see stable dtypes (DEVELOPING.md: PyArrow dtypes always).
 _SESSIONS_SCHEMA: dict[str, pa.DataType] = {
     "collection_id": pa.string(), "session_id": pa.string(),
     "start_ts": pa.string(), "end_ts": pa.string(),

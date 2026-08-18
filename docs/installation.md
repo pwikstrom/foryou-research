@@ -519,7 +519,7 @@ supported. If you are new to Google Cloud, the one-time setup is:
 If the connection fails (no ADC, no access), the app logs the error and
 falls back to local storage rather than crashing. Nothing else in GCP is
 required for local use — Cloud Run/Cloud Tasks only matter for the
-production deployment described in `CLAUDE.md`.
+production deployment described in `DEVELOPING.md`.
 
 **AIO donation fetch (AWS).** The Data Management "AIO fetch" action pulls
 donations from the [Australian Internet Observatory](https://internetobservatory.org.au/)
@@ -583,5 +583,5 @@ note; those passages are hidden when it is unset. For all three `[site]`
 values the env var overrides the config file.
 
 All environment variables are listed in [.env.example](../.env.example);
-production/Cloud Run deployment is covered in `CLAUDE.md` and
+production/Cloud Run deployment is covered in `DEVELOPING.md` and
 [architecture.md](architecture.md).

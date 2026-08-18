@@ -34,9 +34,9 @@ class — see [docs/pipeline.md](docs/pipeline.md)).
 | `scripts/` | Maintenance/migration scripts + `verify.sh` (the verification gate) |
 | `docs/` | Human-oriented documentation (architecture, configuration, web layer, pipeline) |
 
-`CLAUDE.md` is the AI-agent-oriented project instruction file (auto-loaded by
-Claude Code); it is the most detailed single reference and worth reading even
-as a human.
+`DEVELOPING.md` is the maintainer guide: environment, coding style, module
+layout, key patterns, and deployment. It is the most detailed single
+reference in the repository and the best starting point for contributors.
 
 ## Quickstart (local development)
 
@@ -104,7 +104,7 @@ Production runs on Google Cloud Run as two services sharing one Docker
 image: `fyp-data-hub` (web) and `fyp-task-runner` (background Cloud Tasks).
 Storage is Google Cloud Storage; locally it is the filesystem — both behind
 the same `fyp/data_io.py` abstraction. Build/deploy commands and the
-base-image/app-image split are documented in `CLAUDE.md` §"Running the
+base-image/app-image split are documented in `DEVELOPING.md` §"Running the
 Project" and [docs/architecture.md](docs/architecture.md).
 
 ## Documentation

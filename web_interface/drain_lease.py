@@ -1,7 +1,7 @@
 """Cross-instance lease for local scrape-queue drains.
 
 A local drain (``FYP_FORCE_GCS=1 python web_interface/run_queue_scraper.py``,
-see the runbook in CLAUDE.md) writes to the same GCS storage as the Cloud Run
+see the runbook in DEVELOPING.md) writes to the same GCS storage as the Cloud Run
 services, but its process is invisible to them: the web service's in-memory
 process table can't see a laptop subprocess, and the laptop consults no GCS
 status. This module closes that gap with a small heartbeat lease file on the

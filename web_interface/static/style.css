@@ -3376,7 +3376,7 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 
 /* ============================================================
    Small-screen responsive layer
-   (single breakpoint at 860px — see CLAUDE.md / plan)
+   (single breakpoint at 860px — see DEVELOPING.md / plan)
    ============================================================ */
 
 /* Base utilities (apply at all widths) */

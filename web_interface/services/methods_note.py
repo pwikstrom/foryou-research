@@ -14,7 +14,7 @@ note is the only way it tracks reality. Both refresh workers
 :func:`write_methods_note`, mirroring the ``compute_study_dataset_stats``
 pattern that keeps the two writers from diverging.
 
-Vocabulary (see CLAUDE.md): the note reports the **preferred** annotation
+Vocabulary (see DEVELOPING.md): the note reports the **preferred** annotation
 version (what studies read), never conflating it with the **active** one
 (what the next annotation is stamped with).
 

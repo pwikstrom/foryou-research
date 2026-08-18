@@ -6,7 +6,7 @@
  * concurrency via the etag returned on GET.
  *
  * No build step; this file is served as-is.  Styling uses CSS custom
- * properties from style.css (see CLAUDE.md "Frontend Styling Rules").
+ * properties from style.css (see DEVELOPING.md "Frontend Styling Rules").
  */
 
 (function () {

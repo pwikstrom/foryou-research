@@ -16,7 +16,7 @@
    ```
 
 4. PRs should be independently deployable — production deploys straight from
-   `main` (Cloud Run, see `CLAUDE.md`).
+   `main` (Cloud Run, see `DEVELOPING.md`).
 
 ## Tests
 
@@ -39,7 +39,7 @@
 
 ## Coding style
 
-The authoritative style rules live in `CLAUDE.md` §"Coding Style". Highlights:
+The authoritative style rules live in `DEVELOPING.md` §"Coding Style". Highlights:
 
 - Python type hints in signatures; Google-style docstrings; imports at the
   top of the file; f-strings; PyArrow dtypes for DataFrames.
