@@ -212,3 +212,5 @@ tmp/
 # production ids, bucket names and donation filenames by their nature.
 scripts/adhoc/
 tests/debug/
+tests/ab_eval/
+tests/bench/
