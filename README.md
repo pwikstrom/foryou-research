@@ -149,13 +149,13 @@ research, please cite it using the metadata in
 
 ## AI assistance
 
-The Hub was developed with substantial assistance from Anthropic's Claude
-models, used through Claude Code: code generation from specifications,
-refactoring, test scaffolding, and drafting of documentation. The author framed
-the research problem, chose the architecture and its central abstractions — the
+The For You Hub was developed with substantial assistance from Anthropic's Claude
+models. Claude Code was used for code generation based on Wikstrom's design,
+refactoring, test scaffolding, and drafting of documentation. Wikstrom framed
+the research problem, designed the architecture and its central abstractions — the
 versioned contract system, the backend interfaces, the validation harnesses —
 and reviewed, tested and accepted every change. Responsibility for the
-correctness, originality and licensing of the code rests with the author.
+correctness, originality and licensing of the code rests with Patrik Wikstrom.
 
 Distinct from that, large language models are also *runtime components* of the
 Hub: content annotation and text embedding are performed by Gemini or by
