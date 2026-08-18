@@ -69,8 +69,8 @@ through the parsing pipeline at zero API cost; and a synthetic demo-dataset
 generator so the Hub can be installed and exercised end to end without
 participant data.
 
-**Project.** MIT license, citation metadata, contributor guide, code of
-conduct, security policy, ethics and data-handling documentation, continuous
+**Project.** MIT license, citation metadata, contributor guide, security
+policy, ethics and data-handling documentation, continuous
 integration, and a `scripts/verify.sh` gate combining lint, unit tests, the
 import-cycle and schema-hash guards, the golden suite, and an app import smoke
 test.
