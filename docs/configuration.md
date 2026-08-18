@@ -72,6 +72,7 @@ tests and the golden safety net use this.
 | Variable | Effect |
 |---|---|
 | `GEMINI_API_KEY` | Gemini API access for annotation/embeddings. Used only when `[machine.gemini].vertexai = false`: with the default `vertexai = true` the app talks to Vertex AI and this key plays no part (the one exception is when no `project` is set, where the app falls back to the key and warns). Not auto-loaded from `.env` — see [Enabling Gemini later](installation.md#enabling-gemini-later) |
+| `DASHSCOPE_API_KEY` | API key for the hosted Qwen backends (DashScope's OpenAI-compatible international endpoint). Read by both the `qwen_api` annotation backend and the Qwen API embedding backend — one key serves both. Needed only while one of those is the active backend (Admin → Backends) |
 | `FLASK_SECRET_KEY` | Flask session secret (falls back to a dev key locally) |
 | `FYP_GCS_BUCKET_NAME` | GCS bucket (production) |
 | `K_SERVICE` | Set automatically by Cloud Run — switches storage to GCS and job dispatch to Cloud Tasks |
@@ -83,6 +84,7 @@ tests and the golden safety net use this.
 | `CLOUD_RUN_SERVICE_URL`, `GCP_PROJECT_ID`, `CLOUD_TASKS_LOCATION`, `CLOUD_TASKS_QUEUE`, `CLOUD_TASKS_SA_EMAIL` | Cloud Tasks dispatch configuration (production) |
 | `AIO_DYNAMODB_TABLE`, `AIO_S3_BUCKET` | AIO data-donation stack resource names (deployment-specific; only for installations with their own AIO stack) |
 | `BGUTIL_POT_SERVER_HOME` | Path to the bgutil PO-token provider script (YouTube media downloads from datacenter IPs) |
+| `YTDLP_COOKIE_FILE_<PLATFORM>`, `YTDLP_COOKIE_FILE` | Netscape-format cookie file for scraping, for hosts where neither cookie source applies (Cloud Run reads `gs://<bucket>/secrets/{platform}_cookies.txt`; a local Mac extracts from Chrome). The platform-specific form (`YTDLP_COOKIE_FILE_TIKTOK`, `_INSTAGRAM`, `_YOUTUBE`) takes precedence over the shared one, and **both are ignored unless the path exists on disk** |
 
 ## Storage locations
 

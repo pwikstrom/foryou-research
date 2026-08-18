@@ -28,7 +28,7 @@ when unconfigured. Everything stores to the local filesystem by default
 | **Python 3.12** | everything | Matches production (`python:3.12-slim` on Cloud Run); `ruff` and CI target 3.12 too. `brew install python@3.12` / `apt install python3.12` |
 | `ffmpeg` | YouTube HD media only | yt-dlp needs it to merge DASH video+audio. TikTok/Instagram downloads and photo-slideshow assembly work without it (bundled `imageio-ffmpeg`). `brew install ffmpeg` / `apt install ffmpeg` |
 | `node` *or* `deno` | YouTube media from datacenter IPs | Runs yt-dlp's JS challenge solver. Usually unnecessary on a home (residential) connection. |
-| Google Chrome, logged in | authenticated scraping | Cookies are read from the local Chrome profile — **macOS only** (approve the Keychain prompt on first use). Instagram scraping effectively requires this; TikTok/YouTube degrade to public-content access. On Linux, provide a Netscape cookies file via `YTDLP_COOKIE_FILE` instead. |
+| Google Chrome, logged in | authenticated scraping | Cookies are read from the local Chrome profile — **macOS only** (approve the Keychain prompt on first use). Instagram scraping effectively requires this; TikTok/YouTube degrade to public-content access. On Linux, provide a Netscape cookies file instead: `YTDLP_COOKIE_FILE_TIKTOK` / `_INSTAGRAM` / `_YOUTUBE` for one platform, or `YTDLP_COOKIE_FILE` for all of them (the per-platform form wins; either is ignored unless the file exists). |
 
 ## Install
 
@@ -528,8 +528,11 @@ bucket names are that stack's; it is not useful for other installations
 (upload donation zips through the UI instead). If you do have access,
 credentials come from the standard boto3 chain (`~/.aws/credentials`
 locally, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_DEFAULT_REGION`
-env vars otherwise). Without credentials the AIO card simply does not
-appear on the Ingestion page; the rest of the app is unaffected.
+env vars otherwise). The stack's own resource names are deployment-specific
+and have no defaults in code, so `AIO_DYNAMODB_TABLE` and `AIO_S3_BUCKET`
+must be set too — the fetch raises a clear error naming the missing one.
+Without credentials the AIO card simply does not appear on the Ingestion
+page; the rest of the app is unaffected.
 
 ## PATH and environment variables
 
