@@ -365,6 +365,14 @@ contact_email = ""
 mail_sender = ""
 app_url = ""
 
+# repo_url: home of the source code. Unlike the three values above this one is
+# about the software, not the operator, so the committed default is the
+# canonical public repository - the public pages link there for bug reports,
+# feature requests, the installation guide and the licence. Point it at your
+# own fork if you maintain one, or set it empty (or FYP_REPO_URL="") to drop
+# every source-code link from the site.
+repo_url = "https://github.com/pwikstrom/foryou-research"
+
 
 ##########################################################################################
 # web server

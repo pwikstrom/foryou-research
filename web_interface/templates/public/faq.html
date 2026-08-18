@@ -29,6 +29,31 @@
     </details>
 
     <details>
+        <summary>Is the Data Hub open source? Can I run my own instance?</summary>
+        {% if repo_url %}
+        <p>
+            Yes to both. The Hub is released under the MIT licence and developed in the open at
+            <a href="{{ repo_url }}" target="_blank" rel="noopener">{{ repo_url | replace('https://', '') }}</a>.
+            Everything you see here — ingestion, enrichment, annotation and the dashboard — is in
+            that repository, and you are free to run it, fork it and adapt it for your own project.
+        </p>
+        <p>
+            Running your own instance means you keep your participants' data on infrastructure you
+            control, under your own ethics approval. Start with the
+            <a href="{{ repo_url }}/blob/main/docs/installation.md" target="_blank" rel="noopener">installation
+            guide</a>; the Hub runs locally on a laptop for small studies and on Google Cloud Run for
+            larger ones.
+        </p>
+        {% else %}
+        <p>
+            Yes. The Hub is released under the MIT licence, so you are free to run your own
+            instance, keeping your participants' data on infrastructure you control and under your
+            own ethics approval. Ask the team running this instance where the source lives.
+        </p>
+        {% endif %}
+    </details>
+
+    <details>
         <summary>How do I get an account?</summary>
         <p>
             Register on the <a href="{{ url_for('auth_bp.signup') }}">sign-up page</a> with your email
@@ -96,6 +121,14 @@
             Sydney. For citation formats or co-authorship questions, contact the team at
             <a href="mailto:foryou@qut.edu.au">foryou@qut.edu.au</a>.
         </p>
+        {% if repo_url %}
+        <p>
+            To cite the software itself, use the "Cite this repository" button on the
+            <a href="{{ repo_url }}" target="_blank" rel="noopener">GitHub repository</a>. It reads
+            the repository's <code>CITATION.cff</code>, which carries the archived Zenodo DOI for
+            each release.
+        </p>
+        {% endif %}
     </details>
 
     <details>
@@ -108,6 +141,25 @@
 
     <details>
         <summary>I found a bug — who do I tell?</summary>
+        {% if repo_url %}
+        <p>
+            The hub is under active development, so bugs happen. Bug reports and feature requests
+            belong in the public issue tracker:
+            <a href="{{ repo_issues_url }}" target="_blank" rel="noopener">browse the open issues</a>
+            first in case yours is already known, then
+            <a href="{{ repo_issues_url }}/new" target="_blank" rel="noopener">open a new issue</a>
+            saying what you were doing, what you expected and what happened instead. Screenshots
+            help a lot.
+        </p>
+        <p>
+            Two things that don't belong in an issue, because issues are public: participant data
+            (including screenshots that identify a participant) and suspected security problems.
+            Report the latter privately, following the
+            <a href="{{ repo_url }}/blob/main/SECURITY.md" target="_blank" rel="noopener">security
+            policy</a>.{% if contact_email %} For anything else you'd rather not post publicly,
+            email {{ contact_email }}.{% endif %}
+        </p>
+        {% else %}
         <p>
             The hub is under active development, so bugs happen.
             {% if contact_email %}Email {{ contact_email }} with what you were
@@ -116,7 +168,23 @@
             doing and what went wrong; screenshots help a lot.
             {% endif %}
         </p>
+        {% endif %}
     </details>
+
+    {% if repo_url %}
+    <details>
+        <summary>Can I contribute code?</summary>
+        <p>
+            Please do. The
+            <a href="{{ repo_url }}/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">contributing
+            guide</a> covers the branch workflow, the test suite and the conventions the codebase
+            relies on. Adding support for another platform is deliberately small — one ingestion
+            class and one scraper class — and bug fixes, documentation and test coverage are just as
+            welcome. If you're planning something substantial, open an issue first so we can talk it
+            through before you write the code.
+        </p>
+    </details>
+    {% endif %}
 
 </section>
 

@@ -45,6 +45,11 @@ from fyp.core.paths import (
 #import fyp
 
 
+# Fallback for [site].repo_url when neither config.toml nor FYP_REPO_URL
+# supplies one (e.g. a stripped-down config): the canonical public repository
+# the public pages link to for issues, installation and licence.
+DEFAULT_REPO_URL = "https://github.com/pwikstrom/foryou-research"
+
 
 def _create_local_dirs(cf: dict, verbose: bool = False):
     # create missing local folders if not using GCS for data
@@ -279,6 +284,17 @@ def initialize(
             site[site_key] = env_value.strip()
         else:
             site.setdefault(site_key, "")
+
+    # repo_url is about the software rather than the operator, so its default
+    # is the canonical repository instead of "" - a fresh install still links
+    # to the source, the issue tracker and the installation guide. A fork
+    # overrides it in config.local.toml / FYP_REPO_URL; an explicit empty
+    # value hides the source-code links entirely.
+    repo_env = os.environ.get("FYP_REPO_URL")
+    if repo_env is not None:
+        site["repo_url"] = repo_env.strip()
+    else:
+        site.setdefault("repo_url", DEFAULT_REPO_URL)
 
 
     # ------------------------------------------------------------------

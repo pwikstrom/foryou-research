@@ -18,6 +18,13 @@
         computer-generated dataset, so nothing you see comes from real people. It's not the
         full pipeline, but it should give you a good feel for how the Data Hub works.
     </p>
+    {% if repo_url %}
+    <p class="hero-subtitle landing-hero-sub">
+        The Hub is open source (MIT). The code, the installation guide and the issue tracker are on
+        <a href="{{ repo_url }}" target="_blank" rel="noopener">GitHub</a>, so you can also run your
+        own instance — see <a href="#self-host">running it yourself</a> below.
+    </p>
+    {% endif %}
 </section>
 
 <section class="landing-section">
@@ -92,8 +99,79 @@
         <li>Every tab has a <strong>?</strong> help button in the top right with a detailed description of that tab.</li>
         <li>Customize which variables appear on each surface via the ⚙ panels. Your choices are personal and persist across sessions.</li>
         <li>Other researchers' annotations appear in Video Analysis when they've opted into sharing.</li>
+        {% if repo_url %}
+        <li>
+            Something broken, or missing? Open an issue on
+            <a href="{{ repo_issues_url }}" target="_blank" rel="noopener">GitHub</a> — see
+            <a href="#feedback">feedback and bug reports</a> below.
+        </li>
+        {% endif %}
     </ul>
 </section>
+
+{% if repo_url %}
+<section class="landing-section" id="self-host">
+    <h2 class="text-h2 font-semibold landing-section-title">Running it yourself</h2>
+    <p class="prose landing-section-intro">
+        This instance is one deployment of the Hub, not the only one. The software is open source
+        under the MIT licence, so you can run your own — which is what you want for a real study,
+        since it keeps your participants' donations on infrastructure you control, under your own
+        ethics approval.
+    </p>
+    <ol class="step-list">
+        <li>
+            <strong>Get the code.</strong> Clone
+            <a href="{{ repo_url }}" target="_blank" rel="noopener">{{ repo_url | replace('https://', '') }}</a>
+            and follow the
+            <a href="{{ repo_url }}/blob/main/docs/installation.md" target="_blank" rel="noopener">installation
+            guide</a>. A setup wizard writes your local configuration; the Hub runs on a laptop for
+            small studies and on Google Cloud Run for larger ones.
+        </li>
+        <li>
+            <strong>Bring your own keys.</strong> Enrichment and AI annotation call external
+            services, so an instance needs its own credentials — the installation guide lists which
+            ones and what they cost.
+        </li>
+        <li>
+            <strong>Adapt it.</strong> Annotation prompts are declarative contracts you edit in the
+            browser, and adding a platform is one ingestion class plus one scraper class. The
+            <a href="{{ repo_url }}/tree/main/docs" target="_blank" rel="noopener">docs folder</a>
+            covers architecture, configuration and the pipeline.
+        </li>
+    </ol>
+</section>
+
+<section class="landing-section" id="feedback">
+    <h2 class="text-h2 font-semibold landing-section-title">Feedback and bug reports</h2>
+    <p class="prose landing-section-intro">
+        Development happens in the open, and reports from people using the Hub are the main way it
+        improves.
+    </p>
+    <ul class="guide-tips">
+        <li>
+            <strong>Bugs and feature requests:</strong>
+            <a href="{{ repo_issues_url }}" target="_blank" rel="noopener">search the issue
+            tracker</a>, then
+            <a href="{{ repo_issues_url }}/new" target="_blank" rel="noopener">open an issue</a>
+            with what you did, what you expected and what happened instead.
+        </li>
+        <li>
+            <strong>Never in a public issue:</strong> participant data, or screenshots that identify
+            a participant.
+        </li>
+        <li>
+            <strong>Security problems:</strong> report them privately, following the
+            <a href="{{ repo_url }}/blob/main/SECURITY.md" target="_blank" rel="noopener">security
+            policy</a> — not as an issue.
+        </li>
+        <li>
+            <strong>Code:</strong> pull requests are welcome; start with the
+            <a href="{{ repo_url }}/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">contributing
+            guide</a>.
+        </li>
+    </ul>
+</section>
+{% endif %}
 
 <section class="landing-section landing-cta-band">
     <h2 class="text-h2 font-semibold">Could the Data Hub be useful in your project?</h2>
@@ -104,9 +182,12 @@
         {% if contact_email %}write to us at
         <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>. We'd be glad to show
         you the full pipeline and talk through what working together could look like.
-        {% else %}get in touch with the team running this instance. The Hub itself is
-        open source, so you can also run your own — see the repository's installation guide.
+        {% else %}get in touch with the team running this instance.
         {% endif %}
+        {% if repo_url %}The Hub itself is open source, so you can also run your own instance —
+        see the
+        <a href="{{ repo_url }}/blob/main/docs/installation.md" target="_blank" rel="noopener">installation
+        guide</a> in the repository.{% endif %}
     </p>
 </section>
 

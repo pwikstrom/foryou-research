@@ -119,20 +119,33 @@ def _register_web_ui(app):
             return {"scrape_platforms": ["tiktok"]}
 
     @app.context_processor
-    def inject_contact_email():
-        """Expose the instance operator's contact email to every template.
+    def inject_site_links():
+        """Expose the instance's contact email and source repository to templates.
 
-        Comes from [site].contact_email (config.local.toml, or the
-        FYP_CONTACT_EMAIL env var which overrides it at config load);
-        templates render their contact/feedback passages only when it is
-        set, so a third-party install shows no foreign address.
+        Both come from [site] (config.local.toml, or the FYP_CONTACT_EMAIL /
+        FYP_REPO_URL env vars which override it at config load).
+
+        contact_email: templates render their contact/feedback passages only
+        when it is set, so a third-party install shows no foreign address.
+
+        repo_url: the public pages point bug reports, feature requests, the
+        installation guide and the licence at the source repository. It
+        defaults to the canonical repo, so those links work out of the box;
+        a fork can repoint it, and an empty value hides them. repo_issues_url
+        is derived so templates don't each rebuild it.
         """
         from fyp.fyp_config import get_config
         try:
             site = get_config().get("site", {}) or {}
-            return {"contact_email": str(site.get("contact_email", "") or "").strip()}
+            contact_email = str(site.get("contact_email", "") or "").strip()
+            repo_url = str(site.get("repo_url", "") or "").strip().rstrip("/")
         except Exception:
-            return {"contact_email": ""}
+            contact_email, repo_url = "", ""
+        return {
+            "contact_email": contact_email,
+            "repo_url": repo_url,
+            "repo_issues_url": f"{repo_url}/issues" if repo_url else "",
+        }
 
     @app.errorhandler(403)
     def handle_forbidden(error):

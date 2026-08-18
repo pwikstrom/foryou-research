@@ -73,6 +73,18 @@
         donated Instagram activity and YouTube watch history, letting the team compare recommendation
         dynamics across platforms.
     </p>
+    {% if repo_url %}
+    <p class="prose landing-section-intro" style="margin-top: 24px;">
+        The Hub is also open-source research infrastructure. It is released under the MIT licence and
+        developed in the open at
+        <a href="{{ repo_url }}" target="_blank" rel="noopener">{{ repo_url | replace('https://', '') }}</a>,
+        where you will find the full source, the
+        <a href="{{ repo_url }}/blob/main/docs/installation.md" target="_blank" rel="noopener">installation
+        guide</a> for running your own instance, and the
+        <a href="{{ repo_issues_url }}" target="_blank" rel="noopener">issue tracker</a> for bug
+        reports and feature requests.
+    </p>
+    {% endif %}
 </section>
 
 <section class="landing-section">
@@ -140,6 +152,8 @@
         follow the project on <a href="https://www.linkedin.com/company/107376504/" target="_blank" rel="noopener">LinkedIn</a>
         or <a href="https://www.tiktok.com/@for.you.research" target="_blank" rel="noopener">TikTok</a>,
         or contact the team at <a href="mailto:foryou@qut.edu.au">foryou@qut.edu.au</a>.
+        {% if repo_url %}Questions and bug reports about the software itself are best raised on
+        <a href="{{ repo_issues_url }}" target="_blank" rel="noopener">GitHub</a>.{% endif %}
     </p>
 </section>
 

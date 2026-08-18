@@ -585,6 +585,14 @@ contact address on the public guide/FAQ pages and the home-tab feedback
 note; those passages are hidden when it is unset. For all three `[site]`
 values the env var overrides the config file.
 
+**Source repository links.** The public pages (landing, guide, FAQ, about,
+footer) and the home-tab feedback note point at `[site] repo_url` for bug
+reports, feature requests, the installation guide and the licence. Unlike the
+values above it defaults to the canonical repository rather than empty, so a
+fresh install links somewhere useful. Override it with `[site] repo_url` /
+`FYP_REPO_URL` if you maintain a fork and want reports to reach you, or set it
+to an empty string to remove every source-code link from the site.
+
 All environment variables are listed in [.env.example](../.env.example);
 production/Cloud Run deployment is covered in `DEVELOPING.md` and
 [architecture.md](architecture.md).

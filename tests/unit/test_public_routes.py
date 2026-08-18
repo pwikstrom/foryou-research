@@ -3,6 +3,10 @@
 Anonymous visitors must reach the landing page and the public content pages
 without authentication, protected routes must still bounce to /login, and an
 authenticated user on ``/`` must get the app shell (not the landing page).
+
+Also guards the source-repository links: the public pages route bug reports at
+``[site] repo_url``, and an operator who clears that key must get a site with no
+source-code links at all.
 """
 
 import os
@@ -59,3 +63,35 @@ def test_authenticated_root_renders_app_shell(app, client, monkeypatch):
     body = resp.get_data(as_text=True)
     assert 'id="home"' in body
     assert "public-header" not in body
+
+
+@pytest.fixture()
+def repo_url(app):
+    """The configured [site] repo_url, skipping if an overlay cleared it."""
+    from fyp.fyp_config import get_config
+
+    url = str((get_config().get("site", {}) or {}).get("repo_url", "") or "").strip()
+    if not url:
+        pytest.skip("[site] repo_url is empty in this install's config")
+    return url.rstrip("/")
+
+
+@pytest.mark.parametrize("path", ["/", "/about", "/guide", "/faq"])
+def test_public_pages_link_the_issue_tracker(client, repo_url, path):
+    body = client.get(path).get_data(as_text=True)
+    assert f"{repo_url}/issues" in body
+
+
+def test_public_pages_drop_repo_links_when_repo_url_is_empty(client):
+    """An operator who sets repo_url = "" gets no source-code links anywhere."""
+    from fyp.fyp_config import get_config
+
+    site = get_config().setdefault("site", {})
+    original = site.get("repo_url", "")
+    site["repo_url"] = ""
+    try:
+        for path in ("/", "/about", "/guide", "/faq"):
+            body = client.get(path).get_data(as_text=True)
+            assert "github.com" not in body, f"{path} still links to GitHub"
+    finally:
+        site["repo_url"] = original

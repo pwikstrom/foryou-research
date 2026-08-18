@@ -92,8 +92,16 @@
             <div class="note-callout">
                 <p>
                     This research tool is under development, and you may occasionally encounter bugs
-                    or unexpected behaviour.{% if contact_email %} If you do, we’d really appreciate your help in improving
-                    it—please feel free to let us know at {{ contact_email }}.{% endif %}
+                    or unexpected behaviour. If you do, we’d really appreciate your help in improving
+                    it{% if repo_url %}—please
+                    <a href="{{ repo_issues_url }}/new" target="_blank" rel="noopener">open an issue</a>
+                    on <a href="{{ repo_url }}" target="_blank" rel="noopener">GitHub</a> describing what
+                    you were doing and what went wrong. Issues are public, so leave participant data out
+                    of them, and report anything security-related privately instead
+                    ({% if contact_email %}{{ contact_email }}{% else %}see the
+                    <a href="{{ repo_url }}/blob/main/SECURITY.md" target="_blank" rel="noopener">security
+                    policy</a>{% endif %}).{% elif contact_email %}—please feel free to let us know at
+                    {{ contact_email }}.{% else %}.{% endif %}
                 </p>
             </div>
             <div class="note-callout">
