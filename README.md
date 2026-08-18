@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/pwikstrom/foryou-research/actions/workflows/ci.yml/badge.svg)](https://github.com/pwikstrom/foryou-research/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21994399.svg)](https://doi.org/10.5281/zenodo.21994399)
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21994399-007ec6.svg)](https://doi.org/10.5281/zenodo.21994399)
 
 Hyper-personalised short-video feeds have become one of the main ways people
 encounter culture, news, and each other. The recommender systems behind them
