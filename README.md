@@ -63,8 +63,7 @@ reference in the repository and the best starting point for contributors.
 
 ## Quickstart (local development)
 
-Prerequisites: Python 3.12 (matches the production runtime — see
-[docs/python-versions.md](docs/python-versions.md)), plus `ffmpeg` and
+Prerequisites: Python 3.12 (matches the production runtime), plus `ffmpeg` and
 `node`/`deno` if you run scrapers.
 
 ```bash
@@ -138,7 +137,6 @@ Project" and [docs/architecture.md](docs/architecture.md).
 - [docs/pipeline.md](docs/pipeline.md) — ingestion → scrape → annotation → recode → analysis
 - [docs/web_interface.md](docs/web_interface.md) — Flask app structure, auth, workers, route inventory
 - [docs/correlations-tab-guide.md](docs/correlations-tab-guide.md) — the Correlations tab: statistics, views, interpretation
-- [docs/python-versions.md](docs/python-versions.md) — Python 3.12 everywhere (dev and prod)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — workflow, coding style, invariants you must not break
 - [CHANGELOG.md](CHANGELOG.md) — release history
 

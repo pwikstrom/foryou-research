@@ -25,7 +25,7 @@ when unconfigured. Everything stores to the local filesystem by default
 
 | Requirement | Needed for | Notes |
 |---|---|---|
-| **Python 3.12** | everything | Matches production; see [python-versions.md](python-versions.md). `brew install python@3.12` / `apt install python3.12` |
+| **Python 3.12** | everything | Matches production (`python:3.12-slim` on Cloud Run); `ruff` and CI target 3.12 too. `brew install python@3.12` / `apt install python3.12` |
 | `ffmpeg` | YouTube HD media only | yt-dlp needs it to merge DASH video+audio. TikTok/Instagram downloads and photo-slideshow assembly work without it (bundled `imageio-ffmpeg`). `brew install ffmpeg` / `apt install ffmpeg` |
 | `node` *or* `deno` | YouTube media from datacenter IPs | Runs yt-dlp's JS challenge solver. Usually unnecessary on a home (residential) connection. |
 | Google Chrome, logged in | authenticated scraping | Cookies are read from the local Chrome profile — **macOS only** (approve the Keychain prompt on first use). Instagram scraping effectively requires this; TikTok/YouTube degrade to public-content access. On Linux, provide a Netscape cookies file via `YTDLP_COOKIE_FILE` instead. |
