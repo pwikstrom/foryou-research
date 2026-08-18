@@ -117,6 +117,7 @@ Project" and [docs/architecture.md](docs/architecture.md).
 - [docs/correlations-tab-guide.md](docs/correlations-tab-guide.md) — the Correlations tab: statistics, views, interpretation
 - [docs/python-versions.md](docs/python-versions.md) — Python 3.12 everywhere (dev and prod)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — workflow, coding style, invariants you must not break
+- [CHANGELOG.md](CHANGELOG.md) — release history
 
 ## License & citation
 
