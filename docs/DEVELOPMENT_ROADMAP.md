@@ -1,4 +1,4 @@
-# FYP Development Roadmap — H2 2026
+# For You Data Hub Development Roadmap — H2 2026
 
 _Drafted on return from holiday (2026-06-03). Companion to `POST_HOLIDAY_NOTES.md` (which
 holds the deploy-verification checklist and engineering rough edges). This document is the

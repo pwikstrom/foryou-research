@@ -1,4 +1,4 @@
-# Contributing to FYP
+# Contributing to The For You Data Hub
 
 ## Workflow
 

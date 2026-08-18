@@ -39,7 +39,7 @@ matters for interpretation.
 
 Categorical annotations (content category, main activity, niche, type of story,
 gender, ethnicity, …) can take dozens of values, so a day's feed is a
-*distribution* over those values. For each such variable the platform runs a
+*distribution* over those values. For each such variable the Hub runs a
 principal-component analysis (PCA) over the day-level distributions and offers
 the resulting **components** (C0, C1, …) as axes:
 
@@ -311,7 +311,7 @@ Hovering a dot shows the group's comparison variables plus the absolute (untrans
 unscaled) values of the numeric variables. **Clicking a dot** offers to jump to
 the Video Analysis tab filtered to that collection-day — the fastest route from
 a statistical outlier to the actual videos behind it. Use it: qualitative
-inspection of extreme dots is the cheapest validity check this platform offers.
+inspection of extreme dots is the cheapest validity check the Hub offers.
 
 ### 4.5 Point cap
 

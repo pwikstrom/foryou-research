@@ -1,14 +1,14 @@
 # Ethics and data handling
 
-How FYP handles participant data, and the ethical position of its scraping
+How the Hub handles participant data, and the ethical position of its scraping
 and annotation components. This document describes what the *software* does
 and enforces; each deployment additionally operates under its own
 institutional ethics approval and data-management plan.
 
 > **Deployment note:** research conducted with the author's deployment of
-> FYP is covered by an institutional human-research ethics approval
+> The For You Data Hub is covered by an institutional human-research ethics approval
 > (approval number: `<ETHICS-APPROVAL-NUMBER — fill in>`). Other teams
-> deploying FYP are responsible for their own approvals.
+> deploying the Hub are responsible for their own approvals.
 
 ## No participant data in this repository
 
@@ -69,13 +69,13 @@ access-controlled storage and are not exported by any built-in report.
 
 ## Scraping position
 
-FYP's scrapers exist to *enrich consented donations*, not to collect data
+The Hub's scrapers exist to *enrich consented donations*, not to collect data
 at scale: the scrape queue is derived from item ids that appear in
 participants' donated histories, and each item is fetched once. Rate
 limiting, throttling, and circuit breakers are built in — not only for
 robustness, but so that enrichment stays low-intensity toward the
 platforms. Media downloads respect configurable duration caps. Researchers
-deploying FYP should satisfy themselves that this enrichment is compatible
+deploying the Hub should satisfy themselves that this enrichment is compatible
 with their jurisdiction's rules and their institution's ethics framework;
 the platform makes the practice transparent (per-row provenance stamps
 record what was fetched, when, and under which schema version).

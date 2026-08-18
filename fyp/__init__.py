@@ -1,4 +1,4 @@
-"""FYP — social-media research data pipeline.
+"""The For You Data Hub — short-video research data pipeline.
 
 Ingestion of TikTok/Instagram/YouTube feed activity and data donations,
 web-scrape and LLM-annotation enrichment, and statistical analysis.

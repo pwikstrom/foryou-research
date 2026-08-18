@@ -1,6 +1,6 @@
 # Architecture
 
-High-level map of the FYP platform for someone reading the code for the
+High-level map of The For You Data Hub for someone reading the code for the
 first time. The exhaustive reference (every module, every convention) is
 `DEVELOPING.md` at the repo root; this document explains how the pieces fit.
 

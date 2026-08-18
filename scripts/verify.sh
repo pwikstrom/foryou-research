@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Standard verification gate for FYP changes.
+# Standard verification gate for For You Data Hub changes.
 #
 # Run from the project root, inside the dev venv:
 #     source .venv/bin/activate && bash scripts/verify.sh

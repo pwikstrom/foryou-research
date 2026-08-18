@@ -1,10 +1,10 @@
-# FYP — For You Project
+# The For You Data Hub
 
-A research data platform for studying algorithmically curated social-media
-feeds. FYP ingests personal feed activity — TikTok data captures and zipped
-data-donation exports from TikTok, Instagram, and YouTube — enriches it via
-web scraping and LLM annotation (Google Gemini by default; pluggable hosted
-and local backends), runs statistical analysis
+A research toolbox for studying algorithmically curated short-video
+feeds. The For You Data Hub ingests personal feed activity — TikTok data
+captures and zipped data-donation exports from TikTok, Instagram, and
+YouTube — enriches it via web scraping and LLM annotation (Google Gemini by
+default; pluggable hosted and local backends), runs statistical analysis
 (PCA, ANOVA, PERMANOVA, sequence and timeline analysis), and presents
 findings through a Flask web dashboard with role-based access control.
 Dashboard tabs cover data exploration, per-video analysis, correlations
@@ -12,6 +12,11 @@ Dashboard tabs cover data exploration, per-video analysis, correlations
 [docs/correlations-tab-guide.md](docs/correlations-tab-guide.md)),
 timelines, a **Semantic Space** map of video embeddings, and a
 **Sessions** explorer for binge episodes and low-entropy feed sequences.
+
+The object of study is short-form vertical video — the TikTok feed,
+Instagram Reels and **YouTube Shorts**. Long-form YouTube watches in the same
+donated history are ingested and keep their metadata, but exceed the media
+duration cap and are therefore not annotated.
 
 Transparency is built in: ingestion produces a per-file intake report
 (rows read, rows kept, plain-language drop reasons), and every study carries
@@ -120,5 +125,6 @@ Project" and [docs/architecture.md](docs/architecture.md).
 
 ## License & citation
 
-MIT — see [LICENSE](LICENSE). If you use FYP in your research, please cite
-it using the metadata in [CITATION.cff](CITATION.cff).
+MIT — see [LICENSE](LICENSE). If you use The For You Data Hub in your
+research, please cite it using the metadata in
+[CITATION.cff](CITATION.cff).

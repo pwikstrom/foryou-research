@@ -1,6 +1,6 @@
 # Python version: 3.12 everywhere
 
-FYP standardizes on **Python 3.12** for both local development and
+The For You Data Hub standardizes on **Python 3.12** for both local development and
 production, so what you run locally matches what ships.
 
 - **Production** is `python:3.12-slim` (Cloud Run), with dependencies pinned

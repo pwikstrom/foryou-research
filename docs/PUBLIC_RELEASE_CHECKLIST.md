@@ -37,10 +37,15 @@ repository is public and submitted". Work through it in order; items marked
 
 ## 3. Identity & metadata placeholders
 
-- [ ] Decide the final public name. "FYP" is heavily overloaded ("For You
-      Page", "Final Year Project"); renaming is cheapest *now*, before
-      Zenodo/CITATION metadata locks in. Keeping "FYP — For You Project"
-      with the subtitle everywhere is also fine.
+- [x] Decide the final public name. The software is **"The For You Data
+      Hub"** ("the Hub" on later mention); the abbreviation "FYP" is retired
+      from prose because it is heavily overloaded ("For You Page", "Final
+      Year Project"). Note this is distinct from **The For You Project**,
+      the research project within which the Hub is developed — that name
+      still refers to the project, never to the software. Docs, the paper
+      and CITATION.cff now follow this; code identifiers (the `fyp`
+      package, `FYP_*` environment variables, the `fyp-*` Cloud Run
+      services and images) deliberately keep the old short form.
 - [ ] Fill in the real ORCID iD in `CITATION.cff` and `paper/paper.md`.
 - [ ] Replace `<REPO-URL>` placeholders in `CITATION.cff` and
       `pyproject.toml` `[project.urls]` with the public URL.
