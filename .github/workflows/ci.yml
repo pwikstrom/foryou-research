@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Python 3.12 = production truth (Cloud Run image); see docs/python-versions.md
+      # Python 3.12 = production truth (Cloud Run image)
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
