@@ -1,4 +1,4 @@
-# Installing FYP from scratch
+# Installing The For You Data Hub from scratch
 
 This guide walks through a complete local installation on a new machine,
 starting with no data and no credentials. The short version lives in the
@@ -504,12 +504,12 @@ supported. If you are new to Google Cloud, the one-time setup is:
 1. Create a GCP project and enable billing
    ([guide](https://cloud.google.com/resource-manager/docs/creating-managing-projects)).
 2. Create a Cloud Storage bucket, ideally in a region near you
-   ([guide](https://cloud.google.com/storage/docs/creating-buckets)). FYP
+   ([guide](https://cloud.google.com/storage/docs/creating-buckets)). The Hub
    stores everything under `data/` and `media/` prefixes inside one bucket.
 3. Install the `gcloud` CLI ([guide](https://cloud.google.com/sdk/docs/install))
    and run `gcloud auth application-default login` — this creates the
    Application Default Credentials (ADC) the app picks up automatically;
-   there are no key files or FYP-specific credential settings. Your account
+   there are no key files or Hub-specific credential settings. Your account
    needs the *Storage Object Admin* role on the bucket
    ([IAM guide](https://cloud.google.com/storage/docs/access-control/iam-roles)).
 4. In `config.local.toml`, set the three `use_gcs_for_*` toggles under

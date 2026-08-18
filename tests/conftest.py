@@ -1,4 +1,4 @@
-"""Pytest configuration for the FYP test suite.
+"""Pytest configuration for the For You Data Hub test suite.
 
 Ensures the project root is importable regardless of the directory pytest is
 invoked from (mirrors the ``sys.path`` bootstrap used by the worker scripts),

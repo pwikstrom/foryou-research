@@ -4,10 +4,9 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Development began in November 2025 and ran privately through August 2026;
-`0.1.0` is the first tagged release and the point at which the repository
-became public. Entries below therefore describe the platform as it stands at
-that release rather than a change history against an earlier public version.
+Development began in November 2025 and ran privately through August 2026, so
+`0.1.0` is the first tagged release rather than a step on from an earlier
+public version. Entries below describe the Hub as it stands at that release.
 
 ## [0.1.0] — 2026-08-18
 
@@ -67,7 +66,7 @@ durable per-process run logs.
 structure and per-file sanity statistics and quarantines deviating uploads for
 human review; a golden regression suite that replays saved raw LLM responses
 through the parsing pipeline at zero API cost; and a synthetic demo-dataset
-generator so the platform can be installed and exercised end to end without
+generator so the Hub can be installed and exercised end to end without
 participant data.
 
 **Project.** MIT license, citation metadata, contributor guide, code of

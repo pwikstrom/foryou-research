@@ -15,7 +15,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 HEADER = """\
 # HTTP route inventory
 
-All non-static routes of the FYP web app, grouped by blueprint. Generated —
+All non-static routes of the For You Data Hub web app, grouped by blueprint. Generated —
 do not edit by hand; regenerate after adding or removing routes:
 
 ```bash

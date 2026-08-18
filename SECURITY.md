@@ -23,7 +23,7 @@ tell us how you would like to be attributed, or if you would rather not be.
 
 ## Scope
 
-This repository is research infrastructure for social-media data donation
+This repository is research infrastructure for short-video data donation
 studies. Reports that are especially relevant:
 
 - authentication, session handling, or the role-based permission system,

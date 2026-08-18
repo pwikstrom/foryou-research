@@ -2,9 +2,9 @@
 cff-version: 1.2.0
 message: >-
   If you use this software in your research, please cite it using the
-  metadata from this file (and the JOSS paper, once published).
+  metadata from this file.
 type: software
-title: "FYP — For You Project: a research data platform for studying algorithmically curated social-media feeds"
+title: "The For You Data Hub: a research data toolbox for studying user experiences of algorithmically curated short-video platforms"
 authors:
   - family-names: Wikstrom
     given-names: Patrik
@@ -16,19 +16,10 @@ version: 0.1.0
 date-released: "2026-08-18"
 keywords:
   - data donation
-  - social media
+  - short-video
   - TikTok
   - Instagram
   - YouTube
   - algorithm auditing
   - LLM annotation
   - computational social science
-# preferred-citation:  # Uncomment and complete after the JOSS paper is published.
-#   type: article
-#   title: "FYP: A research data platform for studying algorithmically curated social-media feeds"
-#   authors:
-#     - family-names: Wikstrom
-#       given-names: Patrik
-#   journal: "Journal of Open Source Software"
-#   year: 2026
-#   doi: 10.21105/joss.XXXXX

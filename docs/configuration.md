@@ -1,6 +1,6 @@
 # Configuration
 
-FYP is configured by `config/config.toml` (committed), four declarative TOML
+The For You Data Hub is configured by `config/config.toml` (committed), four declarative TOML
 contracts alongside it, and a small set of environment variables. The loader
 is `fyp/fyp_config.py`: it walks up the directory tree looking for the empty
 sentinel file `__proj__.py` to find the project root, so imports work from

@@ -1,17 +1,36 @@
-# FYP — For You Project
+# The For You Data Hub
 
-A research data platform for studying algorithmically curated social-media
-feeds. FYP ingests personal feed activity — TikTok data captures and zipped
-data-donation exports from TikTok, Instagram, and YouTube — enriches it via
-web scraping and LLM annotation (Google Gemini by default; pluggable hosted
-and local backends), runs statistical analysis
-(PCA, ANOVA, PERMANOVA, sequence and timeline analysis), and presents
-findings through a Flask web dashboard with role-based access control.
-Dashboard tabs cover data exploration, per-video analysis, correlations
-(with a statistical-rigor layer and AI-assisted interpretation — see
-[docs/correlations-tab-guide.md](docs/correlations-tab-guide.md)),
-timelines, a **Semantic Space** map of video embeddings, and a
-**Sessions** explorer for binge episodes and low-entropy feed sequences.
+Hyper-personalised short-video feeds have become one of the main ways people
+encounter culture, news, and each other. The recommender systems behind them
+decide what large audiences see each day, and their influence now reaches well
+into society, culture, and commerce.
+
+That influence is hard to study from the outside. What is actually in a given
+person's feed? How does it drift over the weeks they spend with it? Do two
+people who share an interest end up seeing much the same thing, or something
+quite different?
+
+The For You Data Hub helps researchers answer questions like these by examining
+feeds as the people using them actually experienced them — on TikTok, Instagram
+Reels, and YouTube Shorts. It works from data donations: participants request
+their own data export from a platform, look through it, and decide whether to
+share it. Consent means something here, because the record belongs to them
+first, and what researchers receive in return is real viewing history rather
+than a simulation of one.
+
+From there the Hub carries a donation through the whole pipeline. It reads
+heterogeneous exports into a single activity table, enriches every watched item
+with its metadata and media, annotates content with multimodal AI models, and
+opens the result to analysis — both cross-sectional, comparing participants and
+groups, and temporal, following how one person's feed shifts day by day.
+Findings can be explored and shared with collaborators through the dashboard,
+which covers data exploration, per-video analysis, correlations, timelines, a
+**Semantic Space** map of video embeddings, and a **Sessions** explorer for
+binge episodes and low-entropy feed sequences.
+
+Long-form YouTube watches in the same donated history are ingested and keep
+their metadata, but exceed the media duration cap and are therefore not
+annotated.
 
 Transparency is built in: ingestion produces a per-file intake report
 (rows read, rows kept, plain-language drop reasons), and every study carries
@@ -121,5 +140,6 @@ Project" and [docs/architecture.md](docs/architecture.md).
 
 ## License & citation
 
-MIT — see [LICENSE](LICENSE). If you use FYP in your research, please cite
-it using the metadata in [CITATION.cff](CITATION.cff).
+MIT — see [LICENSE](LICENSE). If you use The For You Data Hub in your
+research, please cite it using the metadata in
+[CITATION.cff](CITATION.cff).

@@ -1,4 +1,4 @@
-"""Interactive first-run setup wizard for a local FYP installation.
+"""Interactive first-run setup wizard for a local For You Data Hub installation.
 
 Run from the repository root, before (or after) installing Python
 dependencies — the wizard itself is stdlib-only:
@@ -603,7 +603,7 @@ def print_next_steps(answers: Answers, in_venv: bool) -> None:
 
 def main() -> None:
     """Entry point: parse flags, collect answers, write outputs."""
-    parser = argparse.ArgumentParser(description="FYP local setup wizard")
+    parser = argparse.ArgumentParser(description="For You Data Hub local setup wizard")
     parser.add_argument("--data-dir", help="data directory (default ~/fyp_local)")
     parser.add_argument("--media-dir", help="media directory (default <data-dir>/media)")
     parser.add_argument("--platforms", help="comma-separated platforms you plan to scrape")

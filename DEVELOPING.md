@@ -1,8 +1,8 @@
-# Developing FYP — maintainer guide
+# Developing The For You Data Hub — maintainer guide
 
 ## Project Overview
 
-**FYP (For You Project)** is a social-media research data platform for academics, focused on TikTok with a platform-agnostic core. It ingests feed activity from TikTok data captures and from zipped data-donation exports (TikTok, plus Instagram and YouTube/Takeout watch history), enriches them via web scraping and LLM annotation (Google Gemini, all platforms), performs statistical analysis (PCA, ANOVA, PERMANOVA), and presents findings through an interactive Flask-based web dashboard with role-based access control.
+**The For You Data Hub** is a short-video research data toolbox for academics, focused on TikTok with a platform-agnostic core. The object of study is short-form vertical video — the TikTok feed, Instagram Reels and YouTube Shorts; long-form YouTube watches are ingested and keep their metadata but stay below the media duration cap threshold, so they are never annotated. It ingests feed activity from TikTok data captures and from zipped data-donation exports (TikTok, plus Instagram and YouTube/Takeout watch history), enriches them via web scraping and LLM annotation (Google Gemini, all platforms), performs statistical analysis (PCA, ANOVA, PERMANOVA), and presents findings through an interactive Flask-based web dashboard with role-based access control.
 
 ---
 
