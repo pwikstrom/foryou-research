@@ -58,11 +58,11 @@ def _build_events(dtype_label: str) -> pd.DataFrame:
         - ``"arrow_large"``     — pandas' ArrowDtype(pa.large_string()).
     """
     collection_ids = [
-        "023e7afc-fa82-4d8e-8712-984baba7e833",
-        "023e7afc-fa82-4d8e-8712-984baba7e833",
-        "fd13a5a7-35e8-44d1-b8b8-07092e20ca1d",
-        "fd13a5a7-35e8-44d1-b8b8-07092e20ca1d",
-        "fd13a5a7-35e8-44d1-b8b8-07092e20ca1d",
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000002",
     ]
     categories = ["a", "b", "a", "c", "b"]
 
@@ -93,8 +93,8 @@ def test_crosstab_with_string_pyarrow_dtype() -> None:
     )
     assert counts.shape == (2, 3)
     # Spot-check one cell: first collection_id has one 'a' and one 'b'
-    assert counts.loc["023e7afc-fa82-4d8e-8712-984baba7e833", "a"] == 1.0
-    assert counts.loc["023e7afc-fa82-4d8e-8712-984baba7e833", "b"] == 1.0
+    assert counts.loc["00000000-0000-4000-8000-000000000001", "a"] == 1.0
+    assert counts.loc["00000000-0000-4000-8000-000000000001", "b"] == 1.0
 
 
 
@@ -108,8 +108,8 @@ def test_crosstab_with_arrow_dtype_string() -> None:
         events, the_column="category", grouping_factors=["collection_id"]
     )
     assert counts.shape == (2, 3)
-    assert counts.loc["fd13a5a7-35e8-44d1-b8b8-07092e20ca1d", "b"] == 1.0
-    assert counts.loc["fd13a5a7-35e8-44d1-b8b8-07092e20ca1d", "c"] == 1.0
+    assert counts.loc["00000000-0000-4000-8000-000000000002", "b"] == 1.0
+    assert counts.loc["00000000-0000-4000-8000-000000000002", "c"] == 1.0
 
 
 

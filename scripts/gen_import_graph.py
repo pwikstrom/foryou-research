@@ -1,4 +1,4 @@
-"""Generate the fyp import-dependency matrix used by the Phase 8 restructure.
+"""Generate the fyp import-dependency matrix.
 
 Scans ``fyp/*.py`` (and, post-restructure, ``fyp/**/*.py``) with the ``ast``
 module and greps the rest of the repo for external importers. Emits a Markdown

@@ -53,8 +53,8 @@ class — see [docs/pipeline.md](docs/pipeline.md)).
 | `fyp/` | Core Python package: ingestion, scraping, annotation, recoding, analysis |
 | `web_interface/` | Flask app (dashboard + API) and background worker scripts (`run_*.py`) |
 | `config/` | `config.toml` plus four declarative TOML contracts that own the variable schemas |
-| `tests/` | `unit/` (pytest), `golden/` (cost-free annotation regression suite), ad-hoc scripts |
-| `scripts/` | Maintenance/migration scripts + `verify.sh` (the verification gate) |
+| `tests/` | `unit/` (pytest suite) and `golden/` (cost-free annotation regression suite) — both run by CI |
+| `scripts/` | Setup, verification (`verify.sh`), demo-data generation, and doc generators |
 | `docs/` | Human-oriented documentation (architecture, configuration, web layer, pipeline) |
 
 `DEVELOPING.md` is the maintainer guide: environment, coding style, module
@@ -137,6 +137,7 @@ Project" and [docs/architecture.md](docs/architecture.md).
 - [docs/pipeline.md](docs/pipeline.md) — ingestion → scrape → annotation → recode → analysis
 - [docs/web_interface.md](docs/web_interface.md) — Flask app structure, auth, workers, route inventory
 - [docs/correlations-tab-guide.md](docs/correlations-tab-guide.md) — the Correlations tab: statistics, views, interpretation
+- [docs/annotation-ab-findings.md](docs/annotation-ab-findings.md) — A/B evidence behind the shipped annotation generation settings
 - [CONTRIBUTING.md](CONTRIBUTING.md) — workflow, coding style, invariants you must not break
 - [CHANGELOG.md](CHANGELOG.md) — release history
 

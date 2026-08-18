@@ -4,7 +4,8 @@ Empirical basis for the `[machine]` settings in `config/config.toml`. All tests
 annotate the same local-video sample, structured output (Gemini-3-flash-preview),
 the same prompt/schema, and run both arms through the **identical** recode
 downstream — so the only thing varying is the parameter under test. Comparison is
-field-type-aware (`tests/ab_eval/_ab_common.py`): enum → exact-match agreement,
+field-type-aware (the same comparison logic now lives in
+`fyp/annotation/ab_eval.py`, which the Annotation-testing admin tab uses): enum → exact-match agreement,
 list → mean Jaccard, numeric → correlation, free-text → coverage.
 
 **Method note — the noise floor.** At a non-zero temperature the model is
@@ -18,11 +19,12 @@ low coverage (e.g. `symbols_and_brands` ~0.55), so those rates rest on ~40 video
 
 Reproduce:
 ```
-python tests/ab_eval/media_resolution_ab.py --n 80 --seed 17 --arm-a HIGH --arm-b LOW   # quality
-python tests/ab_eval/media_resolution_ab.py --n 80 --seed 17 --arm-a HIGH --arm-b HIGH  # noise floor
-python tests/ab_eval/temperature_ab.py       --n 80 --seed 17                            # temp/penalty
+# The original one-off spike scripts are not shipped; the equivalent runs are
+# reproducible from Admin -> Annotation testing, which uses the same metrics.
+#   media resolution: arms HIGH vs LOW, n=80, seed 17
+#   temperature:      arms temp 0.0 vs 1.0, n=80, seed 17
 ```
-Raw outputs: `tests/ab_eval/results/media_res_ab_*.json`, `temperature_ab_n80.json`.
+Raw outputs from the original runs were kept outside the repository.
 
 ---
 

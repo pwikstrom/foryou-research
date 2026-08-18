@@ -24,6 +24,7 @@
   - `FYP_VERTEX_PROJECT` (optional — Vertex project when `[machine.gemini].project` is empty; falls back to `GCP_PROJECT_ID`, so prod needs nothing)
   - `K_SERVICE` (auto-set by Cloud Run — triggers GCS storage and Cloud Tasks dispatch)
   - `CLOUD_RUN_SERVICE_URL`, `GCP_PROJECT_ID`, `CLOUD_TASKS_LOCATION`, `CLOUD_TASKS_QUEUE`, `CLOUD_TASKS_SA_EMAIL` (Cloud Tasks config)
+  - `AIO_DYNAMODB_TABLE`, `AIO_S3_BUCKET` (AIO stack resource names — deployment-specific, no defaults in code)
 
 ---
 
@@ -508,7 +509,9 @@ lazy config), `test_subpackage_shims.py` (old-path aliases stay identical),
 `test_task_status_stdout_contract.py` (::PROGRESS::/::DATA:: wire format).
 
 New tests go in `tests/unit/`. Save test/debug data in the `tmp/` folder;
-one-off scripts go in `scripts/adhoc/`, not `tests/`.
+one-off scripts go in `scripts/adhoc/`, not `tests/`. Both `scripts/adhoc/`
+and `tests/debug/` are gitignored — they are working scratch, and in practice
+they collect production ids and resource names that must not be published.
 
 ---
 

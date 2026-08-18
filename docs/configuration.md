@@ -81,6 +81,7 @@ tests and the golden safety net use this.
 | `FYP_LOG_LEVEL` | Log level for `fyp` modules (`DEBUG`/`INFO`/`WARNING`/`ERROR`; default `INFO`). Logging goes to stdout with a bare message format, so subprocess-worker UI log lines are byte-identical to the pre-logging `print()` output |
 | `FLASK_DEBUG` | Optional Flask debug toggle |
 | `CLOUD_RUN_SERVICE_URL`, `GCP_PROJECT_ID`, `CLOUD_TASKS_LOCATION`, `CLOUD_TASKS_QUEUE`, `CLOUD_TASKS_SA_EMAIL` | Cloud Tasks dispatch configuration (production) |
+| `AIO_DYNAMODB_TABLE`, `AIO_S3_BUCKET` | AIO data-donation stack resource names (deployment-specific; only for installations with their own AIO stack) |
 | `BGUTIL_POT_SERVER_HOME` | Path to the bgutil PO-token provider script (YouTube media downloads from datacenter IPs) |
 
 ## Storage locations

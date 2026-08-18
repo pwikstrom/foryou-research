@@ -1,4 +1,4 @@
-"""Phase 1 unit tests for the var_schema refactor.
+"""Unit tests for the var_schema hashing, registry and freshness behaviour.
 
 Covers, in this order (mirroring tests §1-24 of the plan):
 
@@ -17,10 +17,6 @@ Covers, in this order (mirroring tests §1-24 of the plan):
   Cross-process freshness:
    19. test_reload_var_schema_if_changed_noop_when_unchanged
    20. test_reload_var_schema_if_changed_picks_up_presentation_edit
-
-  Migration:
-   21. test_migrate_hash_v2_dry_run_no_writes
-   22. test_migrate_hash_v2_apply_rewrites_v1_only
 
 Run:
     python tests/unit/test_var_schema_phase1.py
@@ -235,78 +231,6 @@ def test_reload_var_schema_if_changed_picks_up_presentation_edit():
 
 
 
-# -------- Migration --------
-
-def test_migrate_hash_v2_dry_run_no_writes():
-    sys.path.insert(0, str(project_root / "scripts"))
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "migrate_var_schema_hash_v2",
-        str(project_root / "scripts" / "migrate_var_schema_hash_v2.py"),
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    # Stub data_io.listdir + load_json + save_json with an in-memory fake
-    fake_v1_hex = "a" * 64
-    fake_sidecar = {"var_schema_hash": fake_v1_hex, "sidecar_version": 2}
-    writes = []
-    class _FakeIO:
-        def listdir(self, storage_location="cache", **kw):
-            return ["mystudy_recoded.meta.json"]
-        def load_json(self, storage_location="cache", filename="", **kw):
-            return dict(fake_sidecar)
-        def save_json(self, **kw):
-            writes.append(kw)
-    fake = _FakeIO()
-    orig = mod.data_io
-    mod.data_io = fake
-    try:
-        counts = mod.migrate(dry_run=True, verbose=False)
-    finally:
-        mod.data_io = orig
-    ok = (counts["v1_rewritten"] == 1) and (not writes)
-    _check("test_migrate_hash_v2_dry_run_no_writes", ok, f"counts={counts}, writes={writes}")
-
-
-
-def test_migrate_hash_v2_apply_rewrites_v1_only():
-    sys.path.insert(0, str(project_root / "scripts"))
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "migrate_var_schema_hash_v2",
-        str(project_root / "scripts" / "migrate_var_schema_hash_v2.py"),
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    state = {
-        "v1.meta.json": {"var_schema_hash": "b" * 64, "sidecar_version": 2},
-        "v2.meta.json": {"var_schema_hash": f"{VAR_SCHEMA_HASH_VERSION}:already_done", "sidecar_version": 2},
-        "empty.meta.json": {"var_schema_hash": "", "sidecar_version": 2},
-    }
-    writes = []
-    class _FakeIO:
-        def listdir(self, storage_location="cache", **kw):
-            return [k.replace(".meta.json", "_recoded.meta.json") for k in state.keys()]
-        def load_json(self, storage_location="cache", filename="", **kw):
-            key = filename.replace("_recoded.meta.json", ".meta.json")
-            return dict(state[key])
-        def save_json(self, data=None, storage_location="cache", filename="", **kw):
-            writes.append((filename, data))
-    fake = _FakeIO()
-    orig = mod.data_io
-    mod.data_io = fake
-    try:
-        counts = mod.migrate(dry_run=False, verbose=False)
-    finally:
-        mod.data_io = orig
-    rewritten = {f for f, _ in writes}
-    ok = (counts == {"v1_rewritten": 1, "already_v2": 1, "empty": 1, "unknown": 0, "errors": 0}
-          and rewritten == {"v1_recoded.meta.json"})
-    _check("test_migrate_hash_v2_apply_rewrites_v1_only", ok,
-           f"counts={counts} writes={rewritten}")
-
-
-
 # -------- Consumer parity (regression) --------
 
 def test_get_factors_and_features_from_var_schema_unchanged():
@@ -341,15 +265,13 @@ TESTS = [
     test_recode_registry_contains_known_funcs,
     test_reload_var_schema_if_changed_noop_when_unchanged,
     test_reload_var_schema_if_changed_picks_up_presentation_edit,
-    test_migrate_hash_v2_dry_run_no_writes,
-    test_migrate_hash_v2_apply_rewrites_v1_only,
     test_get_factors_and_features_from_var_schema_unchanged,
 ]
 
 
 
 def main():
-    print(f"\nRunning {len(TESTS)} Phase 1 tests...\n")
+    print(f"\nRunning {len(TESTS)} var_schema tests...\n")
     for t in TESTS:
         try:
             t()

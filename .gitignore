@@ -70,7 +70,6 @@ data/
 # regression test depends on it) despite the *.parquet rule above; never version
 # the A/B evaluation run outputs (regenerable, run-specific).
 !tests/golden/fixtures/golden_refined.parquet
-tests/ab_eval/results/
 
 # Flask stuff:
 instance/
@@ -208,3 +207,8 @@ tmp/
 
 # Local launch config — machine-specific paths + secrets (API keys)
 .claude/launch.json
+
+# One-off / scratch code: kept locally, never published. These carry
+# production ids, bucket names and donation filenames by their nature.
+scripts/adhoc/
+tests/debug/

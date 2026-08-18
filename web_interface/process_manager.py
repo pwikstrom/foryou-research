@@ -600,9 +600,12 @@ def _dispatch_cloud_task(name: str, task_args: dict,
         # K_SERVICE is just the service name; we need the full URL
         cloud_run_url = os.environ.get("CLOUD_RUN_SERVICE_URL", "")
         if not cloud_run_url:
-            # Fallback: construct from K_SERVICE (only works with default URLs)
-            region = location.replace("australia-", "")  # approximate
-            cloud_run_url = f"https://{service_url}-powk2i6raq-ts.a.run.app"
+            # No safe fallback: a Cloud Run service URL embeds a
+            # deployment-specific hash that cannot be derived from K_SERVICE.
+            return False, (
+                "CLOUD_RUN_SERVICE_URL is not set — it is required to dispatch "
+                "Cloud Tasks (the service URL cannot be inferred from K_SERVICE)"
+            )
 
         client = tasks_v2.CloudTasksClient()
         parent = client.queue_path(project, location, queue)

@@ -11,8 +11,7 @@ requires-python = ">=3.12"
 # remains the production lock (used by Dockerfile.base) — keep it authoritative
 # for exact versions. yt-dlp plugin packages (yt-dlp-ejs,
 # bgutil-ytdlp-pot-provider) are loaded implicitly by yt-dlp, never imported,
-# and live only in requirements.txt. scikit-bio is imported by fyp/stats.py
-# but missing from requirements.txt (known gap — see Phase 4 notes).
+# and live only in requirements.txt.
 dependencies = [
     "beautifulsoup4>=4.12",
     "boto3>=1.35",
@@ -39,6 +38,12 @@ dependencies = [
     "tomlkit>=0.15",
     "yt-dlp>=2026.7.4",
 ]
+
+[project.urls]
+Homepage = "https://github.com/pwikstrom/foryou-research"
+Repository = "https://github.com/pwikstrom/foryou-research"
+Issues = "https://github.com/pwikstrom/foryou-research/issues"
+Documentation = "https://github.com/pwikstrom/foryou-research/blob/main/README.md"
 
 [project.optional-dependencies]
 # Mirrors requirements-dev.txt, which stays authoritative for pinned dev installs.
@@ -90,7 +95,7 @@ markers = [
 ]
 addopts = "-q"
 
-# Strict typing ratchet: only new Phase 8 files are checked; extend the list
+# Strict typing ratchet: only newly-extracted files are checked; extend the list
 # as modules gain full annotations. (mypy is not part of the verify.sh gate.)
 [tool.mypy]
 files = ["fyp/core/paths.py", "fyp/core/__init__.py"]

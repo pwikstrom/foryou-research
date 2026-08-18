@@ -1,5 +1,38 @@
 # Contributing to The For You Data Hub
 
+The For You Data Hub is an academic research tool, and contributions —
+bug reports, fixes, documentation, and new platform support — are welcome.
+Start below if you have a problem to report or a question to ask; the
+**Workflow** section onwards covers contributing code.
+
+## Reporting a bug or requesting a feature
+
+Open a [GitHub issue](https://github.com/pwikstrom/foryou-research/issues).
+A useful bug report includes:
+
+- what you did, what you expected, and what happened instead;
+- the version or commit you are on, your OS, and your Python version;
+- whether you are running locally or on a hosted deployment;
+- the relevant traceback or log lines, with any participant data removed.
+
+Please **do not** attach donation exports, activity data, or anything else
+that identifies a participant. A structural description or a synthetic
+reproduction is enough — `scripts/generate_demo_dataset.py` produces
+shareable synthetic data for exactly this purpose.
+
+Security vulnerabilities are the exception: report those privately, as
+described in [SECURITY.md](SECURITY.md), not as public issues.
+
+## Getting support
+
+Questions about installing or using the Hub are welcome as
+[GitHub issues](https://github.com/pwikstrom/foryou-research/issues) —
+please label them `question`. There is no separate support channel; the
+issue tracker is the place for everything that is not a security report.
+
+The project is maintained by a small academic team, so please allow a few
+working days for a reply.
+
 ## Workflow
 
 1. Branch off `main`; keep branches short-lived and focused.
@@ -34,8 +67,10 @@
   responses through the full pipeline, so it is free and offline. Run it with
   `python tests/golden/run_safety_net.py`. If you touch annotation code, this
   is your regression suite (see `tests/golden/README.md`).
-- New tests go in `tests/unit/`; ad-hoc debug scripts go in `tests/` top level
-  or `tests/debug/` and are excluded from collection.
+- New tests go in `tests/unit/`. Throwaway debug scripts belong in
+  `tests/debug/` and one-off maintenance scripts in `scripts/adhoc/`; both
+  are gitignored, because such code tends to accumulate real collection ids,
+  bucket names and donation filenames.
 
 ## Coding style
 

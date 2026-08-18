@@ -67,7 +67,7 @@ SCRAPE_DOC_COLS = ["item_id", "music_title", "desc_hashtags"]
 # build_document_v2): visible symbols/brands, the dominant on-screen
 # gender/ethnicity, and the caption text (minus hashtags, which have their own
 # line). docv2 is not wired into the live pipeline — it exists for the
-# side-by-side shard experiment driven by scripts/adhoc/embed_doc_variant_pilot.py.
+# side-by-side shard experiment driven by a local pilot script (unpublished).
 ANNO_DOC_COLS_V2 = ANNO_DOC_COLS + [
     "symbols_and_brands", "main_gender", "main_ethnicity",
 ]

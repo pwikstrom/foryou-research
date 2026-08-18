@@ -1,8 +1,8 @@
 """TikTok collection classes: DDP, AIO, and Zeeschuimer captures.
 
-Carved out of the flat ``fyp/ingest.py`` (Phase 8); shared helpers stay in
-``fyp.ingest.base``. Imports of siblings go through the package directly
-(never the old-path shims) — see the shim-poisoning rule in
+Carved out of the flat ``fyp/ingest.py`` in the subpackage restructure; shared
+helpers stay in ``fyp.ingest.base``. Imports of siblings go through the
+package directly (never the old-path shims) — see the shim-poisoning rule in
 docs/fyp-import-graph.md.
 """
 

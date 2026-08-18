@@ -1,6 +1,6 @@
 """Local MiniCPM-o annotation backend (Apple Silicon / MLX).
 
-Productizes the validated pilot from ``scripts/adhoc/qwen_eval/`` (2026-07-18,
+Productizes a validated local pilot (2026-07-18,
 20/20 valid vs Gemini, ~24 s/video, 8.1 GB peak on an M2 Max): the same
 frames+audio recipe as ``qwen_local`` — N evenly-spaced ffmpeg frames as an
 ordered multi-image input plus the full audio track as a mono 16 kHz clip

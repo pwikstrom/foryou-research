@@ -15,7 +15,7 @@ from web_interface.data_service import get_timeline_data
 
 init_study_defs()
 
-collection_id = "88f5fb9a-0c4c-4abc-916d-f47d990becc4"
+collection_id = "00000000-0000-4000-8000-000000000003"
 
 # Load first_event_ts from ddp_metadata
 df_meta = data_io.load_parquet(storage_location="recoded", filename="ddp_metadata.parquet", verbose=False)

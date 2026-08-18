@@ -1,8 +1,9 @@
-# Annotation pipeline safety net (Phase 0)
+# Annotation pipeline safety net
 
-A cost-free regression + consistency suite that pins the **current** behaviour of
-the machine-annotation refinement pipeline before any modernization work
-(structured output, schema-driven generation, provider abstraction).
+A cost-free regression + consistency suite that pins the behaviour of the
+machine-annotation refinement pipeline. It was written to hold that behaviour
+steady across the move to structured output, schema-driven prompt generation
+and pluggable annotation backends, and it still guards the pipeline today.
 
 It runs entirely on **saved raw Gemini responses** — no API calls, no cost — so
 it can re-validate the full pipeline over real data on every change.

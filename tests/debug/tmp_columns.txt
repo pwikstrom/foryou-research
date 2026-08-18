@@ -1,2 +1,0 @@
-('other', 'ts_added_to_dataset')
-('other', 'accepted')

@@ -6,9 +6,9 @@ and enforces; each deployment additionally operates under its own
 institutional ethics approval and data-management plan.
 
 > **Deployment note:** research conducted with the author's deployment of
-> The For You Data Hub is covered by an institutional human-research ethics approval
-> (approval number: `<ETHICS-APPROVAL-NUMBER — fill in>`). Other teams
-> deploying the Hub are responsible for their own approvals.
+> The For You Data Hub is covered by an institutional human-research ethics
+> approval. Other teams deploying the Hub are responsible for their own
+> approvals.
 
 ## No participant data in this repository
 

@@ -1,7 +1,6 @@
 """Hosted Qwen omni annotation backend (Alibaba Model Studio / DashScope).
 
-Productizes the validated API pilot from ``scripts/adhoc/api_backend_smoke.py``
-/ ``scripts/adhoc/qwen_eval/06_annotate_qwen_api.py`` (2026-07-21, 20/20 valid;
+Productizes a validated API pilot (2026-07-21, 20/20 valid;
 enum agreement 0.83 vs the Gemini reference — above both local backends):
 
 * The whole mp4 is passed base64 as a ``video_url`` data URL to DashScope's

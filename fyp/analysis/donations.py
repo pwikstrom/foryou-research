@@ -41,6 +41,28 @@ def _collections_label() -> str:
 
     return COLLECTIONS_LABEL
 
+AIO_TABLE_ENV = "AIO_DYNAMODB_TABLE"
+AIO_BUCKET_ENV = "AIO_S3_BUCKET"
+
+
+def _aio_resource(env_var: str, what: str) -> str:
+    """Resolve an AIO data-donation stack resource name from the environment.
+
+    The stack's DynamoDB table and S3 bucket carry deployment-specific
+    CloudFormation-generated names, so they are configuration, not constants:
+    set ``AIO_DYNAMODB_TABLE`` / ``AIO_S3_BUCKET`` alongside the AWS
+    credentials (see .env.example). Callers may still pass an explicit name.
+    """
+    value = os.environ.get(env_var, "").strip()
+    if not value:
+        raise RuntimeError(
+            f"{env_var} is not set — the AIO {what} name is deployment-specific "
+            f"and must be supplied via the environment (see .env.example). "
+            f"Only installations with access to an AIO data-donation stack need it."
+        )
+    return value
+
+
 collection_id_column = "collection_id"
 timestamp_column = "local_timestamp"
 event_type_column = "activity_type"
@@ -55,10 +77,7 @@ event_type_column = "activity_type"
 
 def get_donation_metadata_from_aio_aws(
                         storage_location: str = "aio_participants",
-                        table_name: str = (
-                            "data-donation-stack-"
-                            "donationtablesmetadatatable1526CA1C-J3HP8RPY7RRW"
-                        ),
+                        table_name: str | None = None,
                         use_local_time: bool = False,
                         verbose: bool = False):
 
@@ -74,6 +93,8 @@ def get_donation_metadata_from_aio_aws(
     # snapshot supersedes all prior ones — overwriting avoids accumulating a
     # near-identical multi-hundred-KB file per ingest refresh (older
     # timestamped ddp_metadata_*.json snapshots keep being read alongside it).
+    table_name = table_name or _aio_resource(AIO_TABLE_ENV, "metadata table")
+
     filename = "ddp_metadata_latest.json"
     temp_file = os.path.join(_cf()["paths"]["temp"], filename)
     os.makedirs(_cf()["paths"]["temp"], exist_ok=True)
@@ -119,14 +140,8 @@ def get_donation_metadata_from_aio_aws(
 def get_recent_data_donations_from_aio_aws(
                     hours_back: int = 24,
                     storage_location: str = "aio_raw",
-                    table_name: str = (
-                        "data-donation-stack-"
-                        "donationtablesmetadatatable1526CA1C-J3HP8RPY7RRW"
-                    ),
-                    bucket: str = (
-                        "data-donation-stack-"
-                        "donationbucket71125dbb-woyvcojrhlcw"
-                    ),
+                    table_name: str | None = None,
+                    bucket: str | None = None,
                     #campaign_name: str = "qut",
                     use_local_time: bool = False) -> None:
     """
@@ -138,8 +153,9 @@ def get_recent_data_donations_from_aio_aws(
     ----------
     hours_back : int
         How far back to look (in hours) from *now*.
-    table_name, bucket, campaign_name : str, optional
-        Override the defaults if your stack names ever change.
+    table_name, bucket : str, optional
+        Explicit stack resource names. Default to the ``AIO_DYNAMODB_TABLE``
+        and ``AIO_S3_BUCKET`` environment variables.
     use_local_time : bool, optional
         If ``True`` the cut‑off time is computed in your local time zone
         (Australia/Brisbane).  Otherwise UTC is used (default).
@@ -150,6 +166,9 @@ def get_recent_data_donations_from_aio_aws(
         If any of the shell commands exit with a non‑zero status.
     """
 
+
+    table_name = table_name or _aio_resource(AIO_TABLE_ENV, "metadata table")
+    bucket = bucket or _aio_resource(AIO_BUCKET_ENV, "donation bucket")
 
     # ------------------------------------------------------------------
     # 1) Figure out the time window and format it the way the table stores it

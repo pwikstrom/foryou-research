@@ -1,10 +1,11 @@
 """Project-root discovery and process/script path constants.
 
-Extracted from ``fyp_config`` (Phase 8) so the path layer is stdlib-only and
-importable without any config machinery. Importing this module preserves the
-historical import-time side effects of ``import fyp.fyp_config``: the project
-root is discovered (``FYP_CONFIG_PATH`` env override, else a ``__proj__.py``
-walk from the current working directory) and appended to ``sys.path``.
+Extracted from ``fyp_config`` in the subpackage restructure so the path layer
+is stdlib-only and importable without any config machinery. Importing this
+module preserves the historical import-time side effects of ``import
+fyp.fyp_config``: the project root is discovered (``FYP_CONFIG_PATH`` env
+override, else a ``__proj__.py`` walk from the current working directory) and
+appended to ``sys.path``.
 
 All names are re-exported by ``fyp.fyp_config`` — external code
 (``web_interface/process_manager.py``, the web routes) keeps importing them

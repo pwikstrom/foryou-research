@@ -6,7 +6,7 @@ videos via real Gemini calls, refines each arm's raw responses through the
 production recode pipeline **in memory**, and stores per-arm results plus a
 field-type-aware comparison report — all in an isolated storage location.
 
-Productionizes the ``tests/ab_eval`` spike seams: the per-video
+Productionizes the original A/B spike seams: the per-video
 annotate-without-persist call (``annotate_one``), the in-memory refine
 (``refine_from_flat_dicts``), and the scale-aware comparison
 (``compare_arms``), extended to thread an explicit contract through
@@ -961,7 +961,7 @@ def run_arm(arm_name: str, contract: dict, item_ids: list[str],
 
 
 # ---------------------------------------------------------------------------
-# In-memory refine + comparison (ports of tests/ab_eval/_ab_common.py).
+# In-memory refine + comparison (ported from the original A/B spike).
 # ---------------------------------------------------------------------------
 
 

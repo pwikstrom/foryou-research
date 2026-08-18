@@ -34,7 +34,8 @@ def empty_fail(error_type: str = "unknown", error_detail: str = "") -> pd.DataFr
     """Return an empty DataFrame tagged with error classification metadata.
 
     Shared by every platform scraper (hoisted from the per-platform copies in
-    Phase 8); each ``*_dl.py`` keeps a thin ``_empty_fail`` delegating here.
+    the subpackage restructure); each ``*_dl.py`` keeps a thin ``_empty_fail``
+    delegating here.
 
     Args:
         error_type: Scraper error category (e.g. ``"rate_limited"``).
