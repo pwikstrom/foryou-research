@@ -2,6 +2,7 @@ import importlib.util
 import inspect
 import os
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock
 
 # Mock fyp package and submodules to bypass fyp/__init__.py and fyp_main.py
@@ -47,7 +48,7 @@ except ImportError:
     sys.modules['zoneinfo'] = MagicMock()
 
 
-file_path = '/Users/<user>/GitHub_main/fyp_main_v02/fyp/organize_datasets.py'
+file_path = str(Path(__file__).resolve().parents[2] / 'fyp' / 'organize_datasets.py')
 module_name = "organize_datasets"
 
 try:

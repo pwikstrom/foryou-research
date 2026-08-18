@@ -70,7 +70,7 @@ All visual styling is managed through a **CSS custom property (token) system** i
 ## Project Structure
 
 ```text
-fyp_main_v02/
+foryou-research/
 ├── __proj__.py                  # Empty sentinel — marks project root
 ├── CLAUDE.md                    # This file (project instructions, auto-loaded by Claude Code)
 ├── config/

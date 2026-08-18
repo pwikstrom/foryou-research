@@ -33,8 +33,8 @@ when unconfigured. Everything stores to the local filesystem by default
 ## Install
 
 ```bash
-git clone https://github.com/pwikstrom/fyp_main_v02.git
-cd fyp_main_v02
+git clone https://github.com/pwikstrom/foryou-research.git
+cd foryou-research
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
