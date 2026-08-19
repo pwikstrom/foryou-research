@@ -29,6 +29,12 @@ class StudyCache:
     def __init__(self, maxsize=2):
         self.cache = LRUCache(maxsize=maxsize)
         self.lock = threading.Lock()
+        # ONE loading lock across all studies, created eagerly (the old lazy
+        # hasattr-guarded creation let two first-ever requests each make their
+        # own lock and load concurrently, doubling peak RAM). Deliberately
+        # global rather than per-study: two multi-GB studies loading at once
+        # is exactly the shape that OOM-killed the instance on 2026-08-03.
+        self.loading_lock = threading.Lock()
 
     def get(self, study_name, current_mtime=None):
         """Return the cached entry, evicting it first if the on-disk parquet
@@ -380,10 +386,6 @@ def _cached_study_frame(study, verbose=False):
         if verbose:
             print(f"    Study {study} found in RAM cache. Accessing {len(cached['df']):,} rows")
         return cached['df'], cached['col_types'], cached['status']
-
-    # Double-Checked Locking
-    if not hasattr(study_cache, 'loading_lock'):
-         study_cache.loading_lock = threading.Lock()
 
     with study_cache.loading_lock:
         # Check cache again (Second Check)

@@ -1315,6 +1315,44 @@ def _repair_stringified_multiindex(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
+# Ranged parallel download for big blobs: a single download_as_bytes() stream
+# tops out well below what Cloud Run's NIC delivers, and the multi-GB recoded
+# study parquets spend most of their cold-open time in that one stream.
+# Below the threshold a plain download wins (one round-trip, no fan-out).
+_PARALLEL_DL_MIN_BYTES = 32 * 1024 * 1024
+_PARALLEL_DL_CHUNK_BYTES = 32 * 1024 * 1024
+_PARALLEL_DL_WORKERS = 8
+
+
+def _download_blob_bytes(bucket, blob_name: str) -> bytearray | bytes:
+    """Download one blob, fanning big objects out over ranged reads.
+
+    Returns a buffer (bytes or bytearray) with the blob's content. Raises
+    FileNotFoundError when the blob does not exist.
+    """
+    blob = bucket.get_blob(blob_name)
+    if blob is None:
+        raise FileNotFoundError(f"gs://{bucket.name}/{blob_name}")
+    size = blob.size or 0
+    if size < _PARALLEL_DL_MIN_BYTES:
+        return blob.download_as_bytes()
+
+    buf = bytearray(size)
+    starts = range(0, size, _PARALLEL_DL_CHUNK_BYTES)
+
+    def _fetch(start: int) -> None:
+        end = min(start + _PARALLEL_DL_CHUNK_BYTES, size) - 1  # end inclusive
+        # A fresh Blob per range: download state is per-call, but keeping
+        # threads off one shared object costs nothing.
+        data = bucket.blob(blob_name).download_as_bytes(start=start, end=end)
+        buf[start:start + len(data)] = data
+
+    with ThreadPoolExecutor(max_workers=_PARALLEL_DL_WORKERS) as pool:
+        # list() propagates the first exception instead of swallowing it.
+        list(pool.map(_fetch, starts))
+    return buf
+
+
 def load_parquet(
         storage_location: str = "cache",
         filename: str = "", # if filename == '*' -> load all parquet files in storage_location
@@ -1472,14 +1510,18 @@ def load_parquet(
             bucket = _get_bucket()
             if not bucket:
                 raise ValueError("GCS bucket not initialized")
-            raw = bucket.blob(blob_name).download_as_bytes()
+            # Parallel ranged download for big blobs; BufferReader decodes
+            # straight from the download buffer (BytesIO would copy the
+            # whole multi-GB payload once more).
+            raw = _download_blob_bytes(bucket, blob_name)
             table = pq.read_table(
-                io.BytesIO(raw),
+                pa.BufferReader(pa.py_buffer(raw)),
                 columns=columns,
                 filters=filters,
                 use_threads=True,
             )
             df = table.to_pandas(types_mapper=pd.ArrowDtype)
+            del table, raw
         else:
             df = pd.read_parquet(
                 primary,

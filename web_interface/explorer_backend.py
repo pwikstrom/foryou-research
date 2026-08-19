@@ -731,10 +731,23 @@ def classify_columns(df: pd.DataFrame) -> dict:
         # Boolean also falls through here to be treated as category (heuristic)
 
         # Check for Long Text / Category / Identifier
-        # We still use data-based heuristics for this distinction as Arrow string type is generic
-        series_sample = df[col].dropna()
-        if len(series_sample) > 1000:
-            series_sample = series_sample.head(1000)
+        # We still use data-based heuristics for this distinction as Arrow
+        # string type is generic. The non-null count comes from Arrow's O(1)
+        # null_count instead of a full dropna() materialisation — on a
+        # multi-million-row study the old two-dropna()-plus-pandas-nunique
+        # shape cost seconds PER string column at load time.
+        col_series = df[col]
+        if isinstance(dtype, pd.ArrowDtype):
+            n_rows = len(col_series) - col_series.array._pa_array.null_count
+        else:
+            n_rows = int(col_series.notna().sum())
+
+        # Sample up to 1000 non-null values from the head slice; only a column
+        # whose first chunk is all-null needs the full-column fallback.
+        series_sample = col_series.head(100_000).dropna()
+        if series_sample.empty and n_rows > 0:
+            series_sample = col_series.dropna()
+        series_sample = series_sample.head(1000)
 
         series_sample = series_sample[series_sample != fyp_cf['labels']['OTHER_THINGS']]
 
@@ -748,9 +761,14 @@ def classify_columns(df: pd.DataFrame) -> dict:
         if not lengths.empty and lengths.mean() > 60:
              column_types[col] = "long_text"
         else:
-             n_rows = len(df[col].dropna())
              if n_rows > 100:
-                 n_unique = df[col].nunique()
+                 try:
+                     # Arrow-native distinct count (C, multithreaded); NAs are
+                     # excluded to match pandas nunique(dropna=True).
+                     arr = col_series.array._pa_array
+                     n_unique = pc.count_distinct(arr, mode="only_valid").as_py()
+                 except Exception:
+                     n_unique = col_series.nunique()
                  if n_unique > 0.9 * n_rows:
                      column_types[col] = "identifier"
                  else:
