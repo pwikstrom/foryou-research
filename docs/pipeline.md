@@ -27,16 +27,16 @@ Notable behaviors:
   per platform in the canonical scrape schema with `scrape_status="donated"`,
   and used at consolidation as a lowest-precedence fallback for items that
   can't be scraped.
-- **Structure sentinel** (`structure_sentinel.py`): learns each platform's
-  export structure and per-file sanity stats; a drifted upload is quarantined
-  for admin review (Data Management → Ingestion) instead of silently
-  mis-ingested. Parse failures stay pending and are retried next refresh.
+- **Structure sentinel** (`fyp/core/structure_sentinel.py`): learns each
+  platform's export structure and per-file sanity stats; a drifted upload is
+  quarantined for admin review (Data Pipeline → Ingest Collections) instead
+  of silently mis-ingested. Parse failures stay pending and are retried next refresh.
 - **Per-file intake report**: the load loop records each file's true raw row
   count (including too-small discards) and a per-file drop-reason breakdown —
   rows that couldn't be interpreted (`not_parseable`), rows missing
   required-core fields (`missing_required`), rows deduplicated against the
   archive. Persisted in the ingestion ledger (`ingestion_ledger.json`) and
-  surfaced on Data Management → Ingestion: the live "Last run results" table
+  surfaced on Data Pipeline → Ingest Collections: the live "Last run results" table
   plus a permanent "Ingestion history" panel
   (`GET /api/manage/ingestion/ledger`) with plain-language labels, so an
   uploader can always see why rows didn't land.
@@ -66,7 +66,7 @@ translates its raw field names to canonical at scrape time.
 Photo/carousel posts are rendered into slideshow mp4s (with the post's audio
 when fetchable) so everything downstream is uniformly video.
 
-## 3. Annotation (`machine_annotation.py`, `annotation_*.py`)
+## 3. Annotation (`fyp/annotation/`)
 
 Downloaded media is queued (`to_annotate.json`) and sent to the active
 annotation backend (`fyp/annotation/backends/` — Google Gemini by default,
@@ -116,7 +116,7 @@ the annotation/scrape/activity contract versions present in the rows, the
 embedding model behind any niche columns, and refresh dates. Both refresh
 workers write it on every refresh — including short-circuited ones, so a
 newly *preferred* annotation version reaches the note without a rebuild.
-Surfaced as the "Methods" panel on the Explore tab
+Surfaced as the "Methods" panel on each study's row under My stuff → My Studies
 (`GET /api/studies/<study>/methods`); it becomes the bundled README in the
 planned per-study export.
 
@@ -131,7 +131,7 @@ consolidate → embeddings → video_map (niches) → study definitions → { me
 or in-window play/annotated counts moved, and returns immediately when none
 did. `skip_if_busy` keeps it off the toes of a sessions run already in flight
 (one is also chained after every study save). It can still be run on its own
-from Data Management → Dataset Assembly, where "Force full rebuild" re-segments
+from Data Pipeline → Dataset Assembly, where "Force full rebuild" re-segments
 every covered collection.
 
 ## Adding a platform — checklist
@@ -144,3 +144,8 @@ every covered collection.
 
 Queues, worker processes, UI blocks, and media subdirectories all derive
 automatically. Use the Instagram/YouTube implementations as templates.
+
+Those three steps are the core; a handful of supporting steps (structure-
+sentinel baselines, per-platform cookies, one hardcoded display-name map,
+tests) are easy to miss — the complete checklist is in
+[extending.md](extending.md).

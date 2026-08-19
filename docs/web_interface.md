@@ -6,7 +6,7 @@ background worker scripts. The full endpoint list is in
 
 ## App structure
 
-`fyp_data_hub.py` is an app factory (`create_app`). It registers ~10
+`fyp_data_hub.py` is an app factory (`create_app`). It registers 12
 blueprints from `web_interface/routes/`:
 
 | Blueprint file | Serves |
@@ -19,7 +19,7 @@ blueprints from `web_interface/routes/`:
 | `api_collections_routes.py` | collection stats + annotation API |
 | `api_semantic_space_routes.py` | Semantic Space tab (embedding map) |
 | `api_sessions_routes.py` | Sessions tab (session index + binge episodes + low-entropy sequences) |
-| `management/` (package; `management_routes.py` is a compatibility shim) | Data Management + admin: studies, collections, enrichment queues, contracts, schema, ingestion — split into per-domain submodules all registering on the same blueprint |
+| `management/` (package; `management_routes.py` is a compatibility shim) | Data Pipeline + admin: studies, collections, enrichment queues, contracts, schema, ingestion — split into per-domain submodules all registering on the same blueprint |
 | `human_eval_routes.py` | human annotation input (coding, votes, invitations) |
 | `process_routes.py` | background-process control + the CSRF-exempt `internal_bp` that receives Cloud Tasks pushes at `/internal/run-task/<name>` |
 
@@ -29,7 +29,8 @@ timelines, analysis data, per-user variables, worker status, preview
 cache, and the per-study methods/provenance note builder `methods_note.py`;
 `data_service.py` remains as a re-exporting facade),
 `explorer_backend.py`, `process_manager.py`, `task_status.py`,
-`worker_runner.py` (shared CLI entrypoint for the 19 workers),
+`worker_runner.py` (shared CLI entrypoint for the `run_*.py` workers —
+currently 22),
 `admin_settings.py`, `activity_log.py`.
 
 ## Auth & permissions
@@ -113,7 +114,7 @@ searchable column (`explorer_backend.search_columns` derives the set, and
 the filter/ids endpoints project the frame to it instead of loading full
 width) with one string cast per column per request.
 
-**Process UI (Data Management → Refresh).** The worker cards live in the
+**Process UI (Data Pipeline → Dataset Assembly).** The worker cards live in the
 `templates/tabs/dm/` partials (`refresh.html` and friends); a card is inert
 until `main.js`'s poll loop calls `setStatus()` for its process name — new
 workers (e.g. `sessions_refresh`) must be wired there. Every card carries a

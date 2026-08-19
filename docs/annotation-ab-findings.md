@@ -1,11 +1,20 @@
 # Annotation generation-config A/B findings
 
-Empirical basis for the `[machine]` settings in `config/config.toml`. All tests
+> **Historical record** (spring 2026). This documents the experiments behind
+> the shipped Gemini generation settings. The settings now live in the
+> **`[machine.gemini]`** block of `config/config.toml` (annotation backends
+> became pluggable after these runs; see `docs/configuration.md`), and some
+> keys named below have since been removed — the "Resulting config" section
+> at the end maps the findings to the current keys. The experiments are
+> re-runnable via the A/B evaluation panel (Admin → Contracts), which uses
+> the same metrics.
+
+Empirical basis for the `[machine.gemini]` settings in `config/config.toml`. All tests
 annotate the same local-video sample, structured output (Gemini-3-flash-preview),
 the same prompt/schema, and run both arms through the **identical** recode
 downstream — so the only thing varying is the parameter under test. Comparison is
 field-type-aware (the same comparison logic now lives in
-`fyp/annotation/ab_eval.py`, which the Annotation-testing admin tab uses): enum → exact-match agreement,
+`fyp/annotation/ab_eval.py`, which the A/B panel on Admin → Contracts uses): enum → exact-match agreement,
 list → mean Jaccard, numeric → correlation, free-text → coverage.
 
 **Method note — the noise floor.** At a non-zero temperature the model is
@@ -13,18 +22,17 @@ stochastic, so two *identical* runs disagree. To tell "real effect" from
 "sampling noise" we always run a same-setting control and treat its agreement as
 the floor: a gap only counts as a real effect where it falls **below** that floor.
 
-Sample: 80 local videos, `--seed 17`, from `~/Desktop/fyp_mini/media`.
-Caveat: a convenience sample, not text/brand-heavy — some sensitive fields have
-low coverage (e.g. `symbols_and_brands` ~0.55), so those rates rest on ~40 videos.
+Sample: 80 videos from a maintainer-local convenience corpus (`--seed 17`),
+not text/brand-heavy — some sensitive fields have low coverage (e.g.
+`symbols_and_brands` ~0.55), so those rates rest on ~40 videos.
 
-Reproduce:
-```
-# The original one-off spike scripts are not shipped; the equivalent runs are
-# reproducible from Admin -> Annotation testing, which uses the same metrics.
-#   media resolution: arms HIGH vs LOW, n=80, seed 17
-#   temperature:      arms temp 0.0 vs 1.0, n=80, seed 17
-```
-Raw outputs from the original runs were kept outside the repository.
+The original one-off spike scripts and raw outputs are not shipped, so these
+exact runs are not reproducible from the repository. Equivalent runs on your
+own data are: use the A/B evaluation panel (Admin → Contracts), which
+applies the same metrics —
+
+- media resolution: arms HIGH vs LOW, n=80, seed 17
+- temperature: arms temp 0.0 vs 1.0, n=80, seed 17
 
 ---
 
@@ -108,16 +116,20 @@ the reproducibility/auditability a research instrument needs.
 
 ---
 
-## Resulting config (`[machine]`)
+## Resulting config (now `[machine.gemini]`)
 
 | setting | value | why |
 |---|---|---|
 | `model` | gemini-3-flash-preview | — |
-| `use_structured_output` | true | valid JSON, schema-enforced |
 | `media_resolution` | `""` (= HIGH for video) | §1 — HIGH preserves brand/logo + sensitivity |
 | `temperature` | `0.0` | §2 — reproducible; no looping; content unchanged |
-| `presence_penalty` / `frequency_penalty` | 0.6 / 1.2 (free-text path only) | §2 — no-op under structured output; left for legacy path |
+
+Keys that appeared in the original table but no longer exist in the config:
+structured output is now always on (there is no `use_structured_output`
+toggle — the response schema is generated from the annotation contract), and
+`presence_penalty`/`frequency_penalty` were removed along with the legacy
+free-text path they served (§2 found them a no-op under structured output).
 
 Each generation-config change mints a new `annotation_version` (see
-`fyp/annotation_versioning.py`), so prior annotations remain intact and queryable.
-The temperature change to 0.0 is one such version bump.
+`fyp/annotation/annotation_versioning.py`), so prior annotations remain
+intact and queryable. The temperature change to 0.0 is one such version bump.

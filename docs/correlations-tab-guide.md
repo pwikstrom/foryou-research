@@ -542,7 +542,8 @@ compare the readouts.
 
 - **Which variables appear at all** is governed by the admin's *Variable
   Visibility* page (the "Explore / Correlations" column) and by your personal
-  overrides under **My stuff → Preferences → Visualized variables**. If a
+  overrides under **My stuff → Preferences → Variable customizations →
+  "Visualized variables…"**. If a
   variable you expect is missing from the dropdowns, check those two places in
   that order.
 - The methods note (My Studies → study row) records how the study dataset was

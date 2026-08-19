@@ -29,7 +29,7 @@ Donations arrive in two ways, both consent-first:
   an intake service that a particular deployment happens to run; a standard
   installation has none, and uses researcher upload instead.
 - **Researcher upload**: zipped "Download Your Data" exports are uploaded
-  manually by an authenticated researcher through the Data Management tab,
+  manually by an authenticated researcher through the Data Pipeline tab,
   after whatever consent procedure the study's ethics protocol requires.
 
 Participants obtain their exports themselves through each platform's own
@@ -103,5 +103,5 @@ are never silently pooled.
 ## Deletion
 
 Collections (a donor's ingested data) can be deleted from the Hub via
-the Data Management interface, which removes the collection's rows from
+the Data Pipeline interface, which removes the collection's rows from
 the recoded and metadata stores.

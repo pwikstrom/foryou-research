@@ -2,11 +2,14 @@
 
 The For You Data Hub is configured by `config/config.toml` (committed), four declarative TOML
 contracts alongside it, and a small set of environment variables. The loader
-is `fyp/fyp_config.py`: it walks up the directory tree looking for the empty
-sentinel file `__proj__.py` to find the project root, so imports work from
-any working directory. **Note:** config loads at `fyp.fyp_config` import
-time (it also connects to GCS and synthesizes the variable schema) — see the
-import-cycle rule in `CONTRIBUTING.md`.
+is `fyp/core/fyp_config.py`: it walks up the directory tree looking for the
+empty sentinel file `__proj__.py` to find the project root, so imports work
+from any working directory. **Note:** configuration loads lazily — importing
+`fyp` submodules does not touch it; the first `get_config()` / `fyp_cf`
+access triggers the load, which also connects to GCS and synthesizes the
+variable schema. That heaviness is why low-level modules must import
+`fyp_config` lazily inside functions — see the import-cycle rule in
+`CONTRIBUTING.md`.
 
 ## config/config.toml sections
 
@@ -60,12 +63,18 @@ extra setup.
 
 `annotation_contract.toml`, `scrape_contract.toml`, `activity_contract.toml`,
 and `derived_contract.toml` own the variable schemas (field names, dtypes,
-display metadata, prompt/response schema for Gemini). They are loaded and
-validated by their same-named `fyp/*_contract.py` modules and overlaid onto
-the synthesized `var_schema` at config load. The annotation contract can also
-be replaced at runtime via the admin UI (stored in `users/`); setting
-`FYP_BAKED_CONTRACTS_ONLY=1` forces the committed ("baked") contract —
-tests and the golden safety net use this.
+display metadata, and — for the annotation contract — the generated prompt
+and structured response schema used by every annotation backend). They are
+loaded and **validated** by their same-named `fyp/*_contract.py` loader
+modules; a contract that fails validation raises on explicit loads (tests,
+tools, the scrapers), while the config-load overlay paths degrade to a
+warned fallback so the app still boots. The validated contracts are
+overlaid onto the synthesized `var_schema` at config load. The annotation
+contract can also be replaced at runtime via the admin UI (stored in
+`users/`); setting `FYP_BAKED_CONTRACTS_ONLY=1` forces the committed
+("baked") contract — tests and the golden safety net use this. The full
+guide — authoring keys, validation, the runtime upload/promote flow, and
+what a contract change costs operationally — is [contracts.md](contracts.md).
 
 ## Environment variables
 
@@ -81,6 +90,12 @@ tests and the golden safety net use this.
 | `FYP_BAKED_CONTRACTS_ONLY` | Ignore any runtime-uploaded annotation contract; use the committed one |
 | `FYP_LOG_LEVEL` | Log level for `fyp` modules (`DEBUG`/`INFO`/`WARNING`/`ERROR`; default `INFO`). Logging goes to stdout with a bare message format, so subprocess-worker UI log lines are byte-identical to the pre-logging `print()` output |
 | `FLASK_DEBUG` | Optional Flask debug toggle |
+| `FYP_VERTEX_PROJECT` | Vertex AI project override for Gemini annotation. When `[machine.gemini].project` is empty the app falls back to this, then to `GCP_PROJECT_ID` |
+| `FYP_CONTACT_EMAIL`, `FYP_MAIL_SENDER`, `FYP_APP_URL`, `FYP_REPO_URL` | Env overrides of the `[site]` branding keys (contact email, outbound-mail sender, public instance URL, source-repository URL) — the deployed services set these; locally use `config.local.toml` |
+| `MAIL_PASSWORD` | SMTP password for outbound mail. Mail no-ops unless BOTH the sender and this are set |
+| `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID` | Optional Slack integration for feedback/notifications; the feature is hidden while unset |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` | AWS credentials for the AIO donation fetch (standard boto3 chain; `~/.aws/credentials` works too) |
+| `HF_HOME` / `HF_HUB_CACHE` | Hugging Face cache directory, honoured by the local Qwen/MiniCPM backends when locating downloaded model weights |
 | `CLOUD_RUN_SERVICE_URL`, `GCP_PROJECT_ID`, `CLOUD_TASKS_LOCATION`, `CLOUD_TASKS_QUEUE`, `CLOUD_TASKS_SA_EMAIL` | Cloud Tasks dispatch configuration (production) |
 | `AIO_DYNAMODB_TABLE`, `AIO_S3_BUCKET` | AIO data-donation stack resource names (deployment-specific; only for installations with their own AIO stack) |
 | `BGUTIL_POT_SERVER_HOME` | Path to the bgutil PO-token provider script (YouTube media downloads from datacenter IPs) |
@@ -88,7 +103,7 @@ tests and the golden safety net use this.
 
 ## Storage locations
 
-`fyp/data_io.py` maps named locations to directories under `local_data`
+`fyp/core/data_io.py` maps named locations to directories under `local_data`
 locally, or to GCS prefixes in cloud mode (`use_gcs_*` toggles / `K_SERVICE`).
 Code must always use location names — `load_parquet("recoded", ...)` — never
 absolute paths. Locations can also be registered at runtime
@@ -122,7 +137,8 @@ pricing = {input = 0.30, output = 2.50}  # optional, USD per 1M tokens (cost dis
 ```
 
 After a restart/redeploy the variant appears in Admin → Backends → Machine
-annotation and in the Annotation-testing per-arm backend picker. Selecting it
+annotation and in the per-arm backend picker of the A/B evaluation panel
+(Admin → Contracts). Selecting it
 annotates with the overridden model/params and stamps a distinct annotation
 version (`av_`) — rows produced under the old model keep their version.
 Variant names are lowercase `[a-z0-9_]` and must not reuse a backend id; for
@@ -132,3 +148,7 @@ for the other backends the keys of their `[machine.<backend>]` block
 (`model_id`, ...). `label` and `pricing` are metadata, never overrides.
 Batch-mode annotation runs only on the plain `gemini` selection, and local
 backends hold one resident model per worker process.
+
+A worked example of the full nested `[machine.<backend>]` layout, and the
+developer checklist for authoring a brand-new annotation or embedding
+backend, are in [extending.md](extending.md).

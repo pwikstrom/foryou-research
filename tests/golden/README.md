@@ -35,6 +35,10 @@ Individual modules are standalone too: `python tests/golden/test_refinement_gold
 - `fixtures/coupling_baseline.json` — snapshot of the prompt↔flatten↔required↔schema coupling.
 - `fixtures/manifest.json` — provenance (counts, schema hash, models, prompt file).
 
+The raw responses are Gemini's; the other annotation backends have no golden
+corpus yet. A new backend should get equivalent fixtures — see the testing
+notes in `docs/extending.md`.
+
 ## When a test fails
 
 - **Golden diff** → the refinement output changed. The test prints exactly which

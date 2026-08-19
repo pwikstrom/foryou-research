@@ -81,14 +81,17 @@ The authoritative style rules live in `DEVELOPING.md` §"Coding Style". Highligh
 - Frontend: never hardcode colors/fonts/sizes — use the CSS custom-property
   token system in `web_interface/static/style.css` (semantic tokens, type
   scale, weight utilities). Both dark and light themes must be covered.
-- All file access goes through `fyp/data_io.py` named locations — never raw
-  paths — so code works unchanged against local disk and GCS.
+- All file access goes through `fyp/core/data_io.py` named locations — never
+  raw paths — so code works unchanged against local disk and GCS.
+- Cite and import modules by their canonical subpackage path
+  (`fyp.scrape.platform_scraper`, not the flat back-compat shim
+  `fyp.platform_scraper`).
 
 ## Invariants you must not break
 
 These are load-bearing conventions; each has a guard, but know them up front:
 
-1. **The config import cycle.** `fyp/fyp_config.py` runs `initialize()` +
+1. **The config import cycle.** `fyp/core/fyp_config.py` runs `initialize()` +
    `load_var_schema()` at module import. Modules that the load-time contract
    overlays call into (`data_io`, the three `*_versioning` modules,
    `var_presentation`) must NOT import `fyp_cf` (or `fyp.data_io`) at module
@@ -111,10 +114,19 @@ These are load-bearing conventions; each has a guard, but know them up front:
 5. **Cross-service stats.** Both Cloud Run services share
    `process_stats.json` on GCS — always call `load_process_stats()` before
    reading or writing so you don't clobber the other service's data.
+6. **No flat shims inside thread pools.** Every flat `fyp/<name>.py` module
+   is a back-compat alias for its subpackage home. Code that runs inside a
+   thread-pool worker body must import the canonical
+   `fyp.<subpackage>.<module>` path — two cold shims imported concurrently
+   in one worker can deadlock CPython's per-module import lock. Guard:
+   `tests/unit/test_pool_import_race.py`. The module-placement rules behind
+   the layout are in [docs/fyp-import-graph.md](docs/fyp-import-graph.md).
 
 ## Adding a platform
 
 The codebase is designed so a new platform is two classes and a contract
-block — no orchestration edits. See [docs/pipeline.md](docs/pipeline.md) and
-the docstrings on `ForYouBaseCollection` (`fyp/ingest/base.py`) and
-`BaseScraper` (`fyp/scrape/platform_scraper.py`).
+block — no orchestration edits. The complete checklist (including the
+supporting steps that are easy to miss) is in
+[docs/extending.md](docs/extending.md); see also the docstrings on
+`ForYouBaseCollection` (`fyp/ingest/base.py`) and `BaseScraper`
+(`fyp/scrape/platform_scraper.py`).

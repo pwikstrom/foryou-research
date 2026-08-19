@@ -43,8 +43,9 @@ the exact annotation/contract versions behind the data — surfaced in the
 dashboard and exportable as JSON.
 
 Built for academic research on feed personalization; the core is
-platform-agnostic (adding a platform is one ingestion class and one scraper
-class — see [docs/pipeline.md](docs/pipeline.md)).
+platform-agnostic — adding a platform is essentially one ingestion class,
+one scraper class, and a contract block (the complete checklist is in
+[docs/extending.md](docs/extending.md)).
 
 ## Repository layout
 
@@ -99,7 +100,7 @@ project root containing `__proj__.py` and `config/config.toml`, or the
 Configuration loads lazily, on first use rather than at import.
 
 Background workers run as plain subprocesses locally (started from the web
-UI's Data Management tab, or manually):
+UI's Data Pipeline tab, or manually):
 
 ```bash
 python web_interface/run_queue_annotator.py
@@ -125,7 +126,7 @@ cost), and an app import smoke test. See
 Production runs on Google Cloud Run as two services sharing one Docker
 image: `fyp-data-hub` (web) and `fyp-task-runner` (background Cloud Tasks).
 Storage is Google Cloud Storage; locally it is the filesystem — both behind
-the same `fyp/data_io.py` abstraction. Build/deploy commands and the
+the same `fyp/core/data_io.py` abstraction. Build/deploy commands and the
 base-image/app-image split are documented in `DEVELOPING.md` §"Running the
 Project" and [docs/architecture.md](docs/architecture.md).
 
@@ -135,10 +136,17 @@ Project" and [docs/architecture.md](docs/architecture.md).
 - [docs/architecture.md](docs/architecture.md) — system overview, key design patterns
 - [docs/configuration.md](docs/configuration.md) — config.toml sections, contracts, environment variables
 - [docs/pipeline.md](docs/pipeline.md) — ingestion → scrape → annotation → recode → analysis
+- [docs/user-guide.md](docs/user-guide.md) — the web app, tab by tab, for researchers and students
+- [docs/contracts.md](docs/contracts.md) — the contract system: authoring, validation, versioning, runtime editing
+- [docs/extending.md](docs/extending.md) — adding a platform, an annotation backend, or an embedding backend
 - [docs/web_interface.md](docs/web_interface.md) — Flask app structure, auth, workers, route inventory
+- [docs/routes.md](docs/routes.md) — generated HTTP endpoint inventory
 - [docs/correlations-tab-guide.md](docs/correlations-tab-guide.md) — the Correlations tab: statistics, views, interpretation
-- [docs/annotation-ab-findings.md](docs/annotation-ab-findings.md) — A/B evidence behind the shipped annotation generation settings
+- [docs/annotation-ab-findings.md](docs/annotation-ab-findings.md) — A/B evidence behind the shipped annotation generation settings (historical)
+- [docs/ethics_and_data_handling.md](docs/ethics_and_data_handling.md) — consent, data handling, and the ethics posture of the software
+- [DEVELOPING.md](DEVELOPING.md) — the maintainer guide: environment, module layout, key patterns, deployment
 - [CONTRIBUTING.md](CONTRIBUTING.md) — workflow, coding style, invariants you must not break
+- [SECURITY.md](SECURITY.md) — reporting vulnerabilities
 - [CHANGELOG.md](CHANGELOG.md) — release history
 
 ## License & citation

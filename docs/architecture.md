@@ -88,12 +88,12 @@ Four declarative TOML files in `config/` own the entire variable schema:
 
 | Contract | Owns |
 |---|---|
-| `annotation_contract.toml` | Gemini prompt, response schema, annotation fields |
+| `annotation_contract.toml` | the generated annotation prompt, response schema, annotation fields (backend-agnostic — every annotation backend consumes the same generated artifacts) |
 | `scrape_contract.toml` | canonical cross-platform scrape fields (base + per-platform) |
 | `activity_contract.toml` | the platform-agnostic activity schema |
 | `derived_contract.toml` | merge-derived columns |
 
-At config load, `fyp/fyp_config.py` synthesizes the in-memory `var_schema`
+At config load, `fyp/core/fyp_config.py` synthesizes the in-memory `var_schema`
 DataFrame from these contracts plus three **version registries**
 (`annotation_versioning`/`scrape_versioning`/`activity_versioning`, id
 prefixes `av_`/`sv_`/`acv_`) that stamp per-row provenance and keep
@@ -103,6 +103,8 @@ superseded ("legacy") fields readable. Admin-editable presentation flags
 
 **The schema hash matters**: study caches key on it. Metadata-only edits are
 hash-neutral by design; structural changes bump it and trigger re-recoding.
+The full guide to the contract system — authoring, validation, versioning,
+and the runtime annotation-contract flow — is [contracts.md](contracts.md).
 
 ## Extensibility pattern: registry base classes
 
@@ -114,14 +116,14 @@ zero orchestration edits:
   `source_platform`/`raw_path` and implement `load_single_raw()` +
   `process_single()`. Registration also self-registers the platform's
   raw-upload storage location.
-- **Scraping**: `BaseScraper` (`fyp/platform_scraper.py`) with
+- **Scraping**: `BaseScraper` (`fyp/scrape/platform_scraper.py`) with
   `get_scraper(platform)` factory. Subclasses implement five hooks
   (`item_url`, `fetch`, `map_to_canonical`, `classify_error`,
   `repair_counts`). Per-platform queues, worker processes, and media
   subdirectories all derive automatically.
 
 Supporting safety nets: the **structure sentinel**
-(`fyp/structure_sentinel.py`) learns each platform's export structure and
+(`fyp/core/structure_sentinel.py`) learns each platform's export structure and
 quarantines silently-drifted uploads for admin review instead of ingesting
 them; parse failures leave files pending for retry rather than discarding;
 and the **ingestion ledger** records every file's per-run outcome with row

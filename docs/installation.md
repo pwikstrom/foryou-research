@@ -15,10 +15,12 @@ mail — gives you the full platform minus LLM features:
 - scraping (metadata + media) on your own machine,
 - statistics, timelines, and the data explorer.
 
-Only Gemini-dependent features are off until configured: machine annotation,
-embeddings, the semantic map, and the Correlations tab (which needs
-annotation-derived variables). Slack and email integrations silently no-op
-when unconfigured. Everything stores to the local filesystem by default
+Only the LLM-dependent features are off until an annotation/embedding
+backend is configured: machine annotation, embeddings, the semantic map, and
+the Correlations tab (which needs annotation-derived variables). Any one
+backend unlocks them — Gemini (the default), hosted Qwen (just a DashScope
+API key), or a local model; the "Enabling …" sections below cover each.
+Slack and email integrations silently no-op when unconfigured. Everything stores to the local filesystem by default
 (`~/fyp_local`).
 
 ## Prerequisites
@@ -41,8 +43,11 @@ pip install -r requirements-dev.txt
 pip install -e .
 ```
 
-There is a single dependency set — optional services (Gemini, GCS, Slack) are
-enabled by configuration, not by extra installs.
+The base dependency set covers everything hosted — optional services
+(Gemini, hosted Qwen, GCS, Slack) are enabled by configuration, not by extra
+installs. The exception is the **local** model backends, which pull heavy
+ML dependencies via pip extras (`pip install -e ".[local_qwen]"`,
+`".[local_minicpm]"`, `".[local_embeddings]"`) — see their sections below.
 
 ## Configure: the setup wizard
 
@@ -110,8 +115,8 @@ needs no Google Cloud account at all.
    set -a; source .env; set +a
    ```
 
-4. Restart the app. Data Management → Enrichment will now let you queue
-   annotation.
+4. Restart the app. Data Pipeline → Annotate short videos will now let you
+   queue annotation.
 
 > **Don't skip step 2.** `vertexai = true` is the default, and it is what
 > decides which service the app talks to — the key alone does not switch it.
@@ -226,7 +231,7 @@ exactly what to fix (see step 1).
 5. **Switch the backend.** Restart the app if it was running during the
    installs, then go to **Admin → Backends → Machine annotation**, confirm the
    requirements panel is all green, and set the backend to `qwen_local`.
-   From now on Data Management → Enrichment's annotator runs the local model
+   From now on the annotator on Data Pipeline → Annotate short videos runs the local model
    (the card shows a `qwen_local` badge). Switch back to `gemini` at any
    time — it's just a setting.
 
@@ -240,12 +245,12 @@ exactly what to fix (see step 1).
 * **Your annotations get their own version.** The local model, its prompt
   addendum and its sampling parameters are part of the annotation-version
   identity, so Qwen-produced rows land under their own `av_` id — they never
-  silently mix with Gemini rows. See Admin → Annotation Versions. The same
+  silently mix with Gemini rows. See Admin → Versions. The same
   applies when you later switch back.
-* **Try it in Annotation Testing first.** An A/B run with the live contract
-  on `gemini` vs `qwen_local` (Admin → Annotation Testing, per-arm backend
-  selector) shows you field-by-field agreement on your own data before you
-  change the production backend.
+* **Try it in an A/B evaluation first.** An A/B run with the live contract
+  on `gemini` vs `qwen_local` (the A/B panel on Admin → Contracts, per-arm
+  backend selector) shows you field-by-field agreement on your own data
+  before you change the production backend.
 * **It's sequential.** One video at a time — the model occupies the whole
   GPU. Batch-mode (async) annotation stays Gemini-only; the app refuses the
   combination rather than failing mid-run.
@@ -311,10 +316,12 @@ Notes:
   `max_tokens`, `max_workers`, `max_attempts`, `max_video_mb`). Changing the
   model or params forks a new `av_` annotation version automatically.
 
-### Checking it worked
+### Checking it worked (any backend)
 
-Data Management → Enrichment shows the annotator's status, and refuses to
-start with the reason when Gemini is not configured. From a shell:
+The annotator card on Data Pipeline → Annotate short videos shows status,
+and refuses to start with the reason when the **active** backend is not
+configured — `annotation_configured()` dispatches to whichever backend is
+selected under Admin → Backends. From a shell:
 
 ```bash
 python -c "from fyp.annotation.machine_annotation import annotation_configured; print(annotation_configured())"
@@ -455,22 +462,25 @@ auto-reloading development server.
 
 With a fresh install every tab is empty. To load data:
 
-1. Log in as admin → **Data Management** → **Ingestion**, and upload a
-   data-donation zip (TikTok/Instagram DDP export, or a Google Takeout for
+1. Log in as admin → **Data Pipeline** → **Ingest Collections**, and upload
+   a data-donation zip (TikTok/Instagram DDP export, or a Google Takeout for
    YouTube watch history), then run an ingest refresh. The results table
    shows, per file, how many rows were read and kept and — in plain
    language — why any rows were left out; the same report persists in the
    "Ingestion history" panel on that page.
-2. On the **Enrichment** panel, queue and run the scraper for the platform
-   (`queue_scraper_<platform>`), then **Consolidate & Refresh**.
-3. If Gemini is configured, queue annotation the same way.
+2. On **Data Pipeline → Scrape**, queue and run the scraper for the platform
+   (`queue_scraper_<platform>`), then run **Consolidate & Refresh** from
+   **Dataset Assembly**.
+3. If an annotation backend is configured, queue annotation from
+   **Annotate short videos** the same way.
 
-Once a study is defined and refreshed, its **Methods** button on the Explore
-tab shows the auto-generated provenance note (filters, counts, annotation
-versions, refresh dates). New non-admin users get a "Getting started" panel
-on the Home tab keyed to their permissions, plus the public `/guide` pages.
+Once a study is defined and refreshed, its **Methods** button on the study's
+row (My stuff → My Studies) shows the auto-generated provenance note
+(filters, counts, annotation versions, refresh dates). New non-admin users
+get a "Getting started" panel on the Home tab keyed to their permissions,
+plus the public `/guide` pages.
 
-Workers run as local subprocesses started from the Data Management tab, or
+Workers run as local subprocesses started from the Data Pipeline tab, or
 manually:
 
 ```bash
@@ -521,7 +531,8 @@ falls back to local storage rather than crashing. Nothing else in GCP is
 required for local use — Cloud Run/Cloud Tasks only matter for the
 production deployment described in `DEVELOPING.md`.
 
-**AIO donation fetch (AWS).** The Data Management "AIO fetch" action pulls
+**AIO donation fetch (AWS).** The "AIO fetch" action on Data Pipeline →
+Ingest Collections pulls
 donations from the [Australian Internet Observatory](https://internetobservatory.org.au/)
 AWS stack used by the original research project — the DynamoDB table and S3
 bucket names are that stack's; it is not useful for other installations
