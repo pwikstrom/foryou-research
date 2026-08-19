@@ -1599,21 +1599,40 @@ function openTab(evt, tabName) {
         evt.currentTarget.className += " active";
     }
 
+    // Lazy tab loading: a pane hydrated while hidden records a pending load;
+    // flush it on activation (see ensure*Loaded in each tab's JS).
+    if (tabName === 'explore' && typeof window.ensureExploreLoaded === 'function') {
+        window.ensureExploreLoaded();
+    }
+    if (tabName === 'correlations' && typeof window.ensureCorrelationsLoaded === 'function') {
+        window.ensureCorrelationsLoaded();
+    }
+    if (tabName === 'timelines' && typeof window.ensureTimelinesLoaded === 'function') {
+        window.ensureTimelinesLoaded();
+    }
+
     // Video Viewer Logic integration
     if (tabName !== 'video_analysis') {
         if (typeof pauseViewerVideo === 'function') pauseViewerVideo();
     } else {
-        // Drill-down from Explore tab: apply pending filters before anything else
-        if (typeof checkPendingDrillDown === 'function') {
-            checkPendingDrillDown();
-        }
-
-        if (typeof playViewerVideo === 'function') {
-            // Check User Settings for Autostart
-            // If undefined, default to false (as requested "default unchecked")
-            if (window.userSettings && window.userSettings.video_autostart) {
-                playViewerVideo();
+        const proceedWithViewer = () => {
+            // Drill-down from Explore tab: apply pending filters before anything else
+            if (typeof checkPendingDrillDown === 'function') {
+                checkPendingDrillDown();
             }
+
+            if (typeof playViewerVideo === 'function') {
+                // Check User Settings for Autostart
+                // If undefined, default to false (as requested "default unchecked")
+                if (window.userSettings && window.userSettings.video_autostart) {
+                    playViewerVideo();
+                }
+            }
+        };
+        if (typeof window.ensureViewerLoaded === 'function') {
+            window.ensureViewerLoaded().then(proceedWithViewer);
+        } else {
+            proceedWithViewer();
         }
     }
 

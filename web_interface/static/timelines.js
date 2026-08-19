@@ -2700,12 +2700,27 @@ window.timelines = {
 document.addEventListener('DOMContentLoaded', () => {
     // If we are on a page with the timelines tab
     if (document.getElementById('timelines')) {
-        if (window.studyState && window.studyState.ready) {
-            window.studyState.ready.then(() => {
+        // Lazy tab loading: /api/timelines/data is a heavy fetch, so init only
+        // runs when the pane is visible; openTab flushes a pending init via
+        // ensureTimelinesLoaded() on first activation.
+        const paneActive = () => {
+            const pane = document.getElementById('timelines');
+            return !!pane && pane.classList.contains('active');
+        };
+
+        const initWhenVisible = () => {
+            if (paneActive()) {
+                window.timelines._inited = true;
                 window.timelines.init();
-            });
+            } else {
+                window.timelines._pendingInit = true;
+            }
+        };
+
+        if (window.studyState && window.studyState.ready) {
+            window.studyState.ready.then(initWhenVisible);
         } else {
-            window.timelines.init();
+            initWhenVisible();
         }
 
         document.addEventListener('study:changed', () => {
@@ -2713,9 +2728,25 @@ document.addEventListener('DOMContentLoaded', () => {
             if (window.timelines) {
                 window.timelines.currentDonationId = null;
                 window.timelines.timelineData = null;
-                window.timelines.loadDonations();
+                if (paneActive()) {
+                    window.timelines._inited = true;
+                    window.timelines.loadDonations();
+                } else {
+                    window.timelines._pendingInit = true;
+                }
             }
         });
+
+        window.ensureTimelinesLoaded = () => {
+            if (!window.timelines || !window.timelines._pendingInit) return;
+            window.timelines._pendingInit = false;
+            if (window.timelines._inited) {
+                window.timelines.loadDonations();
+            } else {
+                window.timelines._inited = true;
+                window.timelines.init();
+            }
+        };
     }
 });
 

@@ -346,11 +346,32 @@ async function applyViewerActiveStudy(studyName, options = {}) {
 
     if (!studyName) return;
 
+    // Lazy tab loading: the ids fetch sorts the full study frame server-side,
+    // so only run it when the pane is visible; openTab flushes a pending load
+    // via ensureViewerLoaded() on first activation.
+    const pane = document.getElementById('video_analysis');
+    if (!pane || !pane.classList.contains('active')) {
+        viewerData.pendingLoad = true;
+        return;
+    }
+
     // Metadata schema must be ready before loading items, otherwise renderMetadata
     // skips all fields (schemaMap is empty). Load metadata first, then fetch IDs.
     await loadViewerMetadata();
     applyViewerFilters();
 }
+
+// Called by openTab when the Video Analysis tab is activated. Resolves once
+// any pending load has finished so the drill-down check can run after it.
+window.ensureViewerLoaded = async function () {
+    if (!viewerData.pendingLoad || !viewerData.activeStudy) return;
+    viewerData.pendingLoad = false;
+    // A pending Explore drill-down re-does metadata + filters itself —
+    // loading here too would fetch the id list twice.
+    if (window._pendingDrillDown) return;
+    await loadViewerMetadata();
+    applyViewerFilters();
+};
 
 async function loadViewerMetadata() {
     if (!viewerData.activeStudy) return;

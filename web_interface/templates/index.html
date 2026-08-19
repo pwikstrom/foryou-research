@@ -228,16 +228,16 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='main.js') }}?v=14"></script>
+<script src="{{ url_for('static', filename='main.js') }}?v=15"></script>
 <script src="{{ url_for('static', filename='js/variable_prefs.js') }}"></script>
 <script src="{{ url_for('static', filename='study_state.js') }}?v=2"></script>
 <script src="{{ url_for('static', filename='filter_value_search.js') }}?v=1"></script>
-<script src="{{ url_for('static', filename='explore.js') }}?v=12"></script>
-<script src="{{ url_for('static', filename='video_analysis.js') }}?v=12"></script>
-<script src="{{ url_for('static', filename='correlations.js') }}?v=3"></script>
+<script src="{{ url_for('static', filename='explore.js') }}?v=13"></script>
+<script src="{{ url_for('static', filename='video_analysis.js') }}?v=13"></script>
+<script src="{{ url_for('static', filename='correlations.js') }}?v=4"></script>
 <script src="{{ url_for('static', filename='semantic_space.js') }}?v=9"></script>
 <script src="{{ url_for('static', filename='sessions.js') }}?v=15"></script>
-<script src="{{ url_for('static', filename='timelines.js') }}?v=4"></script>
+<script src="{{ url_for('static', filename='timelines.js') }}?v=5"></script>
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
 <script src="{{ url_for('static', filename='js/data_management.js') }}?v=14"></script>
 {% endif %}

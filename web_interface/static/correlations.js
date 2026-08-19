@@ -300,9 +300,25 @@ function applyCorrelationsActiveStudy(studyName) {
     }
 
     if (studyName) {
-        loadPcaMetadata();
+        // Lazy tab loading: the correlations payload is multi-MB, so only
+        // fetch it when the pane is visible; openTab flushes a pending load
+        // via ensureCorrelationsLoaded() on first activation.
+        const pane = document.getElementById('correlations');
+        if (pane && pane.classList.contains('active')) {
+            loadPcaMetadata();
+        } else {
+            pcaData.pendingLoad = true;
+        }
     }
 }
+
+// Called by openTab when the Correlations tab is activated.
+window.ensureCorrelationsLoaded = function () {
+    if (pcaData.pendingLoad && pcaData.activeStudy) {
+        pcaData.pendingLoad = false;
+        loadPcaMetadata();
+    }
+};
 
 
 async function loadPcaMetadata() {

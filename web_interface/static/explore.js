@@ -167,9 +167,27 @@ function applyExplorerActiveStudy(studyName, options = {}) {
     explorerDataV2.count2 = 0;
 
     if (studyName) {
-        loadExplorerV2Metadata();
+        // Lazy tab loading: only fetch when the Explore pane is actually
+        // visible. A hidden pane records a pending load that openTab flushes
+        // via ensureExploreLoaded() on first activation — page open used to
+        // fire every tab's data at once and the requests queued behind each
+        // other on the single server process.
+        const pane = document.getElementById('explore');
+        if (pane && pane.classList.contains('active')) {
+            loadExplorerV2Metadata();
+        } else {
+            explorerDataV2.pendingLoad = true;
+        }
     }
 }
+
+// Called by openTab when the Explore tab is activated.
+window.ensureExploreLoaded = function () {
+    if (explorerDataV2.pendingLoad && explorerDataV2.activeStudy) {
+        explorerDataV2.pendingLoad = false;
+        loadExplorerV2Metadata();
+    }
+};
 
 async function loadExplorerV2Metadata() {
     if (!explorerDataV2.activeStudy) return;
