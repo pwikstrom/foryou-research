@@ -100,8 +100,57 @@ out third-party processing. Model identity and generation parameters are
 hashed into the annotation version, so labels produced by different models
 are never silently pooled.
 
-## Deletion
+## Deletion and participant withdrawal
 
-Collections (a donor's ingested data) can be deleted from the Hub via
-the Data Pipeline interface, which removes the collection's rows from
-the recoded and metadata stores.
+The deletable unit is the **collection** — one donor's ingested data.
+Deleting a collection (Data Pipeline interface, admin-only, runs as a
+background task) is precise about participant-linked data but is **not a
+full purge on its own**. Operators handling a withdrawal request should
+know exactly what each step does:
+
+**Removed immediately** (participant-linked rows):
+
+- the collection's activity rows (the feed-event table),
+- its collection-metadata row (persona/participant descriptors) and tags,
+- its membership in every study definition, and the affected studies'
+  cached datasets (each study is re-refreshed afterwards).
+
+**Retained by design — the original donation.** The raw upload files are
+*moved to an archive location*, not destroyed, so an accidental deletion
+is recoverable; the deletion dialog says so explicitly. The archive has
+no automatic expiry. **For a genuine withdrawal, the operator must also
+delete the archived files** (and, where Google Cloud Storage object
+versioning or soft-delete is enabled on the bucket, purge noncurrent
+object generations — the application neither enables nor manages bucket
+versioning, so retention there is a deployment setting, invisible to the
+code).
+
+**Retained because it describes public content, not participants.** The
+scraped item metadata, downloaded media, machine annotations, and
+embedding vectors are keyed by `(platform, item id)` with no link back to
+any collection — they describe the public videos, are shared across all
+donors who watched the same items, and are therefore kept. This includes
+items only the withdrawn participant happened to watch, and the small
+"enrichment seed" rows (item caption/author) extracted from the donation
+itself; none of these records who watched what. Deployments whose
+approval conditions treat *any* donation-derived record as in scope
+should note this and handle it in their data-management plan.
+
+**Cleared on the next refresh, not immediately.** Session-level artifacts
+(the Sessions tab's session index, binge episodes, and play cache) and
+per-study sequence caches do carry collection identifiers; the delete
+task does not rewrite them. They drop the deleted collection the next
+time a sessions refresh / dataset assembly runs — **run one as part of a
+withdrawal** rather than waiting for the next routine refresh.
+
+**Operational residue.** Bookkeeping stores (the ingestion ledger,
+structure-sentinel baselines, process logs, the admin activity log)
+retain the collection id and raw filenames as audit metadata; they
+contain no feed content.
+
+There is no per-item or per-file deletion path — the structure-review
+"reject" and ledger controls exclude files from ingestion but leave them
+on disk. A complete withdrawal is therefore: delete the collection, then
+delete its archived raw files, then run a sessions refresh and dataset
+assembly, and — if the study's protocol requires content-level erasure —
+remove the orphaned item-keyed artifacts manually.

@@ -362,8 +362,12 @@ are never modified). Admins can also generate a synthetic demo dataset here.
 
 **Edit Collections.** Search and multi-select already-ingested collections,
 then edit them: change the display ID, add or remove tags, hide a collection
-from the primary study interface, or (admins) delete it. "Refresh Collections
-Metadata" recomputes the collection stats.
+from the primary study interface, or (admins) delete it. Deletion removes
+the participant-linked rows and archives (not destroys) the raw uploads —
+see the deletion section of
+[ethics_and_data_handling.md](ethics_and_data_handling.md) for what a full
+withdrawal involves. "Refresh Collections Metadata" recomputes the
+collection stats.
 
 **Define Studies.** The study table (the same one viewers see read-only under
 My Studies) plus a **Define new study** button. The study editor sets: the
