@@ -205,8 +205,11 @@ dist-ssr
 # Temporary research/debug data — never commit (may contain donor-derived data)
 tmp/
 
-# Local launch config — machine-specific paths + secrets (API keys)
-.claude/launch.json
+# Coding-agent state — machine-specific paths and live API keys live here
+# (launch.json and settings.local.json both carry them). Ignore the whole
+# directory: a per-file rule left settings.local.json protected only by a
+# machine-global ignore, which does not travel with the repository.
+.claude/
 
 # One-off / scratch code: kept locally, never published. These carry
 # production ids, bucket names and donation filenames by their nature.

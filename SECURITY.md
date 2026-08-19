@@ -49,3 +49,15 @@ delete any such data once the report is acknowledged.
 
 Operators of an instance are responsible for handling donated data under their
 own ethics approval and institutional data-management plan.
+
+Two settings decide who can reach that data, and they compose — check them
+together, not one at a time:
+
+- **Admin → Site Settings → Require approval for new user signups.** On by
+  default. `/signup` is reachable without a login, so turning this off means
+  anyone who finds the instance URL gets an active account.
+- **Admin → Site Settings → Default role for new users**, together with each
+  study's `USER_ACCESS`. A study that grants access to a *role* is readable by
+  every account holding it, including accounts created later. Granting a study
+  to named users keeps "who may sign up" separate from "who may read this
+  corpus".

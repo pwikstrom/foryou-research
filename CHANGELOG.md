@@ -8,6 +8,37 @@ Development began in November 2025 and ran privately through August 2026, so
 `0.1.0` is the first tagged release rather than a step on from an earlier
 public version. Entries below describe the Hub as it stands at that release.
 
+## [Unreleased]
+
+### Security
+
+- **New user signups now require admin approval by default.** A fresh install
+  previously shipped `new_user_admin_approval_required = false`, so on any
+  hosted instance a stranger who found the URL could self-register into an
+  immediately active account — and on an instance whose studies grant access
+  to the default role, that account could read donated participant data. New
+  signups now land unapproved and the oldest admin is notified. This changes
+  only the fallback: an instance that already stores an explicit value keeps
+  it, and the first admin is still created at first boot with a one-time
+  console password rather than through the signup route, so no install can be
+  locked out. Operators who want open registration can turn the setting off
+  under Admin → Site Settings.
+- `docs/installation.md` and `SECURITY.md` now describe how signup approval,
+  the default new-user role and a study's `USER_ACCESS` compose to decide who
+  can read a corpus — the three have to be checked together.
+
+### Fixed
+
+- The Admin → New Users page pointed at a "General" sub-page that no longer
+  exists under that name; it now names **Site Settings**.
+
+### Internal
+
+- `.gitignore` now ignores all of `.claude/` rather than only
+  `.claude/launch.json`. Both files in that directory can carry live API keys,
+  and `settings.local.json` was previously covered only by a machine-global
+  ignore, which does not travel with the repository.
+
 ## [0.1.0] — 2026-08-18
 
 ### Added

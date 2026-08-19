@@ -25,7 +25,15 @@ SETTINGS_FILENAME = "admin_settings.json"
 # settings: they live in config/config.toml only and changing them requires a
 # rebuild/redeploy. Only the backend selectors are runtime-editable.
 DEFAULTS: dict = {
-    "new_user_admin_approval_required": False,
+    # Safe by default. A Hub instance can hold donated feed data, and there is
+    # no way to un-see what an account has already opened — so a fresh install
+    # must not let anyone who finds the URL self-register into an ACTIVE
+    # account. New signups land unapproved and the oldest admin is emailed;
+    # an operator who wants open registration turns this off deliberately
+    # (Admin -> Site Settings). This cannot lock anyone out of a new install:
+    # the first admin is created by UserManager._ensure_default_admin() with a
+    # one-time console password, never through the signup route.
+    "new_user_admin_approval_required": True,
     "default_new_user_role": "viewer",
     ANNOTATION_BACKEND_KEY: "gemini",
     EMBEDDING_BACKEND_KEY: "gemini",

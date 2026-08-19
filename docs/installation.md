@@ -468,6 +468,22 @@ delete `users/admin@admin.net.json` from your data directory, and start
 again — a fresh password is generated. Set `FLASK_DEBUG=1` for the
 auto-reloading development server.
 
+**Anyone else who signs up lands unapproved.** `/signup` is reachable without
+a login, so on a hosted instance a stranger who finds the URL can create an
+account — but by default that account is inactive until an admin approves it,
+and the oldest admin is emailed when one is waiting (which needs
+`MAIL_PASSWORD` and `FYP_MAIL_SENDER` set, or the request queues silently).
+Approve people under **Admin → New Users**. If you want open registration
+instead, turn off "Require approval for new user signups" under **Admin → Site
+Settings** — but read the next paragraph first.
+
+The role a new account gets is **Admin → Site Settings → Default role for new
+users**. Check what that role can reach before you open registration: a study
+whose `USER_ACCESS` names that role is readable by every account that clears
+approval, and on an instance holding donated feeds that is participant data.
+Granting studies to a *named user* rather than to the default role keeps the
+two decisions separate.
+
 ## First data
 
 With a fresh install every tab is empty. To load data:
