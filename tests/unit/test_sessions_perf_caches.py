@@ -172,12 +172,13 @@ def test_features_cache_invalidates_on_source_fingerprints(monkeypatch):
     on a timer (the rebuild is a corpus-scale read)."""
     loads = {"n": 0}
 
-    def fake_load():
+    def fake_load(extra_map_cols=None, **kw):
         loads["n"] += 1
         return pd.DataFrame({"author": ["a"]},
                             index=pd.Index(["v1"], name="item_id"))
 
     monkeypatch.setattr(mod.session_explorer, "load_video_features", fake_load)
+    monkeypatch.setattr(mod.session_explorer, "trend_numeric_columns", lambda: [])
     fps = {"video_map.parquet": "m1", mod.embeddings.SCRAPES_FILE: "s1"}
     monkeypatch.setattr(mod, "_fingerprint", lambda fn, location=None: fps[fn])
 

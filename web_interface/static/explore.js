@@ -166,6 +166,10 @@ function applyExplorerActiveStudy(studyName, options = {}) {
     explorerDataV2.stats2 = null;
     explorerDataV2.count2 = 0;
 
+    // A study switch invalidates any pending cold-open re-poll.
+    if (_warmingRepollTimer) { clearTimeout(_warmingRepollTimer); _warmingRepollTimer = null; }
+    _warmingRepolls = 0;
+
     if (studyName) {
         // Lazy tab loading: only fetch when the Explore pane is actually
         // visible. A hidden pane records a pending load that openTab flushes
@@ -797,19 +801,43 @@ function updateFilterSectionHighlights(sliceId) {
 }
 
 
-async function updateExplorerV2Stats(triggerSlice = null) {
+// Cold-open re-poll: while the server reports `warming` (stats served from
+// the metadata snapshot, frame still loading in the background), re-request
+// quietly until the frame is warm so the exact count and per-user columns
+// arrive without the user doing anything.
+let _warmingRepollTimer = null;
+let _warmingRepolls = 0;
+
+function _scheduleWarmingRepoll() {
+    if (_warmingRepollTimer || _warmingRepolls >= 40) return;
+    _warmingRepollTimer = setTimeout(() => {
+        _warmingRepollTimer = null;
+        _warmingRepolls++;
+        const stillEmpty = Object.keys(explorerDataV2.filters1 || {}).length === 0
+            && !explorerDataV2.searchQuery1;
+        if (stillEmpty && explorerDataV2.activeStudy) {
+            updateExplorerV2Stats(null, { quiet: true });
+        }
+    }, 4000);
+}
+
+
+async function updateExplorerV2Stats(triggerSlice = null, options = {}) {
     if (!explorerDataV2.activeStudy) return;
+    const quiet = !!options.quiet;
 
     const countEl1 = document.getElementById('explorer-v2-count-1');
     const countEl2 = document.getElementById('explorer-v2-count-2');
 
-    // Show loading state for relevant slice
-    if (triggerSlice === 1 || triggerSlice === null) countEl1.innerText = "Loading...";
-    if (triggerSlice === 2 || triggerSlice === null) countEl2.innerText = "Loading...";
+    if (!quiet) {
+        // Show loading state for relevant slice
+        if (triggerSlice === 1 || triggerSlice === null) countEl1.innerText = "Loading...";
+        if (triggerSlice === 2 || triggerSlice === null) countEl2.innerText = "Loading...";
 
-    const statsContainer = document.getElementById('explorer-v2-stats');
-    const funLoader = '<div class="fun-loader-container"><div class="fun-loader"><div></div><div></div><div></div><div></div><div></div></div><div class="loading-text">Loading...</div></div>';
-    statsContainer.innerHTML = funLoader;
+        const statsContainer = document.getElementById('explorer-v2-stats');
+        const funLoader = '<div class="fun-loader-container"><div class="fun-loader"><div></div><div></div><div></div><div></div><div></div></div><div class="loading-text">Loading...</div></div>';
+        statsContainer.innerHTML = funLoader;
+    }
 
     try {
         const payload = {
@@ -855,17 +883,25 @@ async function updateExplorerV2Stats(triggerSlice = null) {
 
         // --- RENDER ---
         const isDual = explorerDataV2.dualSliceMode;
-        countEl1.innerText = `${explorerDataV2.count1} items`;
+        const fmtCount = (c) => (c === null || c === undefined)
+            ? 'Counting…' : `${c} items`;
+        countEl1.innerText = fmtCount(explorerDataV2.count1);
 
         if (isDual) {
             if (explorerDataV2.stats2) {
-                countEl2.innerText = `${explorerDataV2.count2} items`;
+                countEl2.innerText = fmtCount(explorerDataV2.count2);
             } else {
                 countEl2.innerText = `N/A`;
             }
         }
 
         renderStatsV2(explorerDataV2.stats1, isDual ? explorerDataV2.stats2 : null);
+
+        if (data.warming) {
+            _scheduleWarmingRepoll();
+        } else {
+            _warmingRepolls = 0;
+        }
 
     } catch (e) {
         console.error(e);

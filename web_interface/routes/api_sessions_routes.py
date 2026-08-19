@@ -124,7 +124,13 @@ _RANGES_CACHE: dict = {}
 _RANGES_CACHE_MAX = 32
 # video_map's numeric-column list, learned from the first full read per
 # artifact version so later _trend_frame reads can project columns.
-_TREND_COLS_CACHE: dict = {"fingerprint": None, "cols": None}
+# Per-collection play frames for the detail endpoint: the pushdown read of
+# sessions_plays.parquet is a GCS round-trip per click, and users hop between
+# sessions of the same few collections. Keyed by collection, validated by the
+# plays artifact's fingerprint. ~a few MB per donor.
+_COLLECTION_PLAYS_CACHE: dict = {}
+_COLLECTION_PLAYS_MAX = 8
+_collection_plays_lock = threading.Lock()
 # Per-binge maxima of the numeric video variables, one row per episode —
 # backs the varmax filter's "binges only" scope. Keyed on the episodes +
 # video_map fingerprints; the frame itself is tiny (episodes × variables).
@@ -519,7 +525,16 @@ def _features() -> pd.DataFrame:
         try:
             # Corpus-wide, so no scrape text (desc/hashtags are hundreds of MB at
             # that scale) — the detail endpoint reads those per session instead.
-            df = session_explorer.load_video_features()
+            # The trend-scan numeric columns ride along so _trend_frame can
+            # slice this cached frame instead of a per-click pushdown read of
+            # video_map.parquet (whose item_id filters never prune row groups
+            # — that read was seconds of every detail click).
+            try:
+                extra_cols = session_explorer.trend_numeric_columns()
+            except Exception:
+                extra_cols = None
+            df = session_explorer.load_video_features(extra_map_cols=extra_cols)
+            _FEAT_CACHE["trend_cols"] = extra_cols or []
         except Exception:
             df = pd.DataFrame(columns=["niche_name", "category", "story",
                                        "political_score", "sensitivity_score",
@@ -740,34 +755,31 @@ def _trend_frame(item_ids: set[str]) -> pd.DataFrame:
     """
     if not item_ids:
         return pd.DataFrame()
-    # The map's numeric-column list is learned from the first (unprojected)
-    # read per artifact version; every later read projects to those columns,
-    # skipping the map's text payload (story/niche/category fragments).
-    map_fp = _fingerprint("video_map.parquet", location=embeddings.STORE_LOCATION)
-    known_cols = (_TREND_COLS_CACHE["cols"]
-                  if map_fp is not None and _TREND_COLS_CACHE["fingerprint"] == map_fp
-                  else None)
-    try:
-        df = data_io.load_parquet_selective(
-            storage_location=embeddings.STORE_LOCATION, filename="video_map.parquet",
-            columns=(["item_id"] + known_cols) if known_cols else None,
-            filters=[("item_id", "in", [str(i) for i in item_ids])],
-        )
-    except Exception:
+    # Sliced from the fingerprint-cached feature frame (which now carries the
+    # trend numeric columns) — the old per-click pushdown read of
+    # video_map.parquet decoded most of the corpus file every time, because
+    # an item_id `in` filter cannot prune row groups whose stats span the
+    # whole id space.
+    feat = _features()
+    if feat is None or feat.empty:
         return pd.DataFrame()
-    if df is None or df.empty or "item_id" not in df.columns:
+    ids = [str(i) for i in item_ids]
+    sub = feat[feat.index.isin(ids)]
+    if sub.empty:
         return pd.DataFrame()
-    numeric = [c for c in df.columns
-               if c not in _TREND_EXCLUDE and pd.api.types.is_numeric_dtype(df[c])]
-    if known_cols is None and map_fp is not None:
-        _TREND_COLS_CACHE.update({"fingerprint": map_fp, "cols": numeric})
+    # Only the map's own numeric overlay columns are trend-eligible — the
+    # feature frame also carries scrape-side numerics (e.g. duration) that the
+    # old map-only read never scanned.
+    allowed = set(_FEAT_CACHE.get("trend_cols") or [])
+    numeric = [c for c in sub.columns
+               if c in allowed and c not in _TREND_EXCLUDE
+               and pd.api.types.is_numeric_dtype(sub[c])]
     if not numeric:
         return pd.DataFrame()
-    out = df[["item_id"] + numeric].copy()
-    out["item_id"] = out["item_id"].astype("string")
+    out = sub[numeric].copy()
     for col in numeric:
         out[col] = pd.to_numeric(out[col], errors="coerce")
-    return out.drop_duplicates("item_id").set_index("item_id")
+    return out[~out.index.duplicated()]
 
 
 
@@ -1412,20 +1424,33 @@ def _session_plays(collection_id: str, session_row: pd.Series) -> pd.DataFrame:
 
     sid = str(session_row["session_id"])
     df = None
-    if _fingerprint(session_explorer.PLAYS_FILE) is not None:
-        try:
-            df = data_io.load_parquet_selective(
-                storage_location=session_explorer.ARTIFACT_LOCATION,
-                filename=session_explorer.PLAYS_FILE,
-                filters=[("collection_id", "==", collection_id)],
-            )
-        except Exception:
-            df = None
-        if df is not None and not df.empty:
-            df = df.copy()
-            df["_ts"] = pd.to_datetime(df["ts"], errors="coerce")
+    plays_fp = _fingerprint(session_explorer.PLAYS_FILE)
+    if plays_fp is not None:
+        with _collection_plays_lock:
+            entry = _COLLECTION_PLAYS_CACHE.get(collection_id)
+        if entry is not None and entry[0] == plays_fp:
+            df = entry[1]
         else:
-            df = None
+            try:
+                df = data_io.load_parquet_selective(
+                    storage_location=session_explorer.ARTIFACT_LOCATION,
+                    filename=session_explorer.PLAYS_FILE,
+                    filters=[("collection_id", "==", collection_id)],
+                )
+            except Exception:
+                df = None
+            if df is not None and not df.empty:
+                df = df.copy()
+                df["_ts"] = pd.to_datetime(df["ts"], errors="coerce")
+                with _collection_plays_lock:
+                    # Evict oldest insertions beyond the cap (plain dict keeps
+                    # insertion order; hit-recency doesn't matter much at 8).
+                    while len(_COLLECTION_PLAYS_CACHE) >= _COLLECTION_PLAYS_MAX:
+                        _COLLECTION_PLAYS_CACHE.pop(
+                            next(iter(_COLLECTION_PLAYS_CACHE)))
+                    _COLLECTION_PLAYS_CACHE[collection_id] = (plays_fp, df)
+            else:
+                df = None
     if df is None:
         df = data_io.load_parquet_selective(
             storage_location=embeddings.STORE_LOCATION,

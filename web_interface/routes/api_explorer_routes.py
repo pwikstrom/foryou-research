@@ -21,6 +21,8 @@ from ..data_service import (
     get_explorer_data,
     get_explorer_metadata_cached,
     get_study_col_types,
+    is_study_frame_cached,
+    warm_study_frame_async,
     get_study_collections,
     load_display_id_map,
     load_schema_metadata,
@@ -282,6 +284,9 @@ def _build_full_metadata(df, col_types, study):
 
     res = explorer.get_current_stats(df, col_types, number_meta=metadata)
     metadata['total_stats'] = res['stats']
+    # Exact unfiltered row count of the web-exposed frame — lets the cold-open
+    # fast path answer an empty-filter request without loading the frame.
+    metadata['total_rows'] = int(len(df))
 
     try:
         the_recoded_file = f"{study}_recoded.parquet"
@@ -735,6 +740,9 @@ def api_explorer_metadata():
 
     res = explorer.get_current_stats(df, col_types, number_meta=metadata)
     metadata['total_stats'] = res['stats']
+    # Exact unfiltered row count of the web-exposed frame — lets the cold-open
+    # fast path answer an empty-filter request without loading the frame.
+    metadata['total_rows'] = int(len(df))
 
     try:
         the_recoded_file = f"{study}_recoded.parquet"
@@ -932,6 +940,29 @@ def api_explorer_filter():
     denied = study_access_error(study)
     if denied is not None:
         return denied
+
+    # Cold-open fast path: an empty-filter request on a study whose frame is
+    # not in RAM used to block behind the full multi-GB parquet load — the
+    # stats ribbons sat empty for 30-40s while the filter panel (served from
+    # the metadata JSON) was already up. The unfiltered stats live in that
+    # same JSON, so serve them immediately, kick the frame load onto a
+    # background thread, and stamp the response `warming` so the client
+    # re-polls for the exact count + per-user columns once the frame is warm.
+    _no_filters_1 = (not data.get("filters")) and (not data.get("search_query"))
+    _no_filters_2 = (not data.get("filters2")) and (not data.get("search_query2"))
+    if _no_filters_1 and _no_filters_2 and not is_study_frame_cached(study):
+        snapshot = get_explorer_metadata_cached(study)
+        if 'total_stats' in snapshot:
+            warm_study_frame_async(study)
+            result = {
+                "stats": dict(snapshot['total_stats']),
+                "count": snapshot.get('total_rows'),
+                "warming": True,
+            }
+            if "filters2" in data:
+                result["stats2"] = result["stats"]
+                result["count2"] = result["count"]
+            return jsonify(make_serializable(result))
 
     # The searchable-column set needs the study's full column types; the frame
     # is warmed by the same call, so a subsequent projected fetch is free.
