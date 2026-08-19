@@ -1513,7 +1513,10 @@ def load_parquet(
             # Parallel ranged download for big blobs; BufferReader decodes
             # straight from the download buffer (BytesIO would copy the
             # whole multi-GB payload once more).
+            _t_dl = _time.perf_counter()
             raw = _download_blob_bytes(bucket, blob_name)
+            _t_dl = _time.perf_counter() - _t_dl
+            _t_dec = _time.perf_counter()
             table = pq.read_table(
                 pa.BufferReader(pa.py_buffer(raw)),
                 columns=columns,
@@ -1521,6 +1524,17 @@ def load_parquet(
                 use_threads=True,
             )
             df = table.to_pandas(types_mapper=pd.ArrowDtype)
+            _t_dec = _time.perf_counter() - _t_dec
+            if len(raw) >= _PARALLEL_DL_MIN_BYTES:
+                # INFO on purpose: big-blob cold loads are the hub's dominant
+                # latency and this split (network vs decode) is the first
+                # thing to check when one is slow. Fires only for blobs the
+                # parallel path handles, so it cannot spam the logs.
+                logger.info(
+                    f"[IO] big-blob load '{os.path.basename(filename)}': "
+                    f"download {len(raw)/1e6:.0f} MB in {_t_dl:.1f}s "
+                    f"({len(raw)/1e6/max(_t_dl, 0.001):.0f} MB/s), "
+                    f"decode {_t_dec:.1f}s")
             del table, raw
         else:
             df = pd.read_parquet(
