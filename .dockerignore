@@ -77,7 +77,7 @@ README.md
 .vscode
 _archive/
 .DS_Store
-patrik_secrets/
+docs_private/
 sandbox/
 # tests/ (and config/) stay in the image; only scratch notebooks are excluded.
 # Note: *.parquet below still keeps tests/golden/fixtures/*.parquet out.

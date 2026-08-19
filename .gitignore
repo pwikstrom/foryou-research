@@ -153,7 +153,7 @@ cython_debug/
 .vscode
 _archive/
 .DS_Store
-patrik_secrets/
+docs_private/
 # config/config.toml
 
 # Research sandboxes / scratch notebooks / manuscript drafts — never commit

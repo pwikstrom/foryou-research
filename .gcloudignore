@@ -76,7 +76,7 @@ README.md
 .vscode
 _archive/
 .DS_Store
-patrik_secrets/
+docs_private/
 sandbox/
 tests/
 
