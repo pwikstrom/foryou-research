@@ -464,34 +464,10 @@ def is_study_frame_cached(study):
     return study_cache.get(study, current_mtime=_get_recoded_mtime(study)) is not None
 
 
-# Studies currently being warmed by a background thread (single-flight).
-_warming_studies: set = set()
-_warming_lock = threading.Lock()
-
-
-def warm_study_frame_async(study):
-    """Kick off a background load of the study frame, once per study.
-
-    Lets the cold-open fast path answer from the metadata snapshot while the
-    multi-GB parquet loads off the request thread; the loading_lock inside
-    _cached_study_frame still single-flights the actual read, so a user
-    request arriving mid-warm simply waits on it as it always did.
-    """
-    with _warming_lock:
-        if study in _warming_studies:
-            return
-        _warming_studies.add(study)
-
-    def _run():
-        try:
-            _cached_study_frame(study)
-        except Exception as e:
-            print(f"    Background frame warm failed for {study}: {e}")
-        finally:
-            with _warming_lock:
-                _warming_studies.discard(study)
-
-    threading.Thread(target=_run, name=f"warm-frame-{study}", daemon=True).start()
+# NOTE: an earlier cold-open design warmed the frame on a daemon thread here.
+# Cloud Run throttles CPU to ~zero outside request processing, so that thread
+# stalled indefinitely — the warm must ride a request (the client's
+# wait_for_frame follow-up in explore.js).
 
 
 def get_explorer_data(study, context=None, columns=None, verbose=False):

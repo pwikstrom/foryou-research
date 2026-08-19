@@ -3,9 +3,11 @@
 An empty-filter /api/explore/filter on a study whose frame is not in RAM used
 to block behind the full multi-GB parquet load — the stats ribbons sat empty
 for 30-40s while the filter panel (served from the metadata JSON) was already
-rendered. The fast path serves the snapshot's total_stats immediately, kicks
-the frame load onto a background thread, and stamps the response ``warming``
-so the client re-polls for the exact count once the frame is warm.
+rendered. The fast path serves the snapshot's total_stats immediately and
+stamps the response ``warming``; the client then sends ONE follow-up request
+with ``wait_for_frame``, which must bypass the fast path and block on the
+load (Cloud Run gives background threads ~no CPU, so the load has to ride a
+request).
 
 Uses the Flask test client with a stubbed admin (same approach as
 ``test_status_poll_cache.py``).
@@ -43,18 +45,15 @@ def client(monkeypatch):
         yield test_client
 
 
-def _arm(monkeypatch, cached, warmed):
+def _arm(monkeypatch, cached):
     monkeypatch.setattr(routes, "is_study_frame_cached", lambda s: cached)
     monkeypatch.setattr(routes, "get_explorer_metadata_cached",
                         lambda s: {"total_stats": {"niche": {"cats": 3}},
                                    "total_rows": 1234})
-    monkeypatch.setattr(routes, "warm_study_frame_async",
-                        lambda s: warmed.append(s))
 
 
-def test_cold_empty_filter_serves_snapshot_and_warms(client, monkeypatch):
-    warmed = []
-    _arm(monkeypatch, cached=False, warmed=warmed)
+def test_cold_empty_filter_serves_snapshot(client, monkeypatch):
+    _arm(monkeypatch, cached=False)
 
     res = client.post("/api/explore/filter",
                       json={"study": "s1", "filters": {}, "trigger_slice": 1})
@@ -63,14 +62,28 @@ def test_cold_empty_filter_serves_snapshot_and_warms(client, monkeypatch):
     assert payload["warming"] is True
     assert payload["stats"] == {"niche": {"cats": 3}}
     assert payload["count"] == 1234
-    assert warmed == ["s1"]
+
+
+def test_wait_for_frame_bypasses_the_fast_path(client, monkeypatch):
+    """The client's follow-up request must reach the blocking load path."""
+    _arm(monkeypatch, cached=False)
+    sentinel = {}
+    def _fake_get_explorer_data(study, **kw):
+        sentinel["hit"] = True
+        return None, None
+    monkeypatch.setattr(routes, "get_explorer_data", _fake_get_explorer_data)
+
+    res = client.post("/api/explore/filter",
+                      json={"study": "s1", "filters": {},
+                            "wait_for_frame": True})
+    assert sentinel.get("hit") is True
+    assert res.get_json().get("warming") is None
 
 
 def test_active_filters_never_take_the_fast_path(client, monkeypatch):
     """A real filter needs the frame — it must block on the normal path, not
     silently return unfiltered snapshot stats."""
-    warmed = []
-    _arm(monkeypatch, cached=False, warmed=warmed)
+    _arm(monkeypatch, cached=False)
     # The normal path would need real study data; stub the frame fetch to
     # prove control flow reached it (and stop there).
     sentinel = {}
@@ -84,12 +97,10 @@ def test_active_filters_never_take_the_fast_path(client, monkeypatch):
                             "filters": {"niche": {"value": ["cats"]}}})
     assert sentinel.get("hit") is True
     assert res.get_json().get("warming") is None
-    assert warmed == []
 
 
 def test_warm_frame_never_takes_the_fast_path(client, monkeypatch):
-    warmed = []
-    _arm(monkeypatch, cached=True, warmed=warmed)
+    _arm(monkeypatch, cached=True)
     sentinel = {}
     def _fake_get_explorer_data(study, **kw):
         sentinel["hit"] = True
@@ -99,4 +110,3 @@ def test_warm_frame_never_takes_the_fast_path(client, monkeypatch):
     res = client.post("/api/explore/filter", json={"study": "s1", "filters": {}})
     assert sentinel.get("hit") is True
     assert res.get_json().get("warming") is None
-    assert warmed == []

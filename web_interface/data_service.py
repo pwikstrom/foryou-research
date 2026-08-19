@@ -54,7 +54,6 @@ from .services.study_data import (  # noqa: F401
     make_serializable,
     search_column_value_counts,
     study_cache,
-    warm_study_frame_async,
 )
 from .services.timeline_service import (  # noqa: F401
     TIMELINE_SCHEMA_VERSION,

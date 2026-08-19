@@ -166,9 +166,8 @@ function applyExplorerActiveStudy(studyName, options = {}) {
     explorerDataV2.stats2 = null;
     explorerDataV2.count2 = 0;
 
-    // A study switch invalidates any pending cold-open re-poll.
-    if (_warmingRepollTimer) { clearTimeout(_warmingRepollTimer); _warmingRepollTimer = null; }
-    _warmingRepolls = 0;
+    // A study switch supersedes any in-flight cold-open follow-up; its
+    // response is ignored by the empty-filters guard when it lands.
 
     if (studyName) {
         // Lazy tab loading: only fetch when the Explore pane is actually
@@ -801,24 +800,21 @@ function updateFilterSectionHighlights(sliceId) {
 }
 
 
-// Cold-open re-poll: while the server reports `warming` (stats served from
-// the metadata snapshot, frame still loading in the background), re-request
-// quietly until the frame is warm so the exact count and per-user columns
-// arrive without the user doing anything.
-let _warmingRepollTimer = null;
-let _warmingRepolls = 0;
+// Cold-open follow-up: when the server answers with `warming` (stats served
+// from the metadata snapshot, frame not in RAM yet), fire ONE quiet request
+// with wait_for_frame — it blocks server-side on the frame load (which must
+// run inside a request: Cloud Run gives background threads ~no CPU) and
+// returns the exact count and per-user columns when done.
+let _warmRequestInFlight = false;
 
 function _scheduleWarmingRepoll() {
-    if (_warmingRepollTimer || _warmingRepolls >= 40) return;
-    _warmingRepollTimer = setTimeout(() => {
-        _warmingRepollTimer = null;
-        _warmingRepolls++;
-        const stillEmpty = Object.keys(explorerDataV2.filters1 || {}).length === 0
-            && !explorerDataV2.searchQuery1;
-        if (stillEmpty && explorerDataV2.activeStudy) {
-            updateExplorerV2Stats(null, { quiet: true });
-        }
-    }, 4000);
+    if (_warmRequestInFlight) return;
+    const stillEmpty = Object.keys(explorerDataV2.filters1 || {}).length === 0
+        && !explorerDataV2.searchQuery1;
+    if (!stillEmpty || !explorerDataV2.activeStudy) return;
+    _warmRequestInFlight = true;
+    updateExplorerV2Stats(null, { quiet: true, waitForFrame: true })
+        .finally(() => { _warmRequestInFlight = false; });
 }
 
 
@@ -846,6 +842,7 @@ async function updateExplorerV2Stats(triggerSlice = null, options = {}) {
             search_query: explorerDataV2.searchQuery1,
             trigger_slice: triggerSlice
         };
+        if (options.waitForFrame) payload.wait_for_frame = true;
 
         // Only include Slice 2 data in dual-slice mode
         if (explorerDataV2.dualSliceMode) {
@@ -899,8 +896,6 @@ async function updateExplorerV2Stats(triggerSlice = null, options = {}) {
 
         if (data.warming) {
             _scheduleWarmingRepoll();
-        } else {
-            _warmingRepolls = 0;
         }
 
     } catch (e) {

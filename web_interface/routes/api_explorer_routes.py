@@ -22,7 +22,6 @@ from ..data_service import (
     get_explorer_metadata_cached,
     get_study_col_types,
     is_study_frame_cached,
-    warm_study_frame_async,
     get_study_collections,
     load_display_id_map,
     load_schema_metadata,
@@ -945,15 +944,17 @@ def api_explorer_filter():
     # not in RAM used to block behind the full multi-GB parquet load — the
     # stats ribbons sat empty for 30-40s while the filter panel (served from
     # the metadata JSON) was already up. The unfiltered stats live in that
-    # same JSON, so serve them immediately, kick the frame load onto a
-    # background thread, and stamp the response `warming` so the client
-    # re-polls for the exact count + per-user columns once the frame is warm.
+    # same JSON, so serve them immediately and stamp the response `warming`;
+    # the client then sends ONE follow-up request with wait_for_frame, which
+    # skips this path and blocks on the load. The load must happen inside a
+    # request: Cloud Run throttles CPU to ~zero outside request processing,
+    # so a background warm thread stalls indefinitely.
     _no_filters_1 = (not data.get("filters")) and (not data.get("search_query"))
     _no_filters_2 = (not data.get("filters2")) and (not data.get("search_query2"))
-    if _no_filters_1 and _no_filters_2 and not is_study_frame_cached(study):
+    if (_no_filters_1 and _no_filters_2 and not data.get("wait_for_frame")
+            and not is_study_frame_cached(study)):
         snapshot = get_explorer_metadata_cached(study)
         if 'total_stats' in snapshot:
-            warm_study_frame_async(study)
             result = {
                 "stats": dict(snapshot['total_stats']),
                 "count": snapshot.get('total_rows'),
