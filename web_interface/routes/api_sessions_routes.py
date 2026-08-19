@@ -124,6 +124,34 @@ _RANGES_CACHE: dict = {}
 _RANGES_CACHE_MAX = 32
 # video_map's numeric-column list, learned from the first full read per
 # artifact version so later _trend_frame reads can project columns.
+# Whole detail responses, keyed by the session plus every input that can
+# change the payload (artifact fingerprints, the study frame's mtime, the
+# enrichment-flags key). Users hop back and forth between sessions; without
+# this every revisit re-paid the full assembly (~2s: embedding byte-range
+# reads for context distances + per-play row building).
+_DETAIL_RESPONSE_CACHE: dict = {}
+_DETAIL_RESPONSE_MAX = 64
+_detail_response_lock = threading.Lock()
+
+
+def _detail_cache_version(study: str) -> tuple:
+    """Everything (besides the session identity) the detail payload reads."""
+    from ..services.study_data import _get_recoded_mtime
+
+    try:
+        model = embeddings.active_embedding_backend().model_id()
+    except Exception:
+        model = None
+    return (
+        _fingerprint(session_explorer.PLAYS_FILE),
+        _fingerprint(session_explorer.EPISODES_FILE),
+        _fingerprint(session_explorer.WINDOWS_FILE),
+        _fingerprint(session_explorer.SESSIONS_FILE),
+        _get_recoded_mtime(study),
+        _flags_cache_key(model),
+    )
+
+
 # Per-collection play frames for the detail endpoint: the pushdown read of
 # sessions_plays.parquet is a GCS round-trip per click, and users hop between
 # sessions of the same few collections. Keyed by collection, validated by the
@@ -1677,6 +1705,12 @@ def api_sessions_detail():
     if collection_id not in _study_collection_ids(study):
         return jsonify({"error": "Collection not found in this study"}), 403
 
+    cache_key = (study, collection_id, session_id, _detail_cache_version(study))
+    with _detail_response_lock:
+        cached_payload = _DETAIL_RESPONSE_CACHE.get(cache_key)
+    if cached_payload is not None:
+        return jsonify(cached_payload)
+
     index = _load_index()
     if index is None:
         return jsonify({"error": "The sessions index has not been built yet."}), 404
@@ -1800,7 +1834,7 @@ def api_sessions_detail():
     display = load_display_id_map()
     session = {col: _clean(session_row.get(col)) for col in _OVERVIEW_COLS}
     session["collection_label"] = display.get(collection_id, collection_id)
-    return jsonify({
+    payload = {
         "session": session,
         "plays": play_rows,
         "episodes": episodes,
@@ -1808,7 +1842,12 @@ def api_sessions_detail():
         "session_ranges": session_ranges,
         "play_variables": play_variables,
         "params": _display_params(_load_meta()),
-    })
+    }
+    with _detail_response_lock:
+        while len(_DETAIL_RESPONSE_CACHE) >= _DETAIL_RESPONSE_MAX:
+            _DETAIL_RESPONSE_CACHE.pop(next(iter(_DETAIL_RESPONSE_CACHE)))
+        _DETAIL_RESPONSE_CACHE[cache_key] = payload
+    return jsonify(payload)
 
 
 
