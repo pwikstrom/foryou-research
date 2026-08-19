@@ -91,9 +91,9 @@ def gemini_mode() -> tuple[str | None, str]:
         return MODE_API_KEY, ""
     return None, (
         "Gemini is not configured: the plain Gemini API is selected "
-        "([machine.gemini].vertexai = false) but GEMINI_API_KEY is not set. Note "
-        "that .env is not auto-loaded — export the key or run "
-        "'set -a; source .env; set +a'. Alternatively enable Vertex AI "
+        "([machine.gemini].vertexai = false) but GEMINI_API_KEY is not set. "
+        "Export the key, or put it in a .env file at the project root "
+        "(loaded automatically at startup). Alternatively enable Vertex AI "
         "(vertexai = true with a GCP project). "
         "See docs/installation.md#enabling-gemini-later."
     )

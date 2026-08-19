@@ -139,3 +139,54 @@ def test_build_env_file_no_additions_is_identity():
     """With nothing collected, the existing text is returned unchanged."""
     existing = "A=1\n"
     assert setup.build_env_file(setup.Answers(), existing) == existing
+
+
+
+
+
+
+def test_build_env_file_header_says_auto_loaded():
+    """A freshly created .env explains it is auto-loaded (not the old warning)."""
+    text = setup.build_env_file(setup.Answers(flask_secret="fsk"), "")
+    assert "Loaded automatically" in text
+    assert "NOT auto-loaded" not in text
+
+
+
+
+
+
+def test_check_environment_levels_without_local_models():
+    """Default checks carry sane levels and skip the local-model rows."""
+    results = setup.check_environment(include_local_models=False)
+    by_name = {r.name: r for r in results}
+    assert by_name["python"].level == "required"
+    assert by_name["virtualenv"].level == "recommended"
+    assert by_name["ffmpeg"].level == "optional"
+    assert by_name["yt-dlp"].level == "info"
+    assert not any(r.name.startswith("local qwen") for r in results)
+    assert not any(r.name.startswith("local minicpm") for r in results)
+
+
+
+
+
+
+def test_print_checks_required_failure_flips_exit(capsys):
+    """print_checks returns False only when a *required* check fails."""
+    ok_required = setup.CheckResult("python", True, "3.12", "required", level="required")
+    bad_optional = setup.CheckResult("ffmpeg", False, "not found", "youtube", level="optional")
+    assert setup.print_checks([ok_required, bad_optional]) is True
+    bad_required = setup.CheckResult("python", False, "3.8", "required", level="required")
+    assert setup.print_checks([bad_required]) is False
+    capsys.readouterr()
+
+
+
+
+
+
+def test_free_space_gb_on_missing_path(tmp_path):
+    """A not-yet-existing directory is measured via its nearest ancestor."""
+    free = setup.free_space_gb(str(tmp_path / "does" / "not" / "exist"))
+    assert free is not None and free > 0

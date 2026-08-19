@@ -51,6 +51,44 @@ from fyp.core.paths import (
 DEFAULT_REPO_URL = "https://github.com/pwikstrom/foryou-research"
 
 
+def _load_dotenv(project_root: str, verbose: bool = False) -> list[str]:
+    """Load ``KEY=VALUE`` lines from ``<project_root>/.env`` into the environment.
+
+    Variables already present in ``os.environ`` always win — the file only
+    fills gaps, so an exported value can never be shadowed by it. Parsing is
+    deliberately minimal: blank lines and ``#`` comments are skipped, an
+    optional ``export `` prefix is dropped, and matching single/double quotes
+    around the value are stripped. A missing or unreadable file is a no-op.
+
+    (FYP_CONFIG_PATH itself cannot come from ``.env`` — the root the file is
+    found under is derived from that variable, so it must be exported.)
+
+    Returns:
+        The names of the variables actually applied.
+    """
+    applied: list[str] = []
+    try:
+        with open(os.path.join(project_root, ".env"), encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return applied
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        stripped = stripped.removeprefix("export ").lstrip()
+        key, _, value = stripped.partition("=")
+        key, value = key.strip(), value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        if key and key not in os.environ:
+            os.environ[key] = value
+            applied.append(key)
+    if applied and verbose:
+        print(f"Loaded {len(applied)} value(s) from .env: {', '.join(applied)}")
+    return applied
+
+
 def _create_local_dirs(cf: dict, verbose: bool = False):
     # create missing local folders if not using GCS for data
     if not cf['data_io']['use_gcs_for_data'] or cf['misc']['local_mode']:
@@ -225,6 +263,11 @@ def initialize(
         # add project root path to PATH since the modules are located in the project structure
         sys.path.append(abs_project_root_path)
 
+
+    # A gitignored .env at the project root is loaded here, before any of the
+    # os.environ reads below, so users never need `set -a; source .env`.
+    # Already-exported variables always take precedence.
+    _load_dotenv(abs_project_root_path, verbose=verbose)
 
     # ------------------------------------------------------------------
     # Load essential config - let it blow up if the files aren't found

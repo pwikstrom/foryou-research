@@ -75,11 +75,23 @@ the old file. `python scripts/setup.py --check-only` just runs the
 environment checks. Flags (`--data-dir`, `--no-gemini`, `--yes`, ...) allow a
 fully non-interactive run — see `--help`.
 
+The wizard can also **create the virtualenv and install the dependencies for
+you** — it offers this at the end of an interactive run, or run
+`python scripts/setup.py --install` directly. After installing, `python
+scripts/setup.py --verify` live-checks your configuration: it imports the
+app, reports what `.env` supplies, makes a free Gemini test call with your
+configured credentials, and probes the GCS bucket if you enabled one — so a
+typo in a key surfaces now rather than mid-annotation later.
+
+> **Note:** the wizard needs Python 3.12. If `python scripts/setup.py`
+> complains about your Python version, run `python3.12 scripts/setup.py`
+> instead.
+
 **Manual alternative:** `cp config/config.local.toml.example
 config/config.local.toml` and edit it. Key reference:
-[configuration.md](configuration.md). If you write a `.env` file, note it is
-**not** auto-loaded — `set -a; source .env; set +a` or export the values
-yourself.
+[configuration.md](configuration.md). A `.env` file at the project root is
+loaded automatically when the app starts; values you have exported in the
+shell take precedence.
 
 ## Enabling Gemini later
 
@@ -108,15 +120,13 @@ needs no Google Cloud account at all.
    export GEMINI_API_KEY=your-key-here
    ```
 
-   or put `GEMINI_API_KEY=your-key-here` in a `.env` file at the project root
-   and load it — `.env` is **not** read automatically:
-
-   ```bash
-   set -a; source .env; set +a
-   ```
+   or put `GEMINI_API_KEY=your-key-here` in a `.env` file at the project
+   root — it is loaded automatically when the app starts (an exported value
+   takes precedence over the file).
 
 4. Restart the app. Data Pipeline → Annotate short videos will now let you
-   queue annotation.
+   queue annotation. `python scripts/setup.py --verify` confirms the key
+   actually works with a free test call.
 
 > **Don't skip step 2.** `vertexai = true` is the default, and it is what
 > decides which service the app talks to — the key alone does not switch it.
@@ -196,7 +206,7 @@ exactly what to fix (see step 1).
    failing row with a copy-pasteable fix:
 
    ```bash
-   python scripts/setup.py --check-only     # look for the "local qwen:" rows
+   python scripts/setup.py --check-only --verbose   # look for the "local qwen:" rows
    ```
 
    or, in the running app: **Admin → Backends → Machine annotation** — the
@@ -351,7 +361,7 @@ Setup mirrors the [Qwen steps](#enabling-local-qwen-annotation) exactly, with
 these substitutions:
 
 ```bash
-python scripts/setup.py --check-only     # look for the "local minicpm:" rows
+python scripts/setup.py --check-only --verbose   # look for the "local minicpm:" rows
 pip install -e ".[local_minicpm]"        # same mlx-vlm runtime as local_qwen
 hf download mlx-community/MiniCPM-o-4_5-4bit   # ~6 GB, one-time
 ```
@@ -492,12 +502,24 @@ python web_interface/run_timelines_refresh.py
 ## Verify the install
 
 ```bash
+python scripts/setup.py --verify
+```
+
+Live-checks your configuration against the installed app: imports, `.env`
+contents, a free Gemini test call with your configured credentials, and GCS
+bucket reachability if enabled. Optional services that are simply not
+configured are reported, not failed.
+
+```bash
 bash scripts/verify.sh
 ```
 
 Runs lint, the checkout-only test subset, schema-hash guards, the golden
 annotation safety net (no API cost), and an app import smoke — all designed
-to pass on a fresh checkout with no data and no credentials.
+to pass on a fresh checkout with no data and no credentials. (On Windows,
+where `bash` may be unavailable, run
+`python -m pytest -q -m "not requires_data and not requires_gcs and not slow"`
+instead.)
 
 ## Optional services
 
@@ -575,9 +597,9 @@ set them:
   starting the app (`set` on Windows cmd, `$env:GEMINI_API_KEY="..."` in
   PowerShell).
 - Permanently: put the `export` line in `~/.zshrc` / `~/.bashrc`.
-- Via a `.env` file: the wizard can write one, but note the app does
-  **not** auto-load it — run `set -a; source .env; set +a` in the terminal
-  before starting the app.
+- Via a `.env` file at the project root: the wizard can write one, and the
+  app loads it automatically at startup. Values you have exported in the
+  shell always take precedence over the file.
 
 After changing an environment variable, restart the app (and use a terminal
 where the variable is actually set — check with `echo $GEMINI_API_KEY`).
