@@ -6,46 +6,34 @@
 
 Hyper-personalised short-video feeds have become one of the main ways people
 encounter culture, news, and each other. The recommender systems behind them
-decide what large audiences see each day, and their influence now reaches well
+decide what large audiences see each day, and their influence now reaches deep
 into society, culture, and commerce.
 
 That influence is hard to study from the outside. What is actually in a given
-person's feed? How does it drift over the weeks they spend with it? Do two
+person's feed? How does it change over the weeks they spend with it? Do two
 people who share an interest end up seeing much the same thing, or something
 quite different?
 
 The For You Data Hub helps researchers answer questions like these by examining
-feeds as the people using them actually experienced them — on TikTok, Instagram
-Reels, and YouTube Shorts. It works from data donations: participants request
-their own data export from a platform, look through it, and decide whether to
-share it. Consent means something here, because the record belongs to them
-first, and what researchers receive in return is real viewing history rather
-than a simulation of one.
+feeds just as the people using them are experiencing them — on TikTok, Instagram
+Reels, and YouTube Shorts. The data used in the Hub are donated by real platform
+users. Participants have requested their own data export from the platform, reviewed it, and decided what they want to share with the research team. Read more about ethical considerations in [docs/ethics_and_data_handling.md](docs/ethics_and_data_handling.md).
 
-From there the Hub carries a donation through the whole pipeline. It reads
-heterogeneous exports into a single activity table, enriches every watched item
+From there, the Hub carries a donation through the whole pipeline. It reads
+datasets from different platforms into a single activity table, enriches every watched item
 with its metadata and media, annotates content with multimodal AI models, and
 opens the result to analysis — both cross-sectional, comparing participants and
-groups, and temporal, following how one person's feed shifts day by day.
-Findings can be explored and shared with collaborators through the dashboard,
-which covers data exploration, per-video analysis, correlations, timelines, a
-**Semantic Space** map of video embeddings, and a **Sessions** explorer for
-binge episodes and low-entropy feed sequences.
+groups, and temporal, following how one person's feed shifts day by day or video by video. Read more about the pipeline in [docs/pipeline.md](docs/pipeline.md).
 
-Long-form YouTube watches in the same donated history are ingested and keep
-their metadata, but exceed the media duration cap and are therefore not
-annotated.
+The For You Data Hub's User Guide is available here [docs/user-guide.md](docs/user-guide.md), where you can read about the different analyses the Hub allows.
 
-Transparency is built in: ingestion produces a per-file intake report
+The For You Data Hub is built for academic researchers with high expectations for transparency. Ingestion produces a per-file intake report
 (rows read, rows kept, plain-language drop reasons), and every study carries
-an auto-generated **methods/provenance note** — filters, sample sizes, and
+an auto-generated methods/provenance note — filters, sample sizes, and
 the exact annotation/contract versions behind the data — surfaced in the
-dashboard and exportable as JSON.
+dashboard and exportable as JSON. AI annotation is driven by contracts to maximise replicability and transparency. Researchers can experiment with different models and prompts and run evaluations with human input to ensure coding reliability and validity.
 
-Built for academic research on feed personalization; the core is
-platform-agnostic — adding a platform is essentially one ingestion class,
-one scraper class, and a contract block (the complete checklist is in
-[docs/extending.md](docs/extending.md)).
+The Hub currently supports the three largest short-video platforms, but it is essentially platform-agnostic. Researchers can extend the Hub to support new platforms by adding a new ingestion class, scraper class, and a contract block (the complete checklist is in [docs/extending.md](docs/extending.md)).
 
 ## Repository layout
 
@@ -56,29 +44,30 @@ one scraper class, and a contract block (the complete checklist is in
 | `config/` | `config.toml` plus four declarative TOML contracts that own the variable schemas |
 | `tests/` | `unit/` (pytest suite) and `golden/` (cost-free annotation regression suite) — both run by CI |
 | `scripts/` | Setup, verification (`verify.sh`), demo-data generation, and doc generators |
-| `docs/` | Human-oriented documentation (architecture, configuration, web layer, pipeline) |
+| `docs/` | Documentation: architecture, configuration, web layer, pipeline |
 
 `DEVELOPING.md` is the maintainer guide: environment, coding style, module
 layout, key patterns, and deployment. It is the most detailed single
 reference in the repository and the best starting point for contributors.
 
-## Quickstart (local development)
+## Quickstart
+You can take the Hub for a spin straight away by requesting a user account at <https://www.tinyurl.com/foryoudatahub>. If you prefer to have you own installation, you can run the server both on your local computer and on Google Cloud. This quickstart explains how to make a local installation.
 
-Prerequisites: Python 3.12 (matches the production runtime), plus `ffmpeg` and
-`node`/`deno` if you run scrapers.
+Make sure you have Python 3.12 (matches the production runtime), plus `ffmpeg` and
+`node` or `deno` if you run the scrapers.
 
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements-dev.txt   # runtime pins + pytest/ruff/pre-commit
+pip install -r requirements-dev.txt    # runtime pins + pytest/ruff/pre-commit
 pip install -e .                       # recommended: editable install of the fyp package
 
 python scripts/setup.py                # interactive setup wizard → config/config.local.toml
 
-python web_interface/fyp_data_hub.py    # → http://localhost:5002
+python web_interface/fyp_data_hub.py   # → http://localhost:5002
 ```
 
-The first boot prints a one-time random password for the default
+Your first boot after installation prints a one-time random password for the default
 `admin@admin.net` account — copy it from the console and change it after
 logging in. Data storage defaults to `~/fyp_local` on the local disk; the
 wizard can point it elsewhere or enable GCS/Gemini. (Manual alternative to
