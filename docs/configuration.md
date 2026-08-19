@@ -71,7 +71,7 @@ tests and the golden safety net use this.
 
 | Variable | Effect |
 |---|---|
-| `GEMINI_API_KEY` | Gemini API access for annotation/embeddings. Used only when `[machine.gemini].vertexai = false`: with the default `vertexai = true` the app talks to Vertex AI and this key plays no part (the one exception is when no `project` is set, where the app falls back to the key and warns). Not auto-loaded from `.env` — see [Enabling Gemini later](installation.md#enabling-gemini-later) |
+| `GEMINI_API_KEY` | Gemini API access for annotation/embeddings. Used only when `[machine.gemini].vertexai = false`: with the default `vertexai = true` the app talks to Vertex AI and this key plays no part (the one exception is when no `project` is set, where the app falls back to the key and warns). Can live in `.env` at the project root, which is loaded automatically at startup — see [Enabling Gemini later](installation.md#enabling-gemini-later) |
 | `DASHSCOPE_API_KEY` | API key for the hosted Qwen backends (DashScope's OpenAI-compatible international endpoint). Read by both the `qwen_api` annotation backend and the Qwen API embedding backend — one key serves both. Needed only while one of those is the active backend (Admin → Backends) |
 | `FLASK_SECRET_KEY` | Flask session secret (falls back to a dev key locally) |
 | `FYP_GCS_BUCKET_NAME` | GCS bucket (production) |

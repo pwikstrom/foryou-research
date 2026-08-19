@@ -5,6 +5,8 @@ dependencies — the wizard itself is stdlib-only:
 
     python scripts/setup.py                 # interactive
     python scripts/setup.py --check-only    # environment checks only
+    python scripts/setup.py --install       # also create .venv + pip install
+    python scripts/setup.py --verify        # post-install: live-check config
     python scripts/setup.py --data-dir ~/fyp_local --no-gemini --yes
 
 It writes ``config/config.local.toml`` (a gitignored overlay deep-merged
@@ -21,11 +23,33 @@ just stays empty).
 """
 
 import argparse
+import contextlib
+import io
 import os
 import secrets
 import shutil
+import subprocess
 import sys
 import tempfile
+
+if sys.version_info < (3, 11):  # noqa: UP036 - the whole point is catching old interpreters
+    # tomllib (imported just below) exists only from Python 3.11, so on an
+    # older interpreter the import line would crash with a bare
+    # ModuleNotFoundError before the wizard's own Python check can run.
+    # Catch it here, in plain English, with the exact command to run instead.
+    _ver = f"{sys.version_info[0]}.{sys.version_info[1]}"
+    if shutil.which("python3.12"):
+        _fix = "Python 3.12 is installed on this machine - run:\n\n    python3.12 scripts/setup.py"
+    else:
+        _fix = (
+            "Install Python 3.12 first:\n"
+            "  macOS:   brew install python@3.12\n"
+            "  Linux:   sudo apt install python3.12 python3.12-venv\n"
+            "  Windows: https://www.python.org/downloads/\n"
+            "then run:  python3.12 scripts/setup.py"
+        )
+    sys.exit(f"error: this wizard needs Python 3.12, but you ran it with Python {_ver}.\n{_fix}")
+
 import tomllib
 from dataclasses import dataclass, field
 from datetime import date
@@ -64,12 +88,19 @@ class Answers:
 
 @dataclass
 class CheckResult:
-    """One environment-check outcome."""
+    """One environment-check outcome.
+
+    ``level`` controls grouping and exit-code semantics: "required" failures
+    make ``--check-only`` exit non-zero; "recommended" and "optional" are
+    advisory; "info" rows are never counted as failures at all (they describe
+    something that needs no action right now, e.g. a tool pip installs later).
+    """
 
     name: str
     ok: bool
     detail: str
     needed_for: str
+    level: str = "required"
 
 
 
@@ -79,6 +110,25 @@ class CheckResult:
 def resolve_media_dir(answers: Answers) -> str:
     """Return the effective media directory (default: ``<data_dir>/media``)."""
     return answers.media_dir or os.path.join(answers.data_dir, "media")
+
+
+
+
+
+
+def free_space_gb(path: str) -> float | None:
+    """Free disk space (GB) on the volume holding ``path``.
+
+    The path itself may not exist yet — the nearest existing ancestor is
+    measured instead. Returns None when nothing can be measured.
+    """
+    probe = Path(os.path.abspath(os.path.expanduser(path)))
+    while not probe.exists() and probe.parent != probe:
+        probe = probe.parent
+    try:
+        return shutil.disk_usage(probe).free / 1e9
+    except OSError:
+        return None
 
 
 
@@ -203,8 +253,8 @@ def build_env_file(answers: Answers, existing_text: str) -> str:
     if text and not text.endswith("\n"):
         text += "\n"
     if not text:
-        text = "# Written by scripts/setup.py. NOTE: .env is NOT auto-loaded -\n" \
-               "# source it (`set -a; source .env; set +a`) or export the values.\n"
+        text = "# Written by scripts/setup.py. Loaded automatically when the app starts;\n" \
+               "# values already exported in the shell always take precedence.\n"
     return text + "\n".join(new_lines) + "\n"
 
 
@@ -252,40 +302,62 @@ def validate_data_dir(raw: str) -> tuple[str, str]:
 
 
 
-def check_environment() -> list[CheckResult]:
-    """Probe the local environment for required and optional tooling."""
+def check_environment(include_local_models: bool = False) -> list[CheckResult]:
+    """Probe the local environment for required and optional tooling.
+
+    Args:
+        include_local_models: Also run the (chatty, rarely relevant on a first
+            install) readiness checks for the optional local Qwen/MiniCPM
+            annotation backends. Off by default; ``--verbose`` turns it on.
+    """
     results = [
         CheckResult(
             name="python",
             ok=sys.version_info >= (3, 12),
             detail=f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
             needed_for="required (the project targets Python 3.12)",
+            level="required",
         ),
         CheckResult(
             name="virtualenv",
             ok=sys.prefix != sys.base_prefix,
             detail=sys.prefix if sys.prefix != sys.base_prefix else "not active",
             needed_for="recommended (create with: python3.12 -m venv .venv)",
+            level="recommended",
         ),
     ]
     tools = (
         ("ffmpeg", "YouTube HD (DASH) media merges only - slideshows use the bundled imageio-ffmpeg"),
-        ("yt-dlp", "scraping (installed by pip with the project requirements)"),
         ("node", "YouTube media downloads from datacenter IPs (not needed on home networks)"),
         ("deno", "alternative JS runtime for the same YouTube path as node"),
     )
     for tool, needed_for in tools:
         path = shutil.which(tool)
-        results.append(CheckResult(name=tool, ok=bool(path), detail=path or "not found", needed_for=needed_for))
+        results.append(CheckResult(
+            name=tool, ok=bool(path), detail=path or "not found",
+            needed_for=needed_for, level="optional",
+        ))
+    # yt-dlp arrives with `pip install -r requirements-dev.txt` — missing
+    # before that step is the normal state, not a problem to go fix.
+    ytdlp = shutil.which("yt-dlp")
+    results.append(CheckResult(
+        name="yt-dlp",
+        ok=bool(ytdlp),
+        detail=ytdlp or "not found - installed automatically by pip in the install step; nothing to do now",
+        needed_for="scraping (comes with the project requirements)",
+        level="info",
+    ))
     if sys.platform not in ("darwin", "win32"):
         results.append(CheckResult(
             name="browser cookies",
             ok=False,
             detail="Linux: Chrome-profile cookie extraction is macOS-only",
             needed_for="authenticated scraping (Instagram needs cookies; TikTok/YouTube degrade to public access)",
+            level="info",
         ))
-    results.extend(check_local_qwen())
-    results.extend(check_local_minicpm())
+    if include_local_models:
+        results.extend(check_local_qwen())
+        results.extend(check_local_minicpm())
     return results
 
 
@@ -303,19 +375,22 @@ def check_local_qwen() -> list[CheckResult]:
     """
     try:
         # setup.py runs pre-install from a plain checkout — make the repo root
-        # importable so the shared check module can be reused.
+        # importable so the shared check module can be reused. Importing fyp
+        # prints config-boot noise, so swallow stdout/stderr around it.
         root = str(Path(__file__).resolve().parent.parent)
         if root not in sys.path:
             sys.path.insert(0, root)
-        from fyp.annotation.backends import qwen_support
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            from fyp.annotation.backends import qwen_support
 
-        checks = qwen_support.check_all()
+            checks = qwen_support.check_all()
     except Exception as exc:
         return [CheckResult(
             name="local qwen annotation",
             ok=False,
             detail=f"checks unavailable: {exc}",
             needed_for="optional local Qwen annotation backend",
+            level="optional",
         )]
     results = []
     for check in checks:
@@ -327,6 +402,7 @@ def check_local_qwen() -> list[CheckResult]:
             ok=check["ok"],
             detail=check["detail"],
             needed_for=needed,
+            level="optional",
         ))
     return results
 
@@ -346,15 +422,17 @@ def check_local_minicpm() -> list[CheckResult]:
         root = str(Path(__file__).resolve().parent.parent)
         if root not in sys.path:
             sys.path.insert(0, root)
-        from fyp.annotation.backends import minicpm_support
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            from fyp.annotation.backends import minicpm_support
 
-        checks = minicpm_support.check_all()
+            checks = minicpm_support.check_all()
     except Exception as exc:
         return [CheckResult(
             name="local minicpm annotation",
             ok=False,
             detail=f"checks unavailable: {exc}",
             needed_for="optional local MiniCPM annotation backend",
+            level="optional",
         )]
     results = []
     for check in checks:
@@ -366,6 +444,7 @@ def check_local_minicpm() -> list[CheckResult]:
             ok=check["ok"],
             detail=check["detail"],
             needed_for=needed,
+            level="optional",
         ))
     return results
 
@@ -452,6 +531,9 @@ def run_interactive(defaults: Answers) -> Answers:
     answers.media_dir = os.path.abspath(os.path.expanduser(
         prompt("Media directory (video files; needs disk space)", default_media)
     ))
+    free = free_space_gb(answers.media_dir)
+    if free is not None:
+        print(f"  Free space on that volume: {free:.0f} GB")
 
     raw_platforms = prompt(
         "Platforms you plan to scrape (comma-separated: tiktok,instagram,youtube)",
@@ -468,9 +550,12 @@ def run_interactive(defaults: Answers) -> Answers:
     answers.gemini_mode = mode_map.get(prompt("Choose", mode_default), defaults.gemini_mode)
     if answers.gemini_mode == "vertex":
         answers.vertex_project = prompt("GCP project id for Vertex AI", defaults.vertex_project)
-    elif answers.gemini_mode == "api_key":
-        if prompt_yes_no("Store your GEMINI_API_KEY in .env now? (default: no - export it yourself)", default=False):
-            answers.gemini_api_key = prompt("GEMINI_API_KEY value")
+    elif answers.gemini_mode == "api_key" and prompt_yes_no(
+        "Store your GEMINI_API_KEY in .env now? (loaded automatically at startup; "
+        "default: no - export it yourself)",
+        default=False,
+    ):
+        answers.gemini_api_key = prompt("GEMINI_API_KEY value")
 
     answers.gcs = prompt_yes_no("Use Google Cloud Storage for data/media? (local disk is the default)", defaults.gcs)
     if answers.gcs:
@@ -529,48 +614,89 @@ def answers_from_args(args: argparse.Namespace, defaults: Answers) -> Answers:
 
 
 
-def print_checks(results: list[CheckResult]) -> None:
-    """Print the environment-check summary table."""
+def print_checks(results: list[CheckResult], local_models_hidden: bool = False) -> bool:
+    """Print the environment-check summary, grouped by importance.
+
+    Returns:
+        True when every *required* check passed (advisory levels never flip
+        this) — the ``--check-only`` exit code.
+    """
+    groups = (
+        ("required", "Required"),
+        ("recommended", "Recommended"),
+        ("optional", "Optional (feature-specific)"),
+        ("info", "For information (nothing to do now)"),
+    )
     print("\nEnvironment checks:")
-    any_missing = False
-    for r in results:
-        mark = "OK " if r.ok else "-- "
-        print(f"  {mark} {r.name:<16} {r.detail}")
-        if not r.ok:
-            any_missing = True
-            print(f"       needed for: {r.needed_for}")
-    if any_missing:
+    required_ok = True
+    any_tool_missing = False
+    for level, title in groups:
+        rows = [r for r in results if r.level == level]
+        if not rows:
+            continue
+        print(f"\n  {title}:")
+        for r in rows:
+            mark = "OK " if r.ok else "-- "
+            print(f"    {mark} {r.name:<16} {r.detail}")
+            if not r.ok:
+                if level == "required":
+                    required_ok = False
+                if level != "info":
+                    any_tool_missing = True
+                    print(f"         needed for: {r.needed_for}")
+    if local_models_hidden:
+        print(
+            "\n  (Checks for the optional local Qwen/MiniCPM annotation backends are\n"
+            "   hidden - re-run with --verbose to see them.)"
+        )
+    if any_tool_missing:
         print(
             "\n  Note: 'not found' means the tool is not on your PATH. If you just\n"
             "  installed it, open a new terminal; otherwise see the 'PATH and\n"
             "  environment variables' section of docs/installation.md."
         )
+    return required_ok
 
 
 
 
 
 
-def print_next_steps(answers: Answers, in_venv: bool) -> None:
-    """Print the final what-to-do-next summary."""
+def print_next_steps(answers: Answers, in_venv: bool, installed: bool = False) -> None:
+    """Print the final what-to-do-next summary (platform-aware)."""
+    windows = os.name == "nt"
+    activate = r".venv\Scripts\activate" if windows else "source .venv/bin/activate"
+    venv_create = "py -3.12 -m venv .venv" if windows else "python3.12 -m venv .venv"
+
     print("\nDone. Wrote config/config.local.toml.")
     print("\nNext steps:")
     step = 1
-    if not in_venv:
-        print(f"  {step}. python3.12 -m venv .venv && source .venv/bin/activate")
+    if not installed:
+        if not in_venv:
+            print(f"  {step}. {venv_create}")
+            step += 1
+            print(f"  {step}. {activate}")
+            step += 1
+        print(f"  {step}. pip install -r requirements-dev.txt && pip install -e .")
         step += 1
-    print(f"  {step}. pip install -r requirements-dev.txt && pip install -e .")
-    step += 1
+    elif not in_venv:
+        print(f"  {step}. {activate}")
+        step += 1
     print(f"  {step}. python web_interface/fyp_data_hub.py   ->  http://localhost:5002")
     step += 1
     print(f"  {step}. FIRST BOOT prints a one-time random password for admin@admin.net -")
     print("     copy it from the console and change it after logging in.")
     step += 1
-    print(f"  {step}. bash scripts/verify.sh   (checks the install: lint + tests + import smoke)")
+    print(f"  {step}. python scripts/setup.py --verify   (live-checks your configuration)")
+    step += 1
+    if windows:
+        print(f'  {step}. python -m pytest -q -m "not requires_data and not requires_gcs and not slow"')
+    else:
+        print(f"  {step}. bash scripts/verify.sh   (checks the install: lint + tests + import smoke)")
 
     if answers.gemini_api_key or answers.flask_secret:
-        print("\n  .env is NOT auto-loaded - export its values or run:")
-        print("     set -a; source .env; set +a")
+        print("\n  Values in .env are loaded automatically when the app starts;")
+        print("  anything you have exported in the shell takes precedence.")
 
     if answers.gemini_mode == "off":
         print("\nGemini annotation is off. Everything else works without it;")
@@ -581,7 +707,8 @@ def print_next_steps(answers: Answers, in_venv: bool) -> None:
     elif answers.gemini_mode == "api_key" and not answers.gemini_api_key:
         print("\nGemini is set to the plain API - remember to provide the key:")
         print("  export GEMINI_API_KEY=your-key-here")
-        print("(it is not stored in config; .env is not auto-loaded)")
+        print("or put GEMINI_API_KEY=... in a .env file at the project root")
+        print("(loaded automatically at startup).")
 
     notes = []
     if "youtube" in answers.platforms:
@@ -595,6 +722,183 @@ def print_next_steps(answers: Answers, in_venv: bool) -> None:
         for n in notes:
             print(f"  - {n}")
     print("\nFull guide: docs/installation.md")
+
+
+
+
+
+
+def _python312_command() -> list[str] | None:
+    """The command prefix for a Python 3.12 interpreter, or None if absent."""
+    if sys.version_info[:2] == (3, 12):
+        return [sys.executable]
+    exe = shutil.which("python3.12")
+    if exe:
+        return [exe]
+    if os.name == "nt" and shutil.which("py"):
+        return ["py", "-3.12"]
+    return None
+
+
+
+
+
+
+def run_install() -> bool:
+    """Create ``.venv`` (if needed) and install the project's dependencies.
+
+    Runs inside an already-active virtualenv when there is one; otherwise
+    creates ``.venv`` with Python 3.12 and installs into it. Output streams
+    to the console. Returns True on success.
+    """
+    in_venv = sys.prefix != sys.base_prefix
+    if in_venv:
+        venv_python = Path(sys.executable)
+        steps = []
+    else:
+        py312 = _python312_command()
+        if py312 is None:
+            print(
+                "\nCannot install: no Python 3.12 interpreter found on PATH.\n"
+                "Install it first (macOS: brew install python@3.12; Linux:\n"
+                "apt install python3.12 python3.12-venv; Windows: python.org)\n"
+                "and re-run: python3.12 scripts/setup.py --install"
+            )
+            return False
+        venv_dir = REPO_ROOT / ".venv"
+        if os.name == "nt":
+            venv_python = venv_dir / "Scripts" / "python.exe"
+        else:
+            venv_python = venv_dir / "bin" / "python"
+        steps = []
+        if not venv_python.exists():
+            steps.append(([*py312, "-m", "venv", str(venv_dir)],
+                          "Creating virtual environment .venv"))
+
+    steps += [
+        ([str(venv_python), "-m", "pip", "install", "-r",
+          str(REPO_ROOT / "requirements-dev.txt")],
+         "Installing dependencies (this takes a few minutes)"),
+        ([str(venv_python), "-m", "pip", "install", "-e", str(REPO_ROOT)],
+         "Installing the fyp package (editable)"),
+    ]
+    for cmd, label in steps:
+        print(f"\n== {label}")
+        print(f"   $ {' '.join(cmd)}")
+        result = subprocess.run(cmd, cwd=REPO_ROOT)
+        if result.returncode != 0:
+            print(
+                "\nThat step failed - see the output above for the reason.\n"
+                "Once fixed, re-run just the install with:\n"
+                "    python scripts/setup.py --install"
+            )
+            return False
+    print("\nDependencies installed.")
+    return True
+
+
+
+
+
+
+def run_verify() -> int:
+    """Post-install live verification of the configured services.
+
+    Confirms the installed app imports, reports what ``.env`` supplies, and
+    actually exercises the configured credentials: a free Gemini
+    ``count_tokens`` call and a GCS bucket-existence probe. Unconfigured
+    optional services are reported, not failed. Returns the exit code.
+    """
+    print("\nVerifying the installed app against your configuration...")
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            root = str(REPO_ROOT)
+            if root not in sys.path:
+                sys.path.insert(0, root)
+            from fyp.core import fyp_config
+
+            cf = fyp_config.get_config()
+    except Exception as exc:
+        print(f"  --  app import        failed: {exc}")
+        print("       Install the dependencies first (python scripts/setup.py --install),")
+        print("       then run this from the virtualenv:")
+        activate = r".venv\Scripts\activate" if os.name == "nt" else "source .venv/bin/activate"
+        print(f"       {activate} && python scripts/setup.py --verify")
+        return 1
+    print("  OK  app import        fyp package + config load")
+
+    if ENV_FILE.exists():
+        keys = []
+        for line in ENV_FILE.read_text().splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                keys.append(stripped.removeprefix("export ").split("=", 1)[0].strip())
+        detail = ", ".join(keys) if keys else "present but defines no values"
+        print(f"  OK  .env              auto-loaded at startup: {detail}")
+    else:
+        print("  OK  .env              none (nothing to load; exported variables still apply)")
+
+    problems = 0
+
+    try:
+        from fyp.annotation.machine_annotation import annotation_configured
+
+        ok, reason = annotation_configured()
+    except Exception as exc:
+        ok, reason = False, f"check failed: {exc}"
+    if ok:
+        print("  OK  annotation        the active backend is configured")
+    else:
+        print(f"  --  annotation        not ready (optional): {reason}")
+
+    try:
+        from fyp.core.gemini_client import gemini_mode, make_client
+
+        mode, _ = gemini_mode()
+    except Exception:
+        mode = None
+    if mode:
+        model = cf["machine"]["gemini"].get("model", "")
+        try:
+            client = make_client()
+            client.models.count_tokens(model=model, contents="ping")
+            print(f"  OK  gemini            live check passed ({mode} mode, model {model})")
+        except Exception as exc:
+            problems += 1
+            print(f"  --  gemini            configured for {mode} mode, but a live call FAILED:")
+            print(f"       {exc}")
+            print("       Check the key/project you configured - a typo here is the usual cause.")
+    else:
+        print("  --  gemini            not configured (optional - annotation features stay off)")
+
+    data_io_cfg = cf.get("data_io", {})
+    if any(data_io_cfg.get(k) for k in ("use_gcs_for_data", "use_gcs_for_media", "use_gcs_for_cache")):
+        bucket_name = str(data_io_cfg.get("GCS_bucket_name") or "").strip()
+        if not bucket_name:
+            problems += 1
+            print("  --  gcs               GCS is enabled but no bucket name is set")
+            print("       Set FYP_GCS_BUCKET_NAME (or GCS_bucket_name in config.local.toml).")
+        else:
+            try:
+                from google.cloud import storage as gcs_storage
+
+                if gcs_storage.Client().bucket(bucket_name).exists():
+                    print(f"  OK  gcs               bucket '{bucket_name}' is reachable")
+                else:
+                    problems += 1
+                    print(f"  --  gcs               bucket '{bucket_name}' not found (or no access)")
+            except Exception as exc:
+                problems += 1
+                print(f"  --  gcs               cannot reach bucket '{bucket_name}': {exc}")
+                print("       Usually fixed by: gcloud auth application-default login")
+    else:
+        print("  OK  storage           local disk (no GCS configured - nothing to check)")
+
+    if problems:
+        print(f"\n{problems} problem(s) found - see the lines above.")
+    else:
+        print("\nEverything configured checks out.")
+    return 1 if problems else 0
 
 
 
@@ -615,13 +919,22 @@ def main() -> None:
     parser.add_argument("--contact-email", help="contact email shown on the public pages")
     parser.add_argument("--yes", action="store_true", help="non-interactive: accept defaults for anything unset")
     parser.add_argument("--force", action="store_true", help="overwrite config.local.toml without asking")
-    parser.add_argument("--check-only", action="store_true", help="run environment checks and exit")
+    parser.add_argument("--check-only", action="store_true", help="run environment checks and exit (non-zero if a required check fails)")
+    parser.add_argument("--verbose", action="store_true",
+                        help="include the optional local-model (Qwen/MiniCPM) backend checks")
+    parser.add_argument("--install", action="store_true",
+                        help="also create .venv and pip-install the dependencies")
+    parser.add_argument("--verify", action="store_true",
+                        help="post-install: live-check the configured services (Gemini, GCS) and exit")
     args = parser.parse_args()
 
-    checks = check_environment()
-    print_checks(checks)
+    if args.verify:
+        sys.exit(run_verify())
+
+    checks = check_environment(include_local_models=args.verbose)
+    required_ok = print_checks(checks, local_models_hidden=not args.verbose)
     if args.check_only:
-        return
+        sys.exit(0 if required_ok else 1)
 
     defaults = load_existing_defaults()
     if args.yes:
@@ -649,7 +962,21 @@ def main() -> None:
             print(f"Updated {ENV_FILE} (mode 600).")
 
     in_venv = sys.prefix != sys.base_prefix
-    print_next_steps(answers, in_venv)
+    venv_python_exists = (
+        REPO_ROOT / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+        / ("python.exe" if os.name == "nt" else "python")
+    ).exists()
+    # Offer to run the venv + pip steps so a first-time user never has to
+    # type them; --install skips the question. Defaults to yes only when no
+    # venv exists yet.
+    installed = False
+    if args.install or (not args.yes and prompt_yes_no(
+        "\nCreate the virtualenv and install the dependencies now? (a few minutes)",
+        default=not (in_venv or venv_python_exists),
+    )):
+        installed = run_install()
+
+    print_next_steps(answers, in_venv, installed=installed)
 
 
 
