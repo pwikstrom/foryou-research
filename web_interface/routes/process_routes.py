@@ -1,3 +1,6 @@
+import json
+import threading
+import time
 import traceback
 from datetime import UTC, datetime
 
@@ -37,7 +40,9 @@ from ..process_manager import (
     stop_process,
 )
 from ..task_status import (
+    CANCEL_SUFFIX,
     GCSStatusReporter,
+    STATUS_PREFIX,
     is_cloud_run,
     read_task_status,
     stamp_task_status,
@@ -282,33 +287,98 @@ def _redact_status_for_viewer(status_data: dict) -> dict:
 
 
 
+# /api/status is polled every few seconds by every open tab, and on Cloud Run
+# a naive build costs dozens of GCS round-trips (process_stats + one status
+# file per eligible process). Two defenses, applied only on Cloud Run so local
+# dev keeps its free, always-fresh in-memory path:
+#   1. All task-status files are fetched with ONE list_blobs pass instead of a
+#      per-process exists()+load_json() pair.
+#   2. The assembled payload is cached for _STATUS_CACHE_TTL seconds under a
+#      single-flight lock, so concurrent polls from many tabs share one build.
+# The cache holds the UNREDACTED payload; redaction happens per request on a
+# per-entry copy (it pops top-level keys only).
+_STATUS_CACHE_TTL = 3.0
+_status_cache: dict = {"payload": None, "ts": 0.0}
+_status_cache_lock = threading.Lock()
+
+
+def _read_all_task_statuses() -> dict[str, dict]:
+    """Fetch every task_status/*.json from GCS in a single listing pass.
+
+    Returns {status_key: status_dict}, where status_key is the filename stem
+    (e.g. "pca_refresh", "study_refresh__mystudy"). Cancel-request files are
+    skipped. Unreadable blobs are skipped rather than failing the poll.
+    """
+    statuses: dict[str, dict] = {}
+    try:
+        # Lazy config import, matching data_io's own idiom. NOTE: the scan
+        # this replaced read ``data_io.fyp_cf`` — an attribute that does not
+        # exist — so its blanket except made it silently return nothing.
+        from fyp.fyp_config import fyp_cf
+
+        bucket = fyp_cf['data_io'].get('bucket')
+        gcs_prefix = fyp_cf['gcs_paths'].get('cache', '')
+        if bucket is None or not gcs_prefix:
+            return statuses
+        prefix = f"{gcs_prefix}/{STATUS_PREFIX}/"
+        for blob in bucket.list_blobs(prefix=prefix):
+            fname = blob.name.split("/")[-1]
+            if not fname.endswith(".json") or fname.endswith(CANCEL_SUFFIX):
+                continue
+            try:
+                statuses[fname[: -len(".json")]] = json.loads(
+                    blob.download_as_bytes()
+                )
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return statuses
+
+
 @process_bp.route('/api/status', methods=['GET'])
 @login_required
 def api_status():
+    if is_cloud_run():
+        with _status_cache_lock:
+            now = time.monotonic()
+            if (
+                _status_cache["payload"] is None
+                or now - _status_cache["ts"] >= _STATUS_CACHE_TTL
+            ):
+                _status_cache["payload"] = _build_status_payload()
+                _status_cache["ts"] = time.monotonic()
+            # Per-entry copies: redaction pops top-level keys and must never
+            # mutate the cached payload another user's request will receive.
+            status_data = {k: dict(v) for k, v in _status_cache["payload"].items()}
+    else:
+        status_data = _build_status_payload()
+    return jsonify(_redact_status_for_viewer(status_data))
+
+
+def _build_status_payload() -> dict:
     # Reload process_stats from GCS so we see task-runner writes
     if is_cloud_run():
         load_process_stats()
 
     status_data = {}
 
-    # study_refresh uses keyed status files (study_refresh__<study>).
-    # Scan GCS for any running study_refresh task to surface in the global badge.
+    # One listing pass for every task-status file (Cloud Run only). Also
+    # surfaces study_refresh, which uses keyed status files
+    # (study_refresh__<study>): any running one shows in the global badge.
+    gcs_statuses: dict[str, dict] = {}
     _study_refresh_gcs = None
     if is_cloud_run():
-        try:
-            bucket = data_io.fyp_cf['data_io'].get('bucket')
-            gcs_prefix = data_io.fyp_cf['gcs_paths'].get('cache', '')
-            if bucket and gcs_prefix:
-                prefix = f"{gcs_prefix}/task_status/study_refresh__"
-                for blob in bucket.list_blobs(prefix=prefix):
-                    sr_status = read_task_status(
-                        blob.name.split("/")[-1].replace(".json", "")
-                    )
-                    if sr_status and sr_status.get("state") == "running":
-                        _study_refresh_gcs = sr_status
-                        break
-        except Exception:
-            pass
+        gcs_statuses = _read_all_task_statuses()
+        _study_refresh_gcs = next(
+            (
+                s
+                for key, s in gcs_statuses.items()
+                if key.startswith("study_refresh__")
+                and s.get("state") == "running"
+            ),
+            None,
+        )
 
     for name, p_data in processes.items():
         gcs_status = None
@@ -318,7 +388,7 @@ def api_status():
             if name == "study_refresh":
                 gcs_status = _study_refresh_gcs
             else:
-                gcs_status = read_task_status(name)
+                gcs_status = gcs_statuses.get(name)
             if gcs_status and gcs_status.get("state") in ("running", "queued"):
                 # Check for stale status (task timed out without updating).
                 # Applies to "queued" too: a queued stamp has no heartbeat, so
@@ -404,7 +474,7 @@ def api_status():
             "last_run_study": stats_entry.get("last_run_study"),
             "task_args": p_data.get("data", {}).get("task_args", {}),
         }
-    return jsonify(_redact_status_for_viewer(status_data))
+    return status_data
 
 
 @process_bp.route('/api/status/study_refresh/<study_name>', methods=['GET'])

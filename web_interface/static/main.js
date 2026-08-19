@@ -132,7 +132,9 @@ window.onload = function () {
     updateThemeIcon(theme);
 
     updateStatus();
-    setInterval(updateStatus, 1000); // 1 second interval
+    // 1s ticker; _pollStatusTick stretches the effective cadence to 5s while
+    // nothing is in flight (see _statusPollDelayMs).
+    setInterval(_pollStatusTick, 1000);
 
     // Load study definitions for dropdowns
     loadDefinedStudies();
@@ -1049,6 +1051,27 @@ function updateDmSidebarSpinners(data) {
 
 
 
+// Adaptive /api/status cadence: 1s only while quick feedback matters (a run
+// in flight, an open log modal, a cascade refresh, or an optimistic start
+// awaiting its first confirmed state); 5s when everything is idle. The 1s
+// interval keeps ticking — _pollStatusTick just skips fetches that are not
+// due yet, so the cadence tightens within a second of a state change.
+let _lastStatusFetchMs = 0;
+
+function _statusPollDelayMs() {
+    if (_activeLogModal) return 1000;
+    if (typeof _cascadeRefresh !== 'undefined' && _cascadeRefresh) return 1000;
+    if (pendingStarts.size > 0) return 1000;
+    const anyActive = Object.values(previousProcessStates).some(
+        s => s === 'running' || s === 'stopping');
+    return anyActive ? 1000 : 5000;
+}
+
+function _pollStatusTick() {
+    if (Date.now() - _lastStatusFetchMs < _statusPollDelayMs()) return;
+    updateStatus();
+}
+
 function _statusPollNeededWhileHidden() {
     // Keep polling /api/status even when the tab is backgrounded if anything
     // is in flight, so completion detection and cascade-refresh chaining never
@@ -1065,6 +1088,7 @@ async function updateStatus() {
     // saves idle Cloud Run requests. The interval keeps ticking and we only
     // no-op the fetch, so polling resumes within 1s of the tab regaining focus.
     if (document.hidden && !_statusPollNeededWhileHidden()) return;
+    _lastStatusFetchMs = Date.now();
     try {
         const res = await fetch('/api/status');
         const data = await res.json();
