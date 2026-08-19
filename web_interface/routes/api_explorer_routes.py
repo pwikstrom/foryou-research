@@ -19,6 +19,7 @@ from ..data_service import (
     get_accessible_studies,
     get_collection_tags,
     get_explorer_data,
+    get_explorer_metadata_cached,
     get_study_col_types,
     get_study_collections,
     load_display_id_map,
@@ -552,7 +553,9 @@ def api_explorer_metadata_overlay():
 
         username = current_user.username
         shared_simple_map = _get_shared_simple_map(username, current_user.settings)
-        df, col_types = enrich_with_user_tags(df, col_types, username, shared_users_tags=shared_simple_map)
+        df, col_types = enrich_with_user_tags(df, col_types, username,
+                                              shared_users_tags=shared_simple_map,
+                                              study=study)
 
         overlay = _compute_dynamic_overlay(df, col_types)
         return jsonify(make_serializable(overlay))
@@ -587,7 +590,9 @@ def api_explorer_metadata():
     # Enrich with User Tags
     username = current_user.username
     shared_simple_map = _get_shared_simple_map(username, current_user.settings)
-    df, col_types = enrich_with_user_tags(df, col_types, username, shared_users_tags=shared_simple_map)
+    df, col_types = enrich_with_user_tags(df, col_types, username,
+                                          shared_users_tags=shared_simple_map,
+                                          study=study)
 
 
     cached_metadata = None
@@ -944,7 +949,7 @@ def api_explorer_filter():
 
     # Enrich with User Tags
     username = current_user.username
-    df, col_types = enrich_with_user_tags(df, col_types, username)
+    df, col_types = enrich_with_user_tags(df, col_types, username, study=study)
 
 
     filters = data.get("filters", {})
@@ -954,13 +959,9 @@ def api_explorer_filter():
     # Selective Calculation Logic
     trigger_slice = data.get("trigger_slice") # 1, 2, or None (both)
 
-    # Load cached metadata to potentially reuse total_stats
-    cached_metadata = {}
-    try:
-        if data_io.exists(storage_location="cache", filename=f"{study}_explorer_metadata.json"):
-            cached_metadata = data_io.load_json(storage_location="cache", filename=f"{study}_explorer_metadata.json")
-    except Exception as e:
-        print(f"    Warning: Could not load cached metadata: {e}")
+    # Cached metadata (mtime-keyed, in-process) to potentially reuse
+    # total_stats. Read-only: anything grafted onto it below must copy first.
+    cached_metadata = get_explorer_metadata_cached(study)
 
     result = {}
 
@@ -976,7 +977,9 @@ def api_explorer_filter():
 
         if is_empty_filters and 'total_stats' in cached_metadata:
             #print("    Using cached total_stats for Slice 1")
-            result['stats'] = cached_metadata['total_stats']
+            # Copy: the metadata dict is a shared cache entry now, and the
+            # User Tags injection below must not write into it.
+            result['stats'] = dict(cached_metadata['total_stats'])
             result['count'] = len(df)
 
             # Inject User Tags stats if missing
@@ -1013,7 +1016,7 @@ def api_explorer_filter():
 
             if is_empty_filters2 and 'total_stats' in cached_metadata:
                  #print("    Using cached total_stats for Slice 2")
-                 result['stats2'] = cached_metadata['total_stats']
+                 result['stats2'] = dict(cached_metadata['total_stats'])
                  result['count2'] = len(df)
             else:
                 filtered_df2 = explorer.filter_dataframe(df, col_types, filters2, search_query2)

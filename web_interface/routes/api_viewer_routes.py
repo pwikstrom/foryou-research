@@ -127,7 +127,7 @@ def api_viewer_ids():
 
     # Enrich with User Tags
     username = current_user.username
-    df, col_types = enrich_with_user_tags(df, col_types, username)
+    df, col_types = enrich_with_user_tags(df, col_types, username, study=study)
 
     """df = df[df.scraped_ok].copy()
     print(f"    Filtered to {len(df):,} scraped events")"""
@@ -512,7 +512,9 @@ def api_viewer_item(study, item_id):
         if sharing_users:
             shared_simple_map, shared_detailed_map = load_shared_tags(sharing_users)
 
-    df, col_types = enrich_with_user_tags(df, col_types, username, shared_users_tags=shared_simple_map)
+    df, col_types = enrich_with_user_tags(df, col_types, username,
+                                          shared_users_tags=shared_simple_map,
+                                          study=study)
 
     # Apply Context Filters as fallback disambiguation when row_idx was not available
     if row_idx is None and request.method == 'POST':

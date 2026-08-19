@@ -37,6 +37,7 @@ from .services.study_data import (  # noqa: F401
     enrich_with_user_tags,
     get_collection_tags,
     get_explorer_data,
+    get_explorer_metadata_cached,
     get_explorer_rows,
     get_search_column,
     get_study_col_types,

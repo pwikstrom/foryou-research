@@ -166,16 +166,39 @@ _CAT_SCALES = {
 
 
 
-def _get_recoded_mtime(study):
-    """Return the on-disk mtime of the study's recoded parquet, or ``None``
-    if the file is missing / unreadable. Used to detect stale RAM cache
-    entries when the parquet is refreshed by a worker subprocess."""
+# Freshness probes (getmtime) ride a short TTL: on Cloud Run each is a GCS
+# round-trip, and the explorer fires one per request just to validate its RAM
+# caches. The TTL bounds staleness after a worker rewrites an artifact — the
+# same trade the sessions blueprint's _STAT_CACHE already makes at 15s.
+_MTIME_TTL_SECONDS = 15.0
+_mtime_ttl_cache: dict[str, tuple[float, float | None]] = {}
+_mtime_ttl_lock = threading.Lock()
+
+
+def _ttl_mtime(filename):
+    """mtime of a cache-location file through the 15s TTL, ``None`` if absent."""
+    now = time.monotonic()
+    with _mtime_ttl_lock:
+        entry = _mtime_ttl_cache.get(filename)
+        if entry is not None and now - entry[0] < _MTIME_TTL_SECONDS:
+            return entry[1]
     try:
         # getmtime raises FileNotFoundError for a missing file/blob — no
         # separate exists() probe needed (saves a GCS round-trip per request).
-        return data_io.getmtime(storage_location="cache", filename=f"{study}_recoded.parquet")
+        mtime = data_io.getmtime(storage_location="cache", filename=filename)
     except Exception:
-        return None
+        mtime = None
+    with _mtime_ttl_lock:
+        _mtime_ttl_cache[filename] = (now, mtime)
+    return mtime
+
+
+def _get_recoded_mtime(study):
+    """Return the on-disk mtime of the study's recoded parquet, or ``None``
+    if the file is missing / unreadable. Used to detect stale RAM cache
+    entries when the parquet is refreshed by a worker subprocess. TTL-cached
+    for 15s, so a refreshed parquet is picked up within that window."""
+    return _ttl_mtime(f"{study}_recoded.parquet")
 
 
 
@@ -224,6 +247,41 @@ def get_study_sidecar(study):
         return None
     with _sidecar_cache_lock:
         _sidecar_cache[cache_key] = (mtime, payload)
+    return payload
+
+
+# The explorer metadata JSON (multi-MB: top-200 values per categorical column)
+# used to be exists()+downloaded from GCS on EVERY /api/explore/filter request
+# — two round-trips plus a multi-MB parse per checkbox tick. Same mtime-keyed
+# pattern as the sidecar cache above. Callers treat the payload as read-only;
+# anything they graft onto it (e.g. total_stats reuse) must copy first.
+_explorer_meta_cache = LRUCache(maxsize=8)
+_explorer_meta_lock = threading.Lock()
+
+
+def get_explorer_metadata_cached(study):
+    """Parsed ``{study}_explorer_metadata.json``, or ``{}`` when absent.
+
+    Cached in-process keyed by the file's mtime (probed through the 15s TTL),
+    so a metadata rebuild is picked up within the TTL window.
+    """
+    filename = f"{study}_explorer_metadata.json"
+    mtime = _ttl_mtime(filename)
+    if mtime is None:
+        return {}
+    with _explorer_meta_lock:
+        entry = _explorer_meta_cache.get(study)
+        if entry is not None and entry[0] == mtime:
+            return entry[1]
+    try:
+        payload = data_io.load_json(storage_location="cache", filename=filename)
+    except Exception as e:
+        print(f"    Warning: Could not load cached metadata: {e}")
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    with _explorer_meta_lock:
+        _explorer_meta_cache[study] = (mtime, payload)
     return payload
 
 
@@ -626,18 +684,106 @@ def get_explorer_rows(study, item_id=None, row_index=None, verbose=False):
 _NO_TAGS: list = []
 
 
-def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
+# Column caches for the per-request enrichment. Computing the dynamic columns
+# is O(rows) — an Arrow cast of item_id, two isin passes and two full-length
+# object arrays — and used to run on EVERY filter/overlay/ids request (seconds
+# per checkbox tick on a multi-million-row study). The columns only change
+# when the frame changes (parquet mtime / row count) or the user's tag file is
+# refetched, so they are cached and re-attached.
+#
+# The machine columns depend only on the frame, so they are shared across
+# users and sized with the study cache (2 frames). The user columns are small
+# per entry unless the user has tags. Tokens carry the parquet mtime, the row
+# count and (for user columns) the identity of the cached user-JSON blob —
+# the blob reference is pinned in the entry so id() stays valid; a TTL refetch
+# or an invalidate_user_json_cache() write produces a new object and thereby a
+# recompute.
+_user_annot_cols_cache = LRUCache(maxsize=16)
+_machine_annot_cols_cache = LRUCache(maxsize=2)
+_annot_cols_lock = threading.Lock()
+
+
+def _attach_columns(df, col_types, computed):
+    """Attach precomputed (cols, ctypes) pairs to a shallow copy of ``df``."""
+    # Shallow copy: only whole columns are added, so nothing shared with the
+    # caller's frame is mutated. A deep copy would duplicate the whole study
+    # frame (several GB on all_collections) to add three columns.
+    df = df.copy(deep=False)
+    col_types = col_types.copy()
+    for cols, ctypes in computed:
+        for name, values in cols.items():
+            df[name] = values
+        col_types.update(ctypes)
+    return df, col_types
+
+
+def enrich_with_user_tags(df, col_types, username, shared_users_tags=None,
+                          study=None):
     """
     Injects a 'User Tags' column into the DataFrame based on the user's tag file.
     Returns (enriched_df, enriched_col_types).
     If no tags found, returns original.
+
+    When ``study`` is given the computed columns are served from the
+    mtime-keyed caches above; ``shared_users_tags`` bypasses the user-column
+    cache (the shared map is assembled per request by the caller).
     """
-    user_data = get_user_json_cached(username) or {}
+    user_blob = get_user_json_cached(username)
+
+    cache_token = None
+    if study is not None:
+        mtime = _get_recoded_mtime(study)
+        cache_token = (mtime, len(df))
+
+    # Machine columns: shared across users, keyed on the frame identity plus
+    # which source columns this projection carries.
+    machine_token = None
+    if cache_token is not None:
+        machine_token = (*cache_token,
+                         'annotated_ok' in df.columns,
+                         'annotation_version' in df.columns)
+        with _annot_cols_lock:
+            entry = _machine_annot_cols_cache.get(study)
+        machine = entry[1] if entry is not None and entry[0] == machine_token else None
+    else:
+        machine = None
+    if machine is None:
+        machine = _compute_machine_annotation_columns(df)
+        if machine_token is not None:
+            with _annot_cols_lock:
+                _machine_annot_cols_cache[study] = (machine_token, machine)
+
+    # User columns: per (user, study), invalidated by frame change or a fresh
+    # user-JSON blob. A request carrying shared_users_tags computes uncached.
+    user_cols = None
+    user_key = (username, study)
+    if cache_token is not None and shared_users_tags is None:
+        user_token = (*cache_token, id(user_blob))
+        with _annot_cols_lock:
+            entry = _user_annot_cols_cache.get(user_key)
+        if entry is not None and entry[0] == user_token:
+            user_cols = entry[1]
+        if user_cols is None:
+            user_cols = _compute_user_annotation_columns(df, user_blob, None)
+            with _annot_cols_lock:
+                _user_annot_cols_cache[user_key] = (user_token, user_cols, user_blob)
+    else:
+        user_cols = _compute_user_annotation_columns(df, user_blob, shared_users_tags)
+
+    return _attach_columns(df, col_types, [user_cols, machine])
+
+
+def _compute_user_annotation_columns(df, user_blob, shared_users_tags):
+    """Build the 'User Tags' and 'Has Annotation' columns for ``df``.
+
+    Returns ({column_name: values}, {column_name: col_type}).
+    """
+    user_data = user_blob or {}
     user_tags = {}
 
     if user_data:
         user_tags = user_data.get('annotations', {})
-        
+
     # user_tags: { item_id: { var: [tags...] } }
     # We want a map: item_id -> unique list of tags (flattened across variables)
     
@@ -674,15 +820,11 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
             else:
                 id_to_tags[str_id] = list(tags)
 
-    # Was: if not annotated_ids: return df, col_types
-    # We continue now to ensure "Has Annotation" and "Machine Annotations" are added even if empty.
-        
+    # Was: if not annotated_ids: return early.
+    # We continue now to ensure "Has Annotation" is present even if empty.
 
-    # Shallow copy: this function only adds whole columns, so nothing shared
-    # with the caller's frame is mutated. A deep copy would duplicate the whole
-    # study frame (several GB on all_collections) to add three columns.
-    df = df.copy(deep=False)
-    col_types = col_types.copy()
+    cols = {}
+    ctypes = {}
     n = len(df)
 
     # Arrow-native string view of the ids: isin() on it stays vectorized, and
@@ -705,8 +847,8 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
             positions = np.flatnonzero(tag_mask)
             for pos, iid in zip(positions, str_ids.iloc[positions]):
                 tags_col[pos] = id_to_tags.get(str(iid)) or _NO_TAGS
-            df['User Tags'] = tags_col
-            col_types['User Tags'] = 'list'
+            cols['User Tags'] = tags_col
+            ctypes['User Tags'] = 'list'
 
     # 2. Has Annotation (Boolean/Category)
     if shared_users_tags:
@@ -715,17 +857,25 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
     # numpy bools rather than Arrow: downstream astype(str) must keep yielding
     # 'True'/'False' (Arrow bools stringify lowercase), and the filter/metadata
     # payloads are built from these values.
-    df['Has Annotation'] = str_ids.isin(annotated_ids).fillna(False).to_numpy(dtype=bool)
+    cols['Has Annotation'] = str_ids.isin(annotated_ids).fillna(False).to_numpy(dtype=bool)
+    ctypes['Has Annotation'] = 'category'  # Treat as category to trigger checkbox UI
 
-    # Only keep if there are any true values? Or always keep if explicit user request?
-    # If no annotations exist at all, we returned early above.
-    # So we have annotations.
-    col_types['Has Annotation'] = 'category' # Treat as category to trigger checkbox UI
+    return cols, ctypes
 
-    # 3. Machine Annotations — which model annotated each item. Annotated rows
-    # get the annotating model's short name (resolved from the row's
-    # annotation_version via the version registry); rows without per-row
-    # provenance (pre-versioning history) fall back to the generic label.
+
+def _compute_machine_annotation_columns(df):
+    """Build the 'Machine Annotations' column for ``df``.
+
+    Which model annotated each item: annotated rows get the annotating model's
+    short name (resolved from the row's annotation_version via the version
+    registry); rows without per-row provenance (pre-versioning history) fall
+    back to the generic label.
+
+    Returns ({column_name: values}, {column_name: col_type}).
+    """
+    cols = {}
+    ctypes = {}
+    n = len(df)
     if 'annotated_ok' in df.columns:
         # annotated_ok is bool[pyarrow] and can hold NA — fill before the numpy
         # coercion (NA rows count as neither annotated nor failed).
@@ -751,10 +901,10 @@ def enrich_with_user_tags(df, col_types, username, shared_users_tags=None):
                                     'Machine Annotated')
                 machine[ok_positions] = labelled
 
-        df['Machine Annotations'] = machine
-        col_types['Machine Annotations'] = 'category'
+        cols['Machine Annotations'] = machine
+        ctypes['Machine Annotations'] = 'category'
 
-    return df, col_types
+    return cols, ctypes
 
 
 

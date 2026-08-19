@@ -432,17 +432,31 @@ def _column_search_mask(series: pd.Series, term: str) -> np.ndarray:
 
 def filter_dataframe(df, column_types, filters, search_query=None):
 
-    # Shallow copy: every narrowing step below rebinds ``filtered_df`` to a
-    # fresh boolean-mask selection, so the caller's frame is never mutated. A
-    # deep copy here would duplicate the whole study frame before any row has
-    # been dropped (several GB on all_collections).
-    filtered_df = df.copy(deep=False)
+    # All vectorized criteria are collected as positional boolean masks over
+    # the FULL frame and AND-ed before a single row selection materialises the
+    # result. The old shape — `filtered_df = filtered_df[mask]` once per
+    # criterion — re-materialised every projected column for every active
+    # filter, so each added checkbox cost another full-frame copy on a
+    # multi-million-row study. Python-per-row criteria (list overlap,
+    # extra_data token overlap) are deferred until after that single
+    # narrowing, so they scan surviving rows only, as before.
+    combined = None   # np.bool_ mask over df; None = no vectorized criteria
+    deferred = []     # (col, val) pairs evaluated per-row after narrowing
+
+    def _and_mask(mask):
+        nonlocal combined
+        if isinstance(mask, pd.Series):
+            # Arrow-backed comparisons can carry NA; a row with NA never
+            # matches a criterion (same outcome the old per-step indexing had
+            # for NaN comparisons).
+            mask = mask.fillna(False).to_numpy(dtype=bool)
+        combined = mask if combined is None else (combined & mask)
 
     for col, criteria in filters.items():
         # Handle virtual Collection Tags filter
         if col == 'Collection Tags':
             val = criteria.get("value")
-            if isinstance(val, (list, np.ndarray)) and len(val) > 0 and 'collection_id' in filtered_df.columns:
+            if isinstance(val, (list, np.ndarray)) and len(val) > 0 and 'collection_id' in df.columns:
                 try:
                     # Lazy import to avoid circular dependency with data_service
                     from .data_service import get_collection_tags
@@ -455,7 +469,7 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                     anno_tags = set(str(t).strip() for t in anno.get('annotation_tags', []))
                     if anno_tags & selected_tags:
                         matching_cids.add(str(cid))
-                filtered_df = filtered_df[filtered_df['collection_id'].astype(str).isin(matching_cids)]
+                _and_mask(df['collection_id'].astype(str).isin(matching_cids))
             continue
 
         if col not in df.columns:
@@ -469,49 +483,34 @@ def filter_dataframe(df, column_types, filters, search_query=None):
         # Special case: token-overlap filter on the folded `extra_data`
         # engagement record. `val` is a list of selected engagement types
         # (e.g. ['fave', 'comment']); a row passes if any of those tokens
-        # appears in its parsed `extra_data` cell.
+        # appears in its parsed `extra_data` cell. Python per row — deferred.
         if col == 'extra_data':
             if isinstance(val, (list, np.ndarray)) and len(val) > 0:
-                selected = set(str(v).lower() for v in val)
-                mask = filtered_df[col].astype('string').map(
-                    lambda s: bool(parse_extra_data_tokens(s) & selected)
-                    if pd.notna(s) else False
-                )
-                filtered_df = filtered_df[mask]
+                deferred.append((col, val))
             continue
 
         dtype = column_types.get(col)
-
-        value_mask = pd.Series(False, index=filtered_df.index)
-        has_value_criteria = False
 
         if dtype == "number":
             # Robustness: If frontend sends a list (checkboxes) for a numeric column (e.g. bools, discrete ints),
             # treat it as a categorical "isin" filter.
             if isinstance(val, (list, np.ndarray)):
-                value_mask = filtered_df[col].astype(str).isin([str(v) for v in val])
-                has_value_criteria = True
+                _and_mask(df[col].astype(str).isin([str(v) for v in val]))
             else:
                 min_val = val.get("min") if val else None
                 max_val = val.get("max") if val else None
-                if min_val is not None or max_val is not None:
-                    # Start with True (all valid for now)
-                    temp_mask = pd.Series(True, index=filtered_df.index)
-                    if min_val is not None:
-                         temp_mask &= (filtered_df[col] >= float(min_val))
-                    if max_val is not None:
-                         temp_mask &= (filtered_df[col] <= float(max_val))
-                    
-                    value_mask = temp_mask
-                    has_value_criteria = True
+                if min_val is not None:
+                    _and_mask(df[col] >= float(min_val))
+                if max_val is not None:
+                    _and_mask(df[col] <= float(max_val))
 
         elif dtype == "category":
             if isinstance(val, (list, np.ndarray)) and len(val) > 0:
-                is_dt = pd.api.types.is_datetime64_any_dtype(filtered_df[col])
+                is_dt = pd.api.types.is_datetime64_any_dtype(df[col])
                 if is_dt or "date" in col.lower():
-                    value_mask = filtered_df[col].astype(str).str[:10].isin([str(v)[:10] for v in val])
+                    _and_mask(df[col].astype(str).str[:10].isin([str(v)[:10] for v in val]))
                 else:
-                    col_series = filtered_df[col]
+                    col_series = df[col]
                     col_dtype = col_series.dtype
                     if (isinstance(col_dtype, pd.ArrowDtype)
                             and (pa.types.is_string(col_dtype.pyarrow_dtype)
@@ -522,29 +521,46 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                         # Non-string selections can never match the old
                         # astype(str) semantics anyway, so drop them here.
                         str_vals = [v for v in val if isinstance(v, str)]
-                        value_mask = col_series.isin(str_vals).fillna(False).to_numpy(dtype=bool)
+                        _and_mask(col_series.isin(str_vals).fillna(False).to_numpy(dtype=bool))
                     else:
-                        value_mask = col_series.astype(str).isin(val)
-                    has_value_criteria = True
-        
+                        _and_mask(col_series.astype(str).isin(val))
+
         elif dtype == "list":
             if isinstance(val, (list, np.ndarray)) and len(val) > 0:
-                search_set = set(str(v) for v in val) # Ensure strings
-                
-                def robust_check(x):
-                    if not isinstance(x, (list, np.ndarray)): return False
-                    try:
-                        # Ensure x items are also hashable/strings
-                        check_set = set(str(item) for item in x)
-                        return bool(check_set & search_set)
-                    except:
-                        return False
-                        
-                value_mask = filtered_df[col].apply(robust_check)
-                has_value_criteria = True
+                deferred.append((col, val))
 
-        if has_value_criteria:
-             filtered_df = filtered_df[value_mask]
+    # ONE row selection for every vectorized criterion. A shallow copy when
+    # nothing narrowed keeps the no-filter path allocation-free (the caller's
+    # frame is never mutated either way).
+    if combined is not None:
+        filtered_df = df[combined]
+    else:
+        filtered_df = df.copy(deep=False)
+
+    # Python-per-row criteria on the already-narrowed frame.
+    for col, val in deferred:
+        if col == 'extra_data':
+            selected = set(str(v).lower() for v in val)
+            mask = filtered_df[col].astype('string').map(
+                lambda s: bool(parse_extra_data_tokens(s) & selected)
+                if pd.notna(s) else False
+            )
+            filtered_df = filtered_df[mask]
+            continue
+
+        search_set = set(str(v) for v in val)  # Ensure strings
+
+        def robust_check(x):
+            if not isinstance(x, (list, np.ndarray)): return False
+            try:
+                # Ensure x items are also hashable/strings
+                check_set = set(str(item) for item in x)
+                return bool(check_set & search_set)
+            except:
+                return False
+
+        value_mask = filtered_df[col].apply(robust_check)
+        filtered_df = filtered_df[value_mask]
 
     # Global Search Logic
     if search_query and isinstance(search_query, str):
