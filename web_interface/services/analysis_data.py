@@ -19,6 +19,10 @@ from fyp.pca import calculate_scaled_pca_scores
 _pca_cache = LRUCache(maxsize=8)
 _pca_cache_lock = threading.Lock()
 
+# Single-flight guard for the lazy PCA compute: N concurrent requests hitting
+# a missing artifact used to run N full PCA fits inside the request threads.
+_pca_compute_lock = threading.Lock()
+
 
 def _pca_mtime(study_name):
     """Return the mtime of a study's PCA parquet, or None if missing."""
@@ -58,19 +62,34 @@ def get_pca_df(study_name):
             _pca_cache[study_name] = (mtime, df)
         return df
 
-    print("Calculating PCA scores for study: ", study_name)
-    # minimum_group_size intentionally not passed: it resolves from the
-    # [correlations] config section inside calculate_scaled_pca_scores.
-    result = calculate_scaled_pca_scores(
-        study_name=study_name,
-        study_recoded_dataset=None,
-        target_explained_variance=0.8,
-        drop_rare_globally_below=0.01,
-        save_to_cache=True,
-    )
-    df = result[0] if isinstance(result, tuple) else result
-    if df is None:
-        return None
+    with _pca_compute_lock:
+        # Re-check under the lock: a concurrent request may have just computed
+        # and saved the artifacts while this thread waited.
+        mtime = _pca_mtime(study_name)
+        if mtime is not None and data_io.exists(
+                storage_location="cache", filename=comp_inter_filename):
+            with _pca_cache_lock:
+                entry = _pca_cache.get(study_name)
+                if entry is not None and entry[0] == mtime:
+                    return entry[1]
+            df = data_io.load_parquet(storage_location="cache", filename=pca_filename)
+            with _pca_cache_lock:
+                _pca_cache[study_name] = (mtime, df)
+            return df
+
+        print("Calculating PCA scores for study: ", study_name)
+        # minimum_group_size intentionally not passed: it resolves from the
+        # [correlations] config section inside calculate_scaled_pca_scores.
+        result = calculate_scaled_pca_scores(
+            study_name=study_name,
+            study_recoded_dataset=None,
+            target_explained_variance=0.8,
+            drop_rare_globally_below=0.01,
+            save_to_cache=True,
+        )
+        df = result[0] if isinstance(result, tuple) else result
+        if df is None:
+            return None
 
     mtime = _pca_mtime(study_name)
     if mtime is not None:

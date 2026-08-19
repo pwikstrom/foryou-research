@@ -563,7 +563,8 @@ async function updatePcaPlot() {
         // Update point count
         const countEl = document.getElementById('pca-point-count');
         if (countEl) {
-            const shown = data.data.length;
+            const shown = (data.points ? data.points.x.length
+                : (data.data || []).length);
             const total = data.total_count || shown;
             countEl.innerText = shown < total
                 ? `${shown.toLocaleString()} / ${total.toLocaleString()} obs`
@@ -579,9 +580,47 @@ async function updatePcaPlot() {
 }
 
 
+// Materialize per-point objects from the columnar /api/correlations/data
+// payload (points/hover/factors). The old per-point shape shipped ~6 MB per
+// variable change — 74% of it a server-built hover string per point; the
+// columnar payload carries each formatted value once per column and the
+// hover text + drill-down dicts are assembled here.
+function _scatterPointsFrom(payload) {
+    if (payload.data) return payload.data; // pre-columnar shape (safety net)
+    const pts = payload.points;
+    if (!pts) return [];
+    const hoverLabels = (payload.hover && payload.hover.labels) || [];
+    const hoverCols = (payload.hover && payload.hover.columns) || [];
+    const factorCols = Object.keys(payload.factors || {});
+    const n = pts.x.length;
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+        const parts = [];
+        for (let j = 0; j < hoverLabels.length; j++) {
+            const v = hoverCols[j][i];
+            if (v !== '' && v !== null && v !== undefined) parts.push(hoverLabels[j] + ': ' + v);
+        }
+        const factors = {};
+        for (const fc of factorCols) {
+            const v = payload.factors[fc][i];
+            if (v !== null && v !== undefined) factors[fc] = v;
+        }
+        out[i] = {
+            x: pts.x[i],
+            y: pts.y[i],
+            color_val: (pts.color[i] === null || pts.color[i] === undefined)
+                ? 'Undefined' : pts.color[i],
+            text: parts.join('<br>'),
+            factors: factors
+        };
+    }
+    return out;
+}
+
+
 function renderPlotlyChart(payload, xLabel, yLabel, colorLabel) {
     _lastScatterArgs = { payload, xLabel, yLabel, colorLabel };
-    const dataPoints = payload.data || [];
+    const dataPoints = _scatterPointsFrom(payload);
     const serverStats = payload.stats || null;
     const groupEllipses = payload.group_ellipses || [];
     const isCentered = !!payload.centered;

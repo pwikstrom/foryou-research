@@ -699,7 +699,6 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
     # Get factor columns for richer hover tooltips
     factors, _ = get_factors_and_features_from_var_schema(some_events_df=df, verbose=False)
 
-    result_data = []
     has_color = color_col and color_col in filtered_df.columns
 
     # Flat display-name map for tooltips
@@ -758,66 +757,64 @@ def build_scatter_payload(df: pd.DataFrame, x_col: str, y_col: str,
     # Prepare sorted bases for suffix extraction on PCA components
     sorted_base_names = sorted(schema_map.keys(), key=len, reverse=True)
 
-    for row in filtered_df.itertuples():
-        x_val = getattr(row, x_col)
-        y_val = getattr(row, y_col)
+    # Columnar payload: the old shape carried a server-built "<br>"-joined
+    # hover string plus a {col: value} dict PER POINT — 5.4 of the 6 MB the
+    # endpoint shipped were that repetition (measured 2026-08-19). The values
+    # are still formatted here with the exact same format_value rules; the
+    # client joins them into hover lines and per-point drill-down dicts.
 
-        c_val = "Default"
-        if has_color:
-            c_val = format_value(color_col, getattr(row, color_col))
+    def _display_for_raw(r_col):
+        base_col_name = str(r_col)[:-4]  # strip _raw
+        r_display = schema_map.get(base_col_name)
+        if not r_display:
+            r_display = base_col_name
+            for b_name in sorted_base_names:
+                if base_col_name.startswith(b_name + '_'):
+                    formatted_suf = base_col_name[len(b_name) + 1:].replace('_', ' ')
+                    r_display = f"{schema_map[b_name]} ({formatted_suf})"
+                    break
+        return f"{r_display} (Abs)"
 
-        # Build hover text with all grouping factors
-        color_col_display = schema_map.get(color_col, color_col)
-        hover_parts = [f"{color_col_display}: {c_val}"]
+    hover_labels = []
+    hover_columns = []
 
-        for fc in factor_cols_in_df:
-            fv = getattr(row, fc, None)
-            if fv is not None:
-                fc_display = schema_map.get(fc, fc)
-                fv_formatted = format_value(fc, fv)
-                hover_parts.append(f"{fc_display}: {fv_formatted}")
+    # First hover line: the colour value, formatted.
+    if has_color:
+        color_values = filtered_df[color_col].tolist()
+        hover_labels.append(schema_map.get(color_col, color_col))
+        hover_columns.append([format_value(color_col, v) for v in color_values])
+    else:
+        color_values = ["Default"] * len(filtered_df)
 
-        # Inject absolute unscaled values
-        for r_col in raw_numeric_cols:
-            r_val = getattr(row, r_col, None)
-            if r_val is not None and not pd.isna(r_val):
-                base_col_name = str(r_col)[:-4]  # strip _raw
+    # Grouping factors: formatted for hover, raw strings for drill-down.
+    factors_block = {}
+    if has_color:
+        factors_block[color_col] = [
+            None if pd.isna(v) else str(v) for v in color_values]
+    for fc in factor_cols_in_df:
+        vals = filtered_df[fc].tolist()
+        hover_labels.append(schema_map.get(fc, fc))
+        hover_columns.append(
+            ["" if v is None or pd.isna(v) else format_value(fc, v) for v in vals])
+        factors_block[fc] = [None if v is None or pd.isna(v) else str(v) for v in vals]
 
-                # Try base name, then parse for PCA suffixes natively
-                r_display = schema_map.get(base_col_name)
-                if not r_display:
-                    r_display = base_col_name
-                    for b_name in sorted_base_names:
-                        if base_col_name.startswith(b_name + '_'):
-                            formatted_suf = base_col_name[len(b_name) + 1:].replace('_', ' ')
-                            r_display = f"{schema_map[b_name]} ({formatted_suf})"
-                            break
-
-                r_val_formatted = format_value(base_col_name, r_val)
-
-                hover_parts.append(f"{r_display} (Abs): {r_val_formatted}")
-
-        txt = "<br>".join(hover_parts)
-
-        # Collect raw factor values for drill-down to Video Analysis
-        factors_dict = {}
-        if has_color:
-            factors_dict[color_col] = str(getattr(row, color_col))
-        for fc in factor_cols_in_df:
-            fv = getattr(row, fc, None)
-            if fv is not None and not pd.isna(fv):
-                factors_dict[fc] = str(fv)
-
-        result_data.append({
-            "x": x_val,
-            "y": y_val,
-            "color_val": getattr(row, color_col) if has_color else "Default",
-            "text": txt,
-            "factors": factors_dict
-        })
+    # Absolute unscaled values (hover only).
+    for r_col in raw_numeric_cols:
+        base_col_name = str(r_col)[:-4]
+        vals = filtered_df[r_col].tolist()
+        hover_labels.append(_display_for_raw(r_col))
+        hover_columns.append(
+            ["" if v is None or pd.isna(v) else format_value(base_col_name, v)
+             for v in vals])
 
     return {
-        "data": result_data,
+        "points": {
+            "x": filtered_df[x_col].tolist(),
+            "y": filtered_df[y_col].tolist(),
+            "color": [None if pd.isna(v) else v for v in color_values],
+        },
+        "hover": {"labels": hover_labels, "columns": hover_columns},
+        "factors": factors_block,
         "total_count": total_count,
         "stats": regression_stats,
         "per_collection_slopes": per_collection_slopes,
