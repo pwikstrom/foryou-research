@@ -1,5 +1,6 @@
 import datetime as _dt
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -865,23 +866,27 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
     if count == 0:
         return {"count": 0, "stats": {}}
 
-    for col, dtype in column_types.items():
+    def _column_stats(col, dtype):
+        """Stats value for one column, or ``None`` for types with no stats.
+
+        Pure per-column read of ``df`` — safe to run concurrently for
+        different columns (no shared mutable state; Arrow/numpy kernels
+        release the GIL, which is what makes the thread pool below pay off).
+        """
         if dtype == "number":
              col_data = df[col]
-             
+
              if pd.api.types.is_integer_dtype(col_data):
-                  if col_data.nunique() < 20: 
+                  if col_data.nunique() < 20:
                       vc = col_data.value_counts().sort_index().to_dict()
-                      stats[col] = {str(k): v for k, v in vc.items()}
-                      continue
+                      return {str(k): v for k, v in vc.items()}
 
              series = col_data.dropna()
              series = series[series >= 0]
-             
+
              if series.empty:
-                 stats[col] = {"type": "density", "x": [], "y": []}
-                 continue
-             
+                 return {"type": "density", "x": [], "y": []}
+
              count_val = len(series)
              # std() of a single-value series is undefined and returns NA on a
              # PyArrow-backed column, so float(NA) raises TypeError — guard it
@@ -903,7 +908,7 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
              try:
                  if min_val == max_val:
                      x_val = np.log10(min_val + log_offset) if transform == "log10" else min_val
-                     stats[col] = {
+                     return {
                         "type": "density",
                         "x": [float(x_val)],
                         "y": [float(count_val)],
@@ -915,7 +920,6 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
                         "std": std_val,
                         "count": count_val
                     }
-                     continue
 
                  bins_target = col_meta.get('bins')
                  if not isinstance(bins_target, int) or bins_target <= 0:
@@ -956,7 +960,7 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
                                 tick_text.append(f"{v:,}" if v >= 1 else f"{v:.{-p}f}")
                             p += 1
 
-                     stats[col] = {
+                     return {
                         "type": "density",
                         "x": bin_centers.tolist(),
                         "y": counts.tolist(),
@@ -970,14 +974,14 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
                         "std": std_val,
                         "count": count_val
                      }
-                 
+
                  else:
                      arr_data = clamped_series.to_numpy()
 
                      counts, bin_centers = calculate_adaptive_histogram(arr_data, min_val, max_val, bins=bins_target)
 
 
-                     stats[col] = {
+                     return {
                         "type": "density",
                         "x": bin_centers.tolist(),
                         "y": counts.tolist(),
@@ -988,30 +992,26 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
                         "std": std_val,
                         "count": count_val
                      }
-             
+
              except Exception as e:
                  print(f"Error stats {col}: {e}")
-                 stats[col] = {}
+                 return {}
 
         elif dtype == "category":
-            vc = df[col].value_counts().head(20).to_dict()
-            stats[col] = vc
+            return df[col].value_counts().head(20).to_dict()
 
         elif dtype == "list":
              if isinstance(df[col].dtype, pd.ArrowDtype) and 'list' in str(df[col].dtype):
                   try:
-                      stats[col] = _list_value_counts_top(df[col], n=20)
-                      continue
+                      return _list_value_counts_top(df[col], n=20)
                   except Exception:
                       pass
                   try:
                       exploded = df[col].explode().dropna()
-                      vc = exploded.value_counts().head(20).to_dict()
-                      stats[col] = vc
-                      continue
+                      return exploded.value_counts().head(20).to_dict()
                   except:
                       pass
-             
+
              all_items = []
              s = df[col].dropna()
              for row in s:
@@ -1021,7 +1021,24 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
                           all_items.extend(list(set(str(x) for x in row)))
                       except:
                           pass
-             stats[col] = dict(Counter(all_items).most_common(20))
+             return dict(Counter(all_items).most_common(20))
+
+        return None
+
+    # Columns are independent; on a big frame run them across a small pool.
+    # Arrow value_counts and the numpy histogram/log kernels release the GIL,
+    # so this scales with the container's CPUs (prod hub: 4 vCPU) instead of
+    # summing ~25 sequential per-column passes. Small frames stay sequential —
+    # pool overhead would dominate.
+    items = list(column_types.items())
+    if count >= 200_000 and len(items) >= 4:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(lambda kv: _column_stats(*kv), items))
+    else:
+        results = [_column_stats(*kv) for kv in items]
+    for (col, _), value in zip(items, results):
+        if value is not None:
+            stats[col] = value
 
     if verbose:
         print(f"    ...done calculating stats for viewer and explorer. Time: {_dt.datetime.now()-t1}")

@@ -11,6 +11,7 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.compute as pa_compute
 from cachetools import LRUCache
 
@@ -834,20 +835,39 @@ def _compute_user_annotation_columns(df, user_blob, shared_users_tags):
     # request on a multi-million-row study.
     str_ids = df['item_id'].astype('string[pyarrow]')
 
-    # 1. User Tags (List)
+    # 1. User Tags (List) — built as an Arrow list column, NOT a python-object
+    # column. get_current_stats' list path has an Arrow fast path (value
+    # counts in C); an object column falls into its per-row python loop, which
+    # measured ~0.8s over 2.4M rows PER stats pass and ran on every filter
+    # request and both slices. Python-level work here is confined to the
+    # tagged rows (tens to thousands); the offsets array is vectorized.
     if id_to_tags:
         tag_mask = str_ids.isin(list(id_to_tags)).fillna(False).to_numpy(dtype=bool)
         if tag_mask.any():
-            tags_col = np.empty(n, dtype=object)
-            # Every untagged row shares ONE empty list. The column is only ever
-            # read (filters, stats, JSON serialization) — never mutated
-            # per-cell — and materialising a fresh [] per row is seconds of
-            # allocation at this scale. Do not append to these cells.
-            tags_col.fill(_NO_TAGS)
             positions = np.flatnonzero(tag_mask)
+            lengths = np.zeros(n, dtype=np.int64)
+            values: list[str] = []
+            # positions ascend, so appending keeps values in row order.
             for pos, iid in zip(positions, str_ids.iloc[positions]):
-                tags_col[pos] = id_to_tags.get(str(iid)) or _NO_TAGS
-            cols['User Tags'] = tags_col
+                row_tags = id_to_tags.get(str(iid)) or _NO_TAGS
+                lengths[pos] = len(row_tags)
+                values.extend(str(t) for t in row_tags)
+            offsets = np.zeros(n + 1, dtype=np.int64)
+            np.cumsum(lengths, out=offsets[1:])
+            try:
+                arr = pa.LargeListArray.from_arrays(
+                    pa.array(offsets, type=pa.int64()),
+                    pa.array(values, type=pa.large_string()),
+                )
+                cols['User Tags'] = pd.arrays.ArrowExtensionArray(arr)
+            except Exception:
+                # Fallback: the shared-empty-list object column (read-only by
+                # contract — every untagged row shares ONE empty list).
+                tags_col = np.empty(n, dtype=object)
+                tags_col.fill(_NO_TAGS)
+                for pos, iid in zip(positions, str_ids.iloc[positions]):
+                    tags_col[pos] = id_to_tags.get(str(iid)) or _NO_TAGS
+                cols['User Tags'] = tags_col
             ctypes['User Tags'] = 'list'
 
     # 2. Has Annotation (Boolean/Category)

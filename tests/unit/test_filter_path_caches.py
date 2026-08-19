@@ -131,6 +131,23 @@ def test_enrichment_columns_are_cached_per_study_mtime(monkeypatch, _clear_annot
     assert calls == {"user": 2, "machine": 1}
 
 
+def test_user_tags_column_is_arrow_backed(monkeypatch, _clear_annot_caches):
+    """The 'User Tags' column must be an Arrow list column, not object dtype:
+    get_current_stats' object-list path is a per-row python loop that
+    measured ~0.8s over 2.4M rows per stats pass (2026-08-19)."""
+    df = _enrich_frame()
+    blob = {"annotations": {"2": {"tags": ["keep", "also"]}}}
+    monkeypatch.setattr(study_data, "get_user_json_cached", lambda u: blob)
+    monkeypatch.setattr(study_data, "_get_recoded_mtime", lambda s: 1.0)
+
+    out, ct = study_data.enrich_with_user_tags(df, {}, "user1", study="s")
+    assert isinstance(out["User Tags"].dtype, pd.ArrowDtype)
+    assert "list" in str(out["User Tags"].dtype)
+    assert sorted(out["User Tags"].iloc[1]) == ["also", "keep"]
+    assert list(out["User Tags"].iloc[0]) == []
+    assert ct["User Tags"] == "list"
+
+
 def test_enrichment_cache_invalidates_on_new_user_blob(monkeypatch, _clear_annot_caches):
     """A refetched user JSON (new object identity) must force a recompute —
     that is how tag saves and the 60s TTL propagate into the columns."""
