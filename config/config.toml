@@ -407,6 +407,18 @@ gcs_media_prefix = "media"
 
 
 ##########################################################################################
+# studies
+##########################################################################################
+[studies]
+
+# Hard cap on the number of activities a single study may contain. The study
+# modal blocks saving a definition whose projected size exceeds this, and the
+# save endpoint enforces it server-side. Studies this size stay responsive in
+# every analysis tab; multi-million-row studies exhaust the hub's memory.
+max_activities = 500000
+
+
+##########################################################################################
 # visualisation / analysis tabs
 ##########################################################################################
 [viz]

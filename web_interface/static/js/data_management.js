@@ -287,17 +287,43 @@ function _sumSelectedActivities(formContainer) {
 }
 
 function _checkLargeStudy(formContainer) {
+    // Hard cap first: the last estimate response carries the server's verdict
+    // (accounting for sampling and the date window). Over-cap designs cannot be
+    // saved — the dialog offers no "Continue anyway" and the save endpoint would
+    // refuse anyway.
+    if (formContainer.dataset.capExceeded === '1') {
+        const projected = Number(formContainer.dataset.capProjected || 0);
+        const limit = Number(formContainer.dataset.capLimit || _LARGE_STUDY_THRESHOLD);
+        return new Promise(resolve => {
+            const overlay = document.getElementById('large-study-warning');
+            const textEl = document.getElementById('large-study-warning-text');
+            textEl.innerHTML = `This study would contain approximately <strong>${projected.toLocaleString()}</strong> activities — ` +
+                `above the cap of <strong>${limit.toLocaleString()}</strong>. It cannot be saved: ` +
+                `narrow the date range, drop collections, or enable sampling.`;
+            const continueBtn = document.getElementById('large-study-warning-continue');
+            continueBtn.style.display = 'none';
+            overlay.classList.add('visible');
+            document.getElementById('large-study-warning-back').onclick = () => {
+                overlay.classList.remove('visible');
+                continueBtn.style.display = '';
+                resolve(false);
+            };
+        });
+    }
+
     const sampleSelect = formContainer.querySelector('[data-field="SAMPLE_FRAME"]');
     const sampleValue = sampleSelect ? sampleSelect.value : 'off';
     if (sampleValue !== 'off') return Promise.resolve(true);
 
-    // The daily chart holds a per-day count for exactly the selected collections,
-    // so summing it across the study window is the size the study will actually
-    // have. Only when the chart has no data (fetch failed / not yet returned) do
-    // we fall back to the whole-collection totals, which ignore the window.
+    // Advisory below the cap. The daily chart holds a per-day count for exactly
+    // the selected collections, so summing it across the study window is the size
+    // the study will actually have. Only when the chart has no data (fetch failed /
+    // not yet returned) do we fall back to the whole-collection totals, which
+    // ignore the window.
+    const threshold = Number(formContainer.dataset.capLimit || 0) || _LARGE_STUDY_THRESHOLD;
     const windowed = _windowActivityCount(formContainer);
     const totalActivities = windowed != null ? windowed : _sumSelectedActivities(formContainer);
-    if (totalActivities <= _LARGE_STUDY_THRESHOLD) return Promise.resolve(true);
+    if (totalActivities <= threshold) return Promise.resolve(true);
 
     const dateInputs = _dateInputs(formContainer);
     const rangeNote = (windowed != null && dateInputs.start?.value && dateInputs.end?.value)
@@ -340,7 +366,7 @@ function updateCollectionSelection(selectorDiv) {
     // chart refetch below once the date window has snapped to the new collections.
     _updateCollectionsHeader({ resetActual: true, potential: values.length });
     if (values.length) {
-        _showStudyVizLoading(formContainer, 'Loading new collection(s)…');
+        _showStudyVizLoading(formContainer, 'Estimating study size…');
     } else {
         _resetStudySetViz(formContainer, 'empty');
     }
@@ -761,6 +787,11 @@ function populateForm(row, study) {
     row.dataset.initialFetch = '1';
     if (stats.universe && Number(stats.universe.activities) > 0) {
         _renderStudySetViz(row, { universe: stats.universe, included: stats, frame: study.SAMPLE_FRAME, seeded: true });
+    } else if (Array.isArray(study.SELECTED_COLLECTIONS) && study.SELECTED_COLLECTIONS.length) {
+        // Collections are selected but no seeded stats exist (e.g. a duplicated
+        // study) — the estimate is already on its way, so say so instead of
+        // showing the misleading "select collections" placeholder.
+        _showStudyVizLoading(row, 'Estimating study size…');
     } else {
         _resetStudySetViz(row, 'empty');
     }
@@ -1156,10 +1187,23 @@ function _showStudyVizLoading(row, message) {
     if (badge) badge.style.display = 'none';
 }
 
-function _scheduleStudyEstimate(row, delay = 400) {
+function _scheduleStudyEstimate(row, delay = 200) {
     const prev = _studyEstimateDebounce.get(row);
     if (prev) clearTimeout(prev);
     _studyEstimateDebounce.set(row, setTimeout(() => _runStudyEstimate(row), delay));
+}
+
+// Reflect the server's hard cap on the Save button: over-cap designs can't be
+// saved (the save endpoint refuses them anyway — this just says so up front).
+function _updateSaveCapState(row) {
+    const saveBtn = row.querySelector('button[onclick^="saveStudy"]');
+    if (!saveBtn) return;
+    const exceeded = row.dataset.capExceeded === '1';
+    saveBtn.disabled = exceeded;
+    saveBtn.style.opacity = exceeded ? '0.5' : '';
+    saveBtn.title = exceeded
+        ? `Too many activities (~${Number(row.dataset.capProjected || 0).toLocaleString()}; cap ${Number(row.dataset.capLimit || 0).toLocaleString()}). Narrow the window, drop collections, or enable sampling.`
+        : '';
 }
 
 function _runStudyEstimate(row) {
@@ -1188,7 +1232,7 @@ function _runStudyEstimate(row) {
     const viz = row.querySelector('.study-set-viz');
     const hasMosaic = viz && (viz.dataset.state === 'ready' || viz.dataset.state === 'seeded');
     if (hasMosaic) _setStudyVizLoading(row, true);
-    else if (!viz || viz.dataset.state !== 'loading') _showStudyVizLoading(row, 'Loading…');
+    else if (!viz || viz.dataset.state !== 'loading') _showStudyVizLoading(row, 'Estimating study size…');
 
     fetch('/api/manage/studies/calculate_stats', {
         method: 'POST',
@@ -1205,6 +1249,11 @@ function _runStudyEstimate(row) {
                 _renderStudySetViz(row, { universe: data.universe, included: stats, frame: formData.SAMPLE_FRAME });
                 _setDailyChartOverlay(row, data.included_per_day || []);
                 _renderStudyIssues(row, data.issues || []);
+                const cap = data.cap || {};
+                row.dataset.capExceeded = cap.exceeded ? '1' : '';
+                row.dataset.capLimit = cap.limit != null ? String(cap.limit) : '';
+                row.dataset.capProjected = cap.projected != null ? String(cap.projected) : '';
+                _updateSaveCapState(row);
                 const cached = (typeof allStudies !== 'undefined') ? allStudies.find(s => s.STUDY_NAME === row.dataset.studyName) : null;
                 if (cached) cached.stats = stats;   // keep client cache fresh so reopen seeds instantly
             } else if (data.error) {
@@ -1548,7 +1597,7 @@ function _syncDateRangeToCollections(row, totalPerDay) {
 function _debouncedRefetchDailyChart(row) {
     const prev = _studyChartDebounce.get(row);
     if (prev) clearTimeout(prev);
-    _studyChartDebounce.set(row, setTimeout(() => _fetchDailyChart(row), 400));
+    _studyChartDebounce.set(row, setTimeout(() => _fetchDailyChart(row), 200));
 }
 
 function _toIsoDate(v) {

@@ -1,7 +1,5 @@
 """Study definition / stats / preview endpoints (/api/manage/studies*)."""
 
-import threading
-import time as _time
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -13,9 +11,6 @@ from fyp.fyp_config import (
     fyp_cf,
 )
 import fyp.annotation_versioning as annotation_versioning
-from fyp.organize_datasets import (
-    COLLECTIONS_LABEL,
-)
 from fyp.studies import init_study_defs, save_study_defs
 
 from ... import activity_log
@@ -31,24 +26,15 @@ from ...task_status import is_cloud_run
 
 
 from ...services.preview_cache import (
-    _PREVIEW_CACHE_TTL_S,
     _collections_hash,
-    _get_enrichment_status_cached,
-    _get_prepared_frame_cached,
-    _prewarm_preview_frame,
-    _preview_cache_lock,
-    _preview_frame_cache,
-    _preview_frame_key,
-    _preview_warming,
+    get_preview_cells,
 )
 from ...services.stats_service import (
-    _daily_counts,
+    _cells_for_selection,
     _derive_study_issues,
-    _estimate_from_prepared,
-    _filter_to_event_windows,
-    _filter_to_play_observe,
-    _load_collection_event_windows,
-    _universe_from_prepared,
+    _estimate_from_cells,
+    _universe_from_cells,
+    get_study_activity_cap,
 )
 from ...services.worker_status import (
     _actor,
@@ -174,6 +160,47 @@ def save_study():
     )
     if not isinstance(effective_collections, list) or not effective_collections:
         return jsonify({"error": "A study must explicitly list its collections"}), 400
+
+    # Hard cap: refuse to persist a definition whose projected size exceeds
+    # [studies] max_activities. Only checked when a row-shaping field changed
+    # (or the study is new), so an existing over-cap study can still be
+    # re-permissioned or saved untouched while its data grows out-of-band.
+    _SHAPING_KEYS = (
+        "SELECTED_COLLECTIONS", "START_DATE", "END_DATE", "SAMPLE_FRAME",
+        "MIN_ACTIVITY_COUNT_PER_GROUP", "MAX_ACTIVITY_COUNT_PER_GROUP",
+        "MIN_GROUP_COUNT_PER_COLLECTION", "MAX_GROUP_COUNT_PER_COLLECTION",
+    )
+    existing_def = studies.get(study_name, {})
+
+    def _shaping_differs(key):
+        if key not in data:
+            return False
+        new_v, old_v = data.get(key), existing_def.get(key)
+        if key == "SELECTED_COLLECTIONS" and isinstance(new_v, list) and isinstance(old_v, list):
+            return sorted(map(str, new_v)) != sorted(map(str, old_v))
+        return new_v != old_v
+
+    shaping_changed = study_name not in studies or any(map(_shaping_differs, _SHAPING_KEYS))
+    if shaping_changed:
+        try:
+            effective_def = {**existing_def, **data}
+            cells, coll_stats = get_preview_cells()
+            est_stats, *_rest = _estimate_from_cells(cells, coll_stats, effective_def)
+            cap_limit = get_study_activity_cap()
+            projected = int(est_stats.get("total_activities", 0))
+            if projected > cap_limit:
+                return jsonify({
+                    "error": (
+                        f"This study would contain ~{projected:,} activities; the cap is "
+                        f"{cap_limit:,}. Narrow the date range, drop collections, or enable "
+                        f"sampling before saving."
+                    ),
+                    "cap": {"limit": cap_limit, "projected": projected, "exceeded": True},
+                }), 400
+        except Exception as e:
+            # The refusal must never be triggered by an estimator failure; the
+            # refresh pipeline remains the backstop for genuinely huge builds.
+            print(f"[save_study] cap check skipped (estimator failed): {e}")
 
     # Update config
     if study_name not in studies:
@@ -351,21 +378,21 @@ def calculate_study_stats():
         # random sample). The persisted study build still uses _calculate_stats via
         # run_study_refresh; only this on-demand check uses the heuristic.
         #
-        # A preprocessed frame (keyed by the collection set) is cached in process, so the
-        # tweak-and-recheck loop (changing only the date range or sampling thresholds)
-        # reuses it with no I/O and no per-row recomputation — just masks and a groupby.
+        # All numbers come from the corpus-level preview cells (one row per
+        # collection-day, built once per source change), so every selection /
+        # window / sampling tweak is a filter + arithmetic over a tiny table —
+        # no per-selection frame rebuild.
         selected = data.get("SELECTED_COLLECTIONS") or []
-        df_status = _get_enrichment_status_cached()
-        frame = _get_prepared_frame_cached(selected, df_status)
+        cells, coll_stats = get_preview_cells()
 
-        stats, included_per_day, sparse_cells, total_cells, sampling_report = _estimate_from_prepared(frame, data)
+        stats, included_per_day, sparse_cells, total_cells, sampling_report = _estimate_from_cells(cells, coll_stats, data)
         stats_to_persist = stats
 
-        # Pre-sampling potentials + universe mosaic, both derived from the same frame.
+        # Pre-sampling potentials + universe mosaic, both derived from the same cells.
         #   items.potential     = activities in study (how many activities map to items)
         #   scraped.potential    = items in study
         #   annotated.potential  = scraped items in study
-        pot_activities, pot_active_days, universe, has_total_days = _universe_from_prepared(frame, data)
+        pot_activities, pot_active_days, universe, has_total_days = _universe_from_cells(cells, data)
         potentials = {
             "collections": len(selected),
             "activities": pot_activities,
@@ -380,6 +407,8 @@ def calculate_study_stats():
 
         issues = _derive_study_issues(stats, sparse_cells, total_cells, has_total_days, sampling_report)
 
+        cap_limit = get_study_activity_cap()
+        projected = int(stats.get("total_activities", 0))
         return jsonify({
             "status": "success",
             "stats": stats,
@@ -387,6 +416,11 @@ def calculate_study_stats():
             "universe": universe,
             "included_per_day": included_per_day,
             "issues": issues,
+            "cap": {
+                "limit": cap_limit,
+                "projected": projected,
+                "exceeded": projected > cap_limit,
+            },
         })
 
     except Exception as e:
@@ -417,30 +451,20 @@ def calculate_study_stats():
 @login_required
 @permission_required('tab.data_management.studies')
 def prewarm_study_check():
-    """Warm the preview frame for a collection set ahead of the first 'Check' press.
+    """Warm the corpus preview cells ahead of the first estimate.
 
-    The modal calls this on open and whenever the collection selection changes, so the
-    (possibly slow) build / disk-load happens during the user's think-time instead of on
-    the first button press. Returns immediately; the work runs in a background thread.
+    The modal fires this (without awaiting it) on open and on collection changes.
+    It BLOCKS server-side until the cells are warm: on Cloud Run, CPU is throttled
+    to ~zero once a request returns, so a background thread would never finish —
+    holding the request is the only way a warm-up actually runs (the same
+    wait-with-request-CPU pattern as explore's wait_for_frame). Concurrent calls
+    coalesce on the cells build lock. Warm calls return in ~ms.
     """
 
-    data = request.json or {}
-    selected = data.get("SELECTED_COLLECTIONS") or []
-    if not selected:
+    cells, _coll = get_preview_cells()
+    if cells is None:
         return jsonify({"status": "noop"}), 200
-
-    key = _preview_frame_key(selected)
-    with _preview_cache_lock:
-        warm = _preview_frame_cache.get(key)
-        ready = warm is not None and (_time.monotonic() - warm[0]) < _PREVIEW_CACHE_TTL_S
-        in_flight = key in _preview_warming
-    if ready:
-        return jsonify({"status": "ready"}), 200
-    if in_flight:
-        return jsonify({"status": "warming"}), 202
-
-    threading.Thread(target=_prewarm_preview_frame, args=(list(selected),), daemon=True, name="prewarm_check").start()
-    return jsonify({"status": "warming"}), 202
+    return jsonify({"status": "ready"}), 200
 
 
 
@@ -452,8 +476,8 @@ def prewarm_study_check():
 def daily_activities():
     """Return activities-per-day across a set of collections for the modal chart.
 
-    Lightweight: reads only `collection_id` + `local_timestamp` columns from
-    `collections_recoded.parquet` with a pushdown filter on the selected IDs.
+    Served from the corpus preview cells (in-event-window play/observe counts
+    per collection-day), so a warm call is pure arithmetic — no parquet scan.
     No date-range filter — the chart shows the full span so the user can pick
     a window visually.
     """
@@ -465,34 +489,30 @@ def daily_activities():
     if not selected:
         return jsonify({"status": "success", "total_per_day": []})
 
-    filename = f"{COLLECTIONS_LABEL}_recoded.parquet"
-    if not data_io.exists(storage_location="recoded", filename=filename):
-        return jsonify({"status": "success", "total_per_day": []})
-
     try:
-        df = data_io.load_parquet_selective(
-            storage_location="recoded",
-            filename=filename,
-            columns=["collection_id", "local_timestamp", "activity_type"],
-            filters=[("collection_id", "in", selected)],
-        )
+        cells, _coll = get_preview_cells()
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-    windows = _load_collection_event_windows(selected)
-    df = _filter_to_event_windows(df, windows)
-    df = _filter_to_play_observe(df)
-
+    # Per-day in-event-window play/observe counts straight off the corpus cells
+    # (the frame-based path read a 20+ MB timestamp column for the same numbers).
+    df = _cells_for_selection(cells, {"SELECTED_COLLECTIONS": selected})
     potentials = {
         "collections": len(selected),
         "activities": 0,
         "active_days": 0,
     }
-    if df is not None and not df.empty:
-        potentials["activities"] = int(len(df))
-        potentials["active_days"] = int(pd.to_datetime(df["local_timestamp"], errors="coerce").dropna().dt.date.nunique())
-
-    total_per_day = _daily_counts(df)
+    total_per_day: list[dict] = []
+    if df is not None:
+        win = df[df["n_act_inwin"].to_numpy() > 0]
+        if not win.empty:
+            potentials["activities"] = int(win["n_act_inwin"].sum())
+            potentials["active_days"] = int(win["day"].nunique())
+            day_counts = win.groupby("day")["n_act_inwin"].sum().sort_index()
+            total_per_day = [
+                {"date": pd.Timestamp(d).date().isoformat(), "count": int(c)}
+                for d, c in day_counts.items()
+            ]
     collections_hash = _collections_hash(selected)
 
     # Cache on the saved study so subsequent modal opens render the chart

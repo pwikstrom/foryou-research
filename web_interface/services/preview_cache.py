@@ -1,19 +1,17 @@
-"""Tiered cache for the study-design preview frame.
+"""Caches behind the study-modal estimates.
 
-Pure moves from ``web_interface/routes/management_routes.py`` (Phase 7b).
-The "Check study design" button is pressed repeatedly while a user tweaks the
-date range or sampling thresholds; those tweaks never change which collections
-are read, nor the per-row preprocessing. So a preprocessed frame (play/observe
-filtered, with the day key, scrape/annotation flags and event-window flag
-precomputed) is cached keyed by the collection set.
+The primary structure is the corpus-level PREVIEW CELLS table (see
+``get_preview_cells``): one row per (collection, day) with activity / item /
+enrichment counts, built once per source change and shared by every selection,
+date-window and sampling combination the modal can ask about. A warm estimate
+is a filter + arithmetic over ~17K rows (single-digit ms); only a consolidation
+triggers a rebuild (~one projected corpus scan), which the blocking prewarm
+endpoint absorbs during the user's think-time.
 
-Two tiers, both keyed by the collection set:
-  - In-process (per web instance, TTL): serves the tweak-and-recheck loop in ~ms.
-  - On disk (GCS/local, write-through, mtime-invalidated): lets the first check after
-    a modal (re)open or on a freshly-scaled instance load a ~50 MB prepared parquet
-    (~0.1 s) instead of rebuilding from the raw window (~2-3 s). The modal also calls
-    the prewarm endpoint on open / collection-change so the build happens during the
-    user's think-time rather than on the first button press.
+The older per-(collection-set) prepared FRAME machinery below it is retained as
+the exact row-level reference: the parity tests compare the cells estimators
+against it, and ``_load_study_raw_window`` still serves the refresh worker. The
+modal endpoints no longer read frames.
 """
 
 import hashlib
@@ -36,9 +34,13 @@ _PREVIEW_CACHE_TTL_S = 300
 _PREVIEW_WINDOW_CACHE_MAXSIZE = 2
 _PREVIEW_DISK_PREFIX = "study_precheck_frame__"
 _PREVIEW_DISK_MAXFILES = 24
+_CELLS_FILENAME = "study_preview_cells.parquet"
+_CELLS_COLL_FILENAME = "study_preview_cells_coll.parquet"
 _preview_cache_lock = threading.Lock()
 _preview_frame_cache: dict = {}    # frozenset(collection_ids) -> (monotonic_ts, df | None, src_mtime)
 _preview_status_cache: dict = {}   # "status" -> (monotonic_ts, df | None, src_mtime)
+_cells_cache: dict = {}            # "cells" -> (cells_df | None, coll_df | None, src_mtime)
+_cells_build_lock = threading.Lock()
 _SOURCES_MTIME_MEMO_S = 5.0
 _sources_mtime_memo: tuple[float, float] | None = None  # (monotonic_ts, sources_mtime)
 _preview_warming: set = set()      # collection-set keys with a prewarm thread in flight
@@ -207,6 +209,33 @@ def _event_window_mask(cid: pd.Series, ts: pd.Series, windows: dict) -> np.ndarr
 
 
 
+def _status_flags(iid_keys: np.ndarray, df_status: pd.DataFrame | None) -> tuple[np.ndarray, np.ndarray]:
+    """Return per-row (scraped, annotated) boolean arrays for an item-id key array.
+
+    One combined index lookup against the projected enrichment_status frame; rows
+    whose item is absent from the status table read False for both flags.
+    """
+
+    scraped_flag = np.zeros(len(iid_keys), dtype=bool)
+    annotated_flag = np.zeros(len(iid_keys), dtype=bool)
+    if df_status is not None and not df_status.empty:
+        status = df_status
+        if "item_id" not in status.columns and status.index.name == "item_id":
+            status = status.reset_index()
+        if "item_id" in status.columns:
+            status = status.drop_duplicates("item_id").set_index(status["item_id"].astype(str))
+            cols = [c for c in ("scraped_ok", "annotated_ok") if c in status.columns]
+            if cols:
+                flags = status[cols].reindex(iid_keys)
+                if "scraped_ok" in cols:
+                    scraped_flag = flags["scraped_ok"].fillna(False).to_numpy(dtype=bool)
+                if "annotated_ok" in cols:
+                    annotated_flag = flags["annotated_ok"].fillna(False).to_numpy(dtype=bool)
+    return scraped_flag, annotated_flag
+
+
+
+
 def _prepare_preview_frame(selected: list, df_status: pd.DataFrame | None) -> pd.DataFrame | None:
     """Build the preprocessed preview frame for a collection set (the cacheable unit).
 
@@ -238,21 +267,7 @@ def _prepare_preview_frame(selected: list, df_status: pd.DataFrame | None) -> pd
     # Per-row scrape/annotation flags via one combined index lookup. Object keys are
     # needed only for the lookup; the frame keeps item_id arrow-backed (compact).
     iid_keys = raw["item_id"].astype(str).to_numpy()
-    scraped_flag = np.zeros(len(raw), dtype=bool)
-    annotated_flag = np.zeros(len(raw), dtype=bool)
-    if df_status is not None and not df_status.empty:
-        status = df_status
-        if "item_id" not in status.columns and status.index.name == "item_id":
-            status = status.reset_index()
-        if "item_id" in status.columns:
-            status = status.drop_duplicates("item_id").set_index(status["item_id"].astype(str))
-            cols = [c for c in ("scraped_ok", "annotated_ok") if c in status.columns]
-            if cols:
-                flags = status[cols].reindex(iid_keys)
-                if "scraped_ok" in cols:
-                    scraped_flag = flags["scraped_ok"].fillna(False).to_numpy(dtype=bool)
-                if "annotated_ok" in cols:
-                    annotated_flag = flags["annotated_ok"].fillna(False).to_numpy(dtype=bool)
+    scraped_flag, annotated_flag = _status_flags(iid_keys, df_status)
 
     windows = _load_collection_event_windows([str(c) for c in selected])
 
@@ -494,3 +509,253 @@ def _collections_hash(selected: list) -> str:
 
     ids = sorted(str(x) for x in (selected or []))
     return hashlib.sha256(",".join(ids).encode("utf-8")).hexdigest()[:16]
+
+
+
+
+# ---------------------------------------------------------------------------
+# Corpus-level preview cells
+#
+# Every number the study modal shows is per-(collection, day)-cell arithmetic:
+# the sampler's grain IS the (collection, day) cell, the mosaic/potentials are
+# activity-level sums and the daily chart is per-day sums. So instead of caching
+# a per-selection row frame (rebuilt from a ~90 MB scan on every collection
+# toggle), aggregate the whole corpus ONCE per source change into a tiny cells
+# table (~1 row per collection-day) and answer every selection / window /
+# sampling combination from it in milliseconds.
+
+_CELLS_INT_COLS = [
+    "n_act", "n_act_scraped", "n_act_annotated",
+    "n_act_inwin", "n_act_inwin_scraped", "n_act_inwin_annotated",
+    "n_items", "n_items_scraped", "n_items_annotated",
+]
+_COLL_INT_COLS = [
+    "u_items", "u_items_scraped", "u_items_annotated",
+    "sum_cell_items", "sum_cell_items_scraped", "sum_cell_items_annotated",
+    "u_items_shared", "u_items_shared_scraped", "u_items_shared_annotated",
+]
+
+
+
+
+def _build_preview_cells() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    """Aggregate the whole corpus into per-(collection, day) preview cells.
+
+    One projected scan of collections_recoded (play/observe rows), flagged against
+    enrichment_status and the per-collection event windows, then grouped to cells.
+
+    Returns:
+        Tuple (cells, coll_stats):
+        cells — one row per (collection_id, day) with activity counts (n_act*),
+        their in-event-window subset (n_act_inwin*) and distinct-item counts
+        (n_items*); coll_stats — one row per collection with true distinct-item
+        counts (u_items*) and the sum of per-cell item counts (sum_cell_items*),
+        whose ratio calibrates unique-video estimates (items repeat across days).
+        (None, None) when no source data exists.
+    """
+
+    t0 = _time.perf_counter()
+    if not data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet"):
+        return None, None
+    raw = data_io.load_parquet_selective(
+        storage_location="recoded",
+        filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
+        columns=["collection_id", "local_timestamp", "activity_type", "item_id"],
+    )
+    if raw is None or raw.empty:
+        return None, None
+    raw = raw[raw["activity_type"].isin(["play", "observe"])]
+    if raw.empty:
+        return None, None
+
+    ts = pd.to_datetime(raw["local_timestamp"], errors="coerce")
+    iid_keys = raw["item_id"].astype(str).to_numpy()
+    scraped_flag, annotated_flag = _status_flags(iid_keys, _get_enrichment_status_cached())
+    windows = _load_collection_event_windows([])  # empty list -> all collections
+
+    work = pd.DataFrame({
+        "collection_id": raw["collection_id"].astype(str).to_numpy(),
+        "day": ts.dt.normalize().to_numpy(),
+        "item_id": iid_keys,
+        "_scraped": scraped_flag,
+        "_annotated": annotated_flag,
+        "_inwin": _event_window_mask(raw["collection_id"], ts, windows),
+    })
+    work = work[pd.notna(work["day"])]
+    if work.empty:
+        return None, None
+
+    grp = work.groupby(["collection_id", "day"], sort=True)
+    cells = grp.agg(
+        n_act=("item_id", "size"),
+        n_act_scraped=("_scraped", "sum"),
+        n_act_annotated=("_annotated", "sum"),
+        n_act_inwin=("_inwin", "sum"),
+    )
+    # The universe mosaic counts enrichment on in-window rows only, so the
+    # in-window subset needs its own scraped/annotated split.
+    inwin = work[work["_inwin"]]
+    if not inwin.empty:
+        g_inwin = inwin.groupby(["collection_id", "day"]).agg(
+            n_act_inwin_scraped=("_scraped", "sum"),
+            n_act_inwin_annotated=("_annotated", "sum"),
+        )
+        cells = cells.join(g_inwin, how="left")
+    else:
+        cells["n_act_inwin_scraped"] = 0
+        cells["n_act_inwin_annotated"] = 0
+
+    # Distinct items per cell (enrichment flags are constant per item, so a
+    # cell-level dedup keeps them consistent).
+    dd = work.drop_duplicates(["collection_id", "day", "item_id"])
+    g_items = dd.groupby(["collection_id", "day"]).agg(
+        n_items=("item_id", "size"),
+        n_items_scraped=("_scraped", "sum"),
+        n_items_annotated=("_annotated", "sum"),
+    )
+    cells = cells.join(g_items, how="left").fillna(0).reset_index()
+    for col in _CELLS_INT_COLS:
+        cells[col] = cells[col].astype("int64")
+
+    # Per-collection calibration: true distinct items vs the per-cell sum, plus
+    # how many of each collection's items also appear in OTHER collections
+    # (measured ~29% of corpus items recur across collections — summing
+    # per-collection uniques would badly overestimate study-level uniques).
+    du = work.drop_duplicates(["collection_id", "item_id"])
+    item_ncoll = du["item_id"].value_counts()
+    du = du.assign(_multi=du["item_id"].map(item_ncoll).to_numpy() > 1)
+    coll = du.groupby("collection_id").agg(
+        u_items=("item_id", "size"),
+        u_items_scraped=("_scraped", "sum"),
+        u_items_annotated=("_annotated", "sum"),
+        u_items_shared=("_multi", "sum"),
+    )
+    du_sh = du[du["_multi"]]
+    if not du_sh.empty:
+        g_sh = du_sh.groupby("collection_id").agg(
+            u_items_shared_scraped=("_scraped", "sum"),
+            u_items_shared_annotated=("_annotated", "sum"),
+        )
+        coll = coll.join(g_sh, how="left")
+    else:
+        coll["u_items_shared_scraped"] = 0
+        coll["u_items_shared_annotated"] = 0
+    sums = g_items.groupby(level=0).sum()
+    sums.columns = ["sum_cell_items", "sum_cell_items_scraped", "sum_cell_items_annotated"]
+    coll = coll.join(sums, how="left").fillna(0).reset_index()
+
+    # "__shared__" calibration row: distinct counts of the cross-collection
+    # shared pool vs the sum of per-collection shared counts. The estimator
+    # saturates only this pool — collection-exclusive items can't double-count.
+    dg_sh = du_sh.drop_duplicates(["item_id"])
+    shared_row = {
+        "collection_id": "__shared__",
+        "u_items": int(len(dg_sh)),
+        "u_items_scraped": int(dg_sh["_scraped"].sum()) if not dg_sh.empty else 0,
+        "u_items_annotated": int(dg_sh["_annotated"].sum()) if not dg_sh.empty else 0,
+        "sum_cell_items": int(coll["u_items_shared"].sum()),
+        "sum_cell_items_scraped": int(coll["u_items_shared_scraped"].sum()),
+        "sum_cell_items_annotated": int(coll["u_items_shared_annotated"].sum()),
+        "u_items_shared": 0, "u_items_shared_scraped": 0, "u_items_shared_annotated": 0,
+    }
+    coll = pd.concat([coll, pd.DataFrame([shared_row])], ignore_index=True)
+    for col in _COLL_INT_COLS:
+        coll[col] = coll[col].astype("int64")
+
+    print(f"[preview-cells] built {len(cells):,} cells / {len(coll):,} collections "
+          f"from {len(work):,} rows in {_time.perf_counter() - t0:.1f}s")
+    return cells, coll
+
+
+
+
+def _restore_cells_dtypes(cells: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Restore the dtypes the estimators expect after a disk round-trip."""
+
+    if cells is None or cells.empty:
+        return None
+    cells = cells.copy()
+    cells["collection_id"] = cells["collection_id"].astype(str)
+    cells["day"] = pd.to_datetime(cells["day"], errors="coerce")
+    for col in _CELLS_INT_COLS:
+        if col in cells.columns:
+            cells[col] = pd.to_numeric(cells[col], errors="coerce").fillna(0).astype("int64")
+    return cells
+
+
+
+
+def get_preview_cells() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    """Return the corpus preview cells: memory -> disk -> build (single-flight).
+
+    Both tiers are validated against the source parquets' newest mtime, so a
+    consolidation invalidates them immediately. The build (~one projected corpus
+    scan) runs at most once per source change per instance; concurrent callers
+    wait on the build lock and reuse the result.
+    """
+
+    src_mtime = _preview_sources_mtime_cached()
+    with _preview_cache_lock:
+        hit = _cells_cache.get("cells")
+        if hit is not None and hit[2] >= src_mtime:
+            return hit[0], hit[1]
+
+    with _cells_build_lock:
+        # Re-check: another thread may have built/loaded while we waited.
+        src_mtime = _preview_sources_mtime_cached()
+        with _preview_cache_lock:
+            hit = _cells_cache.get("cells")
+            if hit is not None and hit[2] >= src_mtime:
+                return hit[0], hit[1]
+
+        try:
+            if data_io.exists(storage_location="cache", filename=_CELLS_FILENAME) and \
+                    float(data_io.getmtime(storage_location="cache", filename=_CELLS_FILENAME)) >= src_mtime:
+                cells = _restore_cells_dtypes(
+                    data_io.load_parquet(storage_location="cache", filename=_CELLS_FILENAME))
+                coll = None
+                if data_io.exists(storage_location="cache", filename=_CELLS_COLL_FILENAME):
+                    coll = data_io.load_parquet(storage_location="cache", filename=_CELLS_COLL_FILENAME)
+                if cells is not None:
+                    with _preview_cache_lock:
+                        _cells_cache["cells"] = (cells, coll, src_mtime)
+                    return cells, coll
+        except Exception as e:
+            print(f"[preview-cells] disk load failed: {e}")
+
+        # Probe the sources mtime BEFORE building: a consolidation write landing
+        # mid-build then correctly marks this entry stale on the next read.
+        src_mtime = _preview_sources_mtime_cached()
+        cells, coll = _build_preview_cells()
+        with _preview_cache_lock:
+            _cells_cache["cells"] = (cells, coll, src_mtime)
+        if cells is not None:
+            try:
+                data_io.save_parquet(cells, storage_location="cache", filename=_CELLS_FILENAME)
+                if coll is not None:
+                    data_io.save_parquet(coll, storage_location="cache", filename=_CELLS_COLL_FILENAME)
+            except Exception as e:
+                print(f"[preview-cells] disk save failed: {e}")
+            _remove_legacy_disk_frames()
+        return cells, coll
+
+
+
+
+def _remove_legacy_disk_frames() -> None:
+    """Delete leftover per-selection prepared frames (superseded by the cells).
+
+    The modal endpoints no longer write ``study_precheck_frame__*`` files; the
+    stale ones (up to 24 x ~50 MB) would otherwise linger in the cache location
+    forever. Best-effort, runs after each successful cells build.
+    """
+
+    try:
+        for name in data_io.listdir(storage_location="cache"):
+            if str(name).startswith(_PREVIEW_DISK_PREFIX):
+                try:
+                    data_io.remove(storage_location="cache", filename=name)
+                except Exception:
+                    pass
+    except Exception:
+        pass

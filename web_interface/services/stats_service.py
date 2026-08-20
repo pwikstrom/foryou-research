@@ -34,6 +34,22 @@ SPARSE_CELL_MIN_ACTIVITIES = 10
 
 
 
+def get_study_activity_cap() -> int:
+    """Return the hard cap on activities per study ([studies] max_activities).
+
+    Falls back to LARGE_STUDY_THRESHOLD when the config section is absent
+    (pre-existing installs whose config.toml predates the [studies] section).
+    """
+
+    try:
+        from fyp.fyp_config import fyp_cf
+        return int(fyp_cf.get("studies", {}).get("max_activities", LARGE_STUDY_THRESHOLD))
+    except Exception:
+        return LARGE_STUDY_THRESHOLD
+
+
+
+
 def _daily_counts(df: pd.DataFrame, timestamp_col: str = 'local_timestamp') -> list[dict]:
     """Return a sorted list of {date: 'YYYY-MM-DD', count: int} from a DataFrame."""
 
@@ -237,10 +253,21 @@ def _derive_study_issues(stats: dict, sparse_cells: int, total_cells: int, has_t
             })
         return issues
 
-    if total_activities > LARGE_STUDY_THRESHOLD:
+    cap = get_study_activity_cap()
+    if total_activities > cap:
+        issues.append({
+            "severity": "error",
+            "code": "too_big",
+            "message": (
+                f"This design would contain ~{total_activities:,} activities; the cap is "
+                f"{cap:,}. Narrow the date range, drop collections, or enable sampling "
+                f"before saving."
+            ),
+        })
+    elif total_activities > 0.6 * cap:
         issues.append({
             "severity": "warn",
-            "code": "too_big",
+            "code": "large",
             "message": (
                 f"Study is large ({total_activities:,} activities). "
                 f"Consider a narrower date range, fewer collections, or enabling sampling "
@@ -649,6 +676,283 @@ def _universe_from_prepared(frame: pd.DataFrame | None, study_config: dict) -> t
         "activities": int(len(uni)),
         "scraped": int(uni["_scraped"].sum()),
         "annotated": int(uni["_annotated"].sum()),
+    }
+    return potential_activities, potential_active_days, universe, True
+
+
+
+
+# Per-frame column picks on the preview cells table: (activity count, distinct-item
+# count, item-count column for the scraped subset, ... for the annotated subset).
+# Annotation implies scraping (an item cannot be annotated without its video), so the
+# scraped subset of the 'annotated' frame is the frame itself.
+_CELLS_FRAME_COLS = {
+    "off":        ("n_act", "n_items", "n_items_scraped", "n_items_annotated"),
+    "activities": ("n_act", "n_items", "n_items_scraped", "n_items_annotated"),
+    "events":     ("n_act", "n_items", "n_items_scraped", "n_items_annotated"),
+    "scraped":    ("n_act_scraped", "n_items_scraped", "n_items_scraped", "n_items_annotated"),
+    "annotated":  ("n_act_annotated", "n_items_annotated", "n_items_annotated", "n_items_annotated"),
+}
+_CELLS_FRAME_ACT_SUB = {
+    # (scraped-activities column, annotated-activities column) within each frame.
+    "off":        ("n_act_scraped", "n_act_annotated"),
+    "activities": ("n_act_scraped", "n_act_annotated"),
+    "events":     ("n_act_scraped", "n_act_annotated"),
+    "scraped":    ("n_act_scraped", "n_act_annotated"),
+    "annotated":  ("n_act_annotated", "n_act_annotated"),
+}
+# Which coll_stats calibration pair applies to each item column.
+_CELLS_ITEM_RATIO = {
+    "n_items": ("u_items", "sum_cell_items"),
+    "n_items_scraped": ("u_items_scraped", "sum_cell_items_scraped"),
+    "n_items_annotated": ("u_items_annotated", "sum_cell_items_annotated"),
+}
+
+
+
+
+def _cells_for_selection(cells: pd.DataFrame | None, study_config: dict) -> pd.DataFrame | None:
+    """Filter the corpus cells table to a study definition's collections."""
+
+    if cells is None or cells.empty:
+        return None
+    selected = {str(c) for c in (study_config.get("SELECTED_COLLECTIONS") or [])}
+    if not selected:
+        return None
+    out = cells[cells["collection_id"].isin(selected)]
+    return out if not out.empty else None
+
+
+
+
+def _estimate_items(df: pd.DataFrame, frac: pd.Series, item_col: str,
+                    coll_stats: pd.DataFrame | None) -> int:
+    """Estimate study-level distinct items from per-cell item counts.
+
+    Per-cell expected items scale with the kept-row fraction, but summing cells
+    double-counts items recurring across a collection's days. Per collection,
+    with U true uniques whose per-cell occurrences total S, keeping item-mass s
+    misses an average item with probability ~(1 - s/S)^(S/U), so the expected
+    distinct count is U * (1 - (1 - s/S)^(S/U)) — exact at s == S, linear (~s)
+    when s is small, saturating in between.
+    """
+
+    if item_col not in df.columns:
+        return 0
+    est = df[item_col].to_numpy(dtype="float64") * frac.to_numpy(dtype="float64")
+    per_coll = pd.Series(est, index=df["collection_id"].to_numpy()).groupby(level=0).sum()
+
+    if coll_stats is None or coll_stats.empty:
+        return int(round(float(per_coll.sum())))
+    u_col, s_col = _CELLS_ITEM_RATIO[item_col]
+    if u_col not in coll_stats.columns or s_col not in coll_stats.columns:
+        return int(round(float(per_coll.sum())))
+
+    cs = coll_stats.set_index("collection_id")
+    u = pd.to_numeric(cs[u_col], errors="coerce")
+    s_full = pd.to_numeric(cs[s_col], errors="coerce")
+    suffix = item_col[len("n_items"):]
+    sh_name = "u_items_shared" + suffix
+    u_shared = pd.to_numeric(cs[sh_name], errors="coerce") if sh_name in cs.columns else None
+
+    def _saturate(s_kept: float, u_c: float, s_c: float) -> float:
+        if u_c <= 0 or s_c <= 0:
+            return s_kept
+        p = min(max(s_kept / s_c, 0.0), 1.0)
+        return u_c * (1.0 - (1.0 - p) ** (s_c / u_c))
+
+    # Stage 1 (within collections): saturate each collection's estimated item
+    # mass to its true distinct count, then split that into items exclusive to
+    # the collection (which can never double-count) and its share of the
+    # cross-collection pool.
+    excl_total = 0.0
+    shared_mass = 0.0
+    for cid, s_kept in per_coll.items():
+        u_c = float(u.get(cid) or 0.0)
+        est_c = _saturate(float(s_kept), u_c, float(s_full.get(cid) or 0.0))
+        sh_c = float(u_shared.get(cid) or 0.0) if u_shared is not None else 0.0
+        sh_frac = min(sh_c / u_c, 1.0) if u_c > 0 else 0.0
+        excl_total += est_c * (1.0 - sh_frac)
+        shared_mass += est_c * sh_frac
+
+    # Stage 2 (across collections): saturate only the shared pool against the
+    # "__shared__" calibration row. Exact at full selection; a uniform-overlap
+    # approximation within the shared pool for subsets.
+    if "__shared__" in cs.index and shared_mass > 0:
+        shared_mass = _saturate(shared_mass, float(u.get("__shared__") or 0.0),
+                                float(s_full.get("__shared__") or 0.0))
+    return int(round(excl_total + shared_mass))
+
+
+
+
+def _estimate_from_cells(cells: pd.DataFrame | None, coll_stats: pd.DataFrame | None,
+                         study_config: dict) -> tuple[dict, list, int, int, dict | None]:
+    """Approximate the study sampling counts from the corpus preview cells.
+
+    Cell-level port of _estimate_from_prepared: the sampler's grain IS the
+    (collection, day) cell, so the two-stage replay is pure arithmetic here —
+    per-cell kept counts are min(cell_n, max_events), and the seeded Stage-2
+    cell cap draws over a canonically sorted cell list. Activity-level totals
+    are exact except under Stage-2 downsampling (where WHICH cells survive is
+    a seeded draw, as it always was); item-level figures (unique videos and the
+    scrape/annotation breakdown) are estimates calibrated per collection.
+
+    Returns:
+        Tuple (stats, included_per_day, sparse_cells, total_cells, sampling_report)
+        — same shape as _estimate_from_prepared.
+    """
+
+    empty = {
+        "total_activities": 0, "unique_videos": 0, "scraped_videos": 0,
+        "annotated_videos": 0, "activities_scraped": 0, "activities_annotated": 0,
+        "unique_collections": 0, "active_days": 0,
+    }
+
+    df = _cells_for_selection(cells, study_config)
+    if df is None:
+        return empty, [], 0, 0, None
+
+    def _parse_date(value, default: date) -> date:
+        if isinstance(value, str):
+            try:
+                return datetime.strptime(value, "%Y-%m-%d").date()
+            except ValueError:
+                return default
+        return default
+
+    start_date = _parse_date(study_config.get("START_DATE"), date(1970, 1, 1))
+    end_date = _parse_date(study_config.get("END_DATE"), date(2099, 12, 31))
+    mask = (df["day"] >= pd.Timestamp(start_date)) & (df["day"] <= pd.Timestamp(end_date))
+    df = df[mask.to_numpy()]
+    if df.empty:
+        return empty, [], 0, 0, None
+
+    frame_setting = (study_config.get("SAMPLE_FRAME") or "off").strip()
+    act_col, item_col, item_scraped_col, item_annotated_col = _CELLS_FRAME_COLS.get(
+        frame_setting, _CELLS_FRAME_COLS["off"])
+    act_scraped_col, act_annotated_col = _CELLS_FRAME_ACT_SUB.get(
+        frame_setting, _CELLS_FRAME_ACT_SUB["off"])
+
+    # Cells empty under this frame don't exist as cells (row-level filtering
+    # removed them entirely in the frame-based path).
+    df = df[df[act_col].to_numpy() > 0]
+    if df.empty:
+        return dict(empty), [], 0, 0, None
+
+    min_events = parse_sample_threshold(study_config.get("MIN_ACTIVITY_COUNT_PER_GROUP"), 30)
+    max_events = parse_sample_threshold(study_config.get("MAX_ACTIVITY_COUNT_PER_GROUP"), 50, uncapped=True)
+    min_cells = parse_sample_threshold(study_config.get("MIN_GROUP_COUNT_PER_COLLECTION"), 20)
+    max_cells = parse_sample_threshold(study_config.get("MAX_GROUP_COUNT_PER_COLLECTION"), 200, uncapped=True)
+
+    sampling_report = None
+
+    if frame_setting == "off":
+        kept_cells = df
+        kept_n = df[act_col]
+    else:
+        # Stage 1: qualifying cells need >= min_events rows.
+        qf = df[df[act_col].to_numpy() >= min_events]
+        if qf.empty:
+            sampling_report = {
+                "n_excluded_collections": int(df["collection_id"].nunique()),
+                "n_downsampled_collections": 0,
+                "min_cells_per_collection": min_cells,
+                "max_cells_per_collection": max_cells,
+            }
+            return dict(empty), [], 0, 0, sampling_report
+
+        cells_per_coll = qf.groupby("collection_id").size()
+        sampling_report = {
+            "n_excluded_collections": int((cells_per_coll < min_cells).sum()),
+            "n_downsampled_collections": int((cells_per_coll > max_cells).sum()),
+            "min_cells_per_collection": min_cells,
+            "max_cells_per_collection": max_cells,
+        }
+
+        # Stage 2: drop collections with < min_cells qualifying cells; cap the
+        # rest at max_cells cells via the seeded draw (canonical sort keeps the
+        # draw deterministic for a given corpus + selection).
+        kept_colls = set(cells_per_coll[cells_per_coll >= min_cells].index)
+        qf = qf[qf["collection_id"].isin(kept_colls)]
+        if max_cells < SAMPLE_NO_CAP and not qf.empty:
+            qf = qf.sort_values(["collection_id", "day"], kind="mergesort").copy()
+            rng = np.random.RandomState(42)
+            qf["_r"] = rng.random(len(qf))
+            qf["_rank"] = qf.groupby("collection_id")["_r"].rank(method="first")
+            qf = qf[qf["_rank"] <= max_cells]
+
+        kept_cells = qf
+        # Stage 1 cap: at most max_events rows kept per surviving cell.
+        kept_n = np.minimum(qf[act_col], max_events) if not qf.empty else qf[act_col]
+
+    if kept_cells.empty or int(pd.Series(kept_n).sum()) == 0:
+        return dict(empty), [], 0, 0, sampling_report
+
+    kept_n = pd.Series(np.asarray(kept_n, dtype="int64"), index=kept_cells.index)
+    frac = kept_n / kept_cells[act_col]
+
+    stats = {
+        "total_activities": int(kept_n.sum()),
+        "unique_videos": _estimate_items(kept_cells, frac, item_col, coll_stats),
+        "scraped_videos": _estimate_items(kept_cells, frac, item_scraped_col, coll_stats),
+        "annotated_videos": _estimate_items(kept_cells, frac, item_annotated_col, coll_stats),
+        "activities_scraped": int(round(float((kept_cells[act_scraped_col] * frac).sum()))),
+        "activities_annotated": int(round(float((kept_cells[act_annotated_col] * frac).sum()))),
+        "unique_collections": int(kept_cells["collection_id"].nunique()),
+        "active_days": int(kept_cells["day"].nunique()),
+    }
+
+    day_counts = kept_n.groupby(kept_cells["day"].to_numpy()).sum()
+    included_per_day = [
+        {"date": pd.Timestamp(d).date().isoformat(), "count": int(c)}
+        for d, c in day_counts.sort_index().items()
+    ]
+
+    total_cells = int(len(kept_cells))
+    sparse_cells = int((kept_n < SPARSE_CELL_MIN_ACTIVITIES).sum())
+
+    return stats, included_per_day, sparse_cells, total_cells, sampling_report
+
+
+
+
+def _universe_from_cells(cells: pd.DataFrame | None, study_config: dict) -> tuple[int, int, dict, bool]:
+    """Compute the pre-sampling potentials and universe mosaic from the preview cells.
+
+    Cell-level port of _universe_from_prepared: potentials cover every
+    in-event-window activity regardless of the date range; the universe mosaic
+    additionally applies the date window. All three universe figures are exact
+    (activity-level sums).
+    """
+
+    universe = {"activities": 0, "scraped": 0, "annotated": 0}
+    df = _cells_for_selection(cells, study_config)
+    if df is None:
+        return 0, 0, universe, False
+
+    win = df[df["n_act_inwin"].to_numpy() > 0]
+    if win.empty:
+        return 0, 0, universe, False
+
+    potential_activities = int(win["n_act_inwin"].sum())
+    potential_active_days = int(win["day"].nunique())
+
+    start_s = (study_config.get("START_DATE") or "").strip()
+    end_s = (study_config.get("END_DATE") or "").strip()
+    uni = win
+    if start_s or end_s:
+        m = win["day"].notna()
+        if start_s:
+            m &= win["day"] >= pd.Timestamp(start_s)
+        if end_s:
+            m &= win["day"] <= pd.Timestamp(end_s)
+        uni = win[m.to_numpy()]
+
+    universe = {
+        "activities": int(uni["n_act_inwin"].sum()),
+        "scraped": int(uni["n_act_inwin_scraped"].sum()),
+        "annotated": int(uni["n_act_inwin_annotated"].sum()),
     }
     return potential_activities, potential_active_days, universe, True
 
