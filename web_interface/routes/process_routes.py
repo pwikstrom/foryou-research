@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
-import fyp.data_io as data_io
 import web_interface.auth as auth
 from fyp.core import logging_setup
 from web_interface import activity_log, run_logs, task_failures

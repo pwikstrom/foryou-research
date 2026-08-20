@@ -7,7 +7,6 @@ Author: Patrik
 
 
 import datetime as _dt
-import io
 import json
 import os
 import shutil
