@@ -1,0 +1,39 @@
+{# Pre-login-only landing intro: the all-audience hero and the three
+   what-do-you-want-to-do cards. Included ONLY by public/landing.html. #}
+
+<!-- Hero -->
+<section class="landing-hero reveal">
+    <h1 class="hero-title hero-title--gradient">What shapes your For You feed?</h1>
+    <p class="hero-subtitle landing-hero-sub">
+        Ever wondered why certain videos show up on your For You Page? So have we.
+        The For You Research Project studies how TikTok, Instagram Reels and YouTube Shorts
+        decide what millions of people see every day. People share their real feeds with us,
+        and researchers turn them into insight about how recommendation algorithms shape what
+        we watch and who gets seen.
+    </p>
+</section>
+
+<!-- Action cards: three things a visitor can do here -->
+<section class="landing-section reveal">
+    <h2 class="text-h2 font-semibold landing-section-title">What would you like to do?</h2>
+    <div class="audience-cards">
+        <a class="audience-card audience-card--pink" href="{{ url_for('public_bp.participate') }}">
+            <div class="audience-card__eyebrow">Participate</div>
+            <h3 class="text-h3 font-semibold">Share your data with us and explore your own
+                TikTok personality</h3>
+            <div class="audience-card__cta">Take part →</div>
+        </a>
+        <a class="audience-card audience-card--teal" href="{{ url_for('public_bp.thehub') }}">
+            <div class="audience-card__eyebrow">Research</div>
+            <h3 class="text-h3 font-semibold">Use the For You Data Hub to examine short-video
+                culture at scale and in-depth</h3>
+            <div class="audience-card__cta">Explore the Hub →</div>
+        </a>
+        <a class="audience-card audience-card--violet" href="{{ url_for('public_bp.about') }}">
+            <div class="audience-card__eyebrow">Collaborate</div>
+            <h3 class="text-h3 font-semibold">Learn about and collaborate with the For You
+                Research Project</h3>
+            <div class="audience-card__cta">Meet the project →</div>
+        </a>
+    </div>
+</section>

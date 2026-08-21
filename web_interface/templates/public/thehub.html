@@ -2,44 +2,41 @@
 
 {% block public_content %}
 
-<section class="landing-hero">
-    <h1 class="hero-title">Use the For You Data Hub in your project</h1>
+<section class="landing-hero reveal">
+    <h1 class="hero-title hero-title--gradient">The For You Data Hub</h1>
+    <p class="hero-subtitle landing-hero-sub">
+        The Hub is where shared feeds become research: a browser-based workbench that turns
+        thousands of short videos into datasets, timelines, maps and findings, all built
+        on data donation. You can use our hosted instance without installing anything.
+    </p>
+    <p class="hero-donation-link">
+        <a href="{{ url_for('public_bp.data_donation') }}">What is data donation? →</a>
+    </p>
+    <div class="landing-hero-ctas">
+        <a href="{{ url_for('auth_bp.signup') }}" class="btn-primary public-cta">Get an account</a>
+        <a href="{{ url_for('auth_bp.login') }}" class="btn-discreet public-cta">Log in</a>
+    </div>
     {% if contact_email %}
     <p class="hero-subtitle landing-hero-sub">
-        Email us at <a href="mailto:{{ contact_email }}">{{ contact_email }}</a> to learn how you
-        can use the Data Hub in your project. We'd love to hear from you.
-    </p>
-    {% endif %}
-    <p class="hero-subtitle landing-hero-sub">
-        You're also welcome to try the analysis tools yourself. Sign up, follow the
-        instructions below, and you will be able to use Explore, Video Analysis, Timelines
-        and Correlations. Note that this is only a little peek at the Hub's analysis tools,
-        running against the <strong>Demo study (synthetic data)</strong> — a fully
-        computer-generated dataset, so nothing you see comes from real people. It's not the
-        full pipeline, but it should give you a good feel for how the Data Hub works.
-    </p>
-    {% if repo_url %}
-    <p class="hero-subtitle landing-hero-sub">
-        The Hub is open source (MIT). The code, the installation guide and the issue tracker are on
-        <a href="{{ repo_url }}" target="_blank" rel="noopener">GitHub</a>, so you can also run your
-        own instance — see <a href="#self-host">running it yourself</a> below.
+        Thinking about using the Hub in your own project? Email us at
+        <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>. We'd love to hear from you.
     </p>
     {% endif %}
 </section>
 
-<section class="landing-section">
+<section class="landing-section reveal">
     <div class="note-callout">
         <p>
-            What you can explore here is the <strong>Demo study (synthetic data)</strong> — a
-            computer-generated dataset with realistic viewing patterns, built so there is no
-            participant privacy at stake while you look around. Ingesting your own participants'
-            donations and running the full ingest-to-insight pipeline isn't part of this preview.
-            When you're ready for that, get in touch and we'll walk you through it.
+            New accounts get access to a <strong>small, safe sample dataset</strong>,
+            chosen so there is no participant privacy at stake while you look around.
+            Ingesting your own participants' data and running the full pipeline isn't part
+            of this preview. When you're ready for that, get in touch and we'll walk you
+            through it.
         </p>
     </div>
 </section>
 
-<section class="landing-section" id="access">
+<section class="landing-section reveal" id="access">
     <h2 class="text-h2 font-semibold landing-section-title">Getting access</h2>
     <ol class="step-list">
         <li>
@@ -48,34 +45,34 @@
             address, a username and a password.
         </li>
         <li>
-            <strong>Wait for approval.</strong> New accounts are reviewed before they're enabled for
-            the demo study. You'll see "pending approval" until your account is activated, it shouldn't
-            take more than 24 hours.
+            <strong>Wait for approval.</strong> New accounts are reviewed before they're enabled.
+            You'll see "pending approval" until your account is activated; it
+            shouldn't take more than 24 hours.
         </li>
         <li>
-            <strong>Log in.</strong> You'll land in the app with the analysis tabs — Explore,
-            Timelines, Video Analysis and Correlations — ready to use against the demo study.
+            <strong>Log in.</strong> You'll land in the app with the analysis tabs (Explore,
+            Timelines, Video Analysis and Correlations) ready to use against the sample dataset.
             Ingestion and administration aren't part of this peek.
         </li>
     </ol>
 </section>
 
-<section class="landing-section" id="tour">
+<section class="landing-section reveal" id="tour">
     <h2 class="text-h2 font-semibold landing-section-title">A short tour of the analysis tools</h2>
     <p class="prose landing-section-intro">
-        With the demo study loaded, here are some things you might try:
+        With the sample dataset open, here are some things you might try:
     </p>
     <ol class="step-list">
         <li>
             <strong>Get an overview in Explore.</strong> Open the Explore tab to see how any variable
-            is distributed across the study. Use the filter panel to slice the data — for example,
-            videos from a particular content category, or plays longer than a threshold — and switch
+            is distributed across the study. Use the filter panel to slice the data, for example
+            videos from a particular content category, or plays longer than a threshold, and switch
             to two-slice mode to compare groups side by side. Significance stars flag differences
             between the slices.
         </li>
         <li>
             <strong>Follow a participant in Timelines.</strong> Pick a collection (one participant's
-            donation) and watch how their feed composition evolves day by day. Filter chips isolate
+            data) and watch how their feed composition evolves day by day. Filter chips isolate
             rising, falling, spiking or volatile categories, and "Show Findings" lists detected
             trends, anomalies and structural breaks.
         </li>
@@ -93,30 +90,16 @@
     </ol>
 </section>
 
-<section class="landing-section" id="tips">
-    <h2 class="text-h2 font-semibold landing-section-title">Tips</h2>
-    <ul class="guide-tips">
-        <li>Every tab has a <strong>?</strong> help button in the top right with a detailed description of that tab.</li>
-        <li>Customize which variables appear on each surface via the ⚙ panels. Your choices are personal and persist across sessions.</li>
-        <li>Other researchers' annotations appear in Video Analysis when they've opted into sharing.</li>
-        {% if repo_url %}
-        <li>
-            Something broken, or missing? Open an issue on
-            <a href="{{ repo_issues_url }}" target="_blank" rel="noopener">GitHub</a> — see
-            <a href="#feedback">feedback and bug reports</a> below.
-        </li>
-        {% endif %}
-    </ul>
-</section>
+{% include 'public/_pipeline_tour.html' %}
 
 {% if repo_url %}
-<section class="landing-section" id="self-host">
+<section class="landing-section reveal" id="self-host">
     <h2 class="text-h2 font-semibold landing-section-title">Running it yourself</h2>
     <p class="prose landing-section-intro">
         This instance is one deployment of the Hub, not the only one. The software is open source
-        under the MIT licence, so you can run your own — which is what you want for a real study,
-        since it keeps your participants' donations on infrastructure you control, under your own
-        ethics approval.
+        under the MIT licence, so you can run your own, which is what you want for a real study:
+        it keeps your participants' data on infrastructure you control, under your own ethics
+        approval.
     </p>
     <ol class="step-list">
         <li>
@@ -129,7 +112,7 @@
         </li>
         <li>
             <strong>Bring your own keys.</strong> Enrichment and AI annotation call external
-            services, so an instance needs its own credentials — the installation guide lists which
+            services, so an instance needs its own credentials. The installation guide lists which
             ones and what they cost.
         </li>
         <li>
@@ -138,10 +121,15 @@
             <a href="{{ repo_url }}/tree/main/docs" target="_blank" rel="noopener">docs folder</a>
             covers architecture, configuration and the pipeline.
         </li>
+        <li>
+            <strong>Cite it.</strong> The repository carries a <code>CITATION.cff</code> with the
+            archived DOI, so GitHub's "Cite this repository" button gives you a ready-made
+            reference.
+        </li>
     </ol>
 </section>
 
-<section class="landing-section" id="feedback">
+<section class="landing-section reveal" id="feedback">
     <h2 class="text-h2 font-semibold landing-section-title">Feedback and bug reports</h2>
     <p class="prose landing-section-intro">
         Development happens in the open, and reports from people using the Hub are the main way it
@@ -162,7 +150,7 @@
         <li>
             <strong>Security problems:</strong> report them privately, following the
             <a href="{{ repo_url }}/blob/main/SECURITY.md" target="_blank" rel="noopener">security
-            policy</a> — not as an issue.
+            policy</a>, not as an issue.
         </li>
         <li>
             <strong>Code:</strong> pull requests are welcome; start with the
@@ -173,22 +161,23 @@
 </section>
 {% endif %}
 
-<section class="landing-section landing-cta-band">
+<section class="landing-section landing-cta-band reveal">
     <h2 class="text-h2 font-semibold">Could the Data Hub be useful in your project?</h2>
     <p class="prose">
-        This preview is just a sample of what the Data Hub does. If you're thinking about using it
-        for your own research project (ingesting your participants' donations, running the full
-        ingest-to-insight pipeline, and bringing in your team),
+        The sample dataset is just a taste of what the Hub does. If you're thinking about ingesting your
+        own participants' data, running the full pipeline and bringing in your team,
         {% if contact_email %}write to us at
         <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>. We'd be glad to show
         you the full pipeline and talk through what working together could look like.
         {% else %}get in touch with the team running this instance.
         {% endif %}
-        {% if repo_url %}The Hub itself is open source, so you can also run your own instance —
-        see the
-        <a href="{{ repo_url }}/blob/main/docs/installation.md" target="_blank" rel="noopener">installation
-        guide</a> in the repository.{% endif %}
     </p>
+    <div class="landing-hero-ctas">
+        <a href="{{ url_for('auth_bp.signup') }}" class="btn-primary public-cta">Get an account</a>
+        {% if repo_url %}
+        <a href="{{ repo_url }}/blob/main/docs/installation.md" target="_blank" rel="noopener" class="btn-discreet public-cta">Run your own instance</a>
+        {% endif %}
+    </div>
 </section>
 
 {% endblock %}

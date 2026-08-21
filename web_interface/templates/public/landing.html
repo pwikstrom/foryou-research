@@ -11,7 +11,7 @@
     </figure>
 
     <div class="landing-login-hero__card auth-form-container">
-        <h3 class="text-h3 auth-card-title">Log in</h3>
+        <h3 class="text-h3 auth-card-title">Log in to the For You Data Hub</h3>
 
         {% with messages = get_flashed_messages() %}
         {% if messages %}
@@ -44,5 +44,5 @@
 </section>
 {% endif %}
 
-{% include 'public/_landing_content.html' %}
+{% include 'public/_landing_public_intro.html' %}
 {% endblock %}

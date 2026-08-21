@@ -6,7 +6,7 @@
     <h1 class="hero-title">What is data donation?</h1>
     <p class="hero-subtitle landing-hero-sub">
         Data donation is a research method where participants voluntarily share their own
-        platform data — the activity export a platform lets a user download of themselves.
+        platform data: the activity export a platform lets a user download of themselves.
         Instead of scraping public content or querying a platform API, researchers work from the
         feed a real person was actually served and engaged with.
     </p>
@@ -76,7 +76,8 @@
         by ingesting, enriching and annotating them automatically.
     </p>
     <div class="landing-hero-ctas">
-        <a href="{{ url_for('index') }}" class="btn-primary public-cta">See how the Hub works</a>
+        <a href="{{ url_for('public_bp.participate') }}" class="btn-primary public-cta">Share your own feed</a>
+        <a href="{{ url_for('public_bp.thehub') }}#pipeline" class="btn-primary public-cta">See how the Hub works</a>
         <a href="{{ url_for('public_bp.about') }}" class="btn-discreet public-cta">About the project</a>
     </div>
 </section>

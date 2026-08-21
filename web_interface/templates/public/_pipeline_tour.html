@@ -1,0 +1,256 @@
+{# The five-step pipeline tour (CSS-only radio-tab stepper). Included by
+   _landing_content.html (logged-in home pane) and by public/thehub.html. #}
+
+<!-- See it in action: the five pipeline steps as a tabbed stepper.
+     CSS-only tabs: hidden radio inputs + label pills, so the component works
+     identically on the public landing page and the logged-in home pane. -->
+<section class="landing-section" id="pipeline">
+    <h2 class="text-h2 font-semibold landing-section-title">Follow the Pipeline</h2>
+    <p class="prose landing-section-intro">
+        What happens to a donated feed? Follow it through the Hub's five steps,
+        Ingest → Enrich → Annotate → Analyse → Share, from raw data package to research
+        finding. If you're a participant, this is exactly what happens to a donation; if
+        you're a researcher, this is the toolbox you get.
+    </p>
+
+    <div class="see-tabs">
+        <input type="radio" name="see-tab" id="see-tab-ingest" class="see-tabs__input" checked>
+        <input type="radio" name="see-tab" id="see-tab-enrich" class="see-tabs__input">
+        <input type="radio" name="see-tab" id="see-tab-annotate" class="see-tabs__input">
+        <input type="radio" name="see-tab" id="see-tab-analyse" class="see-tabs__input">
+        <input type="radio" name="see-tab" id="see-tab-share" class="see-tabs__input">
+
+        <div class="see-tabs__pills">
+            <label class="see-tab-pill" for="see-tab-ingest">
+                <span class="see-tab-pill__num">1</span>
+                <span class="see-tab-pill__title font-semibold">Ingest</span>
+                <span class="see-tab-pill__desc">Mixed formats and multiple participants become one clean, queryable corpus, grouped into studies.</span>
+            </label>
+            <label class="see-tab-pill" for="see-tab-enrich">
+                <span class="see-tab-pill__num">2</span>
+                <span class="see-tab-pill__title font-semibold">Enrich</span>
+                <span class="see-tab-pill__desc">Recovers the stripped-out videos, captions, authors, music and engagement counts.</span>
+            </label>
+            <label class="see-tab-pill" for="see-tab-annotate">
+                <span class="see-tab-pill__num">3</span>
+                <span class="see-tab-pill__title font-semibold">Annotate</span>
+                <span class="see-tab-pill__desc">AI turns each video into structured research variables, with human quality control.</span>
+            </label>
+            <label class="see-tab-pill" for="see-tab-analyse">
+                <span class="see-tab-pill__num">4</span>
+                <span class="see-tab-pill__title font-semibold">Analyse</span>
+                <span class="see-tab-pill__desc">Time-series, statistics and qualitative video analysis, side by side.</span>
+            </label>
+            <label class="see-tab-pill" for="see-tab-share">
+                <span class="see-tab-pill__num">5</span>
+                <span class="see-tab-pill__title font-semibold">Share</span>
+                <span class="see-tab-pill__desc">Role-based access brings collaborators and students in with the right permissions.</span>
+            </label>
+        </div>
+
+        <div class="see-panels">
+
+            <!-- 1. Ingest -->
+            <div class="see-panel" id="see-panel-ingest">
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <p class="prose">
+                            Research participants donate data from TikTok, Instagram Reels and YouTube Shorts. The Data Hub parses the donated data packages into a single clean, queryable corpus, which you curate and structure into
+                            <em>studies</em> that cover the time period relevant to your research questions.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/ingest.webp') }}" alt="Data Management: ingesting new collections from different donation formats" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Ingest: mixed donation formats become one corpus</figcaption>
+                    </figure>
+                </div>
+            </div>
+
+            <!-- 2. Enrich -->
+            <div class="see-panel" id="see-panel-enrich">
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <p class="prose">
+                            Donated packages arrive stripped of the videos themselves and most
+                            metadata. The Hub recovers as much as it can (videos, captions, authors,
+                            music and engagement counts) through background scraping queues. Not every
+                            item can be recovered, and the Hub keeps track of what is still missing.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/enrich.webp') }}" alt="Scrape and Annotate: background queues recovering videos and metadata" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Enrich: scraping back the videos and metadata</figcaption>
+                    </figure>
+                </div>
+            </div>
+
+            <!-- 3. Annotate -->
+            <div class="see-panel" id="see-panel-annotate">
+                <p class="see-panel__lead">
+                    Google Gemini turns each video into structured research variables, such as content
+                    category, activities, objects, transcript, sensitivity and more. Machine annotation
+                    is useful, but it needs scrutiny, so we wrap it in versioning, testing and human
+                    evaluation, and then map the annotated corpus by meaning.
+                </p>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Structured, versioned prompts</h4>
+                        <p class="prose">
+                            Every field the AI fills comes from a declarative annotation contract that
+                            generates the Gemini prompt and response schema, editable in the browser.
+                            Each run is stamped with a content-derived version
+                            (model + prompt + schema + parameters); old versions are never overwritten,
+                            so the full annotation history stays archived and queryable, and each study
+                            pins the exact version it was built on.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/annotation_versions.webp') }}" alt="Annotation contract and version history: prompt text and response schema, content-derived version stamps" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Annotation contract &amp; versions: prompt and schema, fully versioned</figcaption>
+                    </figure>
+                </div>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Tested and human-evaluated</h4>
+                        <p class="prose">
+                            Before a prompt goes live, candidate contracts run head-to-head on a fixed
+                            evaluation set with real Gemini calls, scored on agreement metrics.
+                            Human coders can be invited to
+                            blind-code the same videos, so machine annotations are measured against
+                            inter-coder reliability. Only a candidate that holds up in this testing
+                            graduates into the live dataset.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/annotation_testing.webp') }}" alt="Annotation testing: candidate contracts compared against each other and human coders on a fixed evaluation set" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Annotation testing: candidate prompts vs human coders on a fixed set</figcaption>
+                    </figure>
+                </div>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Map the whole corpus</h4>
+                        <p class="prose">
+                            Once annotated, every video becomes a 1536-dimensional embedding built from
+                            its variables and content, then projected into a readable 2D semantic space
+                            where similar videos sit together. The Hub clusters that space into
+                            fine-grained, automatically named "niches" - emergent micro-genres you can
+                            focus on, label, and colour by content category or popularity. Because it
+                            spans the entire annotated corpus, the map is a bird's-eye view of what the
+                            feed is made of, independent of any single study.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/semantic_space.webp') }}" alt="Semantic Space tab: 2D embedding map of annotated videos" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Semantic Space: the annotated corpus, mapped by meaning</figcaption>
+                    </figure>
+                </div>
+            </div>
+
+            <!-- 4. Analyse -->
+            <div class="see-panel" id="see-panel-analyse">
+                <p class="see-panel__lead">
+                    Different research paradigms in one place: time-series and statistics alongside
+                    qualitative video analysis.
+                </p>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Compare across the corpus</h4>
+                        <p class="prose">
+                            Explore compares variable distributions across a study, split into two
+                            filtered slices with significance testing. Build selections with
+                            checkboxes and range sliders, and click any bar to drill into the videos.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/explore.webp') }}" alt="Explore tab: variable distributions split into two filtered slices" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Explore: distribution comparison across data slices</figcaption>
+                    </figure>
+                </div>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Follow a feed over time</h4>
+                        <p class="prose">
+                            Timelines shows how a single participant's feed evolves day by day:
+                            smoothed per-variable timelines with trend, anomaly and structural-break
+                            detection, and filter chips for rising, falling or spiking categories.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/timelines.webp') }}" alt="Timelines tab: a participant's activity evolving day by day" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Timelines: one participant's feed, day by day</figcaption>
+                    </figure>
+                </div>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Watch and annotate in context</h4>
+                        <p class="prose">
+                            Video Analysis is the qualitative workbench: watch videos in place,
+                            inspect the full enrichment and annotation record, and add your own notes
+                            close to the source, alone or with your team.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/video_analysis.webp') }}" alt="Video Analysis tab: watching and tagging an individual video" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Video Analysis: watch, inspect and code individual videos</figcaption>
+                    </figure>
+                </div>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Zoom in on a single sitting</h4>
+                        <p class="prose">
+                            Sessions ranks individual viewing sessions, filterable by duration,
+                            plays, coverage, low-entropy stretches and binge count, and lays each
+                            one out as a session strip: detected binges, low-entropy sequences,
+                            and a video panel that opens straight into Video Analysis.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/sessions.webp') }}" alt="Sessions tab: ranked session list with session-strip timeline and detected binges" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Sessions: one sitting, minute by minute, binges detected</figcaption>
+                    </figure>
+                </div>
+
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Find structure and patterns</h4>
+                        <p class="prose">
+                            Correlations places one dot per collection-day on any two numeric axes,
+                            with group ellipses, regression lines and a full correlation heatmap,
+                            plus PCA-based measures computed per study.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/correlations.webp') }}" alt="Correlations tab: scatter plot with group ellipses" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Correlations: scatter, ellipses and correlation heatmap</figcaption>
+                    </figure>
+                </div>
+            </div>
+
+            <!-- 5. Share -->
+            <div class="see-panel" id="see-panel-share">
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <p class="prose">
+                            The Hub is built for teams. Fine-grained, role-based access lets you bring
+                            collaborators and students in with exactly the tabs, studies and
+                            permissions they should have, so a whole project can work from one shared
+                            corpus, safely.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/share.webp') }}" alt="Admin: role-based permission matrix controlling access per role" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Share: role-based access for collaborators and students</figcaption>
+                    </figure>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</section>

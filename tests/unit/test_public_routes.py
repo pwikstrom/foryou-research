@@ -36,7 +36,7 @@ def client(app):
     return app.test_client()
 
 
-@pytest.mark.parametrize("path", ["/", "/about", "/data-donation", "/guide", "/faq", "/login", "/signup"])
+@pytest.mark.parametrize("path", ["/", "/about", "/participate", "/data-donation", "/thehub", "/faq", "/login", "/signup"])
 def test_public_pages_render_anonymously(client, path):
     resp = client.get(path)
     assert resp.status_code == 200
@@ -76,7 +76,7 @@ def repo_url(app):
     return url.rstrip("/")
 
 
-@pytest.mark.parametrize("path", ["/", "/about", "/guide", "/faq"])
+@pytest.mark.parametrize("path", ["/about", "/thehub", "/faq"])
 def test_public_pages_link_the_issue_tracker(client, repo_url, path):
     body = client.get(path).get_data(as_text=True)
     assert f"{repo_url}/issues" in body
@@ -90,8 +90,20 @@ def test_public_pages_drop_repo_links_when_repo_url_is_empty(client):
     original = site.get("repo_url", "")
     site["repo_url"] = ""
     try:
-        for path in ("/", "/about", "/guide", "/faq"):
+        for path in ("/", "/about", "/participate", "/thehub", "/faq"):
             body = client.get(path).get_data(as_text=True)
             assert "github.com" not in body, f"{path} still links to GitHub"
     finally:
         site["repo_url"] = original
+
+
+def test_old_guide_url_redirects_to_thehub(client):
+    resp = client.get("/guide")
+    assert resp.status_code == 301
+    assert resp.headers["Location"].endswith("/thehub")
+
+
+def test_participate_links_the_donation_flow(client):
+    """The participate page must hand TikTok users on to the donation site."""
+    body = client.get("/participate").get_data(as_text=True)
+    assert "https://www.foryouparticipate.net/tiktok/index.html" in body

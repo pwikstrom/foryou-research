@@ -1025,6 +1025,13 @@
   ]
  ],
  [
+  "/be-a-citizen-scientist",
+  "public_bp.be_a_citizen_scientist",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/data-donation",
   "public_bp.data_donation",
   [
@@ -1068,6 +1075,20 @@
   ]
  ],
  [
+  "/our-team",
+  "public_bp.our_team",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/participate",
+  "public_bp.participate",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/signup",
   "auth_bp.signup",
   [
@@ -1078,6 +1099,13 @@
  [
   "/static/<path:filename>",
   "static",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/thehub",
+  "public_bp.thehub",
   [
    "GET"
   ]
