@@ -4153,6 +4153,38 @@ body:has(.public-page) {
     margin-top: 6px;
 }
 
+/* ----- Video-mosaic hero (about page) -----
+   A grid of opening frames from real corpus videos. The point is the mass and
+   the variety, so the cells stay small and the gradient frame ties it to the
+   public palette. Regenerate with scripts/make_video_grid_hero.py. */
+
+.hero-mosaic {
+    margin: 34px 0 0;
+}
+
+.hero-mosaic__frame {
+    padding: 3px;
+    border-radius: 16px;
+    background: var(--fyr-grad);
+    line-height: 0;
+}
+
+.hero-mosaic img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 13px;
+}
+
+/* On a phone the full grid shrinks to visual noise; crop it instead so the
+   cells that do show stay readable. */
+@media (max-width: 640px) {
+    .hero-mosaic img {
+        height: 230px;
+        object-fit: cover;
+    }
+}
+
 .landing-section {
     margin-top: 60px;
 }
