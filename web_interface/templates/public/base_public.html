@@ -37,6 +37,23 @@
         const open = nav.classList.toggle('open');
         btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
+
+    // Scroll-reveal for .reveal sections. The hidden state is CSS-gated on
+    // html.js-reveal, so without JS (or without IntersectionObserver) the
+    // pages render fully visible.
+    (function () {
+        if (!('IntersectionObserver' in window)) return;
+        document.documentElement.classList.add('js-reveal');
+        const io = new IntersectionObserver((entries) => {
+            for (const e of entries) {
+                if (e.isIntersecting) {
+                    e.target.classList.add('is-visible');
+                    io.unobserve(e.target);
+                }
+            }
+        }, { rootMargin: '0px 0px -60px 0px' });
+        document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+    })();
 </script>
 {% block public_scripts %}{% endblock %}
 {% endblock %}

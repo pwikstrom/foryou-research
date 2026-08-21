@@ -4157,6 +4157,12 @@ body:has(.public-page) {
     margin-top: 60px;
 }
 
+/* Anchor targets (audience cards jump here): keep the heading clear of the
+   sticky public header when the browser scrolls to the fragment. */
+.landing-section[id] {
+    scroll-margin-top: 80px;
+}
+
 .landing-section-title {
     color: var(--color-text-heading);
     margin-bottom: 14px;
@@ -4200,6 +4206,271 @@ body:has(.public-page) {
     margin-bottom: 10px;
     line-height: 1;
 }
+
+/* Icon images inside feature-card-icon (about page cards). */
+.feature-card-img {
+    height: 36px;
+    width: auto;
+    display: block;
+}
+
+/* ----- Public mini-site accent palette -----
+   The app is colorful (category ribbons, semantic map); these accents bring a
+   taste of that to the public pages without touching the app theme tokens. */
+
+.public-page {
+    --fyr-pink: #ec4899;
+    --fyr-orange: #f97316;
+    --fyr-teal: #0d9488;
+    --fyr-violet: #8b5cf6;
+    --fyr-grad: linear-gradient(100deg, var(--fyr-pink), var(--fyr-orange) 35%, var(--fyr-teal) 70%, var(--fyr-violet));
+}
+
+.hero-title--gradient {
+    background: var(--fyr-grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+/* Scroll-reveal: hidden state only applies once JS has signalled it will run
+   (html.js-reveal), so the pages work fully without JavaScript. */
+.js-reveal .reveal {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.js-reveal .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .js-reveal .reveal {
+        opacity: 1;
+        transform: none;
+        transition: none;
+    }
+}
+
+/* ----- Image / logo placeholders (swapped for real assets later) ----- */
+
+.img-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    min-height: 220px;
+    padding: 20px;
+    border: 2px dashed var(--color-border-strong);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--color-bg-surface) 88%, var(--fyr-teal));
+}
+
+.img-placeholder span {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    max-width: 320px;
+}
+
+.img-placeholder--pink { background: color-mix(in srgb, var(--color-bg-surface) 90%, var(--fyr-pink)); }
+.img-placeholder--orange { background: color-mix(in srgb, var(--color-bg-surface) 90%, var(--fyr-orange)); }
+.img-placeholder--teal { background: color-mix(in srgb, var(--color-bg-surface) 90%, var(--fyr-teal)); }
+.img-placeholder--violet { background: color-mix(in srgb, var(--color-bg-surface) 90%, var(--fyr-violet)); }
+
+.img-placeholder--wide {
+    min-height: 260px;
+}
+
+.logo-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 14px;
+    margin-top: 26px;
+}
+
+.logo-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 72px;
+    padding: 10px;
+    border: 2px dashed var(--color-border-subtle);
+    border-radius: 10px;
+    background: var(--color-bg-surface);
+}
+
+.logo-placeholder span {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    text-align: center;
+}
+
+/* ----- Story rows (participate page: short chunk + image, alternating) ----- */
+
+.story-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    align-items: center;
+    margin-bottom: 56px;
+}
+
+.story-row--flip .story-row__text {
+    order: 2;
+}
+
+.story-row--flip .story-row__media {
+    order: 1;
+}
+
+.story-row__text h2 {
+    margin: 0 0 10px;
+    color: var(--color-text-primary);
+}
+
+.story-row__text .prose {
+    color: var(--color-text-secondary);
+}
+
+.story-row__eyebrow {
+    display: inline-block;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 4px 12px;
+    border-radius: 999px;
+    margin-bottom: 12px;
+    color: #fff;
+}
+
+.story-row__media {
+    position: relative;
+}
+
+.story-row__media img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 14px;
+}
+
+/* Transparency label overlaid on AI-generated imagery. */
+.ai-image-tag {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: var(--text-xs);
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    pointer-events: none;
+}
+
+.story-row__eyebrow--pink { background: var(--fyr-pink); }
+.story-row__eyebrow--orange { background: var(--fyr-orange); }
+.story-row__eyebrow--teal { background: var(--fyr-teal); }
+.story-row__eyebrow--violet { background: var(--fyr-violet); }
+
+@media (max-width: 760px) {
+    .story-row {
+        grid-template-columns: 1fr;
+        gap: 18px;
+        margin-bottom: 44px;
+    }
+
+    .story-row--flip .story-row__text {
+        order: 1;
+    }
+
+    .story-row--flip .story-row__media {
+        order: 2;
+    }
+}
+
+/* ----- Audience cards (landing "What would you like to do?") ----- */
+
+.audience-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 18px;
+}
+
+.audience-card {
+    display: block;
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 10px;
+    padding: 22px;
+    color: inherit;
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.audience-card:hover {
+    border-color: var(--color-accent);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+    text-decoration: none;
+}
+
+.audience-card h3 {
+    margin: 0 0 8px;
+    color: var(--color-text-primary);
+}
+
+.audience-card p {
+    margin: 0;
+    color: var(--color-text-secondary);
+    line-height: var(--leading-relaxed);
+}
+
+.audience-card__eyebrow {
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-accent);
+    margin-bottom: 10px;
+}
+
+.audience-card__cta {
+    margin-top: 14px;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-accent);
+}
+
+/* Per-card accent: colored top bar, matching eyebrow/CTA, tinted hover. */
+.audience-card--pink,
+.audience-card--teal,
+.audience-card--violet {
+    border-top: 4px solid var(--color-accent);
+}
+
+.audience-card--pink { border-top-color: var(--fyr-pink); }
+.audience-card--teal { border-top-color: var(--fyr-teal); }
+.audience-card--violet { border-top-color: var(--fyr-violet); }
+
+.audience-card--pink .audience-card__eyebrow,
+.audience-card--pink .audience-card__cta { color: var(--fyr-pink); }
+.audience-card--teal .audience-card__eyebrow,
+.audience-card--teal .audience-card__cta { color: var(--fyr-teal); }
+.audience-card--violet .audience-card__eyebrow,
+.audience-card--violet .audience-card__cta { color: var(--fyr-violet); }
+
+.audience-card--pink:hover { border-color: var(--fyr-pink); }
+.audience-card--teal:hover { border-color: var(--fyr-teal); }
+.audience-card--violet:hover { border-color: var(--fyr-violet); }
+
+/* Colored feature-card variants (about page: research questions + streams). */
+.feature-card--pink { border-top: 4px solid var(--fyr-pink); }
+.feature-card--orange { border-top: 4px solid var(--fyr-orange); }
+.feature-card--teal { border-top: 4px solid var(--fyr-teal); }
+.feature-card--violet { border-top: 4px solid var(--fyr-violet); }
 
 /* ----- Feature tour rows (text + screenshot) ----- */
 
@@ -4275,6 +4546,11 @@ body:has(.public-page) {
     border: 1px solid var(--color-border-subtle);
     border-radius: 12px;
     padding: 40px 28px;
+}
+
+.participate-cta-note {
+    color: var(--color-text-muted);
+    margin-top: 12px;
 }
 
 .landing-cta-band h2 {
@@ -4381,6 +4657,21 @@ body:has(.public-page) {
     border: 1px solid var(--color-border-subtle);
     border-radius: 10px;
     padding: 16px 18px;
+}
+
+.team-card-photo {
+    width: 84px;
+    height: 84px;
+    object-fit: cover;
+    border-radius: 50%;
+    margin-bottom: 12px;
+    border: 1px solid var(--color-border-subtle);
+}
+
+.team-card-bio {
+    color: var(--color-text-secondary);
+    line-height: var(--leading-relaxed);
+    margin: 8px 0 0;
 }
 
 .team-card-name {

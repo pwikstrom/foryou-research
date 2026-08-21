@@ -2,35 +2,42 @@
 
 {% block public_content %}
 
-<section class="landing-hero">
-    <h1 class="hero-title">What Shapes Your TikTok Feed?</h1>
+<section class="landing-hero reveal">
+    <h1 class="hero-title hero-title--gradient">What Shapes Your TikTok Feed?</h1>
     <p class="hero-subtitle landing-hero-sub">
         The For You Research Project examines TikTok's recommendation algorithm and its effects on
-        Australian audiences — how it influences what Australians see and create on the platform.
+        Australian audiences, and how it influences what Australians see and create on the platform.
     </p>
 </section>
 
-<section class="landing-section">
+<section class="landing-section reveal">
+    <div class="img-placeholder img-placeholder--wide img-placeholder--violet">
+        <span>Image: a wide, lively banner for the project. Ideas: the team at work, a
+        collage of Australian TikTok culture, or a colorful crop of the Semantic Space map</span>
+    </div>
+</section>
+
+<section class="landing-section reveal">
     <h2 class="text-h2 font-semibold landing-section-title">The research questions</h2>
     <div class="feature-grid">
-        <div class="feature-card">
-            <div class="feature-card-icon">1</div>
+        <div class="feature-card feature-card--pink">
+            <div class="feature-card-icon"><img class="feature-card-img" src="{{ url_for('static', filename='landing/icons/what_is_recommended.webp') }}" alt=""></div>
             <h3 class="text-h3 font-semibold">What is recommended?</h3>
             <p class="text-sm">
                 What content does TikTok recommend to Australian users, and how does this shape
                 culture?
             </p>
         </div>
-        <div class="feature-card">
-            <div class="feature-card-icon">2</div>
+        <div class="feature-card feature-card--teal">
+            <div class="feature-card-icon"><img class="feature-card-img" src="{{ url_for('static', filename='landing/icons/how_is_it_experienced.webp') }}" alt=""></div>
             <h3 class="text-h3 font-semibold">How is it experienced?</h3>
             <p class="text-sm">
                 How do different people experience and interpret the algorithm in their everyday use
                 of the platform?
             </p>
         </div>
-        <div class="feature-card">
-            <div class="feature-card-icon">3</div>
+        <div class="feature-card feature-card--violet">
+            <div class="feature-card-icon"><img class="feature-card-img" src="{{ url_for('static', filename='landing/icons/creators_adapt.webp') }}" alt=""></div>
             <h3 class="text-h3 font-semibold">How do creators adapt?</h3>
             <p class="text-sm">
                 How do TikTok creators adapt their strategies to stay visible and relevant?
@@ -39,28 +46,31 @@
     </div>
 </section>
 
-<section class="landing-section">
+<section class="landing-section reveal">
     <h2 class="text-h2 font-semibold landing-section-title">How we study it</h2>
     <p class="prose landing-section-intro">
         The project combines data analysis, interviews and user participation across three research
         streams:
     </p>
     <div class="feature-grid">
-        <div class="feature-card">
+        <div class="feature-card feature-card--orange">
+            <div class="feature-card-icon"><img class="feature-card-img" src="{{ url_for('static', filename='landing/icons/platform_analysis.webp') }}" alt=""></div>
             <h3 class="text-h3 font-semibold">Platform analysis</h3>
             <p class="text-sm">
                 Large-scale analysis of content and recommendation trends. The Data Hub supports
-                this stream, turning donated feed data into analysable datasets.
+                this stream, turning shared feed data into analysable datasets.
             </p>
         </div>
-        <div class="feature-card">
+        <div class="feature-card feature-card--pink">
+            <div class="feature-card-icon"><img class="feature-card-img" src="{{ url_for('static', filename='landing/icons/user_experiences.webp') }}" alt=""></div>
             <h3 class="text-h3 font-semibold">User experiences</h3>
             <p class="text-sm">
                 Interviews and data donations from everyday users, exploring how people experience
                 and make sense of algorithmic recommendation.
             </p>
         </div>
-        <div class="feature-card">
+        <div class="feature-card feature-card--teal">
+            <div class="feature-card-icon"><img class="feature-card-img" src="{{ url_for('static', filename='landing/icons/creator_strategies.webp') }}" alt=""></div>
             <h3 class="text-h3 font-semibold">Creator strategies</h3>
             <p class="text-sm">
                 Working with content creators of all sizes to understand how they navigate visibility
@@ -68,77 +78,125 @@
             </p>
         </div>
     </div>
-    <p class="prose landing-section-intro" style="margin-top: 24px;">
-        While TikTok is the project's focus, the Data Hub itself is platform-agnostic: it also ingests
-        donated Instagram activity and YouTube watch history, letting the team compare recommendation
-        dynamics across platforms.
-    </p>
-    {% if repo_url %}
-    <p class="prose landing-section-intro" style="margin-top: 24px;">
-        The Hub is also open-source research infrastructure. It is released under the MIT licence and
-        developed in the open at
-        <a href="{{ repo_url }}" target="_blank" rel="noopener">{{ repo_url | replace('https://', '') }}</a>,
-        where you will find the full source, the
-        <a href="{{ repo_url }}/blob/main/docs/installation.md" target="_blank" rel="noopener">installation
-        guide</a> for running your own instance, and the
-        <a href="{{ repo_issues_url }}" target="_blank" rel="noopener">issue tracker</a> for bug
-        reports and feature requests.
-    </p>
-    {% endif %}
 </section>
 
-<section class="landing-section">
+<section class="landing-section reveal">
     <h2 class="text-h2 font-semibold landing-section-title">The team</h2>
+    <p class="prose landing-section-intro">
+        The team brings together experts in digital media, platform studies and online culture
+        at Australia's two leading universities for digital media research.
+    </p>
     <div class="team-grid">
         <div class="team-card">
+            <img class="team-card-photo" src="{{ url_for('static', filename='landing/team/patrik-wikstrom.webp') }}"
+                alt="Patrik Wikstrom" loading="lazy" onerror="this.remove()">
             <div class="team-card-name">Patrik Wikstrom</div>
             <div class="team-card-role">Project Leader · Professor of Computational Communication</div>
             <div class="team-card-inst">Queensland University of Technology</div>
+            <p class="team-card-bio text-sm">
+                Chief Investigator in QUT's Digital Media Research Centre and Associate
+                Investigator in the ARC Centre of Excellence for Automated Decision-Making
+                and Society.
+            </p>
         </div>
         <div class="team-card">
+            <img class="team-card-photo" src="{{ url_for('static', filename='landing/team/jean-burgess.webp') }}"
+                alt="Jean Burgess" loading="lazy" onerror="this.remove()">
             <div class="team-card-name">Jean Burgess</div>
             <div class="team-card-role">Chief Investigator · Distinguished Professor of Digital Media</div>
             <div class="team-card-inst">Queensland University of Technology</div>
+            <p class="team-card-bio text-sm">
+                Chief Investigator in QUT's Digital Media Research Centre and Associate
+                Director of the national ARC Centre of Excellence for Automated
+                Decision-Making and Society.
+            </p>
         </div>
         <div class="team-card">
+            <img class="team-card-photo" src="{{ url_for('static', filename='landing/team/jonathon-hutchinson.webp') }}"
+                alt="Jonathon Hutchinson" loading="lazy" onerror="this.remove()">
             <div class="team-card-name">Jonathon Hutchinson</div>
             <div class="team-card-role">Chief Investigator · Associate Professor, Chair of Media and Communication</div>
             <div class="team-card-inst">University of Sydney</div>
+            <p class="team-card-bio text-sm">
+                Also Chief Investigator at The International Digital Policy Observatory and
+                in the project "Emerging online safety issues: co-creating social media
+                education with young people".
+            </p>
         </div>
         <div class="team-card">
+            <img class="team-card-photo" src="{{ url_for('static', filename='landing/team/joanne-gray.webp') }}"
+                alt="Joanne Gray" loading="lazy" onerror="this.remove()">
             <div class="team-card-name">Joanne Gray</div>
             <div class="team-card-role">Chief Investigator · Senior Lecturer in Digital Cultures</div>
             <div class="team-card-inst">University of Sydney</div>
+            <p class="team-card-bio text-sm">
+                An interdisciplinary academic with expertise in digital platform policy and
+                governance, researching how platforms exercise private power and the policy
+                options for responding to it.
+            </p>
         </div>
         <div class="team-card">
+            <img class="team-card-photo" src="{{ url_for('static', filename='landing/team/ariadna-matamoros-fernandez.webp') }}"
+                alt="Ariadna Matamoros-Fernández" loading="lazy" onerror="this.remove()">
             <div class="team-card-name">Ariadna Matamoros-Fernández</div>
             <div class="team-card-role">Partner Investigator · Associate Professor</div>
             <div class="team-card-inst">Dublin City University</div>
+            <p class="team-card-bio text-sm">
+                Researches social media cultures, platform governance, online harms and
+                algorithmic systems.
+            </p>
         </div>
         <div class="team-card">
+            <img class="team-card-photo" src="{{ url_for('static', filename='landing/team/jiaru-tang.webp') }}"
+                alt="Jiaru Tang" loading="lazy" onerror="this.remove()">
             <div class="team-card-name">Jiaru Tang</div>
             <div class="team-card-role">PhD Candidate · AI-generated content and creative labour</div>
             <div class="team-card-inst">Queensland University of Technology</div>
+            <p class="team-card-bio text-sm">
+                Student member of the ARC Centre of Excellence for Automated Decision-Making
+                and Society, researching AI-generated content, cultural production and
+                creative labour in the platform economy.
+            </p>
         </div>
         <div class="team-card">
+            <img class="team-card-photo" src="{{ url_for('static', filename='landing/team/tian-wen.webp') }}"
+                alt="Tian Wen" loading="lazy" onerror="this.remove()">
             <div class="team-card-name">Tian Wen</div>
             <div class="team-card-role">PhD Candidate · Content popularity mechanisms on TikTok</div>
-            <div class="team-card-inst">Queensland University of Technology</div>
+            <div class="team-card-inst">University of Sydney</div>
+            <p class="team-card-bio text-sm">
+                Researches how content becomes popular on TikTok; also a product manager
+                with a track record of delivering solutions that drive software growth.
+            </p>
         </div>
         <div class="team-card">
+            <img class="team-card-photo" src="{{ url_for('static', filename='landing/team/michelle-gay-nidoy.webp') }}"
+                alt="Michelle Gay Nidoy" loading="lazy" onerror="this.remove()">
             <div class="team-card-name">Michelle Gay Nidoy</div>
             <div class="team-card-role">PhD Candidate · Platform governance and content moderation</div>
             <div class="team-card-inst">Queensland University of Technology</div>
+            <p class="team-card-bio text-sm">
+                Formerly a researcher and science communicator at centres focusing on
+                digitalisation, democracy and AI; interested in digital users, platform
+                governance and content moderation.
+            </p>
         </div>
         <div class="team-card">
+            <img class="team-card-photo" src="{{ url_for('static', filename='landing/team/billie-wilcox.webp') }}"
+                alt="Billie Wilcox" loading="lazy" onerror="this.remove()">
             <div class="team-card-name">Billie Wilcox</div>
             <div class="team-card-role">Research Assistant · Emerging technologies, data and platforms</div>
-            <div class="team-card-inst">Queensland University of Technology</div>
+            <div class="team-card-inst">University of Sydney</div>
+            <p class="team-card-bio text-sm">
+                A media and communications academic researching emerging technologies, data,
+                platforms, algorithms and AI, and how they intersect with socio-economic,
+                cultural and political contexts.
+            </p>
         </div>
     </div>
 </section>
 
-<section class="landing-section">
+<section class="landing-section reveal">
     <h2 class="text-h2 font-semibold landing-section-title">Institutions &amp; funding</h2>
     <p class="prose">
         The project is based at QUT's Digital Media Research Centre in Brisbane and at the University
@@ -147,11 +205,18 @@
         the Australian Research Data Commons through the National Collaborative Infrastructure
         Strategy in partnership with a consortium of Australian universities.
     </p>
+    <div class="logo-strip">
+        <div class="logo-placeholder"><span>QUT logo</span></div>
+        <div class="logo-placeholder"><span>University of Sydney logo</span></div>
+        <div class="logo-placeholder"><span>Digital Media Research Centre logo</span></div>
+        <div class="logo-placeholder"><span>Australian Research Council logo</span></div>
+        <div class="logo-placeholder"><span>Australian Internet Observatory logo</span></div>
+        <div class="logo-placeholder"><span>ARDC / NCRIS logo</span></div>
+    </div>
     <p class="prose">
-        Read more at <a href="https://www.foryouresearch.net/" target="_blank" rel="noopener">foryouresearch.net</a>,
-        follow the project on <a href="https://www.linkedin.com/company/107376504/" target="_blank" rel="noopener">LinkedIn</a>
+        Follow the project on <a href="https://www.linkedin.com/company/107376504/" target="_blank" rel="noopener">LinkedIn</a>
         or <a href="https://www.tiktok.com/@for.you.research" target="_blank" rel="noopener">TikTok</a>,
-        or contact the team at <a href="mailto:foryou@qut.edu.au">foryou@qut.edu.au</a>.
+        or contact the team at <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a>.
         {% if repo_url %}Questions and bug reports about the software itself are best raised on
         <a href="{{ repo_issues_url }}" target="_blank" rel="noopener">GitHub</a>.{% endif %}
     </p>

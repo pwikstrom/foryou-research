@@ -1,0 +1,100 @@
+{% extends 'public/base_public.html' %}
+
+{% block public_content %}
+
+<section class="landing-hero reveal">
+    <h1 class="hero-title hero-title--gradient">What does your For You Page say about you?</h1>
+    <p class="hero-subtitle landing-hero-sub">
+        Share your TikTok data with us and find out. You'll get a fresh look at your own
+        feed, and you'll help researchers figure out how the algorithm really works.
+    </p>
+    <div class="landing-hero-ctas">
+        <a href="https://www.foryouparticipate.net/tiktok/index.html" target="_blank" rel="noopener"
+            class="btn-primary public-cta">Show me how →</a>
+    </div>
+</section>
+
+<section class="landing-section reveal">
+    <div class="story-row">
+        <div class="story-row__text">
+            <div class="story-row__eyebrow story-row__eyebrow--pink">Interesting</div>
+            <h2 class="text-h2 font-semibold">Meet your TikTok personality</h2>
+            <p class="prose">
+                Your feed is one of a kind. Share it and we'll show you your TikTok
+                personality profile: what you binge, when you scroll, and what makes
+                your For You Page yours.
+            </p>
+        </div>
+        <div class="story-row__media">
+            <img src="{{ url_for('static', filename='landing/participate/tiktok-personality.webp') }}"
+                alt="A spread of TikTok personality profile cards: binge score, topic mix, peak scrolling time and personality vibe" loading="lazy">
+            <span class="ai-image-tag">AI generated image</span>
+        </div>
+    </div>
+
+    <div class="story-row story-row--flip">
+        <div class="story-row__text">
+            <div class="story-row__eyebrow story-row__eyebrow--orange">Easy</div>
+            <h2 class="text-h2 font-semibold">Two minutes, tops</h2>
+            <p class="prose">
+                Ask TikTok for a copy of your data (it's a couple of taps in the app),
+                then upload it to us. We walk you through every step, and you pick
+                what to include.
+            </p>
+        </div>
+        <div class="story-row__media">
+            <img src="{{ url_for('static', filename='landing/participate/two-minutes.webp') }}"
+                alt="Hands holding a phone on TikTok's Download your data screen" loading="lazy">
+            <span class="ai-image-tag">AI generated image</span>
+        </div>
+    </div>
+
+    <div class="story-row">
+        <div class="story-row__text">
+            <div class="story-row__eyebrow story-row__eyebrow--teal">Safe</div>
+            <h2 class="text-h2 font-semibold">Your data stays yours</h2>
+            <p class="prose">
+                Sharing is anonymous and voluntary. Everything is handled under
+                university research ethics, only approved researchers can touch it,
+                and findings are about patterns, never about you.
+            </p>
+        </div>
+        <div class="story-row__media">
+            <img src="{{ url_for('static', filename='landing/participate/safe.webp') }}"
+                alt="A key and a fingerprint reader beside an "Ethics Board Approved" sign, securing participant data" loading="lazy">
+            <span class="ai-image-tag">AI generated image</span>
+        </div>
+    </div>
+
+    <div class="story-row story-row--flip">
+        <div class="story-row__text">
+            <div class="story-row__eyebrow story-row__eyebrow--violet">A good deed</div>
+            <h2 class="text-h2 font-semibold">Help decode the algorithm</h2>
+            <p class="prose">
+                TikTok decides what millions of people see, and nobody outside TikTok
+                knows quite how. Your feed helps researchers at QUT and the University
+                of Sydney change that, for everyone.
+                <a href="{{ url_for('public_bp.about') }}">Meet the project →</a>
+            </p>
+        </div>
+        <div class="story-row__media">
+            <img src="{{ url_for('static', filename='landing/participate/good-deed.webp') }}"
+                alt="Three young researchers decoding the algorithm in front of a colorful network map" loading="lazy">
+            <span class="ai-image-tag">AI generated image</span>
+        </div>
+    </div>
+</section>
+
+<section class="landing-section landing-cta-band landing-cta-band--participate reveal">
+    <div class="landing-hero-ctas">
+        <a href="https://www.foryouparticipate.net/tiktok/index.html" target="_blank" rel="noopener"
+            class="btn-primary public-cta">I'm ready to share my TikTok data →</a>
+    </div>
+    <p class="text-sm participate-cta-note">
+        You'll continue on our secure participation site, foryouparticipate.net, run by QUT.
+        Curious how it works as research?
+        <a href="{{ url_for('public_bp.data_donation') }}">Read about data donation</a>.
+    </p>
+</section>
+
+{% endblock %}
