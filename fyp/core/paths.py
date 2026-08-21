@@ -57,5 +57,4 @@ AIO_FETCH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_aio_fetch.py"
 COLLECTION_METADATA_REFRESH_SCRIPT = PROJECT_ROOT / "web_interface" / "run_collection_metadata_refresh.py"
 COLLECTION_DELETE_SCRIPT = PROJECT_ROOT / "web_interface" / "run_collection_delete.py"
 AB_EVAL_SCRIPT = PROJECT_ROOT / "web_interface" / "run_ab_eval.py"
-DEMO_DATASET_SCRIPT = PROJECT_ROOT / "web_interface" / "run_demo_dataset.py"
 PYTHON_EXEC = sys.executable

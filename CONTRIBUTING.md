@@ -16,9 +16,8 @@ A useful bug report includes:
 - the relevant traceback or log lines, with any participant data removed.
 
 Please **do not** attach donation exports, activity data, or anything else
-that identifies a participant. A structural description or a synthetic
-reproduction is enough — `scripts/generate_demo_dataset.py` produces
-shareable synthetic data for exactly this purpose.
+that identifies a participant. A structural description, or a small
+hand-built file with the same shape and invented values, is enough.
 
 Security vulnerabilities are the exception: report those privately, as
 described in [SECURITY.md](SECURITY.md), not as public issues.

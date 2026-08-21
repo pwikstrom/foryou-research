@@ -105,7 +105,7 @@ foryou-research/
 │   │   ├── base.py              # ForYouBaseCollection ABC + ForYouCollection; parse_donor_timezone(); registered_raw_locations();
 │   │   │                        #   per-file intake stats (file_stats_this_run: true raw counts + not_parseable/missing_required
 │   │   │                        #   drop reasons) persisted via the ingestion ledger (processed_rows/deduped_rows/dropped)
-│   │   ├── tiktok.py            # TikTokDDPCollection / TikTokAIOCollection / TikTokZeeschuimerCollection / TikTokDemoCollection (synthetic demo, data_source="demo")
+│   │   ├── tiktok.py            # TikTokDDPCollection / TikTokAIOCollection / TikTokZeeschuimerCollection
 │   │   ├── instagram.py         # InstagramDDPCollection
 │   │   └── youtube.py           # YouTubeDDPCollection
 │   ├── scrape/                  # Package (replaced the old fyp/scrape.py module); __init__ re-exports the old API
@@ -187,7 +187,6 @@ foryou-research/
 │   ├── run_queue_annotator_batch.py   # Batch-mode Gemini annotation (Cloud Task)
 │   ├── run_ab_eval.py           # Prompt A/B eval run (Cloud Task)
 │   ├── run_retokenise_hashtags.py     # Retroactive hashtag-stoplist cleanup (Cloud Task)
-│   ├── run_demo_dataset.py      # Generate + install the synthetic demo dataset (Cloud Task; admin button on DM → Ingestion)
 │   ├── services/                # Backend logic extracted from routes: study_data, timeline_service,
 │   │                            #   analysis_data, user_variables, stats_service, preview_cache, worker_status,
 │   │                            #   methods_note (per-study methods/provenance note — {study}_methods.json in
@@ -245,7 +244,7 @@ foryou-research/
 │       └── css/                 # (empty — styles in style.css)
 ├── tests/                       # pytest suite: unit/ + golden/ (annotation safety net) + bench/ + debug/ + conftest.py
 ├── tmp/                         # Temporary test/debug data
-├── scripts/                     # verify.sh gate, gen_route_inventory.py, generate_demo_dataset.py (CLI over fyp/ingest/demo_dataset.py), migrations, adhoc/ one-offs
+├── scripts/                     # verify.sh gate, gen_route_inventory.py, migrations, adhoc/ one-offs
 ├── docs/                        # Human-oriented docs (architecture, configuration, pipeline, web layer, routes)
 ├── Dockerfile
 ├── pyproject.toml               # Packaging ([project] fyp-pipeline) + ruff + pytest config
