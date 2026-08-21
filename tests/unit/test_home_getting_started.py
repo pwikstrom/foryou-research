@@ -75,8 +75,8 @@ def test_panel_renders_for_default_viewer(client, monkeypatch):
         assert label in html
     # No ingestion permission -> no upload pointer
     assert "Have participant data to add?" not in html
-    # Guide is linked
-    assert "/guide" in html
+    # The Hub guide page is linked
+    assert "/thehub" in html
 
 
 
