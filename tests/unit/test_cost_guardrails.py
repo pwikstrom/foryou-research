@@ -106,20 +106,6 @@ def test_cap_under_limit_is_untouched(app_ctx, monkeypatch):
 
 
 
-def test_demo_items_never_enter_queues(app_ctx, monkeypatch):
-    """Synthetic demo ids are dropped from every queue build (S4)."""
-    from fyp.core.utils import DEMO_ITEM_ID_PREFIX
-    from web_interface.routes.management.enrichment import _apply_queue_cap
-
-    _set_caps(monkeypatch, annotation=100)
-    demo_id = DEMO_ITEM_ID_PREFIX + "0" * 15
-    kept, info = _apply_queue_cap(["7000000000000000001", demo_id], "annotation")
-
-    assert kept == ["7000000000000000001"]
-    assert info["requested"] == 1
-
-
-
 
 def test_get_queue_cap_defaults_and_coercion(monkeypatch):
     from web_interface import admin_settings

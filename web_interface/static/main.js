@@ -1116,6 +1116,22 @@ async function updateStatus() {
 
         updateDmSidebarSpinners(data);
 
+        // An ingest finishing is news to EVERY open tab, not just the one that
+        // clicked Process New Collections. pollIngestRefreshStatus refreshes
+        // the clicking tab; without this, any other tab keeps showing the
+        // pre-ingest collection list — and because the Edit Collections table
+        // only lazy-renders while it is still empty, revisiting that sub-page
+        // does not re-render it either. The newly ingested collections then
+        // stay invisible until a full page reload.
+        {
+            const ir = data.ingest_refresh;
+            if (ir && previousProcessStates.ingest_refresh === 'running' && ir.state !== 'running') {
+                if (typeof loadAvailableCollections === 'function') loadAvailableCollections();
+                if (typeof loadIngestionSources === 'function') loadIngestionSources();
+            }
+            if (ir) previousProcessStates.ingest_refresh = ir.state;
+        }
+
         // Update global running-tasks badge
         const runningNames = Object.entries(data)
             .filter(([, v]) => v && (v.state === 'running' || v.state === 'stopping'))
@@ -1516,7 +1532,7 @@ function formatETA(seconds) {
 
 // Tail whichever log the modal is showing. This used to iterate a hardcoded
 // list of process names, so the six cards missing from it (pca_refresh,
-// embeddings_refresh, sessions_refresh, video_map_refresh, demo_dataset,
+// embeddings_refresh, sessions_refresh, video_map_refresh,
 // consolidate_enrichment) rendered a snapshot on open and then froze.
 async function updateLogs() {
     if (!_activeLogModal) return;

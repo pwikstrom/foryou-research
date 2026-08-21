@@ -134,9 +134,6 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
                     # tab enables everywhere once it exists and shows a
                     # per-study empty state when no sessions match.
                     stats['has_sessions'] = "sessions_index.parquet" in cache_files
-                    # Synthetic demo studies are flagged so the study picker
-                    # never auto-selects them over a real study.
-                    stats['synthetic'] = bool(study_config.get('SYNTHETIC'))
                     accessible_studies.append({"name": study_name, "stats": stats})
                 else:
                     accessible_studies.append(study_name)

@@ -3947,6 +3947,9 @@ function rejectStructureWarning(btn, filename, done) {
 function updateProcessButton(totalPending) {
     const btn = document.getElementById('processRawFilesBtn');
     if (!btn) return;
+    // A refresh landing mid-run (the demo hand-off calls this) must not undo
+    // the in-flight "Processing…" state that pollIngestRefreshStatus owns.
+    if (_ingestRefreshPollActive) return;
     if (totalPending > 0) {
         btn.textContent = `Process New Collections (${totalPending} pending)`;
         btn.classList.add('btn-has-pending');
@@ -4055,20 +4058,6 @@ function showToast(message, level = 'success', duration = 5000) {
         toast.style.transform = 'translateX(20px)';
         setTimeout(() => toast.remove(), 250);
     }, duration);
-}
-
-async function startDemoDataset() {
-    const ok = await showAppConfirm(
-        'Generate the synthetic demo dataset?\n\n' +
-        'This installs 5 synthetic donor files (as pending "TikTok demo" uploads), a ' +
-        'fabricated scrape batch and annotations, and creates the "Demo study ' +
-        '(synthetic data)" definition if it does not exist. Deterministic and safe to ' +
-        're-run — a repeat overwrites the same artifacts.\n\n' +
-        'Afterwards, run Process New Collections here, then Consolidate & Refresh.',
-        { title: 'Generate demo dataset', okLabel: 'Generate' }
-    );
-    if (!ok) return;
-    startProcess('demo_dataset');
 }
 
 async function clearPendingUploads(btn) {
@@ -4706,11 +4695,14 @@ window.refreshIngestionCollection = function (btn) {
                 pollIngestRefreshStatus(btn, originalText, originalClass);
             } else {
                 console.error("Ingestion refresh error:", data.message || data.error);
+                showToast('Could not start processing: '
+                    + (data.message || data.error || 'unknown error'), 'error', 10000);
                 restoreButton();
             }
         })
         .catch(err => {
             console.error("Error triggering refresh:", err);
+            showToast('Could not reach the server to start processing.', 'error', 10000);
             restoreButton();
         });
 }
@@ -5104,6 +5096,10 @@ function pollIngestRefreshStatus(btn, originalText, originalClass) {
 
                 if (ir.last_run_outcome === 'Fail') {
                     console.error('Ingestion refresh failed.');
+                    // Without this the button just snapped back to its idle
+                    // label and the failure was invisible outside the console.
+                    showToast('Processing new collections failed — the pending files were not ingested. '
+                        + 'Open View Log next to the button for the error.', 'error', 15000);
                 }
                 renderIngestResultsPanel(ir.data || {});
                 loadAvailableCollections();

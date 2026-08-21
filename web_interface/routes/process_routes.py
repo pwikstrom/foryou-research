@@ -12,7 +12,6 @@ from fyp.core import logging_setup
 from web_interface import activity_log, run_logs, task_failures
 from fyp.fyp_config import (
     CONSOLIDATE_ENRICHMENT_SCRIPT,
-    DEMO_DATASET_SCRIPT,
     EMBEDDINGS_REFRESH_SCRIPT,
     META_REFRESH_GROUPS_SCRIPT,
     PCA_REFRESH_SCRIPT,
@@ -93,9 +92,6 @@ QUEUE_RETRY_SAFE: set[str] = {
     "retokenise_hashtags",
     "benchmark_parquet_read",
     "aio_fetch",
-    # Deterministic generator with fixed output filenames — a retry simply
-    # overwrites the same artifacts.
-    "demo_dataset",
 }
 
 # Total attempts the app is willing to see for a retry-safe task. Must not
@@ -219,7 +215,6 @@ def api_start(name):
         "embeddings_refresh": EMBEDDINGS_REFRESH_SCRIPT,
         "video_map_refresh": VIDEO_MAP_REFRESH_SCRIPT,
         "sessions_refresh": SESSIONS_REFRESH_SCRIPT,
-        "demo_dataset": DEMO_DATASET_SCRIPT,
     }
     
     success, msg = start_process(name, script_map[name], args, study_name=study_name,
@@ -636,7 +631,6 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_collection_delete import run_collection_delete
     from web_interface.run_collection_metadata_refresh import run_collection_metadata_refresh
     from web_interface.run_consolidate_enrichment import run_consolidate_enrichment
-    from web_interface.run_demo_dataset import run_demo_dataset
     from web_interface.run_embeddings_refresh import run_embeddings_refresh
     from web_interface.run_ingest_refresh import run_ingest_refresh
     from web_interface.run_meta_refresh_groups import run_meta_refresh_groups
@@ -677,7 +671,6 @@ def _ensure_task_functions_loaded() -> None:
         "video_map_refresh": run_video_map_refresh,
         "retokenise_hashtags": run_retokenise_hashtags,
         "ab_eval": run_ab_eval,
-        "demo_dataset": run_demo_dataset,
     })
 
 

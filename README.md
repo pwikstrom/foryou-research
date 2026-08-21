@@ -43,7 +43,7 @@ The Hub currently supports the three largest short-video platforms, but it is es
 | `web_interface/` | Flask app (dashboard + API) and background worker scripts (`run_*.py`) |
 | `config/` | `config.toml` plus four declarative TOML contracts that own the variable schemas |
 | `tests/` | `unit/` (pytest suite) and `golden/` (cost-free annotation regression suite) — both run by CI |
-| `scripts/` | Setup, verification (`verify.sh`), demo-data generation, and doc generators |
+| `scripts/` | Setup, verification (`verify.sh`), and doc generators |
 | `docs/` | Documentation: architecture, configuration, web layer, pipeline |
 
 `DEVELOPING.md` is the maintainer guide: environment, coding style, module

@@ -152,8 +152,8 @@ def save_study():
 
     # A study must explicitly enumerate its collections: an empty list would
     # silently select EVERY collection at recode time (organize_datasets only
-    # appends the collection_id filter when the list is non-empty), which is
-    # how a study could sweep in e.g. the synthetic demo collections.
+    # appends the collection_id filter when the list is non-empty), so a study
+    # could silently sweep in every collection in the corpus.
     effective_collections = data.get(
         'SELECTED_COLLECTIONS',
         studies.get(study_name, {}).get('SELECTED_COLLECTIONS'),
