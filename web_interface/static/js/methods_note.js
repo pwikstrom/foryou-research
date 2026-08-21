@@ -64,14 +64,6 @@ function renderStudyMethodsNote(study, note) {
 
     parts.push(`<h3 class="text-h3" style="margin-top:0;">How "${escapeHtml(study)}" was built</h3>`);
 
-    const provenance = note.data_provenance || {};
-    if (provenance.synthetic) {
-        parts.push('<p class="text-sm font-semibold" style="color: var(--color-warning, var(--color-text-muted));">You are exploring synthetic demonstration data — nothing here comes from real people.</p>');
-        if (provenance.synthetic_label) {
-            parts.push(`<p class="text-sm">${escapeHtml(provenance.synthetic_label)}</p>`);
-        }
-    }
-
     if (stale) {
         parts.push('<p class="text-sm" style="color: var(--color-warning, var(--color-text-muted));">The study data has been rebuilt since this note was written — refresh the study to update it.</p>');
     }

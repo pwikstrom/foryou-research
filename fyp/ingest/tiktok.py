@@ -101,6 +101,27 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
         df = df.copy()
 
+        # An empty group never reaches the unpacking below intact: `.map()` on
+        # an empty column returns a non-boolean Series, which pandas reads as a
+        # list of *column labels* rather than a row mask, so `df[mask]` comes
+        # back with zero columns and the next lookup raises a baffling
+        # KeyError. Bail out while the frame still has its schema.
+        if len(df) == 0:
+            return df
+
+        # `variable_list` / `value_list` arrive as pyarrow-backed list columns
+        # whenever every donated value was a string, because the per-file
+        # frames then stack cleanly inside fast_vertical_concat — exports
+        # carrying nested values force its object-dtype pandas fallback
+        # instead, which is why this only bites the flat ones. On an Arrow
+        # list column `.map()` hands the callback a numpy array instead of a
+        # list, so the `isinstance(x, list)` test below rejects every row.
+        # Unpack back to plain object-dtype lists so the dtype the concat
+        # happened to pick cannot change what this parser sees.
+        for col in ("variable_list", "value_list"):
+            if col in df.columns and df[col].dtype != object:
+                df[col] = pd.Series(list(df[col]), index=df.index, dtype=object)
+
         # -----------------------------------------------------
         # unpack the variable/value list. The two lists variable & value list contain a label (e.g. 'link')
         # and the value (e.g. 'https://www.tiktok.com/...') at the corresponding indeces. At index 0 is always the date
@@ -110,15 +131,21 @@ class TikTokDDPCollection(ForYouBaseCollection):
         # so I keep activities/rows that have at least two elements in the variable_list and the first element is 'date'
         mask_date = df['variable_list'].map(lambda x: isinstance(x, list) and len(x) > 1 and x[0] == 'date')
         df = df[mask_date].copy()
+        if len(df) == 0:
+            return df
 
         mask_activity_type = df['activity_type'].map(lambda x:"chat history with" not in x)
         df = df[mask_activity_type].copy()
+        if len(df) == 0:
+            return df
 
         # get the date from index zero (I don't need the variable name)
         df['date'] = pd.to_datetime(df['value_list'].str[0], format='%Y-%m-%d %H:%M:%S', errors='coerce')
 
         # remove rows with invalid dates
         df = df[df['date'].notna()].copy()
+        if len(df) == 0:
+            return df
 
         if self.verbose:
             logger.info(f"   [{df['raw_file'].iloc[0]}] Keeping {len(df):,} rows w OK timestamp.")
@@ -456,20 +483,3 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
 
 
 
-class TikTokDemoCollection(TikTokDDPCollection):
-    """Synthetic demonstration donations in the TikTok DDP JSON format.
-
-    Same parser as TikTokDDPCollection, but a separate ``data_source`` so the
-    demo material stays fully isolated from real DDP uploads: its own raw
-    upload location (``demo_raw``), its own structure-sentinel baseline key
-    (``tiktok_demo`` — the armed ``tiktok_ddp`` baseline never learns
-    synthetic fingerprints), and its own collection ids. Demo files are
-    produced by ``scripts/generate_demo_dataset.py``.
-    """
-
-    raw_path = "demo_raw"
-
-    def __init__(self, collection_id: str = None, verbose: bool = False):
-        super().__init__(collection_id, verbose)
-        self.data_source = "demo"
-        self.raw_path = "demo_raw"

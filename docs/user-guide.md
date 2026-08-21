@@ -28,12 +28,9 @@ username, role and a Logout link.
 Everything on the analysis tabs revolves around a **study** — a named dataset
 a researcher defines from a set of participant collections, a date window and
 sampling rules. Pick your active study from the dropdown in the header; every
-analysis tab works against it. Two useful facts for new users:
-
-- A **Demo study (synthetic data)** may be offered in the picker — computer
-  generated data you can explore freely without touching real research data.
-- An empty picker is normal for a new account: studies are shared explicitly
-  (per role or per user), so ask the researcher who invited you to share one.
+analysis tab works against it. One useful fact for new users: an empty
+picker is normal for a new account, because studies are shared explicitly
+(per role or per user) — ask the researcher who invited you to share one.
 
 ### The tab bar
 
@@ -358,7 +355,7 @@ dataset; a **Structure review** panel quarantines uploads that deviate from
 the learned structure of past donations until you approve them; the **Last
 run results** and permanent **Ingestion history** panels record what happened
 to every file (rows read, rows kept, why rows were dropped — uploaded files
-are never modified). Admins can also generate a synthetic demo dataset here.
+are never modified).
 
 **Edit Collections.** Search and multi-select already-ingested collections,
 then edit them: change the display ID, add or remove tags, hide a collection

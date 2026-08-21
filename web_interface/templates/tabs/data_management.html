@@ -10,7 +10,7 @@
         <div class="dm-sidebar-item active" data-page="dm-page-ingestion" onclick="openDataManagementPage('dm-page-ingestion', this)">
             Ingest Collections
             <span class="dm-sidebar-spinner global-tasks-spinner" style="display: none;"
-                data-procs="ingest_refresh,aio_fetch,demo_dataset"></span>
+                data-procs="ingest_refresh,aio_fetch"></span>
         </div>
         {% endif %}
         {% if user.can_access('tab.data_management.edit_collections') %}

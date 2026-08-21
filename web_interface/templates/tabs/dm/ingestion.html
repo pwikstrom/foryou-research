@@ -35,15 +35,10 @@
     <button type="button" class="action-btn" id="processRawFilesBtn"
         onclick="refreshIngestionCollection(this)"
         style="padding: 6px 12px;" disabled>Process New Collections</button>
+    <a class="text-xs view-log-link" onclick="openLogModal('ingest_refresh', 'Process New Collections')">View Log</a>
     <button type="button" class="action-btn" id="clearPendingUploadsBtn"
         onclick="clearPendingUploads(this)"
         style="padding: 6px 12px; display: none;">Cancel All Pending Uploads</button>
-    {% if current_user.is_admin() %}
-    <span style="flex: 1;"></span>
-    <button type="button" class="btn-discreet text-xs" onclick="startDemoDataset()"
-        style="padding: 6px 12px;">Generate demo dataset</button>
-    <a class="text-xs view-log-link" onclick="openLogModal('demo_dataset', 'Demo dataset')">View Log</a>
-    {% endif %}
 </div>
 
 <div id="ingest-results-panel" style="margin-top: 24px; display: none;">

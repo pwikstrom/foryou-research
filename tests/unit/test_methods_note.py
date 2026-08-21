@@ -133,24 +133,7 @@ def test_build_methods_note_full(stub_io):
     assert note["freshness"]["refresh_trigger"] == "study_save"
     assert note["freshness"]["row_level_fields_from"] == "dataframe"
 
-    # A regular study is explicitly flagged non-synthetic.
-    assert note["data_provenance"] == {"synthetic": False, "synthetic_label": None}
 
-
-
-
-def test_build_methods_note_synthetic_flag(stub_io):
-    config = _study_config()
-    config["SYNTHETIC"] = True
-    note = methods_note.build_methods_note(
-        study_name="demo_study",
-        study_config=config,
-        df_study=None,
-    )
-    prov = note["data_provenance"]
-    assert prov["synthetic"] is True
-    assert "computer-generated" in prov["synthetic_label"]
-    assert note["schema_version"] == 2
 
 
 
