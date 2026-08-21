@@ -79,6 +79,7 @@ from .management.ab_eval import (  # noqa: F401
 )
 from .management.collections import (  # noqa: F401
     _affected_studies_for_collection,
+    _affected_studies_for_collections,
     _find_raw_file_locations,
     affected_studies_for_collection,
     delete_collection,

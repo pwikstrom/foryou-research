@@ -12,12 +12,17 @@ from web_interface.task_status import TaskStatusReporter
 
 
 def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
-    """Delete a collection: drop its rows from the recoded/metadata parquets,
-    remove it from collections_tags.json and every study's SELECTED_COLLECTIONS,
-    archive its raw upload files, and invalidate study caches.
+    """Delete one or more collections: drop their rows from the recoded/metadata
+    parquets, remove them from collections_tags.json and every study's
+    SELECTED_COLLECTIONS, archive their raw upload files, and invalidate study
+    caches.
 
     Heavy enough to OOM the data-hub if run inline (loads + rewrites the
-    1+ GB collections_recoded.parquet), so it lives on the task-runner.
+    1+ GB collections_recoded.parquet), so it lives on the task-runner. Several
+    collections are handled in ONE pass over that frame for the same reason:
+    a task per collection would reload and rewrite it once each.
+
+    Takes ``collection_ids`` (list) or the older single ``collection_id``.
 
     After the delete itself, dispatches a study_refresh Cloud Task for each
     affected study so their cached files get rebuilt without the deleted rows.
@@ -32,15 +37,28 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
     )
     from web_interface.process_manager import start_process
     from web_interface.routes.management_routes import (
-        _affected_studies_for_collection,
+        _affected_studies_for_collections,
         _find_raw_file_locations,
     )
 
     task_args = task_args or {}
-    collection_id = (task_args.get("collection_id") or "").strip()
-    if not collection_id:
+    raw_ids = task_args.get("collection_ids")
+    if not isinstance(raw_ids, (list, tuple)):
+        raw_ids = [task_args.get("collection_id")]
+    collection_ids: list[str] = []
+    for value in raw_ids:
+        cid = str(value or "").strip()
+        if cid and cid not in collection_ids:
+            collection_ids.append(cid)
+    if not collection_ids:
         reporter.fail("Missing collection_id in task_args")
         return None
+
+    id_set = set(collection_ids)
+    subject = (
+        f"'{collection_ids[0]}'" if len(collection_ids) == 1
+        else f"{len(collection_ids)} collections"
+    )
 
     init_study_defs()
 
@@ -50,15 +68,16 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
 
     _t_start = time.perf_counter()
 
-    # 1. Load events parquet and discover raw files referenced by this
-    # collection. Done first so a load failure leaves all state intact.
-    reporter.update_progress(0, f"Loading activity events to plan delete of '{collection_id}'...")
+    # 1. Load events parquet and discover raw files referenced by these
+    # collections. Done first so a load failure leaves all state intact.
+    reporter.update_progress(0, f"Loading activity events to plan delete of {subject}...")
     raw_files: list[str] = []
     events_df = None
+    mask = None
     if data_io.exists(storage_location="recoded", filename=recoded_fn):
         events_df = data_io.load_parquet(storage_location="recoded", filename=recoded_fn)
         if events_df is not None and 'collection_id' in events_df.columns:
-            mask = events_df['collection_id'].astype(str) == str(collection_id)
+            mask = events_df['collection_id'].astype(str).isin(id_set)
             if mask.any() and 'raw_file' in events_df.columns:
                 raw_files = (
                     events_df.loc[mask, 'raw_file']
@@ -69,10 +88,10 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
                 )
     raw_locations = _find_raw_file_locations(raw_files)
     rows_total = len(events_df) if events_df is not None else 0
-    rows_to_drop = int(mask.sum()) if events_df is not None and 'collection_id' in (events_df.columns if events_df is not None else []) else 0
+    rows_to_drop = int(mask.sum()) if mask is not None else 0
     reporter.log(
-        f"Loaded {rows_total:,} events; {rows_to_drop:,} belong to '{collection_id}'; "
-        f"{len(raw_files)} raw file(s) referenced."
+        f"Loaded {rows_total:,} events; {rows_to_drop:,} belong to {subject} "
+        f"({', '.join(collection_ids)}); {len(raw_files)} raw file(s) referenced."
     )
 
     # 2. Snapshot study_defs and tags so we can roll back the JSON edits if a
@@ -83,48 +102,48 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
     if data_io.exists(storage_location="recoded", filename=tags_fn):
         tags_snapshot = data_io.load_json(storage_location="recoded", filename=tags_fn) or {}
 
-    affected_studies = _affected_studies_for_collection(collection_id)
+    affected_studies = _affected_studies_for_collections(collection_ids)
     reporter.log(f"{len(affected_studies)} affected study/studies: {affected_studies or '[]'}")
 
     try:
-        # 3. Update studies.json: drop collection_id from each affected study.
+        # 3. Update studies.json: drop the collection ids from each affected study.
         if affected_studies:
-            reporter.update_progress(20, f"Removing '{collection_id}' from {len(affected_studies)} study definition(s)...")
+            reporter.update_progress(20, f"Removing {subject} from {len(affected_studies)} study definition(s)...")
             for sname in affected_studies:
                 sel = fyp_cf['study_defs'][sname].get('SELECTED_COLLECTIONS') or []
                 fyp_cf['study_defs'][sname]['SELECTED_COLLECTIONS'] = [
-                    c for c in sel if c != collection_id
+                    c for c in sel if str(c) not in id_set
                 ]
             save_study_defs()
 
-        # 4. Update collections_tags.json: drop the key.
-        if tags_snapshot is not None and collection_id in tags_snapshot:
+        # 4. Update collections_tags.json: drop the keys.
+        if tags_snapshot is not None and (id_set & set(tags_snapshot)):
             reporter.update_progress(25, "Updating collection tags...")
-            updated_tags = {k: v for k, v in tags_snapshot.items() if k != collection_id}
+            updated_tags = {k: v for k, v in tags_snapshot.items() if str(k) not in id_set}
             data_io.save_json(
                 data=updated_tags, storage_location="recoded", filename=tags_fn
             )
 
-        # 5. Rewrite collections_metadata.parquet without the collection's row.
+        # 5. Rewrite collections_metadata.parquet without the collections' rows.
         # Handles both layouts: collection_id as a column or as the index.
         if data_io.exists(storage_location="recoded", filename=metadata_fn):
             reporter.update_progress(30, "Rewriting collection metadata parquet...")
             md = data_io.load_parquet(storage_location="recoded", filename=metadata_fn)
             if md is not None and not md.empty:
                 if 'collection_id' in md.columns:
-                    md = md[md['collection_id'].astype(str) != str(collection_id)]
+                    md = md[~md['collection_id'].astype(str).isin(id_set)]
                 else:
                     if md.index.name != 'collection_id':
                         md.index.name = 'collection_id'
-                    md = md.drop(index=collection_id, errors='ignore')
+                    md = md.drop(index=list(id_set), errors='ignore')
                 data_io.save_parquet(
                     df=md, storage_location="recoded", filename=metadata_fn
                 )
 
-        # 6. Rewrite collections_recoded.parquet without the collection's rows.
-        if events_df is not None and 'collection_id' in events_df.columns:
+        # 6. Rewrite collections_recoded.parquet without the collections' rows.
+        if events_df is not None and mask is not None:
             reporter.update_progress(45, f"Rewriting activity events parquet (dropping {rows_to_drop:,} rows)...")
-            kept = events_df[events_df['collection_id'].astype(str) != str(collection_id)]
+            kept = events_df[~mask]
             data_io.save_parquet(
                 df=kept, storage_location="recoded", filename=recoded_fn
             )
@@ -234,7 +253,10 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
 
     _t_total = time.perf_counter() - _t_start
     reporter.emit_data({
-        "collection_id": collection_id,
+        # collection_id is kept for anything still reading the single-collection
+        # shape; collection_ids is the full set this run deleted.
+        "collection_id": collection_ids[0],
+        "collection_ids": collection_ids,
         "rows_dropped": rows_to_drop,
         "affected_studies": affected_studies,
         "archived_files": archived,
@@ -244,7 +266,7 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
     })
     reporter.update_progress(
         100,
-        f"Deleted '{collection_id}': dropped {rows_to_drop:,} rows, archived {len(archived)} raw file(s), "
+        f"Deleted {subject}: dropped {rows_to_drop:,} rows, archived {len(archived)} raw file(s), "
         f"queued {len(refresh_dispatched)} study refresh(es) ({_t_total:.0f}s).",
     )
     reporter.log(
@@ -266,9 +288,9 @@ if __name__ == "__main__":
         run_collection_delete,
         "collection_delete",
         arg_specs=[
-            (('--collection-id',), {'required': True,
-                                    'help': 'Collection ID to delete.'}),
+            (('--collection-id',), {'required': True, 'action': 'append',
+                                    'help': 'Collection ID to delete. Repeat for several.'}),
         ],
-        make_task_args=lambda args: {"collection_id": args.collection_id},
-        description="Delete a collection",
+        make_task_args=lambda args: {"collection_ids": args.collection_id},
+        description="Delete one or more collections",
     )

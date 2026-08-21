@@ -562,7 +562,7 @@ function sessRenderPager(data) {
 const SESS_COLUMNS = [
     { key: 'collection_id', label: 'Collection', defaultOrder: 'asc' },
     { key: 'start_ts', label: 'Start', defaultOrder: 'desc' },
-    { key: 'duration_min', label: 'Length', defaultOrder: 'desc' },
+    { key: 'duration_min', label: 'Duration', defaultOrder: 'desc' },
     { key: 'n_plays', label: 'Plays', defaultOrder: 'desc' },
     { key: 'coverage_embedded', label: 'Coverage', defaultOrder: 'desc',
       tooltip: 'Share of the session’s distinct videos with a semantic embedding. '

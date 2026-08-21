@@ -992,6 +992,10 @@ def _task_args_to_cli(name: str, task_args: dict) -> list[str]:
         out += ["--hours-back", str(task_args["hours_back"])]
     if task_args.get("collection_id"):
         out += ["--collection-id", str(task_args["collection_id"])]
+    # collection_delete takes several: the flag repeats (argparse 'append').
+    if task_args.get("collection_ids"):
+        for _cid in task_args["collection_ids"]:
+            out += ["--collection-id", str(_cid)]
     if task_args.get("run_id"):
         out += ["--run-id", str(task_args["run_id"])]
     if task_args.get("candidate_names"):

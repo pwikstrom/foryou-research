@@ -34,9 +34,13 @@ _MAP_CACHE: dict = {"fingerprint": None, "payload": None}
 # present in the map file are returned, so older maps degrade gracefully.
 # ``decimals`` overrides the payload rounding (default 4) for fields whose
 # values live well below 1, e.g. per-play engagement rates.
+# ``pct_field`` names a companion percentile column shipped alongside the
+# value: the raw reading is not one a reader can place, so the hover states it
+# in the same words the niche info bar uses (see _SS_TYPICALITY_BANDS).
 _OVERLAYS = [
     {"key": "category", "label": "Content category", "kind": "categorical", "field": "category"},
-    {"key": "typicality", "label": "Typicality", "kind": "numeric", "field": "typicality"},
+    {"key": "typicality", "label": "Typicality", "kind": "numeric", "field": "typicality",
+     "pct_field": "typicality_pct"},
     {"key": "platform", "label": "Platform", "kind": "categorical", "field": "source_platform"},
     {"key": "popularity", "label": "Popularity (plays)", "kind": "numeric", "field": "log_plays"},
     {"key": "faves_per_K_play", "label": "Faves per 1K plays", "kind": "numeric", "field": "faves_per_K_play", "decimals": 3},
@@ -139,7 +143,18 @@ def _build_payload() -> dict:
             points[field] = [round(float(v), decimals) if pd.notna(v) else None for v in col.tolist()]
         else:
             points[field] = col.astype("string").fillna("unknown").tolist()
-        overlays.append({"key": ov["key"], "label": ov["label"], "kind": ov["kind"], "field": field})
+        entry = {"key": ov["key"], "label": ov["label"], "kind": ov["kind"], "field": field}
+        # Companion percentile, when the map file carries one. Shipped at one
+        # decimal — the hover only bands it into a word, so more precision would
+        # be payload spent on digits nobody reads.
+        pct_field = ov.get("pct_field")
+        if pct_field and pct_field in mapped.columns:
+            points[pct_field] = [
+                round(float(v), 1) if pd.notna(v) else None
+                for v in mapped[pct_field].tolist()
+            ]
+            entry["pct_field"] = pct_field
+        overlays.append(entry)
 
     cat_shares = _niche_category_shares(df)
 

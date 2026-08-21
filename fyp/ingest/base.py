@@ -177,9 +177,17 @@ STUDIES_FILENAME = "studies.json"
 # outcome without rescanning, loading, processing, and re-deduping them.
 INGESTION_LEDGER_FILENAME = "ingestion_ledger.json"
 
-# Legacy flat list of "discarded" filenames (too-few-rows only). Read once on
-# first load to seed the ledger, then ignored. Not deleted from disk.
+# Legacy flat list of "discarded" filenames. Read once on first load to seed
+# the ledger, then ignored. Not deleted from disk. It is a bare list of names
+# with no counts, timestamps, provenance or reason, so its entries get their
+# own outcome rather than being reported as something the ledger never recorded.
 LEGACY_DISCARDED_FILENAME = "discarded_collection_files.json"
+
+# Marks a ledger entry seeded from LEGACY_DISCARDED_FILENAME. Ledgers written
+# before ``skipped_legacy`` existed stamped those entries ``discarded_at_load``
+# with a fabricated 0-row count; this note is what identifies them for the
+# in-place upgrade in _load_ledger.
+LEGACY_MIGRATION_NOTE = "migrated from legacy discarded_collection_files.json"
 
 # Outcomes whose files must NOT be reloaded on the next ingest. Stored on the
 # ledger entry. Membership in this set is the single source of truth for the
@@ -189,6 +197,7 @@ LEDGER_SKIP_OUTCOMES: set[str] = {
     "discarded_at_load",
     "manually_excluded",
     "quarantined_structure",
+    "skipped_legacy",
 }
 
 
@@ -1405,9 +1414,14 @@ class ForYouCollection(ForYouBaseCollection):
     def _load_ledger(self) -> None:
         """Load the per-file ingestion ledger from disk. If absent, fall back
         to seeding from the legacy flat ``discarded_collection_files.json``
-        (every entry becomes ``discarded_at_load``). The ``discarded_raw_files``
+        (every entry becomes ``skipped_legacy``). The ``discarded_raw_files``
         attribute is rebuilt as a derived view over the ledger so the rest of
         the pipeline (which still reads the flat list) continues to work.
+
+        Ledgers seeded before ``skipped_legacy`` existed are upgraded in place:
+        those entries claimed ``discarded_at_load`` ("too few rows") with a
+        0-row count, none of which the legacy file actually recorded. The
+        rewrite is in memory and reaches disk on the next ``save_ledger``.
         """
         ledger = None
         if data_io.exists(
@@ -1435,23 +1449,50 @@ class ForYouCollection(ForYouBaseCollection):
                     legacy_list = loaded
             files = {
                 fn: {
-                    "outcome": "discarded_at_load",
-                    "raw_rows": 0,
-                    "kept_rows": 0,
+                    "outcome": "skipped_legacy",
+                    # None, not 0: the legacy file recorded no counts at all,
+                    # and a zero here reads as "we read the file and found
+                    # nothing in it".
+                    "raw_rows": None,
+                    "kept_rows": None,
                     "collection_id": None,
                     "merged_with_siblings": [],
                     "platform": None,
                     "source": None,
                     "ts_first_seen": None,
                     "ts_last_seen": None,
-                    "notes": "migrated from legacy discarded_collection_files.json",
+                    "notes": LEGACY_MIGRATION_NOTE,
                 }
                 for fn in legacy_list
             }
             ledger = {"schema_version": 1, "files": files}
 
         self.ledger = ledger
+        self._upgrade_legacy_ledger_entries()
         self._refresh_discarded_from_ledger()
+
+
+
+
+    def _upgrade_legacy_ledger_entries(self) -> None:
+        """Re-stamp entries an older migration mislabelled ``discarded_at_load``.
+
+        They came from the legacy flat list, which carried no reason and no
+        counts — so "Skipped — too few rows / 0 rows read" was a claim the data
+        never supported. Matched on the migration note, which is the only thing
+        that distinguishes them from a real too-few-rows discard. Skip
+        behaviour is unchanged: both outcomes are in LEDGER_SKIP_OUTCOMES.
+        """
+        for entry in (self.ledger.get("files") or {}).values():
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("notes") != LEGACY_MIGRATION_NOTE:
+                continue
+            if entry.get("outcome") != "discarded_at_load":
+                continue
+            entry["outcome"] = "skipped_legacy"
+            entry["raw_rows"] = None
+            entry["kept_rows"] = None
 
 
 

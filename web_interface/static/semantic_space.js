@@ -125,6 +125,14 @@ const _SS_ISOLATION_BANDS = [
     [0, 'very crowded']
 ];
 
+// Which "Colour by" overlays can state their reading as a word on the point
+// hover, keyed by overlay key. Only overlays whose payload carries a companion
+// percentile (see the backend's `pct_field`) qualify — the rest have no scale
+// to band against, and inventing one would be worse than the bare number.
+const _SS_HOVER_BANDS = {
+    typicality: _SS_TYPICALITY_BANDS
+};
+
 // "Flash the closest niches": how many on/off pulses, and how long each half
 // lasts. Three pulses is long enough to follow across a wide map without the
 // control becoming an animation the reader has to wait out.
@@ -861,9 +869,21 @@ function renderSemanticSpace() {
     }
 
     const ovField = overlay ? overlay.field : null;
+    // A raw reading like "Typicality: 0.6743" is a number the reader cannot
+    // place, so where the backend ships a companion percentile the hover also
+    // states it in the same words the niche info bar uses. The percentile is
+    // the video's rank among all mapped videos — the bar's is the niche's rank
+    // among niches, so the two read on the same scale but not the same population.
+    const ovBands = overlay ? _SS_HOVER_BANDS[overlay.key] : null;
+    const ovPctField = (overlay && ovBands) ? overlay.pct_field : null;
     const hover = new Array(n);
     for (let i = 0; i < n; i++) {
-        const extra = ovField ? `<br>${_ssWrap(`${overlay.label}: ${P[ovField][i]}`)}` : '';
+        let extra = '';
+        if (ovField) {
+            const pct = ovPctField ? (P[ovPctField] || [])[i] : null;
+            const word = (pct == null) ? '' : ` (${_ssQualitative(pct, ovBands)})`;
+            extra = `<br>${_ssWrap(`${overlay.label}: ${P[ovField][i]}${word}`)}`;
+        }
         hover[i] = `<b>${_ssWrap(P.niche_name[i])}</b>${extra}<br>${_ssWrap(P.story[i])}`;
     }
 

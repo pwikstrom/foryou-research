@@ -357,8 +357,11 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
             "outcome": outcome,
             "platform": meta.get("platform"),
             "source": meta.get("source"),
-            "raw_rows": meta.get("raw_rows") or 0,
-            "kept_rows": meta.get("kept_rows") or 0,
+            # Preserved as None where the ledger never recorded a count (the
+            # legacy-migrated entries) — the UI renders that as an em-dash
+            # rather than an invented zero.
+            "raw_rows": meta.get("raw_rows"),
+            "kept_rows": meta.get("kept_rows"),
             "collection_id": meta.get("collection_id"),
             "merged_with_siblings": meta.get("merged_with_siblings") or [],
             "ts_first_seen": meta.get("ts_first_seen"),

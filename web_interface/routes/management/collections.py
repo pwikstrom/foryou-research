@@ -72,14 +72,56 @@ def _find_raw_file_locations(raw_files: list[str]) -> list[tuple[str, str]]:
 
 
 
-def _affected_studies_for_collection(collection_id: str) -> list[str]:
-    """Return the names of studies whose SELECTED_COLLECTIONS contains collection_id."""
+def _affected_studies_for_collections(collection_ids) -> list[str]:
+    """Return the names of studies whose SELECTED_COLLECTIONS contains any of
+    ``collection_ids``. The union, so a bulk delete refreshes each affected
+    study once rather than once per collection it happens to hold."""
     init_study_defs()
+    wanted = {str(c) for c in collection_ids}
     out: list[str] = []
     for sname, sdef in (fyp_cf.get('study_defs') or {}).items():
-        sel = sdef.get('SELECTED_COLLECTIONS') or []
-        if collection_id in sel:
+        sel = {str(c) for c in (sdef.get('SELECTED_COLLECTIONS') or [])}
+        if sel & wanted:
             out.append(sname)
+    return out
+
+
+
+
+def _affected_studies_for_collection(collection_id: str) -> list[str]:
+    """Single-collection form of _affected_studies_for_collections. Kept as the
+    name the collection_delete worker imports."""
+    return _affected_studies_for_collections([collection_id])
+
+
+
+
+def _requested_collection_ids(source) -> list[str]:
+    """Collection ids from a request, de-duplicated and order-preserving.
+
+    Accepts the single ``collection_id`` the endpoints have always taken and
+    the ``collection_ids`` list the multi-select uses. ``source`` is a JSON
+    body dict or a request args MultiDict.
+    """
+    raw: list = []
+    getlist = getattr(source, "getlist", None)
+    if getlist is not None:
+        raw = list(getlist("collection_ids")) + list(getlist("collection_id"))
+    else:
+        many = source.get("collection_ids")
+        if isinstance(many, (list, tuple)):
+            raw = list(many)
+        one = source.get("collection_id")
+        if one is not None:
+            raw.append(one)
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in raw:
+        cid = str(value or "").strip()
+        if cid and cid not in seen:
+            seen.add(cid)
+            out.append(cid)
     return out
 
 
@@ -89,12 +131,13 @@ def _affected_studies_for_collection(collection_id: str) -> list[str]:
 @permission_required('tab.data_management.edit_collections')
 @login_required
 def affected_studies_for_collection():
-    """Return the studies that reference a given collection_id. Used by the
-    delete-collection confirmation dialog to show what will be refreshed."""
-    collection_id = (request.args.get('collection_id') or '').strip()
-    if not collection_id:
+    """Return the studies that reference the given collection_id(s). Used by the
+    delete-collection confirmation dialog to show what will be refreshed.
+    Accepts ``collection_id`` one or more times (or ``collection_ids``)."""
+    collection_ids = _requested_collection_ids(request.args)
+    if not collection_ids:
         return jsonify({"error": "Missing collection_id"}), 400
-    return jsonify({"studies": _affected_studies_for_collection(collection_id)})
+    return jsonify({"studies": _affected_studies_for_collections(collection_ids)})
 
 
 
@@ -107,10 +150,15 @@ def delete_collection():
     and rewrites the 1+ GB collections_recoded.parquet) runs on the task-runner
     so the data-hub doesn't risk OOM or timeout. The UI polls /api/status for
     completion and reads the final result from the task's emitted data payload.
+
+    Takes ``collection_id`` or a ``collection_ids`` list. Several collections
+    are deleted by ONE task, not one task each: every task reloads and rewrites
+    the whole activity parquet, and concurrent runs would each write back a
+    frame that still contains the others' rows.
     """
     data = request.json or {}
-    collection_id = (data.get("collection_id") or "").strip()
-    if not collection_id:
+    collection_ids = _requested_collection_ids(data)
+    if not collection_ids:
         return jsonify({"error": "Missing collection_id"}), 400
 
     from fyp.fyp_config import COLLECTION_DELETE_SCRIPT
@@ -118,7 +166,7 @@ def delete_collection():
     success, msg = start_process(
         "collection_delete",
         COLLECTION_DELETE_SCRIPT,
-        task_args={"collection_id": collection_id},
+        task_args={"collection_ids": collection_ids},
         started_by=_actor(),
     )
     if success:
@@ -126,11 +174,12 @@ def delete_collection():
             actor=_actor(),
             category=activity_log.CATEGORY_DATA_MANAGEMENT,
             action="collection.delete",
-            target=collection_id,
+            target=", ".join(collection_ids),
         )
         return jsonify({
             "status": "started",
-            "collection_id": collection_id,
+            "collection_id": collection_ids[0],
+            "collection_ids": collection_ids,
             "message": msg,
         })
     return jsonify({"status": "error", "message": msg}), 409

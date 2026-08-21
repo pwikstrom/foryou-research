@@ -111,12 +111,12 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
     thead.innerHTML = `
         <tr style="text-align: left;">
             <th style="padding: 8px 5px; width: 30px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong);"><input type="checkbox" class="select-all-collections" title="Select / deselect all" style="cursor: pointer;"></th>
-            <th style="${sThStyle} max-width: 160px;" onclick="sortCollectionTable(this)">Collection</th>
-            <th style="${sThStyle}" onclick="sortCollectionTable(this)">Tags</th>
-            <th style="${sThStyle}" onclick="sortCollectionTable(this)">Last Event</th>
-            <th style="${sThStyle}" onclick="sortCollectionTable(this)">Added</th>
-            <th style="${sThStyle}" onclick="sortCollectionTable(this)">Activities</th>
-            <th style="${sThStyle}" onclick="sortCollectionTable(this)">Active Days</th>
+            <th style="${sThStyle} max-width: 160px;" data-sort-type="text" onclick="sortCollectionTable(this)">Collection</th>
+            <th style="${sThStyle}" data-sort-type="text" onclick="sortCollectionTable(this)">Tags</th>
+            <th style="${sThStyle}" data-sort-type="date" onclick="sortCollectionTable(this)">Last Event</th>
+            <th style="${sThStyle}" data-sort-type="date" onclick="sortCollectionTable(this)">Added</th>
+            <th style="${sThStyle}" data-sort-type="number" onclick="sortCollectionTable(this)">Activities</th>
+            <th style="${sThStyle}" data-sort-type="number" onclick="sortCollectionTable(this)">Active Days</th>
         </tr>
     `;
     table.appendChild(thead);
@@ -132,6 +132,7 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
 
         let pEmail = '', pName = '', pTiktok = '', pAge = '', pCountry = '', pPostCode = '', pAdded = '', pDisplayId = '', pTags = '';
         let pActiveDays = '', pTotalEvents = '', pLastEvent = '';
+        let rawAdded = null, rawLastEvent = null;
         let searchString = item;
 
         if (typeof itemInfo === 'object') {
@@ -149,12 +150,14 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
             if (itemInfo.personas) {
                 pActiveDays = itemInfo.personas.active_days ?? '';
                 pTotalEvents = itemInfo.personas.total_events ?? '';
-                if (itemInfo.personas.last_event_ts) {
-                    pLastEvent = fypWallDate(itemInfo.personas.last_event_ts);
+                rawLastEvent = itemInfo.personas.last_event_ts || null;
+                if (rawLastEvent) {
+                    pLastEvent = fypWallDate(rawLastEvent);
                 }
             }
             if (itemInfo.other && itemInfo.other.ts_added_to_dataset) {
-                pAdded = fypFmtDate(itemInfo.other.ts_added_to_dataset);
+                rawAdded = itemInfo.other.ts_added_to_dataset;
+                pAdded = fypFmtDate(rawAdded);
             }
             searchString = `${item} ${pDisplayId} ${pTags} ${pEmail} ${pName} ${pTiktok} ${pAge} ${pCountry} ${pPostCode} ${pActiveDays} ${pTotalEvents} ${pLastEvent} ${pAdded}`;
         }
@@ -179,13 +182,16 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
         };
         tdCheck.appendChild(cb);
 
-        const createCell = (text, isBold = false, tooltip = null) => {
+        const createCell = (text, isBold = false, tooltip = null, sortValue = null) => {
             const td = document.createElement('td');
             td.style.padding = '5px';
             if (tooltip) {
                 td.title = tooltip;
             }
-            if (isBold) td.innerHTML = `<strong>${text}</strong>`;
+            if (sortValue !== null) {
+                td.dataset.sortValue = sortValue;
+            }
+            if (isBold) td.innerHTML = `<strong>${_escapeHtml(text)}</strong>`;
             else td.textContent = text;
             return td;
         }
@@ -198,8 +204,8 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
         idCell.style.textOverflow = 'ellipsis';
         tr.appendChild(idCell);
         tr.appendChild(createCell(pTags));
-        tr.appendChild(createCell(pLastEvent));
-        tr.appendChild(createCell(pAdded));
+        tr.appendChild(createCell(pLastEvent, false, null, _dmSortTs(rawLastEvent)));
+        tr.appendChild(createCell(pAdded, false, null, _dmSortTs(rawAdded)));
         tr.appendChild(createCell(pTotalEvents));
         tr.appendChild(createCell(pActiveDays));
 
@@ -431,11 +437,24 @@ window.sortCollectionTable = function (th, forceDir = null) {
         }
     }
 
-    const isNumeric = ['Age', 'Active Days', 'Activities', 'Watch Time'].includes(textContent);
+    // Date columns render a human string ("14-Mar-2025"), which sorts by day
+    // number under localeCompare — so the header declares its own type and the
+    // cells carry a machine-comparable `data-sort-value` (epoch ms for dates).
+    // The name list stays as the fallback for headers built without a type.
+    const sortType = th.dataset.sortType
+        || (['Age', 'Active Days', 'Activities', 'Watch Time'].includes(textContent) ? 'number' : 'text');
+    const isNumeric = sortType === 'number' || sortType === 'date';
+
+    const cellValue = (row) => {
+        const td = row.children[columnIndex];
+        if (!td) return '';
+        const raw = td.dataset.sortValue;
+        return raw !== undefined ? raw : td.textContent.trim();
+    };
 
     rows.sort((a, b) => {
-        let cellA = a.children[columnIndex].textContent.trim();
-        let cellB = b.children[columnIndex].textContent.trim();
+        const cellA = cellValue(a);
+        const cellB = cellValue(b);
 
         if (isNumeric) {
             let numA = parseFloat(cellA);
@@ -4713,6 +4732,10 @@ const _ingestOutcomeLabels = {
     fully_deduped: { label: 'Skipped — already in dataset', color: 'var(--color-text-tertiary)' },
     discarded_at_load: { label: 'Skipped — too few rows', color: 'var(--color-text-tertiary)' },
     manually_excluded: { label: 'Manually excluded', color: 'var(--color-text-tertiary)' },
+    // Seeded from the legacy flat skip list, which recorded only a filename.
+    // Earlier builds reported these as "too few rows" with 0 rows read — a
+    // reason and a count the legacy file never held.
+    skipped_legacy: { label: 'Skipped — reason not recorded', color: 'var(--color-text-tertiary)' },
     quarantined_structure: { label: 'Quarantined — structure drift (review above)', color: 'var(--color-danger)' },
     load_failed: { label: 'Failed to read — will retry next refresh', color: 'var(--color-danger)' },
 };
@@ -5010,6 +5033,9 @@ function renderIngestionHistory(entries) {
     const panel = document.getElementById('ingestion-history-panel');
     const countEl = document.getElementById('ingestion-history-count');
     const wrap = document.getElementById('ingestion-history-wrap');
+    const legacyWrapEl = document.getElementById('ingestion-history-legacy');
+    const legacyCountEl = document.getElementById('ingestion-history-legacy-count');
+    const legacyTableEl = document.getElementById('ingestion-history-legacy-wrap');
     if (!panel || !wrap) return;
 
     if (!entries.length) {
@@ -5017,14 +5043,21 @@ function renderIngestionHistory(entries) {
         return;
     }
 
+    // Entries carried over from the legacy flat skip list hold nothing but a
+    // filename — no reason, counts, provenance or date. Left in the main table
+    // they outnumber the real history several times over and read as a pile of
+    // unexplained failures, so they get their own collapsed block.
+    const recorded = entries.filter(r => r.outcome !== 'skipped_legacy');
+    const legacy = entries.filter(r => r.outcome === 'skipped_legacy');
+
     const thStyle = 'padding: 6px 8px; text-align: left; border-bottom: 2px solid var(--color-border-strong); font-weight: var(--weight-semibold);';
     const tdStyle = 'padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top;';
     const numStyle = tdStyle + ' text-align: right; font-variant-numeric: tabular-nums;';
+    const numOrDash = (v) => (v === undefined || v === null) ? '—' : Number(v).toLocaleString();
 
-    const rowsHtml = entries.map(r => {
+    const rowHtml = (r) => {
         const meta = _ingestOutcomeLabels[r.outcome] || { label: r.outcome, color: 'var(--color-text-secondary)' };
         const provenance = [r.platform, r.source].filter(Boolean).join(' · ');
-        const numOrDash = (v) => (v === undefined || v === null) ? '—' : Number(v).toLocaleString();
         return `
             <tr>
                 <td style="${tdStyle}">
@@ -5038,13 +5071,12 @@ function renderIngestionHistory(entries) {
                 <td style="${numStyle}">${numOrDash(r.raw_rows)}</td>
                 <td style="${numStyle}">${numOrDash(r.kept_rows)}</td>
                 <td style="${tdStyle} max-width: 280px;">${_ingestDroppedCellHtml(r)}</td>
-                <td style="${tdStyle} text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text-tertiary);">${fypFmtDate(r.ts_last_seen)}</td>
+                <td style="${tdStyle} text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text-tertiary);">${fypFmtDate(r.ts_last_seen, '—')}</td>
             </tr>
         `;
-    }).join('');
+    };
 
-    if (countEl) countEl.textContent = `(${entries.length})`;
-    wrap.innerHTML = `
+    const tableHtml = (rows) => `
         <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 860px;">
             <thead>
                 <tr>
@@ -5056,9 +5088,25 @@ function renderIngestionHistory(entries) {
                     <th style="${thStyle} text-align: right;">Last processed</th>
                 </tr>
             </thead>
-            <tbody>${rowsHtml}</tbody>
+            <tbody>${rows.map(rowHtml).join('')}</tbody>
         </table>
     `;
+
+    if (countEl) countEl.textContent = `(${recorded.length})`;
+    wrap.innerHTML = recorded.length
+        ? tableHtml(recorded)
+        : '<div class="text-sm" style="color: var(--color-text-tertiary); padding: 8px 0;">No files have been processed since per-file intake logging was added.</div>';
+
+    if (legacyWrapEl && legacyCountEl && legacyTableEl) {
+        if (legacy.length === 0) {
+            legacyWrapEl.style.display = 'none';
+            legacyTableEl.innerHTML = '';
+        } else {
+            legacyCountEl.textContent = `(${legacy.length})`;
+            legacyTableEl.innerHTML = tableHtml(legacy);
+            legacyWrapEl.style.display = 'block';
+        }
+    }
     panel.style.display = 'block';
 }
 
@@ -5113,6 +5161,57 @@ function pollIngestRefreshStatus(btn, originalText, originalClass) {
 
 // --- Edit Activity Data Modal Logic ---
 
+// Columns shown in the Edit Collections table. Everything else the collections
+// metadata carries (timezone, demographics, contact details) lives in the edit
+// modal instead: the table is for finding a collection, the modal is for
+// reading and changing one. `sortType` drives sortCollectionTable — dates
+// render as human strings and would otherwise sort by day-of-month.
+const _EDIT_COLLECTION_COLUMNS = [
+    { label: 'Collection / Display ID', sortType: 'text' },
+    { label: 'Tags', sortType: 'text' },
+    { label: 'First Event', sortType: 'date' },
+    { label: 'Last Event', sortType: 'date' },
+    { label: 'Added', sortType: 'date' },
+    { label: 'Activities', sortType: 'number' },
+    { label: 'Active Days', sortType: 'number' },
+];
+
+
+// Every metadata reading the table no longer shows, in the order the modal
+// lists them. `get` reads from the collection object the /api/manage/collections
+// payload returns.
+const _EDIT_COLLECTION_DETAILS = [
+    { label: 'Collection ID', get: c => c.id },
+    { label: 'First event', get: c => fypWallDate(c.personas?.first_event_ts, '') },
+    { label: 'Last event', get: c => fypWallDate(c.personas?.last_event_ts, '') },
+    { label: 'Added', get: c => fypFmtDate(c.other?.ts_added_to_dataset, '') },
+    { label: 'Activities', get: c => (c.personas?.total_events ?? '') === '' ? '' : Number(c.personas.total_events).toLocaleString() },
+    { label: 'Active days', get: c => c.personas?.active_days ?? '' },
+    { label: 'Timezone', get: c => _dmTimezoneLabel(c) },
+    { label: 'Age', get: c => c.participants?.age ?? '' },
+    { label: 'Country', get: c => c.participants?.country ?? '' },
+    { label: 'Post code', get: c => c.participants?.postCode ?? '' },
+    { label: 'Name', get: c => c.participants?.name ?? '' },
+    { label: 'Email', get: c => c.participants?.email ?? '' },
+];
+
+
+function _dmTimezoneLabel(c) {
+    const tz = c.personas ? c.personas.inferred_tz_offset : null;
+    if (tz === null || tz === undefined) return '';
+    return `UTC${tz >= 0 ? '+' : ''}${tz}`;
+}
+
+
+// Epoch ms for a timestamp cell's `data-sort-value`, or '' when absent — the
+// sorter reads a non-numeric value as "sorts last ascending".
+function _dmSortTs(value) {
+    if (value === null || value === undefined || value === '') return '';
+    const ms = Date.parse(value);
+    return Number.isNaN(ms) ? '' : String(ms);
+}
+
+
 function renderEditActivityTable(container) {
     if (!container) return;
     container.innerHTML = '';
@@ -5127,24 +5226,17 @@ function renderEditActivityTable(container) {
 
     const thStyle = 'padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);';
     const thead = document.createElement('thead');
+    const headerCells = _EDIT_COLLECTION_COLUMNS.map((col, i) => {
+        const extra = i === 0 ? ' max-width: 160px;' : '';
+        return `<th style="${thStyle}${extra}" data-sort-type="${col.sortType}"`
+            + ` onclick="sortCollectionTable(this)">${col.label}</th>`;
+    }).join('');
     thead.innerHTML = `
         <tr style="text-align: left;">
             <th style="padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; border-bottom: 2px solid var(--color-border-strong); width: 40px; text-align: center;">
                 <input type="checkbox" id="select-all-collections" onchange="toggleAllCollectionCheckboxes(this)" style="cursor: pointer;">
             </th>
-            <th style="${thStyle} max-width: 160px;" onclick="sortCollectionTable(this)">Collection / Display ID</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Tags</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">First Event</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Last Event</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Added</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Activities</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Active Days</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Timezone</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Age</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Country</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">PostCode</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Name</th>
-            <th style="${thStyle}" onclick="sortCollectionTable(this)">Email</th>
+            ${headerCells}
         </tr>
     `;
     table.appendChild(thead);
@@ -5156,6 +5248,7 @@ function renderEditActivityTable(container) {
         let pEmail = '', pName = '', pAge = '', pCountry = '', pPostCode = '', pAdded = '', pDisplayId = '', pTags = '';
         let pActiveDays = '', pTotalEvents = '', pLastEvent = '';
         let pTimezone = '', pFirstEvent = '';
+        let rawAdded = null, rawFirstEvent = null, rawLastEvent = null;
         let searchString = item;
 
         if (typeof itemInfo === 'object') {
@@ -5172,20 +5265,18 @@ function renderEditActivityTable(container) {
             if (itemInfo.personas) {
                 pActiveDays = itemInfo.personas.active_days ?? '';
                 pTotalEvents = itemInfo.personas.total_events ?? '';
-                if (itemInfo.personas.last_event_ts) {
-                    pLastEvent = fypWallDate(itemInfo.personas.last_event_ts);
-                }
-                if (itemInfo.personas.first_event_ts) {
-                    pFirstEvent = fypWallDate(itemInfo.personas.first_event_ts);
-                }
-                const tz = itemInfo.personas.inferred_tz_offset;
-                if (tz !== null && tz !== undefined) {
-                    pTimezone = `UTC${tz >= 0 ? '+' : ''}${tz}`;
-                }
+                rawLastEvent = itemInfo.personas.last_event_ts || null;
+                rawFirstEvent = itemInfo.personas.first_event_ts || null;
+                if (rawLastEvent) pLastEvent = fypWallDate(rawLastEvent);
+                if (rawFirstEvent) pFirstEvent = fypWallDate(rawFirstEvent);
+                pTimezone = _dmTimezoneLabel(itemInfo);
             }
             if (itemInfo.other && itemInfo.other.ts_added_to_dataset) {
-                pAdded = fypFmtDate(itemInfo.other.ts_added_to_dataset);
+                rawAdded = itemInfo.other.ts_added_to_dataset;
+                pAdded = fypFmtDate(rawAdded);
             }
+            // The demographic/contact fields are no longer columns, but they
+            // stay searchable — the search box is how you find "that donor".
             searchString = `${item} ${pDisplayId} ${pTags} ${pEmail} ${pName} ${pAge} ${pCountry} ${pPostCode} ${pTimezone} ${pActiveDays} ${pTotalEvents} ${pFirstEvent} ${pLastEvent} ${pAdded}`;
         }
 
@@ -5193,34 +5284,31 @@ function renderEditActivityTable(container) {
         tr.className = 'edit-activity-item';
         tr.setAttribute('data-search', searchString.toLowerCase());
         tr.setAttribute('data-collection-id', item);
+        tr.style.cursor = 'pointer';
 
         // Apply distinct styling to hidden collections
         if (itemInfo.hidden) {
             tr.classList.add('collection-hidden');
         }
 
-        tr.onmouseenter = () => {
-            if (window.pe_selectedId !== item) tr.style.background = 'var(--color-bg-input)';
-        };
-        tr.onmouseleave = () => {
-            tr.style.background = (window.pe_selectedId === item) ? 'var(--table-row-selected)' : 'transparent';
-        };
+        tr.onmouseenter = () => { tr.style.background = 'var(--color-bg-input)'; };
+        tr.onmouseleave = () => { tr.style.background = 'transparent'; };
+        // A row IS the collection's edit control: clicking it opens that
+        // collection straight away. The checkbox stops propagation, so ticking
+        // several rows for a bulk edit still works.
         tr.onclick = () => {
-            // Clear previous row highlight
-            document.querySelectorAll('.edit-activity-item').forEach(row => {
-                row.style.background = 'transparent';
-            });
-            // Highlight this row
-            tr.style.background = 'var(--table-row-selected)';
-            window.pe_selectedId = item;
+            openEditCollectionModal(itemInfo);
         };
-        const createCell = (text, isBold = false, tooltip = null) => {
+        const createCell = (text, isBold = false, tooltip = null, sortValue = null) => {
             const td = document.createElement('td');
             td.style.padding = '5px';
             if (tooltip) {
                 td.title = tooltip;
             }
-            if (isBold) td.innerHTML = `<strong>${text}</strong>`;
+            if (sortValue !== null) {
+                td.dataset.sortValue = sortValue;
+            }
+            if (isBold) td.innerHTML = `<strong>${_escapeHtml(text)}</strong>`;
             else td.textContent = text;
             return td;
         }
@@ -5249,17 +5337,11 @@ function renderEditActivityTable(container) {
         idCell.style.textOverflow = 'ellipsis';
         tr.appendChild(idCell);
         tr.appendChild(createCell(pTags));
-        tr.appendChild(createCell(pFirstEvent));
-        tr.appendChild(createCell(pLastEvent));
-        tr.appendChild(createCell(pAdded));
+        tr.appendChild(createCell(pFirstEvent, false, null, _dmSortTs(rawFirstEvent)));
+        tr.appendChild(createCell(pLastEvent, false, null, _dmSortTs(rawLastEvent)));
+        tr.appendChild(createCell(pAdded, false, null, _dmSortTs(rawAdded)));
         tr.appendChild(createCell(pTotalEvents));
         tr.appendChild(createCell(pActiveDays));
-        tr.appendChild(createCell(pTimezone));
-        tr.appendChild(createCell(pAge));
-        tr.appendChild(createCell(pCountry));
-        tr.appendChild(createCell(pPostCode));
-        tr.appendChild(createCell(pName));
-        tr.appendChild(createCell(pEmail));
 
         tbody.appendChild(tr);
     });
@@ -5361,12 +5443,100 @@ function openEditCollectionModal(collectionObj) {
         hiddenCheckbox.onchange = null;
     }
 
-    // Delete is a single-collection operation only — hide in bulk mode.
     const deleteBtn = document.getElementById('delete-collection-btn');
-    if (deleteBtn) deleteBtn.style.display = '';
+    if (deleteBtn) {
+        deleteBtn.style.display = '';
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = 'Delete Collection';
+    }
 
+    _dmRenderCollectionDetails([collectionObj]);
     dm_renderTags();
     document.getElementById('editCollectionModal').style.display = 'block';
+}
+
+
+// Read-only metadata block in the edit modal. One collection gets a label/value
+// grid; several get a row each, so a bulk edit can still be checked against the
+// collections it will touch.
+function _dmRenderCollectionDetails(objs) {
+    const box = document.getElementById('edit-collection-details');
+    if (!box) return;
+    box.innerHTML = '';
+
+    const present = (objs || []).filter(o => o && typeof o === 'object');
+    if (present.length === 0) {
+        box.innerHTML = '<span style="color: var(--color-text-tertiary);">No metadata available.</span>';
+        return;
+    }
+
+    if (present.length === 1) {
+        const c = present[0];
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; align-items: baseline;';
+        _EDIT_COLLECTION_DETAILS.forEach(f => {
+            const label = document.createElement('span');
+            label.style.cssText = 'color: var(--color-text-tertiary); white-space: nowrap;';
+            label.textContent = f.label;
+            const value = document.createElement('span');
+            const raw = f.get(c);
+            value.style.cssText = 'word-break: break-word;';
+            if (raw === '' || raw === null || raw === undefined) {
+                value.style.color = 'var(--color-text-tertiary)';
+                value.textContent = '—';
+            } else {
+                value.textContent = String(raw);
+            }
+            grid.appendChild(label);
+            grid.appendChild(value);
+        });
+        box.appendChild(grid);
+        return;
+    }
+
+    // Collection ID is the row label in this view, so it isn't also a column.
+    const fields = _EDIT_COLLECTION_DETAILS.filter(f => f.label !== 'Collection ID');
+    const table = document.createElement('table');
+    table.className = 'text-xs';
+    table.style.cssText = 'width: 100%; border-collapse: collapse; white-space: nowrap;';
+    const thStyle = 'padding: 4px 8px 4px 0; text-align: left; color: var(--color-text-tertiary); font-weight: var(--weight-normal); border-bottom: 1px solid var(--color-border-strong);';
+    const tdStyle = 'padding: 4px 8px 4px 0; border-bottom: 1px solid var(--color-border);';
+
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    ['Collection', ...fields.map(f => f.label)].forEach(label => {
+        const th = document.createElement('th');
+        th.style.cssText = thStyle;
+        th.textContent = label;
+        headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    present.forEach(c => {
+        const tr = document.createElement('tr');
+        const idTd = document.createElement('td');
+        idTd.style.cssText = tdStyle;
+        idTd.title = c.id;
+        idTd.textContent = c.displayId || c.id;
+        tr.appendChild(idTd);
+        fields.forEach(f => {
+            const td = document.createElement('td');
+            td.style.cssText = tdStyle;
+            const raw = f.get(c);
+            if (raw === '' || raw === null || raw === undefined) {
+                td.style.color = 'var(--color-text-tertiary)';
+                td.textContent = '—';
+            } else {
+                td.textContent = String(raw);
+            }
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    box.appendChild(table);
 }
 
 function closeEditCollectionModal() {
@@ -5587,29 +5757,51 @@ function dm_saveAnnotation() {
 }
 
 
+// Delete whatever the modal currently has open: one collection, or the whole
+// multi-select. Both go through a single worker run — deleting N collections
+// as N tasks would reload and rewrite the multi-GB activity parquet N times.
 function dm_deleteCollection() {
-    if (!currentEditCollectionId || bulkEditMode) return;
+    const ids = bulkEditMode
+        ? [...selectedCollectionIds]
+        : (currentEditCollectionId ? [currentEditCollectionId] : []);
+    if (ids.length === 0) return;
 
-    const id = currentEditCollectionId;
-    const obj = availableCollections.find(c => c.id === id);
-    const displayId = (obj && obj.displayId) || id;
+    const labelFor = (id) => {
+        const obj = availableCollections.find(c => (typeof c === 'object' ? c.id : c) === id);
+        return (obj && obj.displayId) || id;
+    };
+    const labels = ids.map(labelFor);
     const deleteBtn = document.getElementById('delete-collection-btn');
 
     if (deleteBtn) deleteBtn.disabled = true;
 
-    fetch(`/api/manage/collections/affected_studies?collection_id=${encodeURIComponent(id)}`)
+    const query = ids.map(id => `collection_id=${encodeURIComponent(id)}`).join('&');
+    fetch(`/api/manage/collections/affected_studies?${query}`)
         .then(r => r.json())
         .then(async data => {
             const studies = (data && data.studies) || [];
             const studyClause = studies.length === 0
-                ? "No studies reference this collection."
+                ? (ids.length === 1
+                    ? "No studies reference this collection."
+                    : "No studies reference these collections.")
                 : `${studies.length} study/studies will be refreshed: ${studies.join(", ")}.`;
+            // Naming every collection is the point of the dialog in bulk mode;
+            // past a dozen the list stops being readable, so it truncates.
+            const shown = labels.slice(0, 12).join(", ");
+            const more = labels.length > 12 ? `, and ${labels.length - 12} more` : "";
+            const subject = ids.length === 1
+                ? `collection "${labels[0]}"`
+                : `${ids.length} collections?\n\n${shown}${more}`;
             const ok = await showAppConfirm(
-                `Delete collection "${displayId}"?\n\n` +
+                `Delete ${subject}${ids.length === 1 ? '?' : ''}\n\n` +
                 `${studyClause}\n\n` +
                 `Raw upload files will be moved to the archive folder and can be restored. ` +
                 `Scraped video data and machine annotations will be kept.`,
-                { title: 'Delete collection', okLabel: 'Delete', danger: true }
+                {
+                    title: ids.length === 1 ? 'Delete collection' : `Delete ${ids.length} collections`,
+                    okLabel: 'Delete',
+                    danger: true,
+                }
             );
             if (!ok) {
                 if (deleteBtn) deleteBtn.disabled = false;
@@ -5618,13 +5810,13 @@ function dm_deleteCollection() {
             return fetch('/api/manage/collections/delete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                body: JSON.stringify({ collection_id: id })
+                body: JSON.stringify({ collection_ids: ids })
             })
                 .then(r => r.json())
                 .then(resp => {
                     if (resp && resp.status === 'started') {
                         closeEditCollectionModal();
-                        pollCollectionDeleteStatus(id, displayId, deleteBtn);
+                        pollCollectionDeleteStatus(ids, labels, deleteBtn);
                     } else {
                         if (deleteBtn) deleteBtn.disabled = false;
                         showAppAlert('Failed to start delete: ' + ((resp && resp.message) || (resp && resp.error) || 'Unknown error'));
@@ -5641,10 +5833,16 @@ window.dm_deleteCollection = dm_deleteCollection;
 
 let _collectionDeletePollActive = false;
 
-function pollCollectionDeleteStatus(collectionId, displayId, deleteBtn) {
+function pollCollectionDeleteStatus(collectionIds, displayLabels, deleteBtn) {
     if (_collectionDeletePollActive) return;
     _collectionDeletePollActive = true;
     let done = false;
+
+    const ids = Array.isArray(collectionIds) ? collectionIds : [collectionIds];
+    const labels = Array.isArray(displayLabels) ? displayLabels : [displayLabels];
+    const subject = ids.length === 1
+        ? `"${labels[0]}"`
+        : `${ids.length} collections`;
 
     const interval = setInterval(() => {
         if (done) return;
@@ -5663,13 +5861,13 @@ function pollCollectionDeleteStatus(collectionId, displayId, deleteBtn) {
 
                 const data = cd.data || {};
                 if (cd.last_run_outcome === 'Success') {
-                    selectedCollectionIds.delete(collectionId);
+                    ids.forEach(id => selectedCollectionIds.delete(id));
                     updateEditSelectedButton();
                     const archived = (data.archived_files || []).length;
                     const failures = (data.archive_failures || []).length;
                     const affected = (data.affected_studies || []).length;
                     const dropped = data.rows_dropped || 0;
-                    let msg = `Deleted collection "${displayId}". `;
+                    let msg = `Deleted ${subject}. `;
                     msg += `Dropped ${dropped.toLocaleString()} row(s), `;
                     msg += `archived ${archived} raw file(s)`;
                     if (failures > 0) msg += ` (${failures} archive failure(s))`;
@@ -5677,7 +5875,7 @@ function pollCollectionDeleteStatus(collectionId, displayId, deleteBtn) {
                     showAppAlert(msg);
                     loadAvailableCollections();
                 } else {
-                    showAppAlert(`Failed to delete "${displayId}". Check the task logs for details.`);
+                    showAppAlert(`Failed to delete ${subject}. Check the task logs for details.`);
                 }
             })
             .catch(err => {
@@ -5796,11 +5994,17 @@ function openEditSelectedCollections() {
         hiddenCheckbox.onchange = () => { hiddenUserTouched = true; };
     }
 
-    // Delete collection is a single-collection operation only; too risky to
-    // expose it while editing several collections as a batch.
+    // Delete acts on the whole selection here. The confirmation names every
+    // collection and every study that will be refreshed, and the work runs as
+    // one pass over the activity parquet rather than one task per collection.
     const deleteBtn = document.getElementById('delete-collection-btn');
-    if (deleteBtn) deleteBtn.style.display = 'none';
+    if (deleteBtn) {
+        deleteBtn.style.display = '';
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = `Delete ${selectedIds.length} Collections`;
+    }
 
+    _dmRenderCollectionDetails(selectedObjs);
     dm_renderTags();
     document.getElementById('editCollectionModal').style.display = 'block';
 }

@@ -64,7 +64,7 @@
 <div id="ingestion-history-panel" style="margin-top: 24px; display: none;">
     <details>
         <summary class="text-sm font-semibold" style="cursor: pointer; color: var(--color-text-secondary); user-select: none;">
-            Ingestion history — every file ever processed
+            Ingestion history — every file the intake log has recorded
             <span id="ingestion-history-count" class="text-xxs" style="color: var(--color-text-tertiary); font-weight: var(--weight-normal); margin-left: 6px;"></span>
         </summary>
         <div class="text-xxs" style="color: var(--color-text-tertiary); margin: 8px 0 4px 0;">
@@ -73,5 +73,21 @@
             uploaded files themselves are never modified.
         </div>
         <div id="ingestion-history-wrap" style="overflow-x: auto;"></div>
+
+        <div id="ingestion-history-legacy" style="margin-top: 16px; display: none;">
+            <details>
+                <summary class="text-sm font-semibold" style="cursor: pointer; color: var(--color-text-secondary); user-select: none;">
+                    Skipped before intake logging existed
+                    <span id="ingestion-history-legacy-count" class="text-xxs" style="color: var(--color-text-tertiary); font-weight: var(--weight-normal); margin-left: 6px;"></span>
+                </summary>
+                <div class="text-xxs" style="color: var(--color-text-tertiary); margin: 8px 0 4px 0;">
+                    These filenames were carried over from the old flat skip list, which recorded
+                    nothing but the name — no reason, row counts, platform or date. They are still
+                    skipped on every run; un-skip one from the "Previously skipped" section above
+                    to have the next run read it properly and record a real outcome.
+                </div>
+                <div id="ingestion-history-legacy-wrap" style="overflow-x: auto;"></div>
+            </details>
+        </div>
     </details>
 </div>

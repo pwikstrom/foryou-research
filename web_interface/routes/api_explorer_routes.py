@@ -132,23 +132,56 @@ def _enforce_study_collections(metadata, study, verbose=False):
     return metadata
 
 
-def _inject_collection_tags(metadata: dict, collection_ids: list[str]) -> dict:
-    """Inject a virtual 'Collection Tags' filter derived from collection_annotations.json."""
+def _collection_row_counts(metadata: dict) -> dict[str, int]:
+    """Rows per collection_id for the study frame, from the baked counts when
+    present and otherwise from the collection_id filter's own value counts.
+
+    The fallback is incomplete by construction — that filter is capped at the
+    top 200 values and drops single-row collections — so it is only used for
+    metadata files written before the counts were baked in.
+    """
+    baked = metadata.get('collection_row_counts')
+    if isinstance(baked, dict) and baked:
+        return {str(k): int(v) for k, v in baked.items()}
+    counts: dict[str, int] = {}
+    for item in (metadata.get('collection_id') or {}).get('values') or []:
+        val = item.get('value')
+        if val is not None:
+            counts[str(val)] = int(item.get('count') or 0)
+    return counts
+
+
+def _inject_collection_tags(
+    metadata: dict,
+    collection_ids: list[str],
+    collection_counts: dict[str, int] | None = None,
+) -> dict:
+    """Inject a virtual 'Collection Tags' filter derived from collection_annotations.json.
+
+    Counts are VIDEO counts, not collection counts: every other filter's
+    ``count`` is the number of rows the value would keep, and a tag that reads
+    "3" when it holds three collections and 40,000 videos is read as a tiny
+    slice. A collection with no known row count contributes 0 rather than
+    being dropped, so the tag itself stays selectable.
+    """
     try:
         annotations = get_collection_tags()
     except Exception:
         return metadata
 
-    # Build tag → set of collection_ids mapping, restricted to IDs in this study
+    # Build tag → row count mapping, restricted to IDs in this study
     study_ids = set(str(cid) for cid in collection_ids)
+    if collection_counts is None:
+        collection_counts = _collection_row_counts(metadata)
     tag_counter: dict[str, int] = {}
     for cid, anno in annotations.items():
         if str(cid) not in study_ids:
             continue
+        rows = int(collection_counts.get(str(cid), 0))
         for tag in anno.get('annotation_tags', []):
             tag = str(tag).strip()
             if tag:
-                tag_counter[tag] = tag_counter.get(tag, 0) + 1
+                tag_counter[tag] = tag_counter.get(tag, 0) + rows
 
     if not tag_counter:
         return metadata
@@ -171,7 +204,8 @@ def _inject_collection_tags(metadata: dict, collection_ids: list[str]) -> dict:
     metadata['schema_map']['Collection Tags'] = {
         "section": "Activity",
         "display_name": "Collection Tags",
-        "description": "Filter by tags assigned to collections."
+        "description": "Filter by tags assigned to collections. The count next to "
+                       "each tag is how many videos its collections contribute."
     }
 
     # Position right after collection_id in filter_priority
@@ -305,8 +339,17 @@ def _build_full_metadata(df, col_types, study):
         metadata['collection_ids'] = sorted(
             df['collection_id'].dropna().astype(str).unique().tolist()
         )
+        # Rows per collection, baked so the base-metadata fast path (which has
+        # no frame) can still count Collection Tags in videos. The collection_id
+        # filter's own values can't serve: they're capped at 200 and drop
+        # single-row collections.
+        metadata['collection_row_counts'] = {
+            str(k): int(v)
+            for k, v in df['collection_id'].dropna().astype(str).value_counts().items()
+        }
     else:
         metadata['collection_ids'] = []
+        metadata['collection_row_counts'] = {}
 
     return metadata
 
@@ -713,7 +756,12 @@ def api_explorer_metadata():
 
             # Inject Collection Tags filter
             if 'collection_id' in df.columns:
-                potential_metadata = _inject_collection_tags(potential_metadata, df['collection_id'].dropna().unique().tolist())
+                cid_col = df['collection_id'].dropna().astype(str)
+                potential_metadata = _inject_collection_tags(
+                    potential_metadata,
+                    cid_col.unique().tolist(),
+                    {str(k): int(v) for k, v in cid_col.value_counts().items()},
+                )
 
             if potential_metadata:
                 #print(f"    [DATA_ROUTES] Returning cached metadata for {study}")
@@ -841,7 +889,15 @@ def api_explorer_metadata():
 
     # Inject Collection Tags filter
     if 'collection_id' in df.columns:
-        metadata = _inject_collection_tags(metadata, df['collection_id'].dropna().unique().tolist())
+        cid_col = df['collection_id'].dropna().astype(str)
+        cid_counts = {str(k): int(v) for k, v in cid_col.value_counts().items()}
+        # Baked into the cached payload for the same reason as in
+        # _build_full_metadata: the base-metadata fast path re-derives the
+        # Collection Tags filter without a frame to count from.
+        metadata['collection_row_counts'] = cid_counts
+        metadata = _inject_collection_tags(
+            metadata, cid_col.unique().tolist(), cid_counts,
+        )
 
     # Write to the canonical filename (dropping the per-context suffix) so the
     # cached payload is reused on subsequent reads regardless of which tab

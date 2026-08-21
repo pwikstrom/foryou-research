@@ -24,8 +24,11 @@
 <!-- Edit Collection Modal -->
 <div id="editCollectionModal" class="modal"
     style="display:none;">
+    <!-- Wider than the usual 50%: the modal now carries the collection metadata
+         the table no longer shows, and in multi-select mode that is a row per
+         selected collection. -->
     <div class="modal-content"
-        style="width: 50%;">
+        style="width: 70%; max-width: 1000px;">
         <span class="close" onclick="closeEditCollectionModal()">&times;</span>
         <h2 style="margin-top: 0;">Edit Collection: <span id="edit-collection-id-display"></span></h2>
 
@@ -58,6 +61,16 @@
             </label>
             <span class="text-sm" style="color: var(--color-text-tertiary); margin-left: 25px; display: block;">Hidden collections are
                 not shown in the primary study interface.</span>
+        </div>
+
+        <!-- Read-only metadata. The Edit Collections table shows only what you
+             need to find a collection; everything else it holds is reported
+             here, for the one collection or for each of the selected ones. -->
+        <div class="form-group" style="margin-top: 20px;">
+            <label style="display: block; margin-bottom: 5px;">Collection details:</label>
+            <div id="edit-collection-details" class="text-sm"
+                style="max-height: 240px; overflow: auto; border: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 8px 10px;">
+            </div>
         </div>
 
         <div style="margin-top: 25px; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
