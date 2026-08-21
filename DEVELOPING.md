@@ -244,7 +244,7 @@ foryou-research/
 │       └── css/                 # (empty — styles in style.css)
 ├── tests/                       # pytest suite: unit/ + golden/ (annotation safety net) + bench/ + debug/ + conftest.py
 ├── tmp/                         # Temporary test/debug data
-├── scripts/                     # verify.sh gate, gen_route_inventory.py, migrations, adhoc/ one-offs
+├── scripts/                     # verify.sh gate, gen_route_inventory.py, make_video_grid_hero.py, migrations, adhoc/ one-offs
 ├── docs/                        # Human-oriented docs (architecture, configuration, pipeline, web layer, routes)
 ├── Dockerfile
 ├── pyproject.toml               # Packaging ([project] fyp-pipeline) + ruff + pytest config
