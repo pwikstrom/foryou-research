@@ -9,7 +9,7 @@
     </p>
     {% if repo_url %}
     <p class="text-sm">
-        The Hub is open source under the MIT licence:
+        The For You Data Hub is open source under the MIT licence:
         <a href="{{ repo_url }}" target="_blank" rel="noopener">source code</a> ·
         <a href="{{ repo_issues_url }}" target="_blank" rel="noopener">report a bug</a> ·
         <a href="{{ repo_url }}/blob/main/docs/installation.md" target="_blank" rel="noopener">run your own instance</a>
@@ -18,21 +18,11 @@
 
     {# Copy-ready citation on every page, so nobody has to hunt for it. #}
     <details class="cite-disclosure" id="footer-cite">
-        <summary>How to cite the Hub</summary>
+        <summary>How to cite The For You Data Hub</summary>
         <div class="cite-disclosure__body">
             {% with cite_scope = 'footer-cite' %}
             {% include 'public/_how_to_cite.html' %}
             {% endwith %}
         </div>
     </details>
-
-    {# The software and the site are separately owned: the Hub's code is MIT
-       (see LICENSE, which names the copyright holder), while the prose and
-       images on these pages belong to the project's host institutions. #}
-    <div class="public-footer-legal text-xs">
-        The For You Data Hub is free software &mdash; &copy; 2026 Patrik Wikstrom,
-        {% if repo_url %}<a href="{{ repo_url }}/blob/main/LICENSE" target="_blank" rel="noopener">MIT licence</a>{% else %}MIT licence{% endif %}.
-        Site text and images &copy; 2026 Queensland University of Technology and the
-        University of Sydney.
-    </div>
 </footer>
