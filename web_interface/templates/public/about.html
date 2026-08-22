@@ -209,12 +209,23 @@
         Strategy in partnership with a consortium of Australian universities.
     </p>
     <div class="logo-strip">
-        <div class="logo-placeholder"><span>QUT logo</span></div>
-        <div class="logo-placeholder"><span>University of Sydney logo</span></div>
-        <div class="logo-placeholder"><span>Digital Media Research Centre logo</span></div>
-        <div class="logo-placeholder"><span>Australian Research Council logo</span></div>
-        <div class="logo-placeholder"><span>Australian Internet Observatory logo</span></div>
-        <div class="logo-placeholder"><span>ARDC / NCRIS logo</span></div>
+        <div class="logo-tile">
+            <img src="{{ url_for('static', filename='landing/logos/qut-dmrc.png') }}"
+                alt="QUT Digital Media Research Centre" loading="lazy">
+        </div>
+        <div class="logo-tile">
+            <img src="{{ url_for('static', filename='landing/logos/usyd.png') }}"
+                alt="The University of Sydney" loading="lazy">
+        </div>
+        <div class="logo-tile">
+            <img src="{{ url_for('static', filename='landing/logos/arc.jpg') }}"
+                class="logo-tile__img--stacked"
+                alt="Australian Government — Australian Research Council" loading="lazy">
+        </div>
+        <div class="logo-tile">
+            <img src="{{ url_for('static', filename='landing/logos/aio.svg') }}"
+                alt="Australian Internet Observatory" loading="lazy">
+        </div>
     </div>
     <p class="prose">
         Follow the project on <a href="https://www.linkedin.com/company/107376504/" target="_blank" rel="noopener">LinkedIn</a>

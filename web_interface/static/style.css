@@ -4315,21 +4315,41 @@ body:has(.public-page) {
     margin-top: 26px;
 }
 
-.logo-placeholder {
+/* Every partner mark is dark ink on transparent (or on white), so the tile
+   keeps a light plate in BOTH themes — on the dark theme the logos would
+   otherwise disappear into the surface. */
+.logo-tile {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 72px;
-    padding: 10px;
-    border: 2px dashed var(--color-border-subtle);
+    min-height: 104px;
+    padding: 14px 18px;
+    border: 1px solid var(--color-border-subtle);
     border-radius: 10px;
-    background: var(--color-bg-surface);
+    background: #fff;
 }
 
-.logo-placeholder span {
-    font-size: var(--text-xs);
-    color: var(--color-text-muted);
-    text-align: center;
+/* Matching heights is what makes a mixed logo strip look deliberate. */
+.logo-tile img {
+    max-width: 100%;
+    max-height: 62px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+}
+
+/* ...except for a stacked lockup, which reads smaller than a wide one at the
+   same height. Give it the extra room the tile already has. */
+.logo-tile img.logo-tile__img--stacked {
+    max-height: 76px;
+}
+
+/* On narrow tiles the wide marks are limited by width rather than height, so
+   the bonus would make the stacked one the biggest instead of the smallest. */
+@media (max-width: 560px) {
+    .logo-tile img.logo-tile__img--stacked {
+        max-height: 58px;
+    }
 }
 
 /* ----- Story rows (participate page: short chunk + image, alternating) ----- */
