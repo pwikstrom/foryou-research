@@ -1,28 +1,27 @@
 <div id="home" class="tab-pane active"
     style="height: calc(100vh - 100px); overflow-y: auto;">
 
-    {# The app logo opens this pane, so a logged-in user lands on the same
-       landing page anonymous visitors see — but inside the app shell, so the
-       tab bar and the username/role/logout header stay in place. The shared
-       partial hides its prospect-facing "researcher" CTAs when authenticated. #}
+    {# The app logo opens this pane, so it is the Hub's own user guide: what a
+       study is, which tab answers which question, and a walkthrough of the
+       pipeline stages this account can actually reach (pipeline_steps comes
+       from permissions.visible_pipeline_steps). Nothing here sells the Hub —
+       the reader is already inside it. #}
     <div class="public-main">
 
-        {# Getting-started panel for new users: what a study is, which tab
-           answers which question (only the tabs this user can see), and what
-           to do when no study has been shared yet. One-shot dismissible via
-           the per-user settings store. #}
+        {# One-shot dismissible orientation panel for new users. Dismissal is
+           reversible from My stuff -> Preferences and from the help modal. #}
         {% if not user.settings.get('getting_started_dismissed') %}
         <section id="getting-started-panel" class="landing-section" style="margin-top: 30px; position: relative;">
             <button class="close-button" style="position: absolute; top: 0; right: 0;"
                 onclick="dismissGettingStarted()" aria-label="Dismiss getting started"
-                title="Dismiss (you can find the same content under Guide)">&times;</button>
+                title="Dismiss (you can bring it back from My stuff &rarr; Preferences)">&times;</button>
 
             <h2 class="text-h2 font-semibold landing-section-title">Getting started</h2>
             <p class="prose landing-section-intro">
                 Everything here revolves around a <strong>study</strong> — a set of participant
                 data (which collections, which platforms, which dates) that a researcher defines
-                and shares. Pick your active study from the dropdown in the header; every analysis
-                tab works against it.
+                and shares. Pick your active study from the dropdown in the header before you open
+                an analysis tab; every tab works against whatever is selected there.
             </p>
 
             <div class="guide-tab-list">
@@ -50,6 +49,12 @@
                     <p>Chart relationships between numeric measures across groups of participants.</p>
                 </div>
                 {% endif %}
+                {% if user.can_access('tab.sessions') %}
+                <div class="guide-tab-item">
+                    <h3>Sessions</h3>
+                    <p>Open a single viewing session minute by minute, with binges and low-entropy stretches marked.</p>
+                </div>
+                {% endif %}
                 {% if user.can_access('tab.semantic_space') %}
                 <div class="guide-tab-item">
                     <h3>Semantic Space</h3>
@@ -60,63 +65,35 @@
 
             <div class="note-callout" style="margin-top: 20px;">
                 <p>
-                    <strong>New here?</strong> Open the study picker (top right): a small sample
-                    study is shared with new accounts so you can try every analysis tab without
-                    touching real research data. No upload required.
-                </p>
-                <p>
-                    <strong>Nothing in the picker?</strong> That's normal for a brand-new
-                    account: ask the person who invited you to share a study with you.
-                    Nothing is broken.
+                    <strong>Nothing in the study picker?</strong> That's normal for a brand-new
+                    account: studies are shared with you by the researcher who defined them, so ask
+                    the person who invited you to share one. Nothing is broken.
                 </p>
             </div>
 
             {% if user.can_access('tab.data_management.ingestion') %}
             <p class="prose" style="margin-top: 16px;">
                 <strong>Have participant data to add?</strong> Upload export files under
-                Data Management&nbsp;→&nbsp;Ingest Collections; once ingested, they can be included in a study.
+                Data Pipeline&nbsp;→&nbsp;Ingest Collections; once ingested, they can be included in a study.
             </p>
             {% endif %}
 
             <p class="prose" style="margin-top: 16px;">
-                For a longer walkthrough, read the <a href="{{ url_for('public_bp.thehub') }}">full guide</a>.
-                The <strong>?</strong> button in the top right always explains the tab you're on.
+                The <strong>?</strong> button in the top right always explains the tab you're on, and
+                the <a href="{{ url_for('public_bp.thehub') }}">full guide</a> describes the whole
+                pipeline, including the parts your account doesn't reach.
             </p>
         </section>
         {% endif %}
 
-        {% include 'public/_landing_content.html' %}
+        {# The pipeline walkthrough, filtered to this account's stages. #}
+        {% with tour_mode = 'guide', tour_steps = pipeline_steps %}
+        {% include 'public/_pipeline_tour.html' %}
+        {% endwith %}
 
-        <!-- Signed-in housekeeping notes (not shown on the public landing page) -->
-        <section class="landing-section">
-            <div class="note-callout">
-                <p>
-                    This research tool is under development, and you may occasionally encounter bugs
-                    or unexpected behaviour. If you do, we’d really appreciate your help in improving
-                    it{% if repo_url %}—please
-                    <a href="{{ repo_issues_url }}/new" target="_blank" rel="noopener">open an issue</a>
-                    on <a href="{{ repo_url }}" target="_blank" rel="noopener">GitHub</a> describing what
-                    you were doing and what went wrong. Issues are public, so leave participant data out
-                    of them, and report anything security-related privately instead
-                    ({% if contact_email %}{{ contact_email }}{% else %}see the
-                    <a href="{{ repo_url }}/blob/main/SECURITY.md" target="_blank" rel="noopener">security
-                    policy</a>{% endif %}).{% elif contact_email %}—please feel free to let us know at
-                    {{ contact_email }}.{% else %}.{% endif %}
-                </p>
-            </div>
-            <div class="note-callout">
-                <p>
-                    Some of the data and insights presented here are generated using AI. While we aim
-                    for accuracy, there may be instances where outputs are imperfect or unexpected.
-                    We appreciate your understanding as we continue to refine both the tool and our
-                    research methods.
-                </p>
-            </div>
-
-            <div class="text-sm" style="text-align: center; color: var(--color-text-faint); margin-top: 50px;">
-                2026 Queensland University of Technology
-            </div>
-        </section>
     </div>
+
+    {# Same footer anonymous visitors get, including the copy-ready citation. #}
+    {% include 'public/_footer.html' %}
 
 </div>

@@ -92,6 +92,18 @@
 
 {% include 'public/_pipeline_tour.html' %}
 
+<section class="landing-section reveal" id="cite">
+    <h2 class="text-h2 font-semibold landing-section-title">How to cite the Hub</h2>
+    <p class="prose landing-section-intro">
+        If the Hub was part of how you produced a result — you ran it, ran your own instance of it,
+        or analysed data through it — cite it in your reference list like any other piece of
+        research software. Copy whichever form your publisher wants:
+    </p>
+    {% with cite_scope = 'thehub-cite' %}
+    {% include 'public/_how_to_cite.html' %}
+    {% endwith %}
+</section>
+
 {% if repo_url %}
 <section class="landing-section reveal" id="self-host">
     <h2 class="text-h2 font-semibold landing-section-title">Running it yourself</h2>
@@ -120,11 +132,6 @@
             browser, and adding a platform is one ingestion class plus one scraper class. The
             <a href="{{ repo_url }}/tree/main/docs" target="_blank" rel="noopener">docs folder</a>
             covers architecture, configuration and the pipeline.
-        </li>
-        <li>
-            <strong>Cite it.</strong> The repository carries a <code>CITATION.cff</code> with the
-            archived DOI, so GitHub's "Cite this repository" button gives you a ready-made
-            reference.
         </li>
     </ol>
 </section>

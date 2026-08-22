@@ -28,6 +28,7 @@ dependencies = [
     "polars>=1.40",
     "psutil>=6.0",
     "pyarrow>=22.0",
+    "pyyaml>=6.0",
     "rapidfuzz>=3.14",
     "requests>=2.32",
     "scikit-bio>=0.7",

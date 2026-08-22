@@ -1,10 +1,34 @@
-{# The five-step pipeline tour (CSS-only radio-tab stepper). Included by
-   _landing_content.html (logged-in home pane) and by public/thehub.html. #}
+{# The pipeline tour (CSS-only radio-tab stepper), shared by two call sites:
 
-<!-- See it in action: the five pipeline steps as a tabbed stepper.
-     CSS-only tabs: hidden radio inputs + label pills, so the component works
-     identically on the public landing page and the logged-in home pane. -->
+     public/thehub.html  - describes the whole system to visitors; no arguments,
+                           so all five stages render.
+     tabs/home.html      - the logged-in user guide; passes tour_mode='guide'
+                           and tour_steps = the stages this account can reach
+                           (permissions.visible_pipeline_steps), so an
+                           analysis-only user sees the Analyse stage and nothing
+                           about ingestion, enrichment or administration.
+
+   In guide mode the individual feature rows are gated too — the Analyse stage
+   shows a screen only if the user holds that tab. #}
+
+{% set steps = tour_steps if tour_steps is defined else ['ingest', 'enrich', 'annotate', 'analyse', 'share'] %}
+{% set guide = (tour_mode | default('public')) == 'guide' %}
+{% set step_names = steps | map('capitalize') | list %}
+
+{% if steps %}
 <section class="landing-section" id="pipeline">
+    {% if guide %}
+    <h2 class="text-h2 font-semibold landing-section-title">What you can do in the Hub</h2>
+    <p class="prose landing-section-intro">
+        The Hub is a pipeline: donated feeds are ingested, enriched with recovered metadata,
+        annotated into research variables, then analysed and shared. Your account works in
+        <strong>{% if step_names | length > 1 %}{{ step_names[:-1] | join(', ') }} and {% endif %}{{ step_names[-1] }}</strong>.
+        {% if steps | length > 1 %}Pick a stage below to see the screens it gives you and what each
+        one is for; every screen is a tab you can open from the bar above.{% else %}Below are the
+        screens that stage gives you and what each one is for — every one of them is a tab you can
+        open from the bar above.{% endif %}
+    </p>
+    {% else %}
     <h2 class="text-h2 font-semibold landing-section-title">Follow the Pipeline</h2>
     <p class="prose landing-section-intro">
         What happens to a donated feed? Follow it through the Hub's five steps,
@@ -12,45 +36,61 @@
         finding. If you're a participant, this is exactly what happens to a donation; if
         you're a researcher, this is the toolbox you get.
     </p>
+    {% endif %}
 
-    <div class="see-tabs">
-        <input type="radio" name="see-tab" id="see-tab-ingest" class="see-tabs__input" checked>
-        <input type="radio" name="see-tab" id="see-tab-enrich" class="see-tabs__input">
-        <input type="radio" name="see-tab" id="see-tab-annotate" class="see-tabs__input">
-        <input type="radio" name="see-tab" id="see-tab-analyse" class="see-tabs__input">
-        <input type="radio" name="see-tab" id="see-tab-share" class="see-tabs__input">
+    {# --see-step-count drives the pill grid, which is otherwise a fixed five
+       columns; --single hides the pills entirely when there is nothing to
+       step between. #}
+    <div class="see-tabs{% if steps | length == 1 %} see-tabs--single{% endif %}"
+         style="--see-step-count: {{ steps | length }};">
+        {% if 'ingest' in steps %}<input type="radio" name="see-tab" id="see-tab-ingest" class="see-tabs__input" {% if steps[0] == 'ingest' %}checked{% endif %}>{% endif %}
+        {% if 'enrich' in steps %}<input type="radio" name="see-tab" id="see-tab-enrich" class="see-tabs__input" {% if steps[0] == 'enrich' %}checked{% endif %}>{% endif %}
+        {% if 'annotate' in steps %}<input type="radio" name="see-tab" id="see-tab-annotate" class="see-tabs__input" {% if steps[0] == 'annotate' %}checked{% endif %}>{% endif %}
+        {% if 'analyse' in steps %}<input type="radio" name="see-tab" id="see-tab-analyse" class="see-tabs__input" {% if steps[0] == 'analyse' %}checked{% endif %}>{% endif %}
+        {% if 'share' in steps %}<input type="radio" name="see-tab" id="see-tab-share" class="see-tabs__input" {% if steps[0] == 'share' %}checked{% endif %}>{% endif %}
 
         <div class="see-tabs__pills">
+            {% if 'ingest' in steps %}
             <label class="see-tab-pill" for="see-tab-ingest">
-                <span class="see-tab-pill__num">1</span>
+                <span class="see-tab-pill__num">{{ steps.index('ingest') + 1 }}</span>
                 <span class="see-tab-pill__title font-semibold">Ingest</span>
                 <span class="see-tab-pill__desc">Mixed formats and multiple participants become one clean, queryable corpus, grouped into studies.</span>
             </label>
+            {% endif %}
+            {% if 'enrich' in steps %}
             <label class="see-tab-pill" for="see-tab-enrich">
-                <span class="see-tab-pill__num">2</span>
+                <span class="see-tab-pill__num">{{ steps.index('enrich') + 1 }}</span>
                 <span class="see-tab-pill__title font-semibold">Enrich</span>
                 <span class="see-tab-pill__desc">Recovers the stripped-out videos, captions, authors, music and engagement counts.</span>
             </label>
+            {% endif %}
+            {% if 'annotate' in steps %}
             <label class="see-tab-pill" for="see-tab-annotate">
-                <span class="see-tab-pill__num">3</span>
+                <span class="see-tab-pill__num">{{ steps.index('annotate') + 1 }}</span>
                 <span class="see-tab-pill__title font-semibold">Annotate</span>
                 <span class="see-tab-pill__desc">AI turns each video into structured research variables, with human quality control.</span>
             </label>
+            {% endif %}
+            {% if 'analyse' in steps %}
             <label class="see-tab-pill" for="see-tab-analyse">
-                <span class="see-tab-pill__num">4</span>
+                <span class="see-tab-pill__num">{{ steps.index('analyse') + 1 }}</span>
                 <span class="see-tab-pill__title font-semibold">Analyse</span>
-                <span class="see-tab-pill__desc">Time-series, statistics and qualitative video analysis, side by side.</span>
+                <span class="see-tab-pill__desc">Time-series, statistics, semantic mapping and qualitative video analysis, side by side.</span>
             </label>
+            {% endif %}
+            {% if 'share' in steps %}
             <label class="see-tab-pill" for="see-tab-share">
-                <span class="see-tab-pill__num">5</span>
+                <span class="see-tab-pill__num">{{ steps.index('share') + 1 }}</span>
                 <span class="see-tab-pill__title font-semibold">Share</span>
                 <span class="see-tab-pill__desc">Role-based access brings collaborators and students in with the right permissions.</span>
             </label>
+            {% endif %}
         </div>
 
         <div class="see-panels">
 
             <!-- 1. Ingest -->
+            {% if 'ingest' in steps %}
             <div class="see-panel" id="see-panel-ingest">
                 <div class="feature-row">
                     <div class="feature-row-text">
@@ -65,8 +105,10 @@
                     </figure>
                 </div>
             </div>
+            {% endif %}
 
             <!-- 2. Enrich -->
+            {% if 'enrich' in steps %}
             <div class="see-panel" id="see-panel-enrich">
                 <div class="feature-row">
                     <div class="feature-row-text">
@@ -83,16 +125,19 @@
                     </figure>
                 </div>
             </div>
+            {% endif %}
 
             <!-- 3. Annotate -->
+            {% if 'annotate' in steps %}
             <div class="see-panel" id="see-panel-annotate">
                 <p class="see-panel__lead">
                     Google Gemini turns each video into structured research variables, such as content
                     category, activities, objects, transcript, sensitivity and more. Machine annotation
                     is useful, but it needs scrutiny, so we wrap it in versioning, testing and human
-                    evaluation, and then map the annotated corpus by meaning.
+                    evaluation.
                 </p>
 
+                {% if not guide or current_user.can_access('tab.data_management.annotation') or current_user.can_access('tab.admin.versions') or current_user.can_access('tab.admin.ab_eval') %}
                 <div class="feature-row">
                     <div class="feature-row-text">
                         <h4 class="text-h3 font-semibold">Structured, versioned prompts</h4>
@@ -110,7 +155,9 @@
                         <figcaption>Annotation contract &amp; versions: prompt and schema, fully versioned</figcaption>
                     </figure>
                 </div>
+                {% endif %}
 
+                {% if not guide or current_user.can_access('tab.admin.ab_eval') or current_user.can_access('tab.admin.human_eval') %}
                 <div class="feature-row">
                     <div class="feature-row-text">
                         <h4 class="text-h3 font-semibold">Tested and human-evaluated</h4>
@@ -128,34 +175,20 @@
                         <figcaption>Annotation testing: candidate prompts vs human coders on a fixed set</figcaption>
                     </figure>
                 </div>
-
-                <div class="feature-row">
-                    <div class="feature-row-text">
-                        <h4 class="text-h3 font-semibold">Map the whole corpus</h4>
-                        <p class="prose">
-                            Once annotated, every video becomes a 1536-dimensional embedding built from
-                            its variables and content, then projected into a readable 2D semantic space
-                            where similar videos sit together. The Hub clusters that space into
-                            fine-grained, automatically named "niches" - emergent micro-genres you can
-                            focus on, label, and colour by content category or popularity. Because it
-                            spans the entire annotated corpus, the map is a bird's-eye view of what the
-                            feed is made of, independent of any single study.
-                        </p>
-                    </div>
-                    <figure class="screenshot-frame">
-                        <img src="{{ url_for('static', filename='landing/semantic_space.webp') }}" alt="Semantic Space tab: 2D embedding map of annotated videos" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
-                        <figcaption>Semantic Space: the annotated corpus, mapped by meaning</figcaption>
-                    </figure>
-                </div>
+                {% endif %}
             </div>
+            {% endif %}
 
             <!-- 4. Analyse -->
+            {% if 'analyse' in steps %}
             <div class="see-panel" id="see-panel-analyse">
                 <p class="see-panel__lead">
                     Different research paradigms in one place: time-series and statistics alongside
-                    qualitative video analysis.
+                    qualitative video analysis. Every tab works against the study picked in the
+                    header, so switching study re-scopes all of them at once.
                 </p>
 
+                {% if not guide or current_user.can_access('tab.explore') %}
                 <div class="feature-row">
                     <div class="feature-row-text">
                         <h4 class="text-h3 font-semibold">Compare across the corpus</h4>
@@ -170,7 +203,9 @@
                         <figcaption>Explore: distribution comparison across data slices</figcaption>
                     </figure>
                 </div>
+                {% endif %}
 
+                {% if not guide or current_user.can_access('tab.timelines') %}
                 <div class="feature-row">
                     <div class="feature-row-text">
                         <h4 class="text-h3 font-semibold">Follow a feed over time</h4>
@@ -185,7 +220,9 @@
                         <figcaption>Timelines: one participant's feed, day by day</figcaption>
                     </figure>
                 </div>
+                {% endif %}
 
+                {% if not guide or current_user.can_access('tab.video_analysis') %}
                 <div class="feature-row">
                     <div class="feature-row-text">
                         <h4 class="text-h3 font-semibold">Watch and annotate in context</h4>
@@ -200,7 +237,9 @@
                         <figcaption>Video Analysis: watch, inspect and code individual videos</figcaption>
                     </figure>
                 </div>
+                {% endif %}
 
+                {% if not guide or current_user.can_access('tab.sessions') %}
                 <div class="feature-row">
                     <div class="feature-row-text">
                         <h4 class="text-h3 font-semibold">Zoom in on a single sitting</h4>
@@ -216,7 +255,9 @@
                         <figcaption>Sessions: one sitting, minute by minute, binges detected</figcaption>
                     </figure>
                 </div>
+                {% endif %}
 
+                {% if not guide or current_user.can_access('tab.correlations') %}
                 <div class="feature-row">
                     <div class="feature-row-text">
                         <h4 class="text-h3 font-semibold">Find structure and patterns</h4>
@@ -231,9 +272,33 @@
                         <figcaption>Correlations: scatter, ellipses and correlation heatmap</figcaption>
                     </figure>
                 </div>
+                {% endif %}
+
+                {% if not guide or current_user.can_access('tab.semantic_space') %}
+                <div class="feature-row">
+                    <div class="feature-row-text">
+                        <h4 class="text-h3 font-semibold">Map the whole corpus</h4>
+                        <p class="prose">
+                            Once annotated, every video becomes a 1536-dimensional embedding built from
+                            its variables and content, then projected into a readable 2D semantic space
+                            where similar videos sit together. Semantic Space clusters that map into
+                            fine-grained, automatically named "niches" - emergent micro-genres you can
+                            focus on, label, and colour by content category or popularity. Because it
+                            spans the entire annotated corpus, the map is a bird's-eye view of what the
+                            feed is made of, independent of any single study.
+                        </p>
+                    </div>
+                    <figure class="screenshot-frame">
+                        <img src="{{ url_for('static', filename='landing/semantic_space.webp') }}" alt="Semantic Space tab: 2D embedding map of annotated videos" loading="lazy" onerror="this.closest('.screenshot-frame').classList.add('screenshot-frame--pending')">
+                        <figcaption>Semantic Space: the annotated corpus, mapped by meaning</figcaption>
+                    </figure>
+                </div>
+                {% endif %}
             </div>
+            {% endif %}
 
             <!-- 5. Share -->
+            {% if 'share' in steps %}
             <div class="see-panel" id="see-panel-share">
                 <div class="feature-row">
                     <div class="feature-row-text">
@@ -250,7 +315,9 @@
                     </figure>
                 </div>
             </div>
+            {% endif %}
 
         </div>
     </div>
 </section>
+{% endif %}
