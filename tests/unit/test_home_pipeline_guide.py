@@ -100,7 +100,9 @@ def test_home_pane_ends_with_the_public_footer_and_a_citation(client, monkeypatc
     assert "@software{" in html
     # Promotional / housekeeping blocks that used to sit under the screenshots.
     assert "Open source" not in html
-    assert "2026 Queensland University of Technology\n" not in html
+    # The footer carries no copyright line at all (removed 2026-08-22).
+    assert "public-footer-legal" not in html
+    assert "&copy;" not in html
 
 
 def test_home_pane_no_longer_advertises_the_retired_sample_dataset(client, monkeypatch):

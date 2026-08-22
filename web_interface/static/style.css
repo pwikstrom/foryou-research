@@ -4258,13 +4258,6 @@ body:has(.public-page) {
     --fyr-grad: linear-gradient(100deg, var(--fyr-pink), var(--fyr-orange) 35%, var(--fyr-teal) 70%, var(--fyr-violet));
 }
 
-.hero-title--gradient {
-    background: var(--fyr-grad);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-}
-
 /* Scroll-reveal: hidden state only applies once JS has signalled it will run
    (html.js-reveal), so the pages work fully without JavaScript. */
 .js-reveal .reveal {
@@ -4854,7 +4847,10 @@ body:has(.public-page) {
 .public-footer {
     border-top: 1px solid var(--color-border-subtle);
     background: var(--color-bg-surface);
-    padding: 36px 28px 22px;
+    /* Roomier bottom than the sides: the "how to cite" box is the last thing
+       in here now that the copyright line is gone, and it needs the breathing
+       room that line used to provide. */
+    padding: 36px 28px 34px;
     margin-top: 40px;
 }
 
@@ -4896,15 +4892,6 @@ body:has(.public-page) {
 
 .public-footer-link:hover {
     color: var(--color-accent);
-}
-
-.public-footer-legal {
-    max-width: 1060px;
-    margin: 26px auto 0;
-    padding-top: 16px;
-    border-top: 1px solid var(--color-border-subtle);
-    color: var(--color-text-faint);
-    text-align: center;
 }
 
 /* ----- "How to cite" (footer disclosure, /thehub section, FAQ entry) -----
