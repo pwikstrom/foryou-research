@@ -1,0 +1,146 @@
+{# Copy-ready citations for the Hub. Rendered in three places — the site
+   footer's "How to cite" disclosure, the citation section on /thehub and the
+   FAQ entry — so the wording can never drift between them.
+
+   Call sites set, via {% with %}:
+     cite_scope     (required) unique id prefix; a page renders this block more
+                    than once (body + footer, or the FAQ's split answer), and
+                    duplicate ids would break every copy button
+     cite_software  (optional, default true)  show the reference + BibTeX blocks
+     cite_ack       (optional, default true)  show the acknowledgement block
+
+   The `citation` mapping comes from the inject_citation context processor,
+   which reads the repository's CITATION.cff. #}
+
+<div class="cite-blocks">
+
+    {% set show_software = cite_software is not defined or cite_software %}
+    {% set show_ack = cite_ack is not defined or cite_ack %}
+
+    {% if show_software and citation and citation.available %}
+    <div class="cite-item">
+        <div class="cite-item__head">
+            <span class="cite-item__label">Reference</span>
+            <button type="button" class="cite-copy" data-cite-copy="{{ cite_scope }}-apa">Copy</button>
+        </div>
+        <div class="cite-text" id="{{ cite_scope }}-apa">{{ citation.apa }}</div>
+    </div>
+
+    <div class="cite-item">
+        <div class="cite-item__head">
+            <span class="cite-item__label">BibTeX</span>
+            <button type="button" class="cite-copy" data-cite-copy="{{ cite_scope }}-bibtex">Copy</button>
+        </div>
+        <pre class="cite-code" id="{{ cite_scope }}-bibtex">{{ citation.bibtex }}</pre>
+    </div>
+
+    <p class="cite-note text-sm">
+        Please cite the version you actually used{% if citation.doi_url %} — each release is archived
+        with its own DOI at
+        <a href="{{ citation.doi_url }}" target="_blank" rel="noopener">{{ citation.doi_url | replace('https://', '') }}</a>,
+        which always resolves to the latest one{% endif %}.
+    </p>
+    {% elif show_software and repo_url %}
+    <p class="cite-note text-sm">
+        Use the "Cite this repository" button on the
+        <a href="{{ repo_url }}" target="_blank" rel="noopener">source repository</a>. It reads the
+        repository's <code>CITATION.cff</code>, which carries the archived DOI for each release.
+    </p>
+    {% endif %}
+
+    {% if show_ack %}
+    <div class="cite-item">
+        <div class="cite-item__head">
+            <span class="cite-item__label">Acknowledgement</span>
+            <button type="button" class="cite-copy" data-cite-copy="{{ cite_scope }}-ack">Copy</button>
+        </div>
+        <div class="cite-text" id="{{ cite_scope }}-ack">This research used The For You Data Hub, developed by The For You Research Project at Queensland University of Technology and the University of Sydney, and funded by the Australian Research Council (DP240102939) with support from the Australian Internet Observatory.</div>
+    </div>
+    {% if show_software %}
+    <p class="cite-note text-sm">
+        Citing the software is separate from acknowledging the project: the reference goes in your
+        reference list, the acknowledgement in your funding or acknowledgements section. If you
+        analysed donated data held in this Hub rather than only running the software,
+        {% if contact_email %}contact
+        <a href="mailto:{{ contact_email }}">{{ contact_email }}</a> about attribution and
+        co-authorship before you publish.{% else %}talk to the team running this instance about
+        attribution and co-authorship before you publish.{% endif %}
+    </p>
+    {% endif %}
+    {% endif %}
+
+</div>
+
+<script>
+    // Delegated copy handler for every .cite-copy button on the page. Guarded
+    // because this partial is deliberately rendered more than once per page
+    // (footer + body) and a second listener would copy twice per click.
+    (function () {
+        if (window.__fypCiteCopyReady) return;
+        window.__fypCiteCopyReady = true;
+
+        function flash(btn, message, holdMs) {
+            const original = btn.dataset.citeLabel || btn.textContent;
+            btn.dataset.citeLabel = original;
+            btn.textContent = message;
+            btn.classList.add('cite-copy--done');
+            clearTimeout(btn._citeTimer);
+            btn._citeTimer = setTimeout(function () {
+                btn.textContent = btn.dataset.citeLabel;
+                btn.classList.remove('cite-copy--done');
+            }, holdMs || 1600);
+        }
+
+        function selectText(el) {
+            // Last resort: leave the citation selected so the manual
+            // ⌘/Ctrl+C the button then asks for actually copies something.
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }
+
+        function legacyCopy(text) {
+            // navigator.clipboard is unavailable on plain-http instances (a
+            // local install reached over the LAN); execCommand still works.
+            const scratch = document.createElement('textarea');
+            scratch.value = text;
+            scratch.setAttribute('readonly', '');
+            scratch.style.position = 'fixed';
+            scratch.style.top = '-1000px';
+            document.body.appendChild(scratch);
+            scratch.select();
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+            document.body.removeChild(scratch);
+            return ok;
+        }
+
+        function fallback(btn, source, text) {
+            if (legacyCopy(text)) {
+                flash(btn, 'Copied');
+                return;
+            }
+            selectText(source);
+            flash(btn, 'Press ⌘/Ctrl+C', 4000);
+        }
+
+        document.addEventListener('click', function (event) {
+            const btn = event.target.closest('.cite-copy');
+            if (!btn) return;
+            event.preventDefault();
+            const source = document.getElementById(btn.dataset.citeCopy);
+            if (!source) return;
+            const text = source.textContent.trim();
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(
+                    function () { flash(btn, 'Copied'); },
+                    function () { fallback(btn, source, text); }
+                );
+            } else {
+                fallback(btn, source, text);
+            }
+        });
+    })();
+</script>

@@ -147,6 +147,21 @@ def _register_web_ui(app):
             "repo_issues_url": f"{repo_url}/issues" if repo_url else "",
         }
 
+    @app.context_processor
+    def inject_citation():
+        """Expose the software citation (from CITATION.cff) to every template.
+
+        The footer's "How to cite" box rides on every page — public and, since
+        the home pane adopted the public footer, inside the app shell too — so
+        a context processor is the only way to reach all of them without
+        threading the value through every render_template call.
+        """
+        from web_interface.citation import get_citation
+        try:
+            return {"citation": get_citation()}
+        except Exception:
+            return {"citation": {"available": False}}
+
     @app.errorhandler(403)
     def handle_forbidden(error):
         """Return JSON for API routes so client-side ``res.json()`` doesn't choke.
@@ -178,7 +193,7 @@ def _register_web_ui(app):
         from fyp.fyp_config import get_config
         from fyp.ingest import platform_url_templates
 
-        from .permissions import get_user_permissions
+        from .permissions import get_user_permissions, visible_pipeline_steps
         from .slack_service import get_recent_messages
         slack_configured = bool(os.environ.get("SLACK_BOT_TOKEN"))
         slack_messages = get_recent_messages() if slack_configured else []
@@ -188,7 +203,10 @@ def _register_web_ui(app):
         media_on_gcs = bool(get_config().get("data_io", {}).get("use_gcs_for_media"))
         # Lets client-side "open on platform" links resolve per platform from the
         # same registry the viewer API uses (see fypPlatformUrl in main.js).
-        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, media_on_gcs=media_on_gcs, platform_url_templates=platform_url_templates())
+        # The home pane is a user guide: it walks only the pipeline stages this
+        # user can actually reach (see permissions.visible_pipeline_steps).
+        pipeline_steps = visible_pipeline_steps(current_user)
+        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, media_on_gcs=media_on_gcs, platform_url_templates=platform_url_templates(), pipeline_steps=pipeline_steps)
 
 
 def create_app():

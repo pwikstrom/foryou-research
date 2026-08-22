@@ -4858,6 +4858,14 @@ body:has(.public-page) {
     margin-top: 40px;
 }
 
+/* Align the footer's own blocks with .public-main's 1060px column — the legal
+   line was already constrained, so unconstrained paragraphs sat wider than it. */
+.public-footer > p {
+    max-width: 1060px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
 .public-footer-inner {
     max-width: 1060px;
     margin: 0 auto;
@@ -4897,6 +4905,139 @@ body:has(.public-page) {
     border-top: 1px solid var(--color-border-subtle);
     color: var(--color-text-faint);
     text-align: center;
+}
+
+/* ----- "How to cite" (footer disclosure, /thehub section, FAQ entry) -----
+   One partial (public/_how_to_cite.html) renders in all three places, so the
+   styles have to survive both a bare page section and the .faq-accordion
+   cascade. */
+
+.cite-disclosure {
+    max-width: 1060px;
+    margin: 18px auto 0;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 10px;
+    background: var(--color-bg-surface);
+    overflow: hidden;
+}
+
+.cite-disclosure summary {
+    cursor: pointer;
+    padding: 12px 18px;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text-primary);
+    list-style: none;
+    position: relative;
+    padding-right: 40px;
+}
+
+.cite-disclosure summary::-webkit-details-marker {
+    display: none;
+}
+
+.cite-disclosure summary::after {
+    content: "+";
+    position: absolute;
+    right: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-accent);
+    line-height: 1;
+}
+
+.cite-disclosure[open] summary::after {
+    content: "\2212";
+}
+
+.cite-disclosure__body {
+    padding: 0 18px 16px;
+}
+
+.cite-blocks {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.cite-item {
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 8px;
+    background: var(--color-bg-inset);
+    overflow: hidden;
+}
+
+.cite-item__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    background: var(--color-bg-elevated);
+}
+
+.cite-item__label {
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-wide, 0.08em);
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
+
+.cite-copy {
+    flex: none;
+    padding: 4px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-bg-surface);
+    color: var(--color-text-secondary);
+    font-size: var(--text-xs);
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.cite-copy:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+
+.cite-copy--done {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+
+/* .cite-text is a div, not a p, so the .faq-accordion "details p" padding
+   rule cannot reach it. */
+.cite-text {
+    margin: 0;
+    padding: 12px;
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    line-height: var(--leading-relaxed);
+}
+
+.cite-code {
+    margin: 0;
+    padding: 12px;
+    overflow-x: auto;
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1.6;
+    white-space: pre;
+}
+
+.cite-note {
+    margin: 0;
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+}
+
+/* Inside a FAQ answer the shared "details p" padding would double up. */
+.faq-accordion .cite-blocks p.cite-note {
+    padding: 0;
 }
 
 /* ----- Public mini-site: responsive ----- */
@@ -5227,8 +5368,17 @@ body:has(.public-page) {
 
 .see-tabs__pills {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    /* --see-step-count is set inline by _pipeline_tour.html: the logged-in
+       guide renders only the stages the account can reach, so the column
+       count is not always five. */
+    grid-template-columns: repeat(var(--see-step-count, 5), 1fr);
     gap: 14px;
+}
+
+/* A single visible stage has nothing to step between — drop the pill row and
+   show the panel on its own. */
+.see-tabs--single .see-tabs__pills {
+    display: none;
 }
 
 .see-tab-pill {

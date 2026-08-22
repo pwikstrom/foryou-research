@@ -157,6 +157,66 @@ PERMISSION_KEY_IMPLIED_GRANTS: dict[str, list[str]] = {
 
 
 
+# --- Pipeline tour (home pane / public guide) ---------------------------------
+
+# The Hub presents itself as a five-stage pipeline (Ingest -> Enrich -> Annotate
+# -> Analyse -> Share). The logged-in home pane is a user guide, so it shows a
+# stage only when the user actually holds a page inside it: an analysis-only
+# account gets the Analyse stage and nothing else. The public /thehub page is a
+# description of the whole system and deliberately shows all five.
+#
+# Order matters — it is the order the stepper renders in.
+PIPELINE_STEPS: list[str] = ["ingest", "enrich", "annotate", "analyse", "share"]
+
+# A stage is visible when the user holds ANY of its keys.
+PIPELINE_STEP_PERMISSIONS: dict[str, list[str]] = {
+    "ingest": [
+        "tab.data_management.ingestion",
+        "tab.data_management.edit_collections",
+        "tab.data_management.studies",
+    ],
+    "enrich": [
+        "tab.data_management.scrape",
+    ],
+    "annotate": [
+        "tab.data_management.annotation",
+        "tab.admin.ab_eval",
+        "tab.admin.versions",
+        "tab.admin.human_eval",
+    ],
+    "analyse": [
+        "tab.explore",
+        "tab.timelines",
+        "tab.video_analysis",
+        "tab.sessions",
+        "tab.correlations",
+        "tab.semantic_space",
+    ],
+    "share": [
+        "tab.admin.roles",
+        "tab.admin.active_users",
+        "tab.admin.new_users",
+    ],
+}
+
+
+def visible_pipeline_steps(user) -> list[str]:
+    """Return the pipeline stages ``user`` has at least one page inside.
+
+    Args:
+        user: A ``User`` instance (or anything ``user_has_permission`` accepts).
+
+    Returns:
+        A subset of ``PIPELINE_STEPS`` in pipeline order — possibly empty for a
+        user with no gated pages at all, in which case the caller drops the
+        tour entirely rather than rendering an empty stepper.
+    """
+    return [
+        step for step in PIPELINE_STEPS
+        if any(user_has_permission(user, key) for key in PIPELINE_STEP_PERMISSIONS[step])
+    ]
+
+
 def user_has_permission(user, perm_key: str) -> bool:
     """Return True if ``user`` is allowed to access ``perm_key``.
 
