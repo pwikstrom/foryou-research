@@ -55,12 +55,15 @@ def test_signup_approves_only_when_gating_is_off(
 
     captured = {}
 
-    def _fake_add_user(username, password, role, approved=False, display_username=None):
+    def _fake_add_user(username, password, role, approved=False, display_username=None, **kwargs):
         captured["approved"] = approved
         captured["role"] = role
         return True, "ok"
 
     monkeypatch.setattr(auth_routes.user_manager, "add_user", _fake_add_user)
+    # A signup for an email that already has a passwordless participant
+    # account claims it instead; this test is about fresh signups.
+    monkeypatch.setattr(auth_routes.user_manager, "find_user_by_email", lambda email: None)
     monkeypatch.setattr(
         auth_routes, "get_new_user_approval_required", lambda: require_approval
     )

@@ -23,7 +23,11 @@ from fyp import activity_versioning as _activity_versioning
 from fyp import scrape_contract as _scrape_contract
 from fyp import scrape_versioning as _scrape_versioning
 from fyp import structure_sentinel as _structure_sentinel
-from fyp.donations import generate_collection_metadata
+from fyp.donations import (
+    demographic_metadata_columns,
+    generate_collection_metadata,
+    strip_demographic_columns,
+)
 from fyp.logging_setup import get_logger
 from fyp.polars_ops import fast_vertical_concat
 from fyp.recode_variables import infer_timezone_offset
@@ -278,6 +282,18 @@ def apply_cid_remap_to_metadata(
                 new_entry["display_collection_id"] = old_display
             if "hidden" not in new_entry and "hidden" in old_entry:
                 new_entry["hidden"] = old_entry["hidden"]
+            # Account link: the new entry's decision wins; an undecided new
+            # entry inherits the old one. Two different accounts is a real
+            # conflict — keep the new one but say so.
+            if "user_id" in old_entry:
+                if "user_id" not in new_entry:
+                    new_entry["user_id"] = old_entry["user_id"]
+                elif (new_entry.get("user_id") and old_entry.get("user_id")
+                      and new_entry["user_id"] != old_entry["user_id"]):
+                    logger.warning(
+                        f"cid_remap {old_cid} -> {new_cid}: collections linked to different "
+                        f"accounts ({old_entry['user_id']!r} vs {new_entry['user_id']!r}); "
+                        f"keeping {new_entry['user_id']!r}")
             tags[new_cid] = new_entry
             summary["tag_keys_merged"].append((old_cid, new_cid))
         else:
@@ -1839,7 +1855,12 @@ class ForYouCollection(ForYouBaseCollection):
                 load_from_disk=False)
 
             if old_metadata is not None and not old_metadata.empty:
-                preserved_cols = [c for c in old_metadata.columns if c not in self.stats.columns]
+                # Carry over columns set outside the generator — but never
+                # the demographic ones: those moved to user accounts and a
+                # stale copy must not resurrect them.
+                demographic = set(demographic_metadata_columns(old_metadata.columns))
+                preserved_cols = [c for c in old_metadata.columns
+                                  if c not in self.stats.columns and c not in demographic]
                 if preserved_cols:
                     self.stats = pd.merge(
                         self.stats, old_metadata[preserved_cols],
@@ -1847,6 +1868,7 @@ class ForYouCollection(ForYouBaseCollection):
 
             self.stats[('other','accepted')] = True
             self.stats[('participants', 'date')] = self.stats[('other', 'ts_added_to_dataset')]
+            self.stats = strip_demographic_columns(self.stats)
 
             data_io.save_parquet(
                 df=self.stats,

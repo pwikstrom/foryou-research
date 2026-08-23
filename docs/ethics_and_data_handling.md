@@ -148,9 +148,25 @@ structure-sentinel baselines, process logs, the admin activity log)
 retain the collection id and raw filenames as audit metadata; they
 contain no feed content.
 
+**The participant's account.** Demographic and contact details a
+participant submits with a donation (name, email, age, postcode, country,
+TikTok handle, consent to contact) are **not stored on the collection**:
+the collection is linked to a *user account* (n-to-1) and those details
+live on that account's profile, visible only to the person and to
+administrators. Deleting a collection leaves the account in place; a
+placeholder account (a participant who left demographics but no email,
+held under a fake `p-N@…` address that can never log in) that no longer
+owns any collection is flagged on Admin → Active users with a one-click
+"Remove orphan accounts" action. Deleting a *user account* (Admin →
+Active users) unassigns the account's collections by default — the
+collections themselves stay — and offers to delete them as well; that
+cascade runs the same collection-delete task described above, so the
+rest of this section applies to it unchanged.
+
 There is no per-item or per-file deletion path — the structure-review
 "reject" and ledger controls exclude files from ingestion but leave them
-on disk. A complete withdrawal is therefore: delete the collection, then
-delete its archived raw files, then run a sessions refresh and dataset
-assembly, and — if the study's protocol requires content-level erasure —
-remove the orphaned item-keyed artifacts manually.
+on disk. A complete withdrawal is therefore: delete the collection (or
+the account, with the cascade), then delete its archived raw files, then
+run a sessions refresh and dataset assembly, and — if the study's protocol
+requires content-level erasure — remove the orphaned item-keyed artifacts
+manually.

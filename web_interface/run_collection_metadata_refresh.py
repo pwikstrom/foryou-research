@@ -18,7 +18,11 @@ def run_collection_metadata_refresh(reporter: TaskStatusReporter, task_args: dic
     """
     import fyp.data_io as data_io
     import pandas as pd
-    from fyp.donations import generate_collection_metadata
+    from fyp.donations import (
+        demographic_metadata_columns,
+        generate_collection_metadata,
+        strip_demographic_columns,
+    )
     from fyp.organize_datasets import COLLECTIONS_LABEL
 
     _t_start = time.perf_counter()
@@ -57,7 +61,10 @@ def run_collection_metadata_refresh(reporter: TaskStatusReporter, task_args: dic
     reporter.log(f"Regenerated metadata for {len(result):,} collections ({_t_generate:.1f}s)")
 
     if old_metadata is not None and not old_metadata.empty:
-        preserved_cols = [c for c in old_metadata.columns if c not in result.columns]
+        # Demographic columns moved to user accounts — never carry them over.
+        demographic = set(demographic_metadata_columns(old_metadata.columns))
+        preserved_cols = [c for c in old_metadata.columns
+                          if c not in result.columns and c not in demographic]
         if preserved_cols:
             reporter.update_progress(
                 80,
@@ -70,6 +77,8 @@ def run_collection_metadata_refresh(reporter: TaskStatusReporter, task_args: dic
                 right_index=True,
                 how='left',
             )
+
+    result = strip_demographic_columns(result)
 
     reporter.update_progress(90, "Saving metadata...")
     _t_phase = time.perf_counter()

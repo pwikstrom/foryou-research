@@ -49,6 +49,10 @@ from fyp.core.paths import (
 # the public pages link to for issues, installation and licence.
 DEFAULT_REPO_URL = "https://github.com/pwikstrom/foryou-research"
 
+# Fallback for [site].participant_placeholder_domain — the domain of the fake
+# p-N@<domain> accounts minted for participants who left no email address.
+DEFAULT_PARTICIPANT_PLACEHOLDER_DOMAIN = "foryouresearch.net"
+
 
 def _load_dotenv(project_root: str, verbose: bool = False) -> list[str]:
     """Load ``KEY=VALUE`` lines from ``<project_root>/.env`` into the environment.
@@ -337,6 +341,15 @@ def initialize(
         site["repo_url"] = repo_env.strip()
     else:
         site.setdefault("repo_url", DEFAULT_REPO_URL)
+
+    # Domain for the fake p-N@<domain> addresses minted for participants who
+    # donated demographics but no email. Never a real mailbox; kept
+    # per-install so a third-party instance doesn't mint our domain.
+    placeholder_env = os.environ.get("FYP_PARTICIPANT_PLACEHOLDER_DOMAIN")
+    if placeholder_env:
+        site["participant_placeholder_domain"] = placeholder_env.strip()
+    else:
+        site.setdefault("participant_placeholder_domain", DEFAULT_PARTICIPANT_PLACEHOLDER_DOMAIN)
 
 
     # ------------------------------------------------------------------

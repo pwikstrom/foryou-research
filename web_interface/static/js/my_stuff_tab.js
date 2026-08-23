@@ -170,6 +170,66 @@
 
     // --- Profile page ---
 
+    // The seven "About you" fields; each has a form control carrying
+    // data-profile-field="<key>" in the Profile panel.
+    const PROFILE_FIELDS = ['full_name', 'age', 'postcode', 'country', 'occupation', 'tiktok_handle', 'consent_to_contact'];
+
+    function profileFieldEl(key) {
+        return document.querySelector('[data-profile-field="' + key + '"]');
+    }
+
+    // consent_to_contact is a tri-state select: "" (unset) / "yes" / "no".
+    function profileValueToInput(key, value) {
+        if (key === 'consent_to_contact') {
+            if (value === true) return 'yes';
+            if (value === false) return 'no';
+            return '';
+        }
+        return value === null || value === undefined ? '' : String(value);
+    }
+
+    function profileInputToValue(key, raw) {
+        const v = (raw || '').trim();
+        if (key === 'consent_to_contact') {
+            if (v === 'yes') return true;
+            if (v === 'no') return false;
+            return '';
+        }
+        return v;
+    }
+
+    function fillProfileFields(profile) {
+        const p = profile || {};
+        PROFILE_FIELDS.forEach(key => {
+            const el = profileFieldEl(key);
+            if (el) el.value = profileValueToInput(key, p[key]);
+        });
+    }
+
+    function collectProfileFields() {
+        const out = {};
+        PROFILE_FIELDS.forEach(key => {
+            const el = profileFieldEl(key);
+            if (el) out[key] = profileInputToValue(key, el.value);
+        });
+        return out;
+    }
+
+    function renderLinkedCollections(ids) {
+        const el = document.getElementById('profile-linked-collections');
+        if (!el) return;
+        const list = Array.isArray(ids) ? ids : [];
+        if (!list.length) {
+            el.style.display = 'none';
+            el.textContent = '';
+            el.removeAttribute('title');
+            return;
+        }
+        el.textContent = 'Collections linked to your account: ' + list.length;
+        el.title = list.join(', ');
+        el.style.display = '';
+    }
+
     function loadProfileForm() {
         const emailEl = document.getElementById('profile-email');
         const nameEl = document.getElementById('profile-display-username');
@@ -179,6 +239,8 @@
             .then(data => {
                 emailEl.textContent = data.email || '';
                 nameEl.value = data.display_username || '';
+                fillProfileFields(data.profile);
+                renderLinkedCollections(data.collections);
             })
             .catch(() => {
                 emailEl.textContent = 'Unable to load profile.';
@@ -197,7 +259,10 @@
             const response = await fetch('/api/user/profile', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ display_username: nameEl.value })
+                body: JSON.stringify({
+                    display_username: nameEl.value,
+                    profile: collectProfileFields()
+                })
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(data.error || 'Save failed');

@@ -238,6 +238,43 @@
             </div>
         </div>
 
+        <!-- Account / collections -->
+        <div style="margin-bottom: 20px;">
+            <h4 class="text-xs uppercase font-semibold" style="margin: 0 0 8px 0; color: var(--color-text-muted);">Account</h4>
+            <div id="userModalAccountInfo" class="text-xs" style="color: var(--color-text-primary); margin-bottom: 8px;"></div>
+            <div class="text-xxs uppercase font-semibold" style="color: var(--color-text-muted); margin-bottom: 4px;">Collections</div>
+            <div id="userModalCollections" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+        </div>
+
+        <!-- Profile -->
+        <div style="margin-bottom: 20px;">
+            <h4 class="text-xs uppercase font-semibold" style="margin: 0 0 8px 0; color: var(--color-text-muted);">Profile</h4>
+            <div id="userModalProfileForm" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px;">
+                <label class="text-xs" style="display: flex; flex-direction: column; gap: 2px; color: var(--color-text-muted);">Full name
+                    <input type="text" data-profile-field="full_name" class="text-sm" style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);"></label>
+                <label class="text-xs" style="display: flex; flex-direction: column; gap: 2px; color: var(--color-text-muted);">Age (e.g. 34 or 21 - 25)
+                    <input type="text" data-profile-field="age" class="text-sm" style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);"></label>
+                <label class="text-xs" style="display: flex; flex-direction: column; gap: 2px; color: var(--color-text-muted);">Postcode
+                    <input type="text" data-profile-field="postcode" class="text-sm" style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);"></label>
+                <label class="text-xs" style="display: flex; flex-direction: column; gap: 2px; color: var(--color-text-muted);">Country
+                    <input type="text" data-profile-field="country" class="text-sm" style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);"></label>
+                <label class="text-xs" style="display: flex; flex-direction: column; gap: 2px; color: var(--color-text-muted);">Occupation
+                    <input type="text" data-profile-field="occupation" class="text-sm" style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);"></label>
+                <label class="text-xs" style="display: flex; flex-direction: column; gap: 2px; color: var(--color-text-muted);">TikTok handle
+                    <input type="text" data-profile-field="tiktok_handle" class="text-sm" style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);"></label>
+                <label class="text-xs" style="display: flex; flex-direction: column; gap: 2px; color: var(--color-text-muted);">Consent to contact
+                    <select data-profile-field="consent_to_contact" class="text-sm" style="padding: 4px 8px; border: 1px solid var(--color-border-strong); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);">
+                        <option value="">Unset</option>
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select></label>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; margin-top: 8px;">
+                <button onclick="modalSaveProfile()" class="action-btn text-xs">Save profile</button>
+                <span id="userModalProfileStatus" class="text-xs" style="color: var(--color-text-muted);"></span>
+            </div>
+        </div>
+
         <!-- Activity log -->
         <div style="margin-bottom: 20px;">
             <h4 class="text-xs uppercase font-semibold" style="margin: 0 0 8px 0; color: var(--color-text-muted);">Activity Log</h4>
@@ -246,11 +283,15 @@
         </div>
 
         <!-- Actions -->
-        <div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--color-border);">
+        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--color-border);">
+            <label id="userModalCascadeWrap" class="text-xs" style="display: none; align-items: center; gap: 6px; margin-right: auto; color: var(--color-text-muted); cursor: pointer;">
+                <input type="checkbox" id="userModalCascadeCollections">
+                <span id="userModalCascadeLabel"></span>
+            </label>
             <button onclick="modalResetPassword()" class="action-btn text-xs">Reset Password</button>
             <button onclick="modalDeleteUser()" class="action-btn btn-danger text-xs">Delete User</button>
         </div>
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/admin_tab.js') }}?v=4"></script>
+<script src="{{ url_for('static', filename='js/admin_tab.js') }}?v=5"></script>

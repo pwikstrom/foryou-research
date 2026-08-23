@@ -55,6 +55,16 @@
         </div>
 
         <div class="form-group" style="margin-top: 20px;">
+            <label style="display: block; margin-bottom: 5px;">User account:</label>
+            <select id="edit-collection-user" class="control-input" style="width: 100%; padding: 8px;">
+                <option value="">— no account —</option>
+            </select>
+            <span class="text-sm" style="color: var(--color-text-tertiary); display: block; margin-top: 4px;">
+                The participant this collection belongs to. Demographic details are kept on the
+                account (Admin → Active users), never on the collection.</span>
+        </div>
+
+        <div class="form-group" style="margin-top: 20px;">
             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                 <input type="checkbox" id="edit-collection-hidden" style="width: auto; cursor: pointer;">
                 Hide Collection

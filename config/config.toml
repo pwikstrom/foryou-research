@@ -373,6 +373,12 @@ app_url = ""
 # every source-code link from the site.
 repo_url = "https://github.com/pwikstrom/foryou-research"
 
+# participant_placeholder_domain: participants who donate demographic data but
+# no email address get a user account under a fake address p-N@<this domain>
+# (N is a running number). It is never a real mailbox and such accounts can
+# never log in. Override via FYP_PARTICIPANT_PLACEHOLDER_DOMAIN.
+participant_placeholder_domain = "foryouresearch.net"
+
 
 ##########################################################################################
 # web server

@@ -67,6 +67,74 @@ collection_id_column = "collection_id"
 timestamp_column = "local_timestamp"
 event_type_column = "activity_type"
 
+# AIO DynamoDB attributes that never become collection metadata: the first
+# group is table plumbing; the second is PERSONAL data about the participant,
+# which belongs on their user account (web_interface.services.collection_accounts
+# links the collection to an account and moves these there). What remains —
+# campaign, donationType, consentProvided, date — describes the donation and
+# stays on the collection under the ('participants', …) column group.
+AIO_PLUMBING_FIELDS = ("url", "iat", "pk", "id", "exp", "profile", "schemaChanged", "appliedSchema")
+AIO_DEMOGRAPHIC_FIELDS = ("email", "name", "age", "country", "postCode", "tiktokHandle", "consentToContact")
+
+
+def demographic_metadata_columns(columns) -> list:
+    """Return the ``('participants', <demographic>)`` columns present in ``columns``.
+
+    Works on a pandas MultiIndex or any iterable of tuple/str column labels; a
+    stringified tuple ``"('participants', 'email')"`` (the parquet round-trip
+    form) is matched too, so every writer can strip them before saving.
+    """
+    wanted = set(AIO_DEMOGRAPHIC_FIELDS)
+    out = []
+    for col in columns:
+        if isinstance(col, tuple) and len(col) == 2 and col[0] == "participants" and col[1] in wanted:
+            out.append(col)
+        elif isinstance(col, str) and col.startswith("('participants'"):
+            for field in wanted:
+                if col == f"('participants', '{field}')":
+                    out.append(col)
+                    break
+    return out
+
+
+def strip_demographic_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Return ``df`` without any ``('participants', <demographic>)`` columns.
+
+    Every writer of the collections metadata parquet calls this right before
+    saving, so demographic data can never re-enter the file — not from a
+    stale on-disk copy carried through a "preserve old columns" merge, and
+    not from a fresh AIO scan.
+    """
+    if df is None or df.empty:
+        return df
+    to_drop = demographic_metadata_columns(df.columns)
+    if not to_drop:
+        return df
+    return df.drop(columns=to_drop)
+
+
+def load_aio_participant_metadata(verbose: bool = False) -> dict:
+    """Return ``{donation_id: {attribute: value}}`` from every JSON snapshot in
+    the ``aio_participants`` location (DynamoDB JSON deserialised to Python).
+
+    The donation id is the collection id of the ingested donation, so this is
+    the join key for both the collection stats and the account link. Empty
+    when the install has no AIO pipeline.
+    """
+    participant_metadata: dict = {}
+    for participant_data_file in data_io.listdir(storage_location="aio_participants"):
+        if participant_data_file.endswith(".json"):
+            participant_metadata_raw = data_io.load_json(storage_location="aio_participants", filename=participant_data_file)
+            if not participant_metadata_raw:
+                continue
+            if verbose:
+                logger.info(f"    Found {len(participant_metadata_raw.get('Items', [])):,} items in the file {participant_data_file}")
+            for item in participant_metadata_raw.get("Items", []):
+                py_item = {k: _deser(v) for k, v in item.items()}
+                if py_item.get("id"):
+                    participant_metadata[py_item["id"]] = py_item
+    return participant_metadata
+
 
 
 
@@ -345,6 +413,7 @@ def generate_collection_metadata(
                 old_metadata_df = old_metadata_df.drop(columns=[update_col.name])
 
             new_metadata_df = pd.merge(old_metadata_df, update_col, left_index=True, right_index=True, how="left")
+            new_metadata_df = strip_demographic_columns(new_metadata_df)
             if save_to_disk_ok:
                 data_io.save_parquet(df=new_metadata_df, storage_location="recoded", filename=f"{_collections_label()}_metadata.parquet", verbose=verbose)
                 logger.info(f"Saved updated metadata. Shape: {new_metadata_df.shape}")
@@ -405,25 +474,19 @@ def generate_collection_metadata(
 
     if verbose:
         logger.info("Checking DDP participant metadata files...")
-    participant_metadata = {}
-    for participant_data_file in data_io.listdir(storage_location="aio_participants"):
-        if participant_data_file.endswith(".json"):
-            participant_metadata_raw = data_io.load_json(storage_location="aio_participants", filename=participant_data_file)
-            if verbose:
-                logger.info(f"    Found {len(participant_metadata_raw['Items']):,} items in the file {participant_data_file}")
-            for item in participant_metadata_raw.get("Items", []):
-                    py_item = {k: _deser(v) for k, v in item.items()}
-                    participant_metadata[py_item['id']] = py_item
+    participant_metadata = load_aio_participant_metadata(verbose=verbose)
 
     # No participant metadata is the normal state for installs without the
     # AIO AWS pipeline (the aio_participants location is simply empty) —
-    # the collection stats stand on their own.
+    # the collection stats stand on their own. Demographic attributes are
+    # dropped here: they go to the participant's user account, never to the
+    # collection (see AIO_DEMOGRAPHIC_FIELDS).
     participant_metadata_df = pd.DataFrame(participant_metadata).T
     if participant_metadata_df.empty:
         combined_ddp_metadata = df1
     else:
         participant_metadata_df.drop(
-            ["url","iat","pk","id","exp","profile","schemaChanged","appliedSchema"],
+            list(AIO_PLUMBING_FIELDS) + list(AIO_DEMOGRAPHIC_FIELDS),
             axis=1, inplace=True, errors="ignore")
         participant_metadata_df.columns = pd.MultiIndex.from_product([['participants'], participant_metadata_df.columns])
 
@@ -441,7 +504,9 @@ def generate_collection_metadata(
             combined_ddp_metadata = pd.concat(frames, axis=0)
         elif frames:
             combined_ddp_metadata = frames[0]
-        
+
+    combined_ddp_metadata = strip_demographic_columns(combined_ddp_metadata)
+
     if save_to_disk_ok:
         if verbose:
             logger.info(f"Saving updated metadata to disk. Shape: {combined_ddp_metadata.shape}")

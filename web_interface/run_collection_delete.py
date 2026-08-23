@@ -251,6 +251,16 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
             refresh_failed.append({"study": sname, "error": msg})
             reporter.log(f"study_refresh dispatch for {sname} failed: {msg}")
 
+    # Placeholder participant accounts (p-N@…) left owning nothing after this
+    # delete. Reported, never removed here — cleanup is an admin action on
+    # the Active Users page.
+    orphan_placeholders: list[str] = []
+    try:
+        from web_interface.collection_accounts import orphan_placeholder_accounts
+        orphan_placeholders = orphan_placeholder_accounts()
+    except Exception as exc:
+        reporter.log(f"Orphan placeholder check failed: {exc}")
+
     _t_total = time.perf_counter() - _t_start
     reporter.emit_data({
         # collection_id is kept for anything still reading the single-collection
@@ -263,6 +273,7 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
         "archive_failures": archive_failures,
         "refresh_dispatched": refresh_dispatched,
         "refresh_failed": refresh_failed,
+        "orphan_placeholders": orphan_placeholders,
     })
     reporter.update_progress(
         100,

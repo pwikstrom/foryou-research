@@ -3,6 +3,7 @@ import datetime
 import hashlib
 import logging
 import os
+import re
 import secrets
 import threading
 import time
@@ -265,7 +266,13 @@ def hash_password(password):
     return (salt + pwdhash).decode('ascii')
 
 def verify_password(stored_password, provided_password):
-    """Verify a stored password against one provided by user"""
+    """Verify a stored password against one provided by user.
+
+    An account with no stored hash (a participant account created from
+    donation data) can never verify — there is nothing to compare against.
+    """
+    if not stored_password:
+        return False
     salt = stored_password[:64]
     stored_password = stored_password[64:]
     pwdhash = hashlib.pbkdf2_hmac('sha512', 
@@ -299,10 +306,118 @@ def validate_display_username(name) -> tuple[str | None, str | None]:
     return name, None
 
 
+# --- Profile ---
+
+# Account kinds. A "member" signed up or was created by an admin; a
+# "participant" account was created from donation data (AIO ingest or the
+# one-off migration) and starts without a password.
+ACCOUNT_KIND_MEMBER = "member"
+ACCOUNT_KIND_PARTICIPANT = "participant"
+
+# The profile block on a user record. Every key is optional; the validator
+# below normalises and bounds each one. Order is the display order.
+PROFILE_FIELDS = (
+    "full_name",
+    "age",
+    "postcode",
+    "country",
+    "occupation",
+    "tiktok_handle",
+    "consent_to_contact",
+)
+_PROFILE_STR_MAX = {"full_name": 100, "postcode": 16, "country": 100,
+                    "occupation": 100, "tiktok_handle": 100}
+# Age is kept as text: donation forms collect it either as a number ("34")
+# or as a bracket ("21 - 25"), and both must survive as given.
+_AGE_RE = re.compile(r"^\d{1,3}(\s*-\s*\d{1,3})?$")
+
+
+def validate_profile_field(key: str, value) -> tuple[object, str | None]:
+    """Validate ONE profile field; return ``(cleaned_value, error)``.
+
+    Empty/None clears the field (cleaned value ``None``). Strings are
+    stripped and length-bounded; ``age`` is a number or a "N - M" bracket;
+    ``consent_to_contact`` is a boolean (or a true/false/yes/no string).
+    """
+    if key not in PROFILE_FIELDS:
+        return None, f"Unknown profile field: {key}"
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None, None
+    if key == "age":
+        if isinstance(value, bool):
+            return None, "Age must be a number or a range like 21 - 25."
+        text = str(value).strip()
+        if isinstance(value, float) and value.is_integer():
+            text = str(int(value))
+        if not _AGE_RE.match(text):
+            return None, "Age must be a number or a range like 21 - 25."
+        parts = [p.strip() for p in text.split("-")]
+        if any(int(p) > 120 for p in parts):
+            return None, "Age must be at most 120."
+        return " - ".join(parts), None
+    if key == "consent_to_contact":
+        if isinstance(value, bool):
+            return value, None
+        if isinstance(value, str) and value.strip().lower() in ("true", "false", "yes", "no"):
+            return value.strip().lower() in ("true", "yes"), None
+        return None, "consent_to_contact must be true or false."
+    if not isinstance(value, str):
+        value = str(value)
+    value = value.strip()
+    if any(ord(c) < 32 or ord(c) == 127 for c in value):
+        return None, f"{key} contains invalid characters."
+    limit = _PROFILE_STR_MAX.get(key, 100)
+    if len(value) > limit:
+        return None, f"{key} must be at most {limit} characters."
+    return value, None
+
+
+def validate_profile(fields) -> tuple[dict | None, str | None]:
+    """Validate a partial profile update and return ``(cleaned, error)``.
+
+    Strict: the first invalid field fails the whole update (a person editing
+    a form should see the error, not lose a field silently). Unknown keys are
+    an error so a typo never silently drops data.
+    """
+    if not isinstance(fields, dict):
+        return None, "Profile must be an object."
+    unknown = sorted(set(fields) - set(PROFILE_FIELDS))
+    if unknown:
+        return None, f"Unknown profile fields: {', '.join(unknown)}"
+    cleaned: dict = {}
+    for key, value in fields.items():
+        cleaned_value, error = validate_profile_field(key, value)
+        if error:
+            return None, error
+        cleaned[key] = cleaned_value
+    return cleaned, None
+
+
+def sanitize_profile(fields) -> tuple[dict, dict]:
+    """Lenient per-field validation for machine-sourced data (donation
+    records): returns ``(cleaned, dropped)`` where dropped maps each rejected
+    field to its error. Unknown keys are dropped too."""
+    cleaned: dict = {}
+    dropped: dict = {}
+    if not isinstance(fields, dict):
+        return cleaned, {"_": "Profile must be an object."}
+    for key, value in fields.items():
+        cleaned_value, error = validate_profile_field(key, value)
+        if error:
+            dropped[key] = error
+        else:
+            cleaned[key] = cleaned_value
+    return cleaned, dropped
+
+
+def empty_profile() -> dict:
+    return {k: None for k in PROFILE_FIELDS}
+
+
 # --- User Class ---
 
 class User(UserMixin):
-    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None, created_at=None, approval_notification=None):
+    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None, created_at=None, approval_notification=None, profile=None, account_kind=None, placeholder=False, origin=None):
         self.id = username
         self.username = username
         self.role = role
@@ -317,9 +432,27 @@ class User(UserMixin):
         # {"sent_to": admin_email, "sent_at": iso_timestamp} record surfaced on
         # the New Users admin page. None until (and unless) that email is sent.
         self.approval_notification = approval_notification
+        # Demographic / contact profile — see PROFILE_FIELDS. Unknown keys in a
+        # stored record are dropped on load so the block stays well-formed.
+        merged = empty_profile()
+        if isinstance(profile, dict):
+            merged.update({k: v for k, v in profile.items() if k in PROFILE_FIELDS})
+        self.profile = merged
+        self.account_kind = account_kind or ACCOUNT_KIND_MEMBER
+        # True for p-N@<domain> accounts minted for participants who left
+        # demographics but no email — the address is not a real mailbox.
+        self.placeholder = bool(placeholder)
+        # {"source": "signup"|"admin"|"aio_ingest"|"aio_migration", "at": iso,
+        #  "collection_id": <first linked collection>} — how the account came
+        # to exist. None for accounts that predate the field.
+        self.origin = origin
 
     def is_admin(self):
         return self.role == ROLE_ADMIN and self.approved
+
+    def can_login(self) -> bool:
+        """True if the account holds a password (participant accounts start without one)."""
+        return bool(self.password_hash)
 
     def can_access(self, perm_key: str) -> bool:
         """Return True if this user has access to ``perm_key``.
@@ -344,8 +477,32 @@ class User(UserMixin):
             "created_at": self.created_at,
             "approval_notification": self.approval_notification,
             "settings": self.settings,
-            "machine_annotation_votes": self.machine_annotation_votes
+            "machine_annotation_votes": self.machine_annotation_votes,
+            "profile": self.profile,
+            "account_kind": self.account_kind,
+            "placeholder": self.placeholder,
+            "origin": self.origin,
         }
+
+def _user_from_record(user_data: dict) -> "User":
+    """Build a :class:`User` from a stored JSON record (missing keys → defaults)."""
+    return User(
+        username=user_data["username"],
+        role=user_data.get("role", "viewer"),
+        password_hash=user_data.get("password_hash"),
+        approved=user_data.get("approved", True),
+        last_login=user_data.get("last_login"),
+        settings=user_data.get("settings", {}),
+        machine_annotation_votes=user_data.get("machine_annotation_votes", {}),
+        display_username=user_data.get("display_username"),
+        created_at=user_data.get("created_at"),
+        approval_notification=user_data.get("approval_notification"),
+        profile=user_data.get("profile"),
+        account_kind=user_data.get("account_kind"),
+        placeholder=user_data.get("placeholder", False),
+        origin=user_data.get("origin"),
+    )
+
 
 # --- User Manager ---
 
@@ -584,18 +741,7 @@ class UserManager:
             for fname, user_data in results:
                 if user_data and 'username' in user_data:
                     username = user_data['username']
-                    loaded[username] = User(
-                        username=username,
-                        role=user_data.get('role', 'viewer'),
-                        password_hash=user_data.get('password_hash'),
-                        approved=user_data.get('approved', True),
-                        last_login=user_data.get('last_login'),
-                        settings=user_data.get('settings', {}),
-                        machine_annotation_votes=user_data.get('machine_annotation_votes', {}),
-                        display_username=user_data.get('display_username'),
-                        created_at=user_data.get('created_at'),
-                        approval_notification=user_data.get('approval_notification')
-                    )
+                    loaded[username] = _user_from_record(user_data)
 
             self.users = loaded
             elapsed = time.perf_counter() - _t_start
@@ -662,24 +808,37 @@ class UserManager:
             if not user_data or "username" not in user_data:
                 return None
 
-            user = User(
-                username=user_data["username"],
-                role=user_data.get("role", "viewer"),
-                password_hash=user_data.get("password_hash"),
-                approved=user_data.get("approved", True),
-                last_login=user_data.get("last_login"),
-                settings=user_data.get("settings", {}),
-                machine_annotation_votes=user_data.get("machine_annotation_votes", {}),
-                display_username=user_data.get("display_username"),
-                created_at=user_data.get("created_at"),
-                approval_notification=user_data.get("approval_notification"),
-            )
+            user = _user_from_record(user_data)
             self.users[user_id] = user
             return user
 
         return None
 
-    def add_user(self, username, password, role, approved=False, display_username=None):
+    def find_user_by_email(self, email):
+        """Case-insensitive lookup of a user by account email.
+
+        Tries the exact and lower-cased file names first (the cheap path), and
+        only then falls back to a roster scan for records stored under a
+        mixed-case name. Returns the :class:`User` or None.
+        """
+        if not isinstance(email, str) or not email.strip():
+            return None
+        wanted = email.strip()
+        for candidate in (wanted, wanted.lower()):
+            user = self.get_user(candidate)
+            if user is not None:
+                return user
+        self._ensure_loaded()
+        wanted_lc = wanted.lower()
+        for user in self.users.values():
+            if user.username.lower() == wanted_lc:
+                return user
+        return None
+
+    def add_user(self, username, password, role, approved=False, display_username=None,
+                 account_kind=None, profile=None, origin=None, placeholder=False):
+        """Create a user. ``password=None`` creates an account that cannot log
+        in until an admin sets a password (participant accounts)."""
         if not role_manager.role_exists(role):
             return False, "Invalid role"
 
@@ -688,18 +847,108 @@ class UserManager:
         if self.get_user(username) is not None:
             return False, "User already exists"
 
-        password_hash = hash_password(password)
+        password_hash = hash_password(password) if password else None
         created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        new_user = User(username, role, password_hash, approved=approved, display_username=display_username, created_at=created_at)
+        if profile:
+            profile, dropped = sanitize_profile(profile)
+            if dropped:
+                logger.warning(f"Dropped invalid profile data while creating {username}: {dropped}")
+        new_user = User(username, role, password_hash, approved=approved, display_username=display_username,
+                        created_at=created_at, profile=profile, account_kind=account_kind,
+                        placeholder=placeholder, origin=origin)
         # Default Settings for New Users (annotation sharing is opt-in)
         new_user.settings = {
             "share_annotations": False,
             "video_autostart": False
         }
-        
+
         self.users[username] = new_user
         self.save_user(username)
         return True, "User created"
+
+    def claim_participant_account(self, username, password, display_username=None, approved=True):
+        """Give a passwordless participant account a password (and display name).
+
+        Only accounts that cannot log in yet are claimable; a placeholder
+        (fake address) can never be claimed because nobody owns that mailbox.
+        """
+        user = self.get_user(username)
+        if user is None:
+            return False, "User not found"
+        if user.can_login():
+            return False, "User already exists"
+        if user.placeholder:
+            return False, "This account cannot be claimed"
+        if display_username is not None:
+            cleaned, error = validate_display_username(display_username)
+            if error:
+                return False, error
+            user.display_username = cleaned
+        user.password_hash = hash_password(password)
+        user.approved = approved
+        self.save_user(username)
+        return True, "Account claimed"
+
+    def next_placeholder_username(self, domain: str) -> str:
+        """Return the next free ``p-N@<domain>`` address (N = roster max + 1).
+
+        Callers that also hold collection links should take the max over
+        those too (``collection_accounts.next_placeholder_username`` does), so
+        a number still referenced by a link is never handed to a new person.
+        """
+        self._ensure_loaded()
+        pattern = re.compile(rf"^p-(\d+)@{re.escape(domain)}$", re.IGNORECASE)
+        highest = 0
+        for name in self.users:
+            m = pattern.match(name)
+            if m:
+                highest = max(highest, int(m.group(1)))
+        return f"p-{highest + 1}@{domain}"
+
+    def update_profile(self, username, fields):
+        """Merge validated profile fields into ``username``'s profile.
+
+        Keys not present in ``fields`` are left untouched; a key given as
+        None/empty clears that field.
+        """
+        user = self.get_user(username)
+        if user is None:
+            return False, "User not found"
+        cleaned, error = validate_profile(fields)
+        if error:
+            return False, error
+        user.profile.update(cleaned)
+        self.save_user(username)
+        return True, "Profile updated"
+
+    def fill_profile_gaps(self, username, fields) -> tuple[dict, dict]:
+        """Fill only EMPTY profile fields from ``fields``; never overwrite.
+
+        Used when donation data arrives for an account that may already hold
+        values a person typed in. Returns ``(filled, conflicts)`` — conflicts
+        are ``{field: {"kept": existing, "offered": incoming}}`` where the
+        stored value differs from the incoming one and was kept.
+        """
+        user = self.get_user(username)
+        if user is None:
+            return {}, {}
+        cleaned, dropped = sanitize_profile(fields)
+        if dropped:
+            logger.warning(f"Ignoring invalid profile data for {username}: {dropped}")
+        filled: dict = {}
+        conflicts: dict = {}
+        for key, value in cleaned.items():
+            if value is None:
+                continue
+            current = user.profile.get(key)
+            if current is None or current == "":
+                user.profile[key] = value
+                filled[key] = value
+            elif current != value:
+                conflicts[key] = {"kept": current, "offered": value}
+        if filled:
+            self.save_user(username)
+        return filled, conflicts
 
     def delete_user(self, username):
         # The last-admin guard counts every admin, so load the full roster once.
@@ -713,18 +962,15 @@ class UserManager:
             return False, "Cannot delete the last admin user"
 
         del self.users[username]
-        # Also delete the file? Or keep as archive? Usually delete.
-        filename = f"{username}.json"
-        
-        # Ideally: data_io.delete(storage_location=..., filename=...)
-        # Since we don't have delete exposed in data_io consistently/easily for all backends (though we do have remove),
-        # we try to use data_io.remove
-        try:
-            if data_io.exists(storage_location=self.storage_location, filename=filename):
-                data_io.remove(storage_location=self.storage_location, filename=filename)
-                logger.info(f"Removed user file {filename}")
-        except Exception as e:
-            logger.error(f"Failed to remove user file {filename}: {e}")
+        # Remove the record and its activity-log sidecar; leaving the log
+        # behind would keep a deleted person's trail in the store forever.
+        for filename in (f"{username}.json", f"{username}_log.json"):
+            try:
+                if data_io.exists(storage_location=self.storage_location, filename=filename):
+                    data_io.remove(storage_location=self.storage_location, filename=filename)
+                    logger.info(f"Removed user file {filename}")
+            except Exception as e:
+                logger.error(f"Failed to remove user file {filename}: {e}")
 
         # Drop the deleted user from the data_service per-user JSON cache so a
         # stale copy can't resurface in shared-annotation reads. Function-level
@@ -882,7 +1128,7 @@ class UserManager:
 
     def verify_user(self, username, password):
         user = self.get_user(username)
-        if user and verify_password(user.password_hash, password):
+        if user and user.can_login() and verify_password(user.password_hash, password):
             if not user.approved:
                 return None # Or handle differently in calling code
             return user

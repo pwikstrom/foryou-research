@@ -242,6 +242,54 @@
                     </p>
                 </div>
 
+                <h3 class="text-sm font-medium" style="margin: 24px 0 12px 0; color: var(--color-text-primary);">About you</h3>
+
+                <div style="margin-bottom: 12px;">
+                    <label for="profile-full-name" class="text-sm font-medium" style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">Full name</label>
+                    <input type="text" id="profile-full-name" data-profile-field="full_name" maxlength="200"
+                        style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 220px; background: var(--color-bg-input); color: var(--color-text-primary);">
+                </div>
+                <div style="margin-bottom: 12px;">
+                    <label for="profile-age" class="text-sm font-medium" style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">Age</label>
+                    <input type="text" id="profile-age" data-profile-field="age" maxlength="20" placeholder="e.g. 34 or 21 - 25"
+                        style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 220px; background: var(--color-bg-input); color: var(--color-text-primary);">
+                </div>
+                <div style="margin-bottom: 12px;">
+                    <label for="profile-postcode" class="text-sm font-medium" style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">Postcode</label>
+                    <input type="text" id="profile-postcode" data-profile-field="postcode" maxlength="20"
+                        style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 220px; background: var(--color-bg-input); color: var(--color-text-primary);">
+                </div>
+                <div style="margin-bottom: 12px;">
+                    <label for="profile-country" class="text-sm font-medium" style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">Country</label>
+                    <input type="text" id="profile-country" data-profile-field="country" maxlength="100"
+                        style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 220px; background: var(--color-bg-input); color: var(--color-text-primary);">
+                </div>
+                <div style="margin-bottom: 12px;">
+                    <label for="profile-occupation" class="text-sm font-medium" style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">Occupation</label>
+                    <input type="text" id="profile-occupation" data-profile-field="occupation" maxlength="200"
+                        style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 220px; background: var(--color-bg-input); color: var(--color-text-primary);">
+                </div>
+                <div style="margin-bottom: 12px;">
+                    <label for="profile-tiktok-handle" class="text-sm font-medium" style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">TikTok handle</label>
+                    <input type="text" id="profile-tiktok-handle" data-profile-field="tiktok_handle" maxlength="100" placeholder="@handle"
+                        style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 220px; background: var(--color-bg-input); color: var(--color-text-primary);">
+                </div>
+                <div style="margin-bottom: 12px;">
+                    <label for="profile-consent-to-contact" class="text-sm font-medium" style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">OK to contact me about this research?</label>
+                    <select id="profile-consent-to-contact" data-profile-field="consent_to_contact"
+                        style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 220px; background: var(--color-bg-input); color: var(--color-text-primary);">
+                        <option value="">&mdash;</option>
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                    </select>
+                </div>
+
+                <p class="text-xs" style="color: var(--color-text-faint); margin: 0 0 16px 0;">
+                    This information is only visible to you and to administrators. It is stored with your account, not with your data collections.
+                </p>
+
+                <p id="profile-linked-collections" class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0; display: none;"></p>
+
                 <div style="display: flex; align-items: center; gap: 12px;">
                     <button onclick="saveProfile()" class="btn-save btn-compact">Save</button>
                     <span id="profile-status" class="text-sm" style="color: var(--color-text-muted);"></span>
@@ -272,4 +320,4 @@
 <script src="{{ url_for('static', filename='js/human_coding.js') }}" defer></script>
 {% endif %}
 
-<script src="{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=2"></script>
+<script src="{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=3"</script>

@@ -130,7 +130,7 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
         tr.style.borderBottom = '1px solid var(--chart-grid)';
         tr.className = 'collection-item'; // Keep class for CSS/JS targeting
 
-        let pEmail = '', pName = '', pTiktok = '', pAge = '', pCountry = '', pPostCode = '', pAdded = '', pDisplayId = '', pTags = '';
+        let pAccount = '', pAdded = '', pDisplayId = '', pTags = '';
         let pActiveDays = '', pTotalEvents = '', pLastEvent = '';
         let rawAdded = null, rawLastEvent = null;
         let searchString = item;
@@ -138,15 +138,7 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
         if (typeof itemInfo === 'object') {
             if (itemInfo.displayId) pDisplayId = itemInfo.displayId;
             if (itemInfo.tags && Array.isArray(itemInfo.tags)) pTags = itemInfo.tags.join(', ');
-
-            if (itemInfo.participants) {
-                pEmail = itemInfo.participants.email || '';
-                pName = itemInfo.participants.name || '';
-                pTiktok = itemInfo.participants.tiktokHandle || '';
-                pAge = itemInfo.participants.age || '';
-                pCountry = itemInfo.participants.country || '';
-                pPostCode = itemInfo.participants.postCode || '';
-            }
+            pAccount = `${_dmAccountCell(itemInfo)} ${itemInfo.user_id || ''}`;
             if (itemInfo.personas) {
                 pActiveDays = itemInfo.personas.active_days ?? '';
                 pTotalEvents = itemInfo.personas.total_events ?? '';
@@ -159,7 +151,7 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
                 rawAdded = itemInfo.other.ts_added_to_dataset;
                 pAdded = fypFmtDate(rawAdded);
             }
-            searchString = `${item} ${pDisplayId} ${pTags} ${pEmail} ${pName} ${pTiktok} ${pAge} ${pCountry} ${pPostCode} ${pActiveDays} ${pTotalEvents} ${pLastEvent} ${pAdded}`;
+            searchString = `${item} ${pDisplayId} ${pTags} ${pAccount} ${pActiveDays} ${pTotalEvents} ${pLastEvent} ${pAdded}`;
         }
 
         tr.setAttribute('data-search', searchString.toLowerCase());
@@ -4276,6 +4268,55 @@ function pollAioFetchStatus(btn, originalText) {
 
 let _uploadMode = 'files';
 
+// --- User-account pickers -------------------------------------------------
+// A collection belongs to at most one user account. Both the upload modal and
+// the Edit Collection modal offer the same <select> of accounts, filled from
+// /api/manage/accounts (members first, then participant accounts, then
+// p-N placeholders). Cached per page load; refreshed when a modal opens.
+
+let _dmAccounts = null;
+
+function loadAccounts(force = false) {
+    if (_dmAccounts && !force) return Promise.resolve(_dmAccounts);
+    return fetch('/api/manage/accounts')
+        .then(r => r.ok ? r.json() : [])
+        .then(rows => { _dmAccounts = Array.isArray(rows) ? rows : []; return _dmAccounts; })
+        .catch(() => { _dmAccounts = _dmAccounts || []; return _dmAccounts; });
+}
+
+function _dmAccountLabel(acc) {
+    const name = acc.display_username && acc.display_username.trim();
+    let label = name ? `${name} (${acc.username})` : acc.username;
+    if (acc.placeholder) label += ' · placeholder';
+    else if (acc.account_kind === 'participant') label += acc.can_login ? ' · participant' : ' · participant, no login';
+    return label;
+}
+
+// Fill `sel` with the account options. `blankLabel` is the first option
+// (value ''); `extraFirst` is an optional extra leading option {value,label}
+// (bulk edit uses it for "leave unchanged"). Preserves `selected` if given.
+function populateAccountSelect(sel, accounts, { blankLabel = '— no account —', extraFirst = null, selected = '' } = {}) {
+    sel.innerHTML = '';
+    if (extraFirst) {
+        const o = document.createElement('option');
+        o.value = extraFirst.value; o.textContent = extraFirst.label; sel.appendChild(o);
+    }
+    const blank = document.createElement('option');
+    blank.value = ''; blank.textContent = blankLabel; sel.appendChild(blank);
+    accounts.forEach(acc => {
+        const o = document.createElement('option');
+        o.value = acc.username; o.textContent = _dmAccountLabel(acc); sel.appendChild(o);
+    });
+    if (selected && !accounts.some(a => a.username === selected)) {
+        // A link to an account that no longer exists: keep it visible so the
+        // admin can see (and fix) it rather than silently dropping it.
+        const o = document.createElement('option');
+        o.value = selected; o.textContent = `${selected} (unknown account)`; sel.appendChild(o);
+    }
+    sel.value = selected || (extraFirst ? extraFirst.value : '');
+}
+
+
 function openUploadModal(className, rawPath, mode) {
     // Reset state
     uploadSelectedTags = [];
@@ -4299,6 +4340,16 @@ function openUploadModal(className, rawPath, mode) {
     document.getElementById('uploadExistingCollectionId').style.display = 'none';
     document.getElementById('uploadDonorTz').value = '';
     document.getElementById('uploadModalTitle').textContent = `Add to ${className}`;
+
+    const accSel = document.getElementById('uploadUserId');
+    if (accSel) {
+        accSel.innerHTML = '<option value="">Loading accounts...</option>';
+        accSel.disabled = true;
+        loadAccounts(true).then(accounts => {
+            populateAccountSelect(accSel, accounts);
+            accSel.disabled = false;
+        });
+    }
 
     // Reset radio to default
     document.querySelector('input[name="collectionIdMode"][value="per_file"]').checked = true;
@@ -4646,6 +4697,8 @@ function submitUpload() {
     formData.append('collection_id_mode', collectionIdMode);
     formData.append('tags', JSON.stringify(uploadSelectedTags));
     formData.append('tz', document.getElementById('uploadDonorTz').value.trim());
+    const accSel = document.getElementById('uploadUserId');
+    formData.append('user_id', accSel && !accSel.disabled ? accSel.value : '');
 
     const statusDiv = document.getElementById('uploadStatus');
     const submitBtn = document.getElementById('uploadSubmitBtn');
@@ -5168,6 +5221,7 @@ function pollIngestRefreshStatus(btn, originalText, originalClass) {
 // render as human strings and would otherwise sort by day-of-month.
 const _EDIT_COLLECTION_COLUMNS = [
     { label: 'Collection / Display ID', sortType: 'text' },
+    { label: 'Account', sortType: 'text' },
     { label: 'Tags', sortType: 'text' },
     { label: 'First Event', sortType: 'date' },
     { label: 'Last Event', sortType: 'date' },
@@ -5188,12 +5242,18 @@ const _EDIT_COLLECTION_DETAILS = [
     { label: 'Activities', get: c => (c.personas?.total_events ?? '') === '' ? '' : Number(c.personas.total_events).toLocaleString() },
     { label: 'Active days', get: c => c.personas?.active_days ?? '' },
     { label: 'Timezone', get: c => _dmTimezoneLabel(c) },
-    { label: 'Age', get: c => c.participants?.age ?? '' },
-    { label: 'Country', get: c => c.participants?.country ?? '' },
-    { label: 'Post code', get: c => c.participants?.postCode ?? '' },
-    { label: 'Name', get: c => c.participants?.name ?? '' },
-    { label: 'Email', get: c => c.participants?.email ?? '' },
+    { label: 'Account', get: c => _dmAccountCell(c) },
+    { label: 'Campaign', get: c => c.participants?.campaign ?? '' },
+    { label: 'Donation type', get: c => c.participants?.donationType ?? '' },
 ];
+
+
+// Demographics no longer live on the collection — they belong to the linked
+// user account (Admin → Active users). The collection shows only the link.
+function _dmAccountCell(c) {
+    if (!c || !c.user_id) return '';
+    return c.user_known === false ? `${c.user_id} (unknown account)` : (c.user_label || c.user_id);
+}
 
 
 function _dmTimezoneLabel(c) {
@@ -5245,7 +5305,7 @@ function renderEditActivityTable(container) {
 
     availableCollections.forEach(itemInfo => {
         const item = typeof itemInfo === 'string' ? itemInfo : itemInfo.id;
-        let pEmail = '', pName = '', pAge = '', pCountry = '', pPostCode = '', pAdded = '', pDisplayId = '', pTags = '';
+        let pAccount = '', pAccountId = '', pAdded = '', pDisplayId = '', pTags = '';
         let pActiveDays = '', pTotalEvents = '', pLastEvent = '';
         let pTimezone = '', pFirstEvent = '';
         let rawAdded = null, rawFirstEvent = null, rawLastEvent = null;
@@ -5254,14 +5314,8 @@ function renderEditActivityTable(container) {
         if (typeof itemInfo === 'object') {
             if (itemInfo.displayId) pDisplayId = itemInfo.displayId;
             if (itemInfo.tags && Array.isArray(itemInfo.tags)) pTags = itemInfo.tags.join(', ');
-
-            if (itemInfo.participants) {
-                pEmail = itemInfo.participants.email || '';
-                pName = itemInfo.participants.name || '';
-                pAge = itemInfo.participants.age || '';
-                pCountry = itemInfo.participants.country || '';
-                pPostCode = itemInfo.participants.postCode || '';
-            }
+            pAccount = _dmAccountCell(itemInfo);
+            pAccountId = itemInfo.user_id || '';
             if (itemInfo.personas) {
                 pActiveDays = itemInfo.personas.active_days ?? '';
                 pTotalEvents = itemInfo.personas.total_events ?? '';
@@ -5275,9 +5329,9 @@ function renderEditActivityTable(container) {
                 rawAdded = itemInfo.other.ts_added_to_dataset;
                 pAdded = fypFmtDate(rawAdded);
             }
-            // The demographic/contact fields are no longer columns, but they
-            // stay searchable — the search box is how you find "that donor".
-            searchString = `${item} ${pDisplayId} ${pTags} ${pEmail} ${pName} ${pAge} ${pCountry} ${pPostCode} ${pTimezone} ${pActiveDays} ${pTotalEvents} ${pFirstEvent} ${pLastEvent} ${pAdded}`;
+            // The account (display name + id) is searchable — the search box
+            // is how you find "that participant's" collections.
+            searchString = `${item} ${pDisplayId} ${pTags} ${pAccount} ${pAccountId} ${pTimezone} ${pActiveDays} ${pTotalEvents} ${pFirstEvent} ${pLastEvent} ${pAdded}`;
         }
 
         const tr = document.createElement('tr');
@@ -5336,6 +5390,12 @@ function renderEditActivityTable(container) {
         idCell.style.overflow = 'hidden';
         idCell.style.textOverflow = 'ellipsis';
         tr.appendChild(idCell);
+        const accountCell = createCell(pAccount, false, pAccountId || null);
+        accountCell.style.maxWidth = '160px';
+        accountCell.style.overflow = 'hidden';
+        accountCell.style.textOverflow = 'ellipsis';
+        accountCell.style.whiteSpace = 'nowrap';
+        tr.appendChild(accountCell);
         tr.appendChild(createCell(pTags));
         tr.appendChild(createCell(pFirstEvent, false, null, _dmSortTs(rawFirstEvent)));
         tr.appendChild(createCell(pLastEvent, false, null, _dmSortTs(rawLastEvent)));
@@ -5452,7 +5512,38 @@ function openEditCollectionModal(collectionObj) {
 
     _dmRenderCollectionDetails([collectionObj]);
     dm_renderTags();
+    _dmFillAccountSelect(collectionObj.user_id || '', false);
     document.getElementById('editCollectionModal').style.display = 'block';
+}
+
+
+// Bulk mode leads with a "leave unchanged" option (value '__keep__') so a
+// tag-only edit never rewrites every selected collection's account.
+const _DM_ACCOUNT_KEEP = '__keep__';
+
+function _dmFillAccountSelect(selected, bulk) {
+    const sel = document.getElementById('edit-collection-user');
+    if (!sel) return;
+    sel.disabled = true;
+    sel.innerHTML = '<option value="">Loading accounts...</option>';
+    loadAccounts(true).then(accounts => {
+        populateAccountSelect(sel, accounts, {
+            blankLabel: '— no account —',
+            extraFirst: bulk ? { value: _DM_ACCOUNT_KEEP, label: '(leave unchanged)' } : null,
+            selected: bulk ? '' : selected,
+        });
+        if (bulk) sel.value = _DM_ACCOUNT_KEEP;
+        sel.disabled = false;
+    });
+}
+
+// The account field of the save payload. Single edit always sends it (null =
+// unassigned); bulk edit omits it unless the admin picked something.
+function _dmAccountPayload(bulk) {
+    const sel = document.getElementById('edit-collection-user');
+    if (!sel || sel.disabled) return {};
+    if (bulk && sel.value === _DM_ACCOUNT_KEEP) return {};
+    return { user_id: sel.value || null };
 }
 
 
@@ -5666,7 +5757,8 @@ function dm_saveAnnotation() {
             collection_id: currentEditCollectionId,
             display_collection_id: displayId,
             tags: currentEditCollectionTags,
-            hidden: isHidden
+            hidden: isHidden,
+            ..._dmAccountPayload(false),
         };
 
         fetch('/api/manage/collection/save_annotation', {
@@ -5718,7 +5810,8 @@ function dm_saveAnnotation() {
             const payload = {
                 collection_id: id,
                 display_collection_id: obj ? (obj.displayId || id) : id,
-                tags: finalTags
+                tags: finalTags,
+                ..._dmAccountPayload(true),
             };
 
             if (hiddenUserTouched && hiddenCheckbox) {
@@ -6006,6 +6099,7 @@ function openEditSelectedCollections() {
 
     _dmRenderCollectionDetails(selectedObjs);
     dm_renderTags();
+    _dmFillAccountSelect('', true);
     document.getElementById('editCollectionModal').style.display = 'block';
 }
 window.openEditSelectedCollections = openEditSelectedCollections;

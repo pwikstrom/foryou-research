@@ -25,6 +25,7 @@ from ...process_manager import (
     start_process,
 )
 from ...permissions import permission_required
+from ...security import user_manager
 
 
 
@@ -138,6 +139,8 @@ def upload_ingestion_file():
         tz: optional donor timezone (IANA name like 'Asia/Kolkata' or a fixed
             offset like '+05:30') — the authoritative source for local-time
             conversion, overriding any ambiguous timezone label in the export.
+        user_id: optional account id the uploaded collection(s) belong to;
+            written to the collections sidecar straight away.
     """
     # Accept both multi-file ('files') and legacy single-file ('file') keys
     files = request.files.getlist('files')
@@ -196,6 +199,13 @@ def upload_ingestion_file():
                      f"(e.g. 'Asia/Kolkata') or a fixed offset (e.g. '+05:30').",
         }), 400
 
+    # Optional user account the uploaded collection(s) belong to. Validated
+    # here; the link itself is written to the collections sidecar below so it
+    # is in place before the ingest runs (and survives the manifest pruning).
+    owner_user_id = request.form.get('user_id', '').strip() or None
+    if owner_user_id and user_manager.get_user(owner_user_id) is None:
+        return jsonify({"error": f"Unknown user account: {owner_user_id!r}"}), 400
+
     # Load or create the ingestion manifest for this raw_path
     manifest_fn = "ingestion_manifest.json"
     manifest: dict = {}
@@ -237,6 +247,8 @@ def upload_ingestion_file():
             }
             if donor_tz:
                 manifest[filename]["tz"] = donor_tz
+            if owner_user_id:
+                manifest[filename]["user_id"] = owner_user_id
             uploaded.append(filename)
 
         # Save updated manifest
@@ -247,9 +259,11 @@ def upload_ingestion_file():
             verbose=False
         )
 
-        # Pre-populate collection_annotations.json with tags for each unique collection_id
-        if tags:
-            _prepopulate_annotations(manifest, tags)
+        # Pre-populate the collections sidecar with tags and the account link
+        # for each collection id uploaded in this batch.
+        if tags or owner_user_id:
+            _prepopulate_annotations(
+                {fn: manifest[fn] for fn in uploaded}, tags, user_id=owner_user_id)
 
         activity_log.record(
             actor=_actor(),
@@ -261,6 +275,7 @@ def upload_ingestion_file():
                 "tags": tags,
                 "collection_id_mode": collection_id_mode,
                 "tz": donor_tz or None,
+                "user_id": owner_user_id,
             },
         )
         return jsonify({
@@ -553,8 +568,10 @@ def clear_pending_uploads():
 
 
 
-def _prepopulate_annotations(manifest: dict, tags: list[str]) -> None:
-    """Merge tags into collection_annotations.json for each unique collection_id in the manifest."""
+def _prepopulate_annotations(manifest: dict, tags: list[str], user_id: str | None = None) -> None:
+    """Merge tags (and set the account link, if given) in the collections
+    sidecar for each unique collection_id in ``manifest``. Other keys of an
+    existing entry are preserved."""
     annotations: dict = {}
     if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"):
         annotations = data_io.load_json(
@@ -568,14 +585,16 @@ def _prepopulate_annotations(manifest: dict, tags: list[str]) -> None:
         cid = meta.get("collection_id")
         if cid and cid not in seen_ids:
             seen_ids.add(cid)
-            existing = annotations.get(cid, {})
+            existing = annotations.get(cid)
+            if not isinstance(existing, dict):
+                existing = {}
             existing_tags = existing.get("annotation_tags", [])
-            merged_tags = sorted(set(existing_tags + tags))
-            annotations[cid] = {
-                "display_collection_id": existing.get("display_collection_id"),
-                "annotation_tags": merged_tags,
-                "hidden": existing.get("hidden", False),
-            }
+            existing["display_collection_id"] = existing.get("display_collection_id")
+            existing["annotation_tags"] = sorted(set(existing_tags + tags))
+            existing["hidden"] = existing.get("hidden", False)
+            if user_id:
+                existing["user_id"] = user_id
+            annotations[cid] = existing
 
     data_io.save_json(
         data=annotations,

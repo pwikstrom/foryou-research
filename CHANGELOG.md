@@ -10,6 +10,33 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+### Added
+
+- **Collections belong to user accounts; demographics live on the account,
+  not the collection.** Each collection can be linked to one user account
+  (n-to-1). The link is set at upload (a "Participant account" picker in the
+  upload modal), written automatically at AIO ingest from the donation's
+  participant record (matched by email to an existing account, else a
+  passwordless *participant* account under that email, else a placeholder
+  `p-N@<[site].participant_placeholder_domain>` account for donations with
+  demographics but no email), and changed on Edit Collections (single and
+  bulk; "unassigned" is remembered so a later ingest does not re-link).
+- **Richer user profile.** Full name, age (number or bracket such as
+  "21 - 25"), postcode, country, occupation, TikTok handle and consent to
+  contact, editable on My stuff → Profile and by admins on Active users. The
+  AIO demographic columns are no longer written to the collections metadata
+  parquet; donation-level fields (campaign, donation type, consent) remain.
+- Participant accounts have no password until an admin sets one (Reset
+  Password), and signing up with that email claims the account instead of
+  failing on "User already exists". Placeholder accounts can never log in.
+- Active users shows account kind, collection counts and profile; deleting an
+  account unassigns its collections by default and can optionally delete
+  them (runs the existing collection-delete task); placeholder accounts left
+  with no collections are flagged with a one-click cleanup.
+- `scripts/migrate_collection_accounts.py` — one-off, idempotent migration
+  of existing collections (dry run by default; refuses to apply unless the
+  configured storage is GCS, snapshots first, writes a report).
+
 ### Security
 
 - **New user signups now require admin approval by default.** A fresh install
