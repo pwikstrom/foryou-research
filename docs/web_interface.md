@@ -54,6 +54,30 @@ processes only) backfilled explicit grants into pre-flip studies.
 `POST /api/user/settings` accepts only the whitelisted
 `USER_SETTINGS_KEYS`.
 
+A user record also carries a `profile` block (`auth.PROFILE_FIELDS`: full
+name, age, postcode, country, occupation, TikTok handle, consent to contact;
+validated by `auth.validate_profile`), an `account_kind` (`member` —
+signed up or admin-created — or `participant` — created from donation
+data, initially with no password and so unable to log in until an admin
+sets one), a `placeholder` flag for the fake `p-N@<domain>` addresses
+minted for participants who left demographics but no email, and an
+`origin`. Signing up with the email of a passwordless participant account
+*claims* it (`UserManager.claim_participant_account`).
+
+**Collections ↔ accounts.** A collection belongs to at most one account.
+The link is the `user_id` key of the collection's entry in
+`recoded/collections_tags.json` — absent = undecided (AIO ingest may
+auto-link), `null` = explicitly unassigned (never re-linked), a username =
+linked. `web_interface/collection_accounts.py` owns the format
+(`set_collection_owner`, `unlink_user`, `orphan_placeholder_accounts`),
+the AIO donor-data → account move (`link_aio_collections`, run by the
+ingest worker after `save_processed` and by the one-off migration
+`migrate_existing_collections`), and the rule that the AIO demographic
+fields (`fyp.donations.AIO_DEMOGRAPHIC_FIELDS`) are stripped by every
+writer of the collections metadata parquet. Pickers:
+`GET /api/manage/accounts`; the link is set via the upload route
+(`user_id` form field) and `POST /api/manage/collection/save_annotation`.
+
 ## Background workers
 
 Each `run_<name>.py` script is dual-mode:

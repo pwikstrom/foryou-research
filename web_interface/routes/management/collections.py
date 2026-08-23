@@ -16,9 +16,11 @@ from fyp.organize_datasets import (
 from fyp.studies import init_study_defs
 
 from ... import activity_log
+from ...collection_accounts import collection_counts_by_user
 from ...data_service import (
     invalidate_collection_tags_cache,
 )
+from ...security import user_manager
 from ...process_manager import (
     start_process,
 )
@@ -215,7 +217,13 @@ def list_collections():
                 
             # Construct structured dictionaries
             collections = []
-            
+
+            # Account link per collection + a label for the UI (display name,
+            # else the account id). Unknown ids (a deleted account whose link
+            # was not unlinked) are still reported so the admin can fix them.
+            user_labels = {u.username: (u.display_username or u.username)
+                           for u in user_manager.get_all_users().values()}
+
             # Make sure we don't have pd.NA or similar incompatible types for JSON serialization
             df = df.where(pd.notnull(df), None)
             
@@ -259,6 +267,10 @@ def list_collections():
                 item['displayId'] = ann.get('display_collection_id', None)
                 item['tags'] = ann.get('annotation_tags', [])
                 item['hidden'] = ann.get('hidden', False)
+                uid = ann.get('user_id')
+                item['user_id'] = uid
+                item['user_label'] = user_labels.get(uid, uid) if uid else None
+                item['user_known'] = bool(uid) and uid in user_labels
 
                 collections.append(item)
 
@@ -280,16 +292,31 @@ def save_collection_annotation():
     if not collection_id:
         return jsonify({"error": "Missing collection_id"}), 400
 
+    # Account link: absent = leave as is; null = explicitly unassign;
+    # a string must be an existing account id.
+    set_user = 'user_id' in data
+    user_id = data.get('user_id')
+    if set_user and user_id is not None:
+        if not isinstance(user_id, str) or user_manager.get_user(user_id) is None:
+            return jsonify({"error": f"Unknown user account: {user_id!r}"}), 400
+
     try:
         annotations = {}
         if data_io.exists(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json"):
             annotations = data_io.load_json(storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_tags.json")
 
-        annotations[str(collection_id)] = {
-            "display_collection_id": data.get('display_collection_id', None),
-            "annotation_tags": data.get('tags', []),
-            "hidden": data.get('hidden', False)
-        }
+        # Update in place so keys this endpoint doesn't own (the account
+        # link, anything added later) survive a tag edit.
+        entry = annotations.get(str(collection_id))
+        if not isinstance(entry, dict):
+            entry = {}
+        entry["display_collection_id"] = data.get('display_collection_id', None)
+        entry["annotation_tags"] = data.get('tags', [])
+        entry["hidden"] = data.get('hidden', False)
+        previous_user = entry.get("user_id")
+        if set_user:
+            entry["user_id"] = user_id
+        annotations[str(collection_id)] = entry
 
         data_io.save_json(
             data=annotations,
@@ -307,11 +334,35 @@ def save_collection_annotation():
             details={
                 "tags": data.get('tags', []),
                 "hidden": bool(data.get('hidden', False)),
+                **({"user_id": {"from": previous_user, "to": user_id}} if set_user else {}),
             },
         )
         return jsonify({"status": "success"})
     except Exception as e:
         print(f"Error saving annotation: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@management_bp.route('/api/manage/accounts', methods=['GET'])
+@permission_required('tab.data_management.ingestion', 'tab.data_management.edit_collections')
+@login_required
+def list_accounts():
+    """Lightweight account list for the "link collection to account" pickers
+    (upload modal, Edit Collections). No profile data — just enough to pick.
+    Sorted: members first, then participant accounts, placeholders last."""
+    counts = collection_counts_by_user()
+    rows = []
+    for u in user_manager.get_all_users().values():
+        rows.append({
+            "username": u.username,
+            "display_username": u.display_username or "",
+            "account_kind": u.account_kind,
+            "placeholder": bool(u.placeholder),
+            "can_login": u.can_login(),
+            "collections_count": counts.get(u.username, 0),
+        })
+    rows.sort(key=lambda r: (r["placeholder"], r["account_kind"] != "member",
+                             (r["display_username"] or r["username"]).lower()))
+    return jsonify(rows)
 
 

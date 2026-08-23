@@ -21,6 +21,12 @@ from ..admin_settings import (
     validate_setting_value,
 )
 from .. import activity_log
+from ..collection_accounts import (
+    collections_for_user,
+    load_owner_map,
+    orphan_placeholder_accounts,
+    unlink_user,
+)
 from ..mail_utils import is_email, send_new_user_pending_email_async, send_welcome_email_async
 from ..permissions import permission_required
 from ..security import user_manager
@@ -98,7 +104,20 @@ def signup():
         # If approval is required, approved=False. If not required, approved=True.
         is_approved = not require_approval
 
-        success, msg = user_manager.add_user(username, password, get_default_new_user_role(), approved=is_approved, display_username=cleaned_display)
+        # A participant account created from donation data has no password.
+        # Signing up with that email claims it — the profile and linked
+        # collections stay, the person gains a login — instead of bouncing
+        # on "User already exists".
+        existing = user_manager.find_user_by_email(username)
+        if existing is not None and not existing.can_login() and not existing.placeholder:
+            success, msg = user_manager.claim_participant_account(
+                existing.username, password, cleaned_display, approved=is_approved)
+            username = existing.username
+        else:
+            success, msg = user_manager.add_user(
+                username, password, get_default_new_user_role(), approved=is_approved,
+                display_username=cleaned_display,
+                origin={"source": "signup", "at": datetime.now(timezone.utc).isoformat()})
         if success:
             if is_approved:
                 flash("Account created! You can now login.")
@@ -153,11 +172,20 @@ def api_admin_users():
         
         # We iterate through active users and attempt to load their data file directly
         # This avoids potential issues with listdir filenames vs user.username casing
-        
+
+        # Collections linked to each account, from the collections sidecar.
+        owned: dict[str, list[str]] = {}
+        for cid, uid in load_owner_map().items():
+            if uid:
+                owned.setdefault(uid, []).append(cid)
+
         for u in user_manager.get_all_users().values():
             ud = u.to_dict()
             del ud['password_hash']
-            
+            ud['can_login'] = u.can_login()
+            ud['collections'] = sorted(owned.get(u.username, []))
+            ud['collections_count'] = len(ud['collections'])
+
             # Init stats
             ud['stats'] = {
                 'notes': 0,
@@ -248,7 +276,10 @@ def api_admin_users():
         if display_err:
             return jsonify({"error": display_err}), 400
 
-        success, msg = user_manager.add_user(username, password, role, approved=True, display_username=cleaned_display)
+        success, msg = user_manager.add_user(
+            username, password, role, approved=True, display_username=cleaned_display,
+            origin={"source": "admin", "at": datetime.now(timezone.utc).isoformat(),
+                    "by": current_user.username})
         if success:
             activity_log.record(
                 actor=current_user.username,
@@ -330,25 +361,100 @@ def api_admin_users():
                  return jsonify({"status": "success", "message": msg})
              else: return jsonify({"error": msg}), 400
 
+        elif action == 'set_profile':
+             success, msg = user_manager.update_profile(username, data.get('profile'))
+             if success:
+                 activity_log.record(
+                     actor=current_user.username,
+                     category=activity_log.CATEGORY_USER_MANAGEMENT,
+                     action="user.set_profile",
+                     target=username,
+                     details={"fields": sorted((data.get('profile') or {}).keys())},
+                 )
+                 return jsonify({"status": "success", "message": msg})
+             else: return jsonify({"error": msg}), 400
+
         return jsonify({"error": "Invalid action"}), 400
 
     elif request.method == 'DELETE':
         username = request.args.get('username')
+        cascade = request.args.get('cascade_collections', '0').strip().lower() in ('1', 'true', 'yes')
 
         if not username:
              return jsonify({"error": "Missing username"}), 400
+        if user_manager.get_user(username) is None:
+             return jsonify({"error": "User not found"}), 400
 
+        # The account's collections are unlinked FIRST so no link ever points
+        # at a username that no longer exists. With cascade the collections
+        # are then deleted by the same task the Edit Collections page uses
+        # (the participant-withdrawal case).
+        unlinked = unlink_user(username)
         success, msg = user_manager.delete_user(username)
-        if success:
-             activity_log.record(
-                 actor=current_user.username,
-                 category=activity_log.CATEGORY_USER_MANAGEMENT,
-                 action="user.delete",
-                 target=username,
-             )
-             return jsonify({"status": "success", "message": msg})
-        else:
+        if not success:
+             # Re-link: the delete was refused (e.g. last admin), so the
+             # account still exists and should keep its collections.
+             from ..collection_accounts import set_collection_owner
+             for cid in unlinked:
+                 set_collection_owner(cid, username)
              return jsonify({"error": msg}), 400
+
+        activity_log.record(
+            actor=current_user.username,
+            category=activity_log.CATEGORY_USER_MANAGEMENT,
+            action="user.delete",
+            target=username,
+            details={"unlinked_collections": unlinked, "cascade": cascade},
+        )
+        result = {"status": "success", "message": msg, "unlinked_collections": unlinked}
+        if cascade and unlinked:
+            from fyp.fyp_config import COLLECTION_DELETE_SCRIPT
+            from ..process_manager import start_process
+            ok, pmsg = start_process(
+                "collection_delete",
+                COLLECTION_DELETE_SCRIPT,
+                task_args={"collection_ids": unlinked},
+                started_by=current_user.username,
+            )
+            result["cascade"] = {"started": ok, "message": pmsg, "collection_ids": unlinked}
+            if ok:
+                activity_log.record(
+                    actor=current_user.username,
+                    category=activity_log.CATEGORY_DATA_MANAGEMENT,
+                    action="collection.delete",
+                    target=", ".join(unlinked),
+                    details={"reason": f"cascade from deleting user {username}"},
+                )
+            else:
+                result["message"] = (f"{msg}. Collections were unlinked but the delete task could not "
+                                     f"start: {pmsg}. Delete them from Edit Collections.")
+        return jsonify(result)
+
+
+@auth_bp.route('/api/admin/users/orphan_participants', methods=['GET', 'POST'])
+@permission_required('tab.admin.active_users')
+def api_admin_orphan_participants():
+    """Placeholder participant accounts (p-N@…) that own no collection.
+
+    GET lists them; POST deletes them. A placeholder exists only to hold the
+    demographics that came with a donation, so once its collections are gone
+    it is dead weight — but removal stays an explicit admin action.
+    """
+    orphans = orphan_placeholder_accounts()
+    if request.method == 'GET':
+        return jsonify({"orphans": orphans})
+    removed, failed = [], []
+    for username in orphans:
+        ok, msg = user_manager.delete_user(username)
+        (removed if ok else failed).append(username if ok else f"{username}: {msg}")
+    if removed:
+        activity_log.record(
+            actor=current_user.username,
+            category=activity_log.CATEGORY_USER_MANAGEMENT,
+            action="user.cleanup_orphan_participants",
+            target=", ".join(removed),
+        )
+    return jsonify({"status": "success", "removed": removed, "failed": failed})
 
 
 @auth_bp.route('/api/admin/users/<path:username>/log', methods=['GET'])
@@ -689,22 +795,39 @@ def api_user_variable_catalog():
 @auth_bp.route('/api/user/profile', methods=['GET', 'POST'])
 @permission_required('tab.my_stuff.profile')
 def api_user_profile():
-    """Read or update the current user's own profile (display username only).
+    """Read or update the current user's own profile.
 
-    The email (account id) is immutable and returned read-only.
+    The email (account id) is immutable and returned read-only. POST accepts
+    ``display_username`` and/or a ``profile`` object (see ``PROFILE_FIELDS``);
+    either may be omitted to leave it unchanged.
     """
     if request.method == 'GET':
         return jsonify({
             "email": current_user.username,
             "display_username": current_user.display_username,
+            "profile": current_user.profile,
+            "profile_fields": list(auth.PROFILE_FIELDS),
+            "collections": collections_for_user(current_user.username),
         })
 
     data = request.json or {}
-    success, msg = user_manager.update_display_username(
-        current_user.username, data.get('display_username'))
-    if success:
-        return jsonify({"status": "success", "message": msg})
-    return jsonify({"error": msg}), 400
+    if 'display_username' in data:
+        success, msg = user_manager.update_display_username(
+            current_user.username, data.get('display_username'))
+        if not success:
+            return jsonify({"error": msg}), 400
+    if 'profile' in data:
+        success, msg = user_manager.update_profile(current_user.username, data.get('profile'))
+        if not success:
+            return jsonify({"error": msg}), 400
+        activity_log.record(
+            actor=current_user.username,
+            category=activity_log.CATEGORY_USER_MANAGEMENT,
+            action="user.update_profile",
+            target=current_user.username,
+            details={"fields": sorted((data.get('profile') or {}).keys())},
+        )
+    return jsonify({"status": "success", "message": "Profile updated"})
 
 
 VARIABLE_PREF_SURFACES = ("filter", "display", "timeline", "viz")

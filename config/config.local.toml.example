@@ -29,6 +29,8 @@ local_media = "~CHANGE-ME~/fyp_local/media"
 # contact_email = "you@example.org"   # shown on public guide/FAQ + home tab
 # mail_sender = "you@gmail.com"       # outbound mail sender (with MAIL_PASSWORD)
 # app_url = "https://your-hub.example.org"  # "log in at ..." links in emails
+# participant_placeholder_domain = "example.org"  # fake p-N@<domain> accounts for
+#                                  # donors who left demographics but no email
 
 # [machine.gemini]
 # Gemini annotation — either your own Vertex AI project (ADC auth):

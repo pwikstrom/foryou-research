@@ -60,6 +60,7 @@
             const users = await response.json();
 
             renderUsers(users);
+            loadOrphanParticipants();
 
             // Only auto-load annotations if the user actually has that sub-page.
             if (_hasPerm('tab.admin.annotations')) {
@@ -726,6 +727,76 @@
         }, 2000);
     }
 
+    function _adminEsc(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function _accountBadgeHtml(user) {
+        if (!user || user.account_kind !== 'participant') return '';
+        let label = user.placeholder ? 'placeholder' : 'participant';
+        if (!user.can_login) label += ' · no login';
+        const title = user.placeholder
+            ? 'Placeholder participant account created from donation data'
+            : 'Participant account' + (user.can_login ? '' : ' (no password set — cannot log in)');
+        return `<span class="account-badge" title="${_adminEsc(title)}">${_adminEsc(label)}</span>`;
+    }
+
+    // --- Orphan placeholder participant accounts (own zero collections) ---
+
+    async function loadOrphanParticipants() {
+        const notice = document.getElementById('orphanParticipantsNotice');
+        if (!notice) return;
+        try {
+            const response = await fetch('/api/admin/users/orphan_participants');
+            if (!response.ok) throw new Error('Failed to load orphan participants');
+            const data = await response.json();
+            const orphans = Array.isArray(data.orphans) ? data.orphans : [];
+            window._orphanParticipants = orphans;
+            if (orphans.length === 0) {
+                notice.style.display = 'none';
+                return;
+            }
+            const text = document.getElementById('orphanParticipantsText');
+            if (text) {
+                text.textContent = `${orphans.length} placeholder participant account${orphans.length === 1 ? '' : 's'} own${orphans.length === 1 ? 's' : ''} no collections.`;
+                text.title = orphans.join(', ');
+            }
+            notice.style.display = 'flex';
+        } catch (error) {
+            console.error('loadOrphanParticipants:', error);
+            notice.style.display = 'none';
+        }
+    }
+
+    async function removeOrphanParticipants() {
+        const orphans = window._orphanParticipants || [];
+        if (orphans.length === 0) return;
+        const ok = await showAppConfirm(
+            `Remove ${orphans.length} orphan placeholder participant account${orphans.length === 1 ? '' : 's'}?\n\n${orphans.join(', ')}`,
+            { title: 'Remove orphan accounts', okLabel: 'Remove', danger: true });
+        if (!ok) return;
+        const btn = document.getElementById('orphanParticipantsBtn');
+        if (btn) btn.disabled = true;
+        try {
+            const response = await fetch('/api/admin/users/orphan_participants', { method: 'POST' });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'Failed to remove orphan accounts');
+            const removed = (data.removed || []).length;
+            const failed = data.failed || [];
+            let msg = `Removed ${removed} orphan account${removed === 1 ? '' : 's'}.`;
+            if (failed.length) msg += ` ${failed.length} could not be removed: ${failed.join(', ')}`;
+            showToast(msg, failed.length ? 'warning' : 'success');
+        } catch (error) {
+            showToast('Error: ' + error.message, 'error');
+        } finally {
+            if (btn) btn.disabled = false;
+            loadUsers();
+            loadOrphanParticipants();
+        }
+    }
+
     function renderUsers(users) {
         const pendingContainer = document.getElementById('pendingUserList');
         const tableBody = document.getElementById('userTableBody');
@@ -778,7 +849,7 @@
         }
 
         if (active.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="4" style="padding: 16px; text-align: center; color: var(--color-text-faint);">No active users found.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--color-text-faint);">No active users found.</td></tr>';
             window._activeUsersData = [];
             return;
         }
@@ -791,6 +862,9 @@
             const safeUser = user.username.replace(/'/g, "\\'");
             const safeDisplayName = String(user.display_username || '')
                 .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+            const collections = Array.isArray(user.collections) ? user.collections : [];
+            const collectionsCount = Number(user.collections_count || collections.length || 0);
+            const collectionsTitle = collections.length ? _adminEsc(collections.join('\n')) : '';
             return `
         <tr style="border-bottom: 1px solid var(--color-border); cursor: pointer;" onclick="openUserModal('${safeUser}')">
             <td style="padding: 12px 16px;" onclick="event.stopPropagation();">
@@ -801,7 +875,7 @@
                     style="width: 130px; padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);">
             </td>
             <td style="padding: 12px 16px;">
-                <span class="text-sm" style="color: var(--color-text-muted);">${user.username}</span>
+                <span class="text-sm" style="color: var(--color-text-muted);">${_adminEsc(user.username)}</span>${_accountBadgeHtml(user)}
             </td>
             <td style="padding: 12px 16px;" onclick="event.stopPropagation();">
                 <select onchange="updateRole('${safeUser}', this.value)" onclick="event.stopPropagation();" class="role-select text-xs" data-current-role="${user.role}"
@@ -811,6 +885,9 @@
             </td>
             <td style="padding: 12px 16px; color: var(--color-text-primary);">
                 <span class="text-xs" style="color: var(--color-text-muted);">${lastLogin}</span>
+            </td>
+            <td style="padding: 12px 16px;">
+                <span class="text-xs" style="color: var(--color-text-muted);" title="${collectionsTitle}">${collectionsCount > 0 ? collectionsCount : '—'}</span>
             </td>
         </tr>
     `}).join('');
@@ -840,6 +917,7 @@
             case 'username':   return (user.username || '').toLowerCase();
             case 'role':       return (user.role || '').toLowerCase();
             case 'last_login': return user.last_login ? Date.parse(user.last_login) : -Infinity;
+            case 'collections': return Number(user.collections_count || (user.collections || []).length || 0);
             case 'videos':     return Number(stats.unique_videos || 0);
             case 'notes':      return Number(stats.notes || 0);
             case 'closed':     return Number(stats.closed_tags || 0);
@@ -929,6 +1007,63 @@
             notesContainer.innerHTML = '<span class="text-xs" style="color: var(--color-text-muted);">None</span>';
         }
 
+        // Account kind / origin
+        const accountInfo = document.getElementById('userModalAccountInfo');
+        if (accountInfo) {
+            const bits = []; // already-escaped HTML fragments
+            if (user.account_kind === 'participant') {
+                bits.push(user.placeholder ? 'Placeholder participant account' : 'Participant account');
+                if (!user.can_login) bits.push('no password set — cannot log in until one is set via Reset Password');
+            } else {
+                bits.push('Member account');
+            }
+            if (user.origin && user.origin.source) {
+                let originStr = `Created from ${_adminEsc(user.origin.source === 'donation' ? 'donation data' : user.origin.source)}`;
+                if (user.origin.at) originStr += ` on ${_adminEsc(fypFmtDateTime(user.origin.at))}`;
+                if (user.origin.collection_id) originStr += ` (collection <span class="font-mono">${_adminEsc(user.origin.collection_id)}</span>)`;
+                bits.push(originStr);
+            }
+            accountInfo.innerHTML = bits.join(' · ');
+        }
+
+        // Collections owned by this account
+        const collectionsEl = document.getElementById('userModalCollections');
+        const ownedCollections = Array.isArray(user.collections) ? user.collections : [];
+        if (collectionsEl) {
+            collectionsEl.innerHTML = ownedCollections.length
+                ? ownedCollections.map(c => `<span class="tag-chip font-mono">${_adminEsc(c)}</span>`).join('')
+                : '<span class="text-xs" style="color: var(--color-text-muted);">none</span>';
+        }
+
+        // Cascade-delete checkbox (only when the account owns collections)
+        const cascadeWrap = document.getElementById('userModalCascadeWrap');
+        const cascadeBox = document.getElementById('userModalCascadeCollections');
+        const cascadeLabel = document.getElementById('userModalCascadeLabel');
+        const ownedCount = Number(user.collections_count || ownedCollections.length || 0);
+        if (cascadeWrap && cascadeBox && cascadeLabel) {
+            cascadeBox.checked = false;
+            if (ownedCount > 0) {
+                cascadeLabel.textContent = `On delete, also delete ${ownedCount} owned collection${ownedCount === 1 ? '' : 's'}`;
+                cascadeWrap.style.display = 'flex';
+            } else {
+                cascadeWrap.style.display = 'none';
+            }
+        }
+
+        // Profile form
+        const profile = user.profile || {};
+        document.querySelectorAll('#userModalProfileForm [data-profile-field]').forEach(el => {
+            const key = el.getAttribute('data-profile-field');
+            const val = profile[key];
+            if (key === 'consent_to_contact') {
+                el.value = val === true ? 'true' : (val === false ? 'false' : '');
+            } else {
+                el.value = val == null ? '' : String(val);
+            }
+        });
+        const profileStatus = document.getElementById('userModalProfileStatus');
+        if (profileStatus) profileStatus.textContent = '';
+
         // Reset log to loading state
         const logList = document.getElementById('userModalLogList');
         logList.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted); padding: 8px 0;">Loading activity…</div>';
@@ -997,21 +1132,92 @@
         }
     }
 
+    async function modalSaveProfile() {
+        const overlay = document.getElementById('userDetailModal');
+        const username = overlay && overlay.dataset.username;
+        if (!username) return;
+        const status = document.getElementById('userModalProfileStatus');
+        const profile = {};
+        document.querySelectorAll('#userModalProfileForm [data-profile-field]').forEach(el => {
+            const key = el.getAttribute('data-profile-field');
+            if (key === 'consent_to_contact') {
+                profile[key] = el.value === 'true' ? true : (el.value === 'false' ? false : null);
+            } else {
+                profile[key] = el.value.trim();
+            }
+        });
+        if (status) { status.style.color = 'var(--color-text-muted)'; status.textContent = 'Saving…'; }
+        try {
+            const response = await fetch('/api/admin/users', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'set_profile', username, profile })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'Failed to save profile');
+            // Keep cached payloads in sync so reopening the modal shows the saved values.
+            [(window._activeUsersData || []), (window._lastUsersPayload || [])].forEach(list => {
+                const u = list.find(x => x.username === username);
+                if (u) u.profile = Object.assign({}, u.profile || {}, profile);
+            });
+            if (status) { status.style.color = 'var(--color-success)'; status.textContent = 'Profile saved.'; }
+        } catch (error) {
+            if (status) { status.style.color = 'var(--color-danger)'; status.textContent = 'Error: ' + error.message; }
+        }
+    }
+
+    // Shared delete flow: confirms (stating how many collections the account
+    // owns), optionally cascades the collection delete, and surfaces the result.
+    async function _deleteUserAccount(username, cascade) {
+        const user = (window._activeUsersData || []).find(u => u.username === username) || {};
+        const owned = Number(user.collections_count || (user.collections || []).length || 0);
+        let msg = `Are you sure you want to delete user "${username}"?`;
+        if (owned > 0) {
+            msg += `\n\nThis account owns ${owned} collection${owned === 1 ? '' : 's'}. `;
+            msg += cascade
+                ? `The collection${owned === 1 ? '' : 's'} will ALSO be deleted (runs the collection delete task).`
+                : `The collection${owned === 1 ? '' : 's'} will be kept and become unassigned.`;
+        } else {
+            msg += '\n\nThis account owns no collections.';
+        }
+        const ok = await showAppConfirm(msg, { title: 'Delete user', okLabel: 'Delete', danger: true });
+        if (!ok) return false;
+
+        const url = `/api/admin/users?username=${encodeURIComponent(username)}&cascade_collections=${cascade ? 1 : 0}`;
+        const response = await fetch(url, { method: 'DELETE' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Failed to delete user');
+
+        let summary = data.message || `User "${username}" deleted.`;
+        const unlinked = Array.isArray(data.unlinked_collections) ? data.unlinked_collections : [];
+        if (!cascade && unlinked.length) {
+            summary += ` ${unlinked.length} collection${unlinked.length === 1 ? '' : 's'} unassigned.`;
+        }
+        let level = 'success';
+        if (cascade && data.cascade) {
+            if (data.cascade.started) {
+                summary += ` Collection delete task started for ${(data.cascade.collection_ids || []).length} collection${(data.cascade.collection_ids || []).length === 1 ? '' : 's'}.`;
+            } else {
+                summary += ` Collection delete NOT started: ${data.cascade.message || 'unknown reason'}`;
+                level = 'warning';
+            }
+        }
+        showToast(summary, level, 8000);
+        return true;
+    }
+
     async function modalDeleteUser() {
         const overlay = document.getElementById('userDetailModal');
         const username = overlay && overlay.dataset.username;
         if (!username) return;
-        if (!confirm(`Are you sure you want to delete user "${username}"?`)) return;
+        const cascadeBox = document.getElementById('userModalCascadeCollections');
+        const cascade = !!(cascadeBox && cascadeBox.checked);
         try {
-            const response = await fetch(`/api/admin/users?username=${encodeURIComponent(username)}`, {
-                method: 'DELETE'
-            });
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.error || 'Failed to delete user');
-            }
+            const deleted = await _deleteUserAccount(username, cascade);
+            if (!deleted) return;
             closeUserModal();
             loadUsers();
+            loadOrphanParticipants();
         } catch (error) {
             alert('Error: ' + error.message);
         }
@@ -1100,20 +1306,12 @@
         }
     }
 
-    async function deleteUser(username) {
-        if (!confirm(`Are you sure you want to delete user "${username}"?`)) return;
-
+    async function deleteUser(username, cascade = false) {
         try {
-            const response = await fetch(`/api/admin/users?username=${username}`, {
-                method: 'DELETE'
-            });
-
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.error || 'Failed to delete user');
-            }
-
+            const deleted = await _deleteUserAccount(username, !!cascade);
+            if (!deleted) return;
             loadUsers();
+            loadOrphanParticipants();
         } catch (error) {
             alert('Error: ' + error.message);
         }

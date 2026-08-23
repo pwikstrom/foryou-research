@@ -84,6 +84,14 @@
   ]
  ],
  [
+  "/api/admin/users/orphan_participants",
+  "auth_bp.api_admin_orphan_participants",
+  [
+   "GET",
+   "POST"
+  ]
+ ],
+ [
   "/api/correlations/correlation_matrix",
   "correlations_bp.api_pca_correlation_matrix",
   [
@@ -331,6 +339,13 @@
  [
   "/api/manage/ab-eval/runs/<run_id>/rows",
   "management_bp.get_ab_eval_run_rows",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/manage/accounts",
+  "management_bp.list_accounts",
   [
    "GET"
   ]

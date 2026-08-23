@@ -20,6 +20,26 @@ LEDGER_SKIP_OUTCOMES_FOR_UI = LEDGER_SKIP_OUTCOMES
 
 
 
+def _dataset_collection_ids() -> set[str]:
+    """Collection ids in the saved metadata parquet (the dataset's roster).
+
+    Read from the small per-collection parquet so the participant-account
+    link is only ever made for donations that actually became collections.
+    """
+    import fyp.data_io as data_io
+    from fyp.organize_datasets import COLLECTIONS_LABEL
+
+    fn = f"{COLLECTIONS_LABEL}_metadata.parquet"
+    if not data_io.exists(storage_location="recoded", filename=fn):
+        return set()
+    md = data_io.load_parquet(storage_location="recoded", filename=fn, verbose=False)
+    if md is None or md.empty:
+        return set()
+    if "collection_id" in md.columns:
+        return {str(c) for c in md["collection_id"].dropna().unique()}
+    return {str(c) for c in md.index.dropna().unique()}
+
+
 def _per_file_counts(sub_collections) -> dict[str, dict]:
     """Snapshot per-file row counts across every sub-collection. Also records
     the (platform, source) of each file so the UI can show provenance."""
@@ -340,6 +360,25 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     main_collection.save_processed()
     _t_save = time.perf_counter() - _t_phase
     reporter.log(f"Saved processed activities + metadata ({_t_save:.1f}s)")
+
+    # AIO donations arrive with the participant's demographics. Those never
+    # go on the collection: link each not-yet-decided collection to the
+    # participant's user account (matched by email, else created, else a
+    # placeholder) and fill the profile. A failure here must not fail the
+    # ingest — the link can be made later from Edit Collections.
+    try:
+        from fyp.donations import load_aio_participant_metadata
+        from web_interface.collection_accounts import link_aio_collections, summarize_report
+
+        aio_participants = load_aio_participant_metadata()
+        known_cids = _dataset_collection_ids()
+        if aio_participants and known_cids:
+            # The AIO table lists every donation ever made; only donations
+            # that are collections in this dataset get an account.
+            link_report = link_aio_collections(aio_participants, restrict_to=known_cids)
+            reporter.log(f"Participant accounts: {summarize_report(link_report)}")
+    except Exception as exc:
+        reporter.log(f"Participant-account linking failed (ingest unaffected): {exc}")
 
     # Build the list of ledger entries that were SKIPPED this run (i.e. files
     # the ledger remembers from prior runs but didn't reload). Useful for the
