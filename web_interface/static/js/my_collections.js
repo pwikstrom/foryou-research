@@ -9,6 +9,11 @@
     let mycBundle = null;            // last personality bundle rendered
 
     const PLATFORM_LABELS = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube' };
+    // Chart series colors for platform overlays (same approach as the
+    // timelines categorical palette; TikTok takes the app accent).
+    function platformColor(p) {
+        return { instagram: '#E91E63', youtube: '#EF5350' }[p] || getCSSVar('--color-accent');
+    }
     const AXIS_LABELS = {
         patience: 'patience', binge: 'binge', consistency: 'consistency',
         chattiness: 'chattiness', enthusiasm: 'enthusiasm',
@@ -200,10 +205,23 @@
             html.push(sectionCard(cardTitle('Your scores') + `<div>${chips}</div><p class="text-xs" style="color: var(--color-text-faint); margin: 8px 0 0 0;">This donation doesn't carry enough signal for the full radar &mdash; here's what we could measure.</p>`, '460px'));
         }
 
-        // --- Hour of day
-        if (b.hour_of_day) {
+        // --- You vs the cohort
+        if (b.comparisons && b.comparisons.length) {
             html.push(sectionCard(
-                cardTitle(`Your golden hour: you were most alive around <strong>${escapeHtml(friendlyHourLabel(b.hour_of_day))}</strong>`) +
+                cardTitle('You vs. everyone else') + cohortRows(b.comparisons) +
+                `<p class="text-xs" style="color: var(--color-text-faint); margin: 10px 0 0 0;">
+                    All rates, never raw counts &mdash; donations cover very different time spans,
+                    so everything is per active day or per 1,000 videos watched.</p>`,
+                '460px'));
+        }
+
+        // --- Hour of day (with per-platform overlay for multi-platform donors)
+        if (b.hour_of_day) {
+            const habitTitle = b.platform_habits
+                ? platformHabitsTitle(b.platform_habits)
+                : `Your golden hour: you were most alive around <strong>${escapeHtml(friendlyHourLabel(b.hour_of_day))}</strong>`;
+            html.push(sectionCard(
+                cardTitle(habitTitle) +
                 '<div id="myc-chart-hours" style="height: 300px;"></div>', '460px'));
         }
 
@@ -274,13 +292,13 @@
             html.push(sectionCard(
                 cardTitle('Your signature emoji') +
                 `<p style="font-size: 2.2rem; margin: 0;">${escapeHtml(b.emoji.top)}</p>` +
-                `<p class="text-sm" style="margin: 6px 0 0 0; color: var(--color-text-muted);">${fmtInt(b.emoji.count)} deployments in your comments.</p>`,
+                `<p class="text-sm" style="margin: 6px 0 0 0; color: var(--color-text-muted);">${fmtInt(b.emoji.count)} deployment${b.emoji.count === 1 ? '' : 's'} in your comments.</p>`,
                 '300px'));
         }
 
         // --- Stat strip
         if (b.stats) {
-            html.push(sectionCard(cardTitle("Let's look deeper into your life on the feed") + statStrip(b.stats, plat), '700px'));
+            html.push(sectionCard(cardTitle("Let's look deeper into your life on the feed") + statStrip(b.stats, plat, b.pre_play_engagement_dropped), '700px'));
         }
 
         html.push('</div>');
@@ -288,7 +306,7 @@
         renderCharts(b);
     }
 
-    function statStrip(s, plat) {
+    function statStrip(s, plat, prePlayDropped) {
         const lines = [];
         if (s.total_watch_time_s != null && s.total_watch_time_s > 0) {
             const pct = s.watch_time_percentile != null && s.watch_time_percentile >= 75
@@ -306,11 +324,56 @@
         if (s.n_likes) lines.push(`You handed out <strong>${fmtInt(s.n_likes)}</strong> likes. Generous.`);
         if (s.n_comments) lines.push(`You made <strong>${fmtInt(s.n_comments)}</strong> comments.`);
         if (s.n_posts) lines.push(`You posted <strong>${fmtInt(s.n_posts)}</strong> videos of your own.`);
-        return lines.map(l => `<p class="text-sm" style="margin: 0 0 6px 0;">${l}</p>`).join('');
+        let html = lines.map(l => `<p class="text-sm" style="margin: 0 0 6px 0;">${l}</p>`).join('');
+        if (prePlayDropped > 0) {
+            const who = plat === 'short-video' ? 'these platforms remember' : `${escapeHtml(plat)} remembers`;
+            html += `<p class="text-xs" style="color: var(--color-text-faint); margin: 10px 0 0 0;">
+                We left out ${fmtInt(prePlayDropped)} likes, comments and other activities from before
+                your watch history begins &mdash; ${who} your engagement much
+                further back than your plays, and counting those would make you look busier than you were.</p>`;
+        }
+        return html;
     }
 
     function friendlyHourLabel(h) {
         return h.peak_label || `${h.peak_hour}:00`;
+    }
+
+    // "way more than most" phrasing from your-value / cohort-median.
+    function ratioPhrase(ratio) {
+        if (ratio == null) return '';
+        if (ratio >= 2) return 'way more than most';
+        if (ratio >= 1.3) return 'more than most';
+        if (ratio > 0.75) return 'right in the pack';
+        if (ratio > 0.4) return 'less than most';
+        return 'way less than most';
+    }
+
+    function cohortRows(comparisons) {
+        return comparisons.map(c => {
+            const pct = c.percentile != null ? Math.max(2, Math.min(98, c.percentile)) : null;
+            const track = pct != null ? `
+                <div style="position: relative; height: 6px; border-radius: 3px; background: var(--color-border); margin: 6px 0 2px 0;">
+                    <div style="position: absolute; left: 50%; top: -2px; width: 1px; height: 10px; background: var(--color-text-faint);"></div>
+                    <div style="position: absolute; left: ${pct}%; top: -3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--color-accent);"></div>
+                </div>` : '';
+            return `
+                <div style="margin-bottom: 12px;">
+                    <div class="text-sm"><strong>${escapeHtml(c.label)}</strong> &mdash; ${escapeHtml(ratioPhrase(c.ratio))}</div>
+                    <div class="text-xs" style="color: var(--color-text-muted);">you: <strong>${fmtInt(Math.round(c.own * 10) / 10)}</strong> &middot; typical donor: ${fmtInt(Math.round(c.cohort_median * 10) / 10)}</div>
+                    ${track}
+                </div>`;
+        }).join('');
+    }
+
+    function platformHabitsTitle(habits) {
+        const segWords = { morning: 'in the morning', afternoon: 'in the afternoon',
+                           evening: 'in the evening', night: 'in the middle of the night' };
+        const parts = habits.map(h =>
+            `<strong>${escapeHtml(platformLabel(h.platform))}</strong> ${escapeHtml(segWords[h.top_segment] || h.top_segment)}`);
+        const distinct = new Set(habits.map(h => h.top_segment)).size > 1;
+        if (distinct) return `Two apps, two lives: ${parts.join(', ')}`;
+        return `All your feeds peak ${escapeHtml(segWords[habits[0].top_segment] || habits[0].top_segment)}`;
     }
 
     // ------------------------------------------------------------------
@@ -346,7 +409,8 @@
             }), PLOT_CONFIG);
         }
 
-        // Hour-of-day polar bar (24 spokes)
+        // Hour-of-day polar (24 spokes) — single-platform bars, or one line
+        // per platform (each a share of ITS OWN plays) for multi-platform donors.
         const hoursEl = document.getElementById('myc-chart-hours');
         if (hoursEl && b.hour_of_day) {
             const counts = b.hour_of_day.counts;
@@ -354,15 +418,37 @@
             for (let h = 0; h < 24; h++) {
                 labels.push(h === 0 ? 'midnight' : h === 12 ? 'noon' : h < 12 ? `${h} AM` : `${h - 12} PM`);
             }
-            Plotly.newPlot(hoursEl, [{
-                type: 'barpolar',
-                r: counts,
-                theta: labels.map((_, h) => h * 15),
-                width: 13,
-                marker: { color: accent },
-                hovertemplate: '%{customdata}: %{r} videos<extra></extra>',
-                customdata: labels,
-            }], baseLayout({
+            const byPlat = b.hour_of_day.by_platform;
+            const traces = byPlat
+                ? Object.entries(byPlat).map(([plat, shares]) => {
+                    // Each curve is scaled to its own peak so a small donation's
+                    // rhythm is as visible as a huge one's; hover keeps the true share.
+                    const peak = Math.max(...shares, 0.0001);
+                    const rel = shares.map(s => s / peak);
+                    return {
+                        type: 'scatterpolar',
+                        r: rel.concat([rel[0]]),
+                        theta: labels.map((_, h) => h * 15).concat([0]),
+                        mode: 'lines',
+                        name: platformLabel(plat),
+                        line: { color: platformColor(plat), shape: 'spline' },
+                        fill: 'toself', fillcolor: hexToRgba(platformColor(plat), 0.12),
+                        customdata: labels.map((l, h) => [l, (shares[h] * 100).toFixed(1)]).concat([[labels[0], (shares[0] * 100).toFixed(1)]]),
+                        hovertemplate: `${platformLabel(plat)} %{customdata[0]}: %{customdata[1]}% of its plays<extra></extra>`,
+                    };
+                })
+                : [{
+                    type: 'barpolar',
+                    r: counts,
+                    theta: labels.map((_, h) => h * 15),
+                    width: 13,
+                    marker: { color: accent },
+                    hovertemplate: '%{customdata}: %{r} videos<extra></extra>',
+                    customdata: labels,
+                }];
+            Plotly.newPlot(hoursEl, traces, baseLayout({
+                showlegend: !!byPlat,
+                legend: { orientation: 'h', y: -0.1, font: chartFont() },
                 polar: {
                     bgcolor: 'rgba(0,0,0,0)',
                     radialaxis: { showticklabels: false, gridcolor: grid },
@@ -377,19 +463,39 @@
             }), PLOT_CONFIG);
         }
 
-        // Weekday bar
+        // Weekday bar — grouped per platform for multi-platform donors.
         const wdEl = document.getElementById('myc-chart-weekday');
         if (wdEl && b.weekday) {
             const counts = b.weekday.counts || {};
-            Plotly.newPlot(wdEl, [{
-                type: 'bar',
-                x: WEEKDAYS.map(cap),
-                y: WEEKDAYS.map(d => counts[d] || 0),
-                marker: { color: WEEKDAYS.map(d => d === b.weekday.top ? accent : hexToRgba(accent, 0.45)) },
-                hovertemplate: '%{x}: %{y} videos<extra></extra>',
-            }], baseLayout({
+            const wdByPlat = b.weekday.by_platform;
+            const traces = wdByPlat
+                ? Object.entries(wdByPlat).map(([plat, c]) => {
+                    // Shares of each platform's own plays, so both rhythms read
+                    // side by side regardless of donation size.
+                    const total = Math.max(1, WEEKDAYS.reduce((s, d) => s + (c[d] || 0), 0));
+                    return {
+                        type: 'bar',
+                        x: WEEKDAYS.map(cap),
+                        y: WEEKDAYS.map(d => (c[d] || 0) / total * 100),
+                        name: platformLabel(plat),
+                        marker: { color: platformColor(plat) },
+                        customdata: WEEKDAYS.map(d => c[d] || 0),
+                        hovertemplate: `${platformLabel(plat)} %{x}: %{y:.1f}%% of its plays (%{customdata})<extra></extra>`,
+                    };
+                })
+                : [{
+                    type: 'bar',
+                    x: WEEKDAYS.map(cap),
+                    y: WEEKDAYS.map(d => counts[d] || 0),
+                    marker: { color: WEEKDAYS.map(d => d === b.weekday.top ? accent : hexToRgba(accent, 0.45)) },
+                    hovertemplate: '%{x}: %{y} videos<extra></extra>',
+                }];
+            Plotly.newPlot(wdEl, traces, baseLayout({
+                barmode: 'group',
+                showlegend: !!wdByPlat,
+                legend: { orientation: 'h', y: -0.25, font: chartFont() },
                 xaxis: { tickfont: chartFont() },
-                yaxis: { gridcolor: grid, tickfont: chartFont(), title: { text: 'videos viewed', font: chartFont() } },
+                yaxis: { gridcolor: grid, tickfont: chartFont(), title: { text: wdByPlat ? "% of that platform's videos" : 'videos viewed', font: chartFont() } },
             }), PLOT_CONFIG);
         }
 
