@@ -421,6 +421,142 @@ def discard_pending_upload(raw_path: str, filename: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Participant withdrawals (delete with a 30-day restore window)
+# ---------------------------------------------------------------------------
+
+WITHDRAWALS_FILENAME = "withdrawals.json"
+WITHDRAWAL_RETENTION_DAYS = 30
+
+
+def _load_withdrawals_raw() -> dict:
+    if data_io.exists(storage_location="recoded", filename=WITHDRAWALS_FILENAME):
+        return data_io.load_json(
+            storage_location="recoded", filename=WITHDRAWALS_FILENAME, verbose=False) or {}
+    return {}
+
+
+def _save_withdrawals(w: dict) -> None:
+    data_io.save_json(data=w, storage_location="recoded",
+                      filename=WITHDRAWALS_FILENAME, verbose=False)
+
+
+def load_withdrawals(purge: bool = True) -> dict:
+    """The withdrawal ledger: {cid: {user_id, deleted_at, restorable_until,
+    display_id, source_platform, raw_path, files: [filename, ...]}}.
+
+    With ``purge`` (the default), entries past their restore window are
+    removed lazily on read: their archived raw files are deleted for good and
+    the record dropped. No scheduler needed — the ledger is read on every
+    My Collections page load, and restores are date-checked independently.
+    """
+    w = _load_withdrawals_raw()
+    if not purge or not w:
+        return w
+    now = pd.Timestamp.utcnow().tz_localize(None)
+    expired = []
+    for cid, entry in w.items():
+        try:
+            until = pd.Timestamp(entry.get("restorable_until"))
+        except Exception:
+            continue
+        if pd.isna(until) or now <= until:
+            continue
+        expired.append(cid)
+        for fn in entry.get("files") or []:
+            try:
+                if data_io.exists(storage_location="archive", filename=fn):
+                    data_io.remove(storage_location="archive", filename=fn)
+            except Exception as exc:
+                print(f"[my_collections] purge of archived '{fn}' failed: {exc}")
+    if expired:
+        for cid in expired:
+            w.pop(cid, None)
+        _save_withdrawals(w)
+    return w
+
+
+def record_withdrawal(cid: str, username: str, files: list[str],
+                      raw_path: str | None, display_id: str | None,
+                      source_platform: str | None) -> dict:
+    """Write the ledger entry for a just-requested withdrawal."""
+    now = pd.Timestamp.utcnow().tz_localize(None)
+    entry = {
+        "user_id": username,
+        "deleted_at": now.isoformat(timespec="seconds"),
+        "restorable_until": (now + pd.Timedelta(days=WITHDRAWAL_RETENTION_DAYS)).isoformat(timespec="seconds"),
+        "display_id": display_id,
+        "source_platform": source_platform,
+        "raw_path": raw_path,
+        "files": list(files),
+    }
+    w = _load_withdrawals_raw()
+    w[str(cid)] = entry
+    _save_withdrawals(w)
+    return entry
+
+
+def drop_withdrawal(cid: str) -> None:
+    w = _load_withdrawals_raw()
+    if str(cid) in w:
+        w.pop(str(cid))
+        _save_withdrawals(w)
+
+
+class RestoreError(Exception):
+    """A withdrawal could not be restored; the message is participant-facing."""
+
+
+def restore_withdrawal(cid: str) -> dict:
+    """Bring a withdrawn donation back: move the archived raw file(s) into the
+    platform's upload location and relink the account — the collection becomes
+    a normal pending upload (instant preview, re-added on the next process
+    run). Raises :class:`RestoreError` past the window or when the archived
+    file is not available (e.g. the delete worker hasn't archived it yet)."""
+    from ..collection_accounts import set_collection_owner
+
+    w = _load_withdrawals_raw()
+    entry = w.get(str(cid))
+    if not isinstance(entry, dict):
+        raise RestoreError("No withdrawal record found for this collection.")
+    try:
+        until = pd.Timestamp(entry.get("restorable_until"))
+    except Exception:
+        until = None
+    if until is None or pd.Timestamp.utcnow().tz_localize(None) > until:
+        raise RestoreError("The restore window for this collection has closed.")
+
+    raw_path = entry.get("raw_path")
+    files = entry.get("files") or []
+    if not raw_path or not files:
+        raise RestoreError("This withdrawal has no restorable file on record.")
+
+    missing = [fn for fn in files
+               if not data_io.exists(storage_location="archive", filename=fn)]
+    if missing:
+        raise RestoreError(
+            "The archived file isn't available yet — the removal may still be "
+            "processing. Try again in a few minutes.")
+
+    manifest = {}
+    if data_io.exists(storage_location=raw_path, filename=MANIFEST_FILENAME):
+        manifest = data_io.load_json(
+            storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False) or {}
+    for fn in files:
+        data_io.move(src_storage_location="archive", dst_storage_location=raw_path,
+                     filename=fn, verbose=False)
+        if not data_io.exists(storage_location=raw_path, filename=fn):
+            raise RestoreError("Restoring the file did not persist. Try again.")
+        manifest[fn] = {"collection_id": str(cid), "tags": [],
+                        "user_id": entry.get("user_id")}
+    data_io.save_json(data=manifest, storage_location=raw_path,
+                      filename=MANIFEST_FILENAME, verbose=False)
+    set_collection_owner(str(cid), entry.get("user_id"))
+    drop_withdrawal(str(cid))
+    invalidate_cache()
+    return entry
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -431,33 +567,40 @@ def list_owned_collections(username: str) -> list[dict]:
     the account link is written at upload time, so pending collections are
     already owned; they just have no corpus metadata yet.
     """
+    withdrawals = {cid: e for cid, e in load_withdrawals().items()
+                   if isinstance(e, dict) and e.get("user_id") == username}
     cids = collections_for_user(username)
-    if not cids:
+    if not cids and not withdrawals:
         return []
     tags = get_collection_tags() or {}
     meta = _load_metadata_personas(cids)
     pending = _pending_uploads_for_user(username)
 
-    # One cheap two-column scan for platform/source (metadata doesn't carry it).
+    # One cheap two-column scan for platform/source (metadata doesn't carry
+    # it). Skipped for a withdrawn-only listing: an empty id list makes the
+    # pyarrow filter throw.
     platforms: dict[str, dict] = {}
-    try:
-        df = data_io.load_parquet_selective(
-            storage_location="recoded",
-            filename=RECODED_FILENAME,
-            columns=["collection_id", "source_platform", "data_source"],
-            filters=[("collection_id", "in", cids)],
-        )
-        if df is not None and not df.empty:
-            for cid, grp in df.groupby("collection_id"):
-                platforms[str(cid)] = {
-                    "source_platform": str(grp["source_platform"].mode().iloc[0]),
-                    "data_source": str(grp["data_source"].mode().iloc[0]),
-                }
-    except Exception as e:
-        print(f"[my_collections] platform lookup failed: {e}")
+    if cids:
+        try:
+            df = data_io.load_parquet_selective(
+                storage_location="recoded",
+                filename=RECODED_FILENAME,
+                columns=["collection_id", "source_platform", "data_source"],
+                filters=[("collection_id", "in", cids)],
+            )
+            if df is not None and not df.empty:
+                for cid, grp in df.groupby("collection_id"):
+                    platforms[str(cid)] = {
+                        "source_platform": str(grp["source_platform"].mode().iloc[0]),
+                        "data_source": str(grp["data_source"].mode().iloc[0]),
+                    }
+        except Exception as e:
+            print(f"[my_collections] platform lookup failed: {e}")
 
     out = []
     for cid in cids:
+        if cid in withdrawals:
+            continue  # rendered from the withdrawal ledger below
         entry = tags.get(cid) if isinstance(tags.get(cid), dict) else {}
         in_dataset = meta is not None and cid in meta.index
         pend = pending.get(cid) if not in_dataset else None
@@ -489,6 +632,27 @@ def list_owned_collections(username: str) -> list[dict]:
             # keep the card with null stats rather than hiding it.
             pass
         out.append(item)
+
+    # Withdrawn collections: deleted from the dataset, restorable from the
+    # archive until their date.
+    for cid, e in withdrawals.items():
+        out.append({
+            "collection_id": cid,
+            "display_id": e.get("display_id") or cid,
+            "source_platform": e.get("source_platform"),
+            "data_source": None,
+            "status": "withdrawn",
+            "raw_path": None,
+            "filename": None,
+            "deleted_at": e.get("deleted_at"),
+            "restorable_until": e.get("restorable_until"),
+            "total_events": None,
+            "active_days": None,
+            "first_event_ts": None,
+            "last_event_ts": None,
+            "ts_added_to_dataset": None,
+            "total_watch_time_s": None,
+        })
     return out
 
 

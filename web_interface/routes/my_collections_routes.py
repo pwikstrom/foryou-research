@@ -243,6 +243,119 @@ def api_my_pending_delete():
     return jsonify({"status": "success"})
 
 
+@my_collections_bp.route('/api/my/collections/<collection_id>/withdraw', methods=['POST'])
+@permission_required('tab.my_stuff.my_collections')
+def api_my_withdraw(collection_id):
+    """Participant data withdrawal: delete a PROCESSED collection from the
+    dataset via the standard delete worker, keeping the raw donation file in
+    the archive for a 30-day restore window.
+
+    The request must repeat the collection id (typed by the participant in the
+    confirmation modal) — a server-side second factor against a stray click.
+    """
+    import fyp.data_io as data_io
+    from fyp.fyp_config import COLLECTION_DELETE_SCRIPT
+    from .. import activity_log
+    from ..mail_utils import is_email, send_withdrawal_email_async
+    from ..process_manager import start_process
+    from ..security import user_manager
+    from ..services.my_collections_service import (
+        RECODED_FILENAME,
+        _load_metadata_personas,
+        donation_upload_sources,
+        drop_withdrawal,
+        invalidate_cache,
+        record_withdrawal,
+    )
+    from ..services.study_data import get_collection_tags
+
+    err = owned_collection_access_error(collection_id)
+    if err:
+        return err
+
+    data = request.json or {}
+    if str(data.get('confirm_id') or '').strip() != str(collection_id):
+        return jsonify({"error": "The confirmation text does not match the collection id."}), 400
+
+    meta = _load_metadata_personas([str(collection_id)])
+    if meta is None or str(collection_id) not in meta.index:
+        return jsonify({"error": "This collection is not in the dataset (nothing to withdraw)."}), 400
+
+    # Raw files + platform, recorded BEFORE the delete worker archives them.
+    files: list[str] = []
+    platform = None
+    try:
+        df = data_io.load_parquet_selective(
+            storage_location="recoded", filename=RECODED_FILENAME,
+            columns=["collection_id", "raw_file", "source_platform"],
+            filters=[("collection_id", "==", str(collection_id))])
+        if df is not None and not df.empty:
+            files = sorted(str(f) for f in df["raw_file"].dropna().unique())
+            platform = str(df["source_platform"].mode().iloc[0])
+    except Exception as e:
+        print(f"[my_collections] withdraw raw-file lookup failed: {e}")
+    raw_path = next((s["raw_path"] for s in donation_upload_sources()
+                     if s["source_platform"] == platform), None)
+
+    tags_entry = (get_collection_tags() or {}).get(str(collection_id)) or {}
+    entry = record_withdrawal(
+        str(collection_id), current_user.username, files, raw_path,
+        tags_entry.get("display_collection_id"), platform)
+
+    success, msg = start_process(
+        "collection_delete", COLLECTION_DELETE_SCRIPT,
+        task_args={"collection_ids": [str(collection_id)]},
+        started_by=current_user.username)
+    if not success:
+        drop_withdrawal(str(collection_id))
+        return jsonify({"error": "The Hub is busy processing right now. "
+                                 "Please try again in a few minutes."}), 409
+
+    activity_log.record(
+        actor=current_user.username,
+        category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action="my_collections.withdraw",
+        target=str(collection_id),
+        details={"files": files, "restorable_until": entry["restorable_until"]},
+    )
+    admin = user_manager.get_oldest_admin()
+    if admin is not None and is_email(admin.username):
+        send_withdrawal_email_async(admin.username, current_user.username,
+                                    str(collection_id), entry["restorable_until"])
+    invalidate_cache()
+    return jsonify({"status": "started", "restorable_until": entry["restorable_until"]})
+
+
+@my_collections_bp.route('/api/my/collections/<collection_id>/restore', methods=['POST'])
+@permission_required('tab.my_stuff.my_collections')
+def api_my_restore(collection_id):
+    """Bring a withdrawn donation back within its restore window: the archived
+    raw file returns to the upload location as a pending donation."""
+    from .. import activity_log
+    from ..services.my_collections_service import (
+        RestoreError,
+        load_withdrawals,
+        restore_withdrawal,
+    )
+    entry = load_withdrawals(purge=False).get(str(collection_id))
+    if not isinstance(entry, dict):
+        return jsonify({"error": "No withdrawal record found for this collection."}), 404
+    username, _role, is_admin = current_user_ctx()
+    if not is_admin and entry.get("user_id") != username:
+        return jsonify({"error": "This collection is not linked to your account"}), 403
+    try:
+        restore_withdrawal(str(collection_id))
+    except RestoreError as exc:
+        return jsonify({"error": str(exc)}), 409
+    activity_log.record(
+        actor=current_user.username,
+        category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action="my_collections.restore",
+        target=str(collection_id),
+    )
+    return jsonify({"status": "success"})
+
+
 @my_collections_bp.route('/api/my/collections/process', methods=['POST'])
 @permission_required('tab.my_stuff.my_collections')
 def api_my_process():

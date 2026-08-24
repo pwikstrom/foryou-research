@@ -128,6 +128,21 @@
         const cards = [];
         Object.keys(mycPendingMap).forEach(k => delete mycPendingMap[k]);
         for (const c of mycCollections) {
+            if (c.status === 'withdrawn') {
+                const until = (c.restorable_until || '').slice(0, 10);
+                cards.push(`
+                    <div class="myc-card" data-myc-select="${escapeHtml(c.collection_id)}"
+                         style="position: relative; border: 1px dashed var(--color-danger); border-radius: 8px; padding: 12px 16px 36px 16px; min-width: 190px; background: var(--color-bg-elevated); opacity: 0.85;">
+                        <div style="font-weight: 600;">${escapeHtml(platformLabel(c.source_platform))}</div>
+                        <div class="text-sm" style="color: var(--color-text-muted);">${escapeHtml(c.display_id)}</div>
+                        <div class="text-xs" style="color: var(--color-danger); margin-top: 4px;">Deleted from the dataset</div>
+                        <div class="text-xs" style="color: var(--color-text-faint);">restorable until ${escapeHtml(until)}</div>
+                        <button class="btn-compact text-xs"
+                            style="position: absolute; bottom: 8px; right: 8px; background: none; border: 1px solid var(--color-accent); color: var(--color-accent); border-radius: 4px; padding: 2px 10px; cursor: pointer;"
+                            onclick="mycRestore('${escapeHtml(c.collection_id)}', this)">Restore</button>
+                    </div>`);
+                continue;
+            }
             const pending = c.status === 'pending';
             if (pending) mycPendingMap[c.collection_id] = { raw_path: c.raw_path, filename: c.filename };
             const range = (c.first_event_ts && c.last_event_ts)
@@ -139,13 +154,16 @@
                 ? `<span class="text-xs" style="border: 1px solid var(--color-accent); color: var(--color-accent); border-radius: 10px; padding: 1px 8px;">awaiting processing</span>`
                 : '';
             const removeBtn = pending
-                ? `<button class="btn-discreet btn-compact text-xs" style="margin-top: 8px;"
-                        onclick="event.stopPropagation(); mycDeletePending('${escapeHtml(c.collection_id)}')">Remove this donation</button>`
-                : '';
+                ? `<button class="btn-compact text-xs" data-myc-cancel="${escapeHtml(c.collection_id)}"
+                        style="position: absolute; bottom: 8px; right: 8px; background: none; border: 1px solid var(--color-danger); color: var(--color-danger); border-radius: 4px; padding: 2px 10px; cursor: pointer;"
+                        onclick="event.stopPropagation(); mycDeletePending('${escapeHtml(c.collection_id)}', this)">Cancel</button>`
+                : `<button class="btn-compact text-xs"
+                        style="position: absolute; bottom: 8px; right: 8px; background: none; border: 1px solid var(--color-danger); color: var(--color-danger); border-radius: 4px; padding: 2px 10px; cursor: pointer;"
+                        onclick="event.stopPropagation(); mycOpenWithdrawModal('${escapeHtml(c.collection_id)}')">Delete</button>`;
             cards.push(`
                 <div class="myc-card" data-myc-select="${escapeHtml(c.collection_id)}"
                      onclick="openMyCollection('${escapeHtml(c.collection_id)}')"
-                     style="border: 1px solid var(--color-border); border-radius: 8px; padding: 12px 16px; cursor: pointer; min-width: 190px; background: var(--color-bg-elevated);">
+                     style="position: relative; border: 1px solid var(--color-border); border-radius: 8px; padding: 12px 16px 36px 16px; cursor: pointer; min-width: 190px; background: var(--color-bg-elevated);">
                     <div style="font-weight: 600; display: flex; gap: 8px; align-items: center;">${escapeHtml(platformLabel(c.source_platform))} ${badge}</div>
                     <div class="text-sm" style="color: var(--color-text-muted);">${escapeHtml(c.display_id)}</div>
                     <div class="text-xs" style="color: var(--color-text-faint); margin-top: 4px;">${range}</div>
@@ -251,7 +269,7 @@
         if (persona.statement) {
             html.push(`
                 <div style="margin-bottom: 16px;">
-                    <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 4px 0;">Your ${escapeHtml(plat)} personality:</p>
+                    <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 4px 0;">Your short-video profile:</p>
                     <p style="font-size: 1.5rem; font-weight: 700; margin: 0;">${escapeHtml(persona.statement)}</p>
                 </div>`);
         }
@@ -289,7 +307,7 @@
         // --- Weekday
         if (b.weekday) {
             html.push(sectionCard(
-                cardTitle(`<strong>${cap(escapeHtml(b.weekday.top))}</strong> was your biggest ${escapeHtml(plat)} day`) +
+                cardTitle(`<strong>${cap(escapeHtml(b.weekday.top))}</strong> was your biggest scrolling day`) +
                 `<div id="${prefix}-chart-weekday" style="height: 260px;"></div>`, '460px'));
         }
 
@@ -348,14 +366,8 @@
                 '460px'));
         }
 
-        // --- Favourite emoji
-        if (b.emoji) {
-            html.push(sectionCard(
-                cardTitle('Your signature emoji') +
-                `<p style="font-size: 2.2rem; margin: 0;">${escapeHtml(b.emoji.top)}</p>` +
-                `<p class="text-sm" style="margin: 6px 0 0 0; color: var(--color-text-muted);">${fmtInt(b.emoji.count)} deployment${b.emoji.count === 1 ? '' : 's'} in your comments.</p>`,
-                '300px'));
-        }
+        // (The signature-emoji card was removed 2026-08-24; the bundle still
+        // carries b.emoji for potential future use.)
 
         // --- Stat strip
         if (b.stats) {
@@ -548,10 +560,29 @@
             });
     };
 
-    window.mycDeletePending = function (cid) {
+    // Two-step in-place confirmation (no native confirm/alert dialogs): the
+    // first click arms the button, the second within 5 seconds cancels the
+    // pending donation and deletes the uploaded file.
+    window.mycDeletePending = function (cid, btn) {
         const pend = mycPendingMap[cid];
-        if (!pend) return;
-        if (!window.confirm('Remove this donation? The uploaded file will be deleted from the Hub — you can always upload it again later.')) return;
+        if (!pend || !btn) return;
+        if (btn.dataset.armed !== '1') {
+            btn.dataset.armed = '1';
+            btn.textContent = 'Really cancel?';
+            btn.style.background = 'var(--color-danger)';
+            btn.style.color = '#fff';
+            setTimeout(() => {
+                if (btn.isConnected && btn.dataset.armed === '1') {
+                    btn.dataset.armed = '';
+                    btn.textContent = 'Cancel';
+                    btn.style.background = 'none';
+                    btn.style.color = 'var(--color-danger)';
+                }
+            }, 5000);
+            return;
+        }
+        btn.disabled = true;
+        btn.textContent = 'Removing…';
         fetch('/api/my/collections/pending/delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -560,7 +591,11 @@
             .then(r => r.json().then(data => ({ ok: r.ok, data })))
             .then(({ ok, data }) => {
                 if (!ok) {
-                    alert((data && data.error) || 'Could not remove the donation. Try again.');
+                    btn.disabled = false;
+                    btn.textContent = 'Cancel';
+                    btn.dataset.armed = '';
+                    const p = document.getElementById('myc-personality');
+                    if (p) p.innerHTML = `<p class="text-sm" style="color: var(--color-text-muted);">${escapeHtml((data && data.error) || 'Could not remove the donation. Try again.')}</p>`;
                     return;
                 }
                 if (mycActiveSelection === cid) {
@@ -570,7 +605,97 @@
                 }
                 loadMyCollections({ force: true });
             })
-            .catch(() => alert('Could not remove the donation. Try again.'));
+            .catch(() => {
+                btn.disabled = false;
+                btn.textContent = 'Cancel';
+                btn.dataset.armed = '';
+            });
+    };
+
+    // ------------------------------------------------------------------
+    // Data withdrawal (delete a processed collection, 30-day restore window)
+    // ------------------------------------------------------------------
+
+    let mycWithdrawCid = null;
+
+    window.mycOpenWithdrawModal = function (cid) {
+        mycWithdrawCid = cid;
+        document.getElementById('myc-withdraw-cid-label').textContent = cid;
+        document.getElementById('myc-withdraw-cid-code').textContent = cid;
+        const input = document.getElementById('myc-withdraw-confirm');
+        input.value = '';
+        document.getElementById('myc-withdraw-status').textContent = '';
+        mycWithdrawInputChanged();
+        document.getElementById('myc-withdraw-modal').style.display = 'block';
+        input.focus();
+    };
+
+    window.mycCloseWithdrawModal = function (event) {
+        if (event && event.target !== event.currentTarget) return;
+        document.getElementById('myc-withdraw-modal').style.display = 'none';
+        mycWithdrawCid = null;
+    };
+
+    window.mycWithdrawInputChanged = function () {
+        const match = document.getElementById('myc-withdraw-confirm').value.trim() === mycWithdrawCid;
+        const btn = document.getElementById('myc-withdraw-submit');
+        btn.disabled = !match;
+        btn.style.opacity = match ? '1' : '0.5';
+    };
+
+    window.mycSubmitWithdraw = function () {
+        if (!mycWithdrawCid) return;
+        const cid = mycWithdrawCid;
+        const status = document.getElementById('myc-withdraw-status');
+        const btn = document.getElementById('myc-withdraw-submit');
+        btn.disabled = true;
+        status.textContent = 'Removing your data from the dataset…';
+        fetch(`/api/my/collections/${encodeURIComponent(cid)}/withdraw`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirm_id: document.getElementById('myc-withdraw-confirm').value.trim() }),
+        })
+            .then(r => r.json().then(data => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                if (!ok) {
+                    status.textContent = (data && data.error) || 'The deletion could not be started. Try again.';
+                    mycWithdrawInputChanged();
+                    return;
+                }
+                mycCloseWithdrawModal();
+                if (mycActiveSelection === cid) {
+                    mycActiveSelection = null;
+                    const p = document.getElementById('myc-personality');
+                    if (p) p.innerHTML = '';
+                }
+                loadMyCollections({ force: true });
+            })
+            .catch(() => {
+                status.textContent = 'The deletion could not be started. Try again.';
+                mycWithdrawInputChanged();
+            });
+    };
+
+    window.mycRestore = function (cid, btn) {
+        btn.disabled = true;
+        btn.textContent = 'Restoring…';
+        fetch(`/api/my/collections/${encodeURIComponent(cid)}/restore`, { method: 'POST' })
+            .then(r => r.json().then(data => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                if (!ok) {
+                    btn.disabled = false;
+                    btn.textContent = 'Restore';
+                    const p = document.getElementById('myc-personality');
+                    if (p) p.innerHTML = `<p class="text-sm" style="color: var(--color-text-muted);">${escapeHtml((data && data.error) || 'Could not restore. Try again.')}</p>`;
+                    return;
+                }
+                // The donation is a pending upload again — open its preview.
+                loadMyCollections({ force: true, open: cid });
+            })
+            .catch(() => {
+                btn.disabled = false;
+                btn.textContent = 'Restore';
+            });
     };
 
     // ------------------------------------------------------------------
