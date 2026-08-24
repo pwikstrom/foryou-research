@@ -138,6 +138,10 @@
             const badge = pending
                 ? `<span class="text-xs" style="border: 1px solid var(--color-accent); color: var(--color-accent); border-radius: 10px; padding: 1px 8px;">awaiting processing</span>`
                 : '';
+            const removeBtn = pending
+                ? `<button class="btn-discreet btn-compact text-xs" style="margin-top: 8px;"
+                        onclick="event.stopPropagation(); mycDeletePending('${escapeHtml(c.collection_id)}')">Remove this donation</button>`
+                : '';
             cards.push(`
                 <div class="myc-card" data-myc-select="${escapeHtml(c.collection_id)}"
                      onclick="openMyCollection('${escapeHtml(c.collection_id)}')"
@@ -147,6 +151,7 @@
                     <div class="text-xs" style="color: var(--color-text-faint); margin-top: 4px;">${range}</div>
                     <div class="text-xs" style="color: var(--color-text-faint);">${events}</div>
                     <div class="text-xs" style="color: var(--color-text-faint);">${added}</div>
+                    ${removeBtn}
                 </div>`);
         }
         if (mycCollections.length > 1) {
@@ -164,9 +169,12 @@
     }
 
     function markActiveCard() {
+        const accent = getCSSVar('--color-accent');
         document.querySelectorAll('#myc-picker .myc-card').forEach(card => {
             const active = card.getAttribute('data-myc-select') === mycActiveSelection;
-            card.style.outline = active ? '2px solid var(--color-accent)' : 'none';
+            card.style.outline = active ? `3px solid ${accent}` : 'none';
+            card.style.backgroundColor = active ? hexToRgba(accent, 0.18) : 'var(--color-bg-elevated)';
+            card.style.boxShadow = active ? `0 0 0 1px ${accent} inset` : 'none';
         });
     }
 
@@ -540,6 +548,31 @@
             });
     };
 
+    window.mycDeletePending = function (cid) {
+        const pend = mycPendingMap[cid];
+        if (!pend) return;
+        if (!window.confirm('Remove this donation? The uploaded file will be deleted from the Hub — you can always upload it again later.')) return;
+        fetch('/api/my/collections/pending/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ raw_path: pend.raw_path, filename: pend.filename }),
+        })
+            .then(r => r.json().then(data => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                if (!ok) {
+                    alert((data && data.error) || 'Could not remove the donation. Try again.');
+                    return;
+                }
+                if (mycActiveSelection === cid) {
+                    mycActiveSelection = null;
+                    const p = document.getElementById('myc-personality');
+                    if (p) p.innerHTML = '';
+                }
+                loadMyCollections({ force: true });
+            })
+            .catch(() => alert('Could not remove the donation. Try again.'));
+    };
+
     // ------------------------------------------------------------------
     // Process new collections
     // ------------------------------------------------------------------
@@ -802,6 +835,21 @@
         if (!m) return hex;  // token was already rgb()/named — use as-is
         return `rgba(${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}, ${alpha})`;
     }
+
+    // Charts rendered while the tab was hidden come out at Plotly's fallback
+    // size and overflow their cards. my_stuff_tab.js calls this whenever the
+    // My Collections page becomes visible again.
+    window.mycResizeCharts = function () {
+        const resizeAll = () => {
+            document.querySelectorAll('#my-stuff-page-my-collections .js-plotly-plot').forEach(el => {
+                if (el.offsetParent !== null) {
+                    try { Plotly.Plots.resize(el); } catch (e) { /* not a live plot */ }
+                }
+            });
+        };
+        resizeAll();  // immediately, in case rAF is throttled
+        window.requestAnimationFrame(resizeAll);  // and again once layout settles
+    };
 
     // Re-render every mounted personality view with the new token colors.
     window.addEventListener('theme-changed', () => {

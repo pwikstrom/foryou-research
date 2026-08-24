@@ -219,6 +219,30 @@ def api_my_pending_personality():
         return jsonify({"error": str(exc), "rejected": True}), 422
 
 
+@my_collections_bp.route('/api/my/collections/pending/delete', methods=['POST'])
+@permission_required('tab.my_stuff.my_collections')
+def api_my_pending_delete():
+    """Withdraw a pending upload before processing: removes the raw file, its
+    manifest entry and the account link. Owner-gated like the preview."""
+    from .. import activity_log
+    from ..services.my_collections_service import discard_pending_upload
+    data = request.json or {}
+    raw_path = str(data.get('raw_path') or '')
+    filename = str(data.get('filename') or '')
+    err, _entry = _pending_owner_error(raw_path, filename)
+    if err:
+        return err
+    discard_pending_upload(raw_path, filename)
+    activity_log.record(
+        actor=current_user.username,
+        category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action="my_collections.withdraw_upload",
+        target=raw_path,
+        details={"filename": filename},
+    )
+    return jsonify({"status": "success"})
+
+
 @my_collections_bp.route('/api/my/collections/process', methods=['POST'])
 @permission_required('tab.my_stuff.my_collections')
 def api_my_process():

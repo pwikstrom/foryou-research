@@ -76,6 +76,7 @@ def get_ingestion_sources():
                         "collection_id": (meta or {}).get("collection_id"),
                         "tags": (meta or {}).get("tags") or [],
                         "tz": (meta or {}).get("tz"),
+                        "user_id": (meta or {}).get("user_id"),
                     })
             files.sort(key=lambda f: f["filename"])
             pending = len(files)
