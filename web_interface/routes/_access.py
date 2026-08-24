@@ -60,3 +60,27 @@ def collection_access_error(collection_id: str):
             if str(d.get('collection_id')) == wanted:
                 return None
     return jsonify({"error": "Access denied to this collection"}), 403
+
+
+
+
+
+
+def owned_collection_access_error(collection_id: str):
+    """Return a 403 response tuple unless ``collection_id`` is linked to the
+    current user's account, else None.
+
+    Ownership comes from the ``user_id`` links in collections_tags.json
+    (``collection_accounts``), NOT study membership — participants typically
+    hold no study grants, and this is the access path that lets them see
+    their own donated data. Admins pass unconditionally (support/debugging).
+    """
+    username, _role, is_admin = current_user_ctx()
+    if is_admin:
+        return None
+    # Function-level import: collection_accounts pulls in the security module
+    # lazily and must stay import-light for the task-runner.
+    from ..collection_accounts import collections_for_user
+    if str(collection_id) in {str(c) for c in collections_for_user(username)}:
+        return None
+    return jsonify({"error": "This collection is not linked to your account"}), 403

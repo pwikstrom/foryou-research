@@ -89,6 +89,7 @@ def _register_web_ui(app):
     from .routes.auth_routes import auth_bp
     from .routes.human_eval_routes import human_eval_bp
     from .routes.management_routes import management_bp
+    from .routes.my_collections_routes import my_collections_bp
     from .routes.process_routes import process_bp
     from .routes.public_routes import public_bp
 
@@ -103,6 +104,7 @@ def _register_web_ui(app):
     app.register_blueprint(sessions_bp)
     app.register_blueprint(management_bp)
     app.register_blueprint(human_eval_bp)
+    app.register_blueprint(my_collections_bp)
 
     @app.context_processor
     def inject_scrape_platforms():

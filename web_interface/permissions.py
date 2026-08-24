@@ -34,6 +34,7 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.my_stuff.preferences",             "label": "My stuff — Preferences"},
     {"key": "tab.my_stuff.video_tags",              "label": "My stuff — My Video Tags"},
     {"key": "tab.my_stuff.profile",                 "label": "My stuff — Profile"},
+    {"key": "tab.my_stuff.my_collections",          "label": "My stuff — My Collections"},
     {"key": "tab.data_management.ingestion",        "label": "Data Management — Ingest Collections"},
     {"key": "tab.data_management.edit_collections", "label": "Data Management — Edit Collections"},
     {"key": "tab.data_management.studies",          "label": "Data Management — Define Studies"},
@@ -83,6 +84,7 @@ DEFAULT_NON_ADMIN_PERMISSIONS: list[str] = [
     "tab.my_stuff.preferences",
     "tab.my_stuff.video_tags",
     "tab.my_stuff.profile",
+    "tab.my_stuff.my_collections",
 ]
 
 
@@ -104,6 +106,7 @@ STUDENT_PERMISSIONS: list[str] = [
     "tab.my_stuff.preferences",
     "tab.my_stuff.video_tags",
     "tab.my_stuff.profile",
+    "tab.my_stuff.my_collections",
 ]
 
 
@@ -131,6 +134,10 @@ PERMISSION_KEYS_GRANT_ALL: list[str] = [
     # Note: grant-all keys are re-appended every boot, so they cannot be
     # durably revoked from a non-skipped role via the admin matrix.
     "feature.annotation_votes",
+    # 2026-08 My Collections: strictly the user's own donated data (ownership
+    # gate on every endpoint), so granting it to every role is safe — a holder
+    # with no linked collection only ever sees the empty state.
+    "tab.my_stuff.my_collections",
 ]
 
 # Implied grants for the 2026-07 Admin-tab restructure: pages that used to live
