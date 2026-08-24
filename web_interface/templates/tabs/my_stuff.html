@@ -318,6 +318,39 @@
             <div id="myc-process" style="margin-top: 12px;"></div>
             <div id="myc-personality" style="margin-top: 20px;"></div>
 
+            <!-- Data withdrawal: delete a processed collection from the
+                 dataset (30-day restore window). The participant must type
+                 the collection id to enable the button. -->
+            <div id="myc-withdraw-modal" class="modal" onclick="mycCloseWithdrawModal(event)">
+                <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 520px;">
+                    <span class="close-button" onclick="mycCloseWithdrawModal()">&times;</span>
+                    <h3 style="margin-top: 0;">Delete this collection?</h3>
+                    <p class="text-sm" style="margin: 0 0 10px 0;">
+                        This removes <strong id="myc-withdraw-cid-label"></strong> from the research
+                        dataset. Any studies using it will be rebuilt without your data.
+                    </p>
+                    <p class="text-sm" style="margin: 0 0 10px 0;">
+                        Your original donation file stays safely in the Hub's archive for
+                        <strong>30 days</strong>. If you change your mind within that time you can
+                        restore it from this page; after that it is deleted for good.
+                    </p>
+                    <p class="text-sm" style="margin: 0 0 6px 0;">
+                        To confirm, type the collection ID
+                        (<code id="myc-withdraw-cid-code"></code>) below:
+                    </p>
+                    <input type="text" id="myc-withdraw-confirm" autocomplete="off"
+                        oninput="mycWithdrawInputChanged()"
+                        style="width: 100%; padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary); margin-bottom: 12px;">
+                    <div id="myc-withdraw-status" class="text-sm" style="color: var(--color-text-muted); min-height: 20px; margin-bottom: 10px;"></div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button class="btn-discreet btn-compact" onclick="mycCloseWithdrawModal()">Keep my data</button>
+                        <button id="myc-withdraw-submit" class="btn-compact" disabled
+                            onclick="mycSubmitWithdraw()"
+                            style="background: var(--color-danger); color: #fff; border: none; border-radius: 4px; padding: 4px 14px; cursor: pointer; opacity: 0.5;">Delete from the dataset</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Simplified donation upload: no tags, no account choice, no
                  collection-id control. The account is the logged-in user and
                  the filename becomes the collection id. -->

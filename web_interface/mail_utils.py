@@ -249,6 +249,27 @@ def _send_html_email(to_email, subject, body_html) -> bool:
         return False
 
 
+def send_withdrawal_email_async(to_email, participant, collection_id,
+                                restorable_until) -> None:
+    """Notify an admin that a participant withdrew a collection (background)."""
+    body = f"""
+    <html>
+      <body>
+        <h2>A participant withdrew their data</h2>
+        <p><b>{participant}</b> deleted collection <b>{collection_id}</b> from
+        the dataset via My Collections.</p>
+        <p>The raw donation file is kept in the archive and the participant can
+        restore it until <b>{restorable_until}</b>; after that it is purged for
+        good. The deletion run and any affected study rebuilds were started
+        automatically.</p>
+        <p>See the activity log on {_app_link()} for details.</p>
+      </body>
+    </html>
+    """
+    threading.Thread(target=_send_html_email, args=(
+        to_email, "Data Hub: a participant withdrew a collection", body)).start()
+
+
 def _batch_annotation_email_content(kind: str, details: dict) -> tuple[str, str]:
     """Build the (subject, html_body) for a batch-annotation notification.
 
