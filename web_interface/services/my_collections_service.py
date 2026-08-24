@@ -12,6 +12,7 @@ actually contains (Instagram DDPs have plays+faves only, zeeschuimer captures
 no play durations, watch-history-only donations have no engagement rows).
 """
 
+import os
 import re
 import time
 
@@ -25,6 +26,16 @@ from .study_data import get_collection_tags
 
 RECODED_FILENAME = f"{COLLECTIONS_LABEL}_recoded.parquet"
 METADATA_FILENAME = f"{COLLECTIONS_LABEL}_metadata.parquet"
+MANIFEST_FILENAME = "ingestion_manifest.json"
+
+
+class PendingPreviewError(Exception):
+    """A pending upload could not be turned into a personality preview.
+
+    The message is participant-facing. Raised by ``build_pending_personality``
+    when the platform parser rejects the file — the same parser the pipeline
+    would use, so this doubles as the QA gate for self-serve donations.
+    """
 
 _VIEW_TYPES = ["play", "observe"]
 _LIKE_TYPES = ["fave", "like", "fave_item"]
@@ -234,16 +245,198 @@ def _percentile(series: pd.Series | None, value: float | None) -> float | None:
 
 
 # ---------------------------------------------------------------------------
+# Self-serve donation uploads
+# ---------------------------------------------------------------------------
+
+def donation_upload_sources() -> list[dict]:
+    """One entry per participant-uploadable donation ingester.
+
+    Enumerated from the registered ingest classes — a new platform class shows
+    up here (and as an upload card) automatically. Machine sources (aio fetch,
+    zeeschuimer captures) are excluded: participants upload platform DDP
+    exports only.
+    """
+    from fyp.ingest import get_main_collection
+    out = []
+    for col in get_main_collection(verbose=False).collections:
+        if getattr(col, "ingestion_mode", "upload") != "upload":
+            continue
+        if col.data_source != "ddp":
+            continue
+        out.append({
+            "source_platform": col.source_platform,
+            "data_source": col.data_source,
+            "raw_path": col.raw_path,
+            "class_name": col.__class__.__name__,
+            "accepted_upload_suffixes": col.accepted_upload_suffixes(),
+            "zip_member_suffixes": col.zip_member_suffixes(),
+        })
+    return out
+
+
+def _pending_uploads_for_user(username: str) -> dict[str, dict]:
+    """{collection_id: {raw_path, filename, source_platform, tz}} for this
+    user's manifest entries across all donation raw locations."""
+    pending: dict[str, dict] = {}
+    for src in donation_upload_sources():
+        raw_path = src["raw_path"]
+        if not data_io.exists(storage_location=raw_path, filename=MANIFEST_FILENAME):
+            continue
+        manifest = data_io.load_json(
+            storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False) or {}
+        for fn, entry in manifest.items():
+            if not isinstance(entry, dict) or entry.get("user_id") != username:
+                continue
+            cid = entry.get("collection_id") or os.path.splitext(fn)[0]
+            pending[str(cid)] = {
+                "raw_path": raw_path,
+                "filename": fn,
+                "source_platform": src["source_platform"],
+                "data_source": src["data_source"],
+                "tz": entry.get("tz"),
+            }
+    return pending
+
+
+def _fresh_ingester(raw_path: str):
+    """A fresh instance of the registered class serving ``raw_path``, or None.
+
+    Fresh (not the shared ``get_main_collection`` singletons) so a preview's
+    ``data``/``state`` mutations can never leak into other requests.
+    """
+    from fyp.ingest.base import ForYouBaseCollection
+    for cls in ForYouBaseCollection._registry:
+        if getattr(cls, "raw_path", None) == raw_path:
+            inst = cls()
+            if getattr(inst, "ingestion_mode", "upload") == "upload" and inst.data_source == "ddp":
+                return inst
+    return None
+
+
+def build_pending_personality(raw_path: str, filename: str) -> dict:
+    """Personality bundle computed straight from an uploaded raw file.
+
+    Replicates the per-file portion of the pipeline's ``load_raw`` →
+    ``process`` → local-time → sessions path on a fresh single-file instance —
+    the exact same parser and transforms ``ingest_refresh`` will run, but
+    entirely in memory: nothing is written, no corpus state is touched.
+    Raises :class:`PendingPreviewError` (participant-facing message) when the
+    file cannot be parsed into enough activities.
+    """
+    key = ("pending", raw_path, filename)
+    now = time.time()
+    hit = _bundle_cache.get(key)
+    if hit and now - hit[0] < _CACHE_TTL_S:
+        return hit[1]
+
+    from fyp.ingest.base import _MANIFEST_TZ_COLUMN
+
+    inst = _fresh_ingester(raw_path)
+    if inst is None:
+        raise PendingPreviewError("Unknown donation platform.")
+    label = platform_display_label(inst.source_platform)
+
+    manifest = {}
+    if data_io.exists(storage_location=raw_path, filename=MANIFEST_FILENAME):
+        manifest = data_io.load_json(
+            storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False) or {}
+    entry = manifest.get(filename) or {}
+    cid = entry.get("collection_id") or os.path.splitext(filename)[0]
+
+    inst._current_file_tz = entry.get("tz") or None
+    try:
+        one_df = inst.load_single_raw(filename)
+    except Exception as exc:
+        raise PendingPreviewError(
+            f"This doesn't look like a valid {label} export "
+            f"(we couldn't read it: {exc}). Please check the file and try again."
+        )
+    if len(one_df) < inst.min_required_rows_per_raw_file:
+        raise PendingPreviewError(
+            f"We could read the file, but it holds almost no {label} activity "
+            f"({len(one_df)} events). Is this the right export?"
+        )
+
+    mtime = data_io.getmtime(storage_location=raw_path, filename=filename)
+    one_df["ts_added_to_dataset"] = pd.to_datetime(mtime, unit="s")
+    one_df["raw_file"] = filename
+    one_df["collection_id"] = cid
+    one_df[_MANIFEST_TZ_COLUMN] = inst._current_file_tz if inst._current_file_tz else pd.NA
+
+    inst.file_stats_this_run = {filename: {"raw_rows": int(len(one_df)), "dropped": {}}}
+    inst.data = one_df
+    inst.state = "raw"
+    try:
+        inst.process()
+        inst.add_local_time_features()
+        inst.add_session_ids()
+    except Exception as exc:
+        raise PendingPreviewError(
+            f"We couldn't make sense of the activities in this {label} export "
+            f"({exc}). Please check the file and try again."
+        )
+    df = inst.data
+    if df is None or len(df) < inst.min_required_rows_per_raw_file:
+        raise PendingPreviewError(
+            f"We could read the file, but almost none of it turned into usable "
+            f"{label} activity. Is this the right export?"
+        )
+
+    df = df.copy()
+    df["local_timestamp"] = pd.to_datetime(df["local_timestamp"], errors="coerce")
+    df["local_hour"] = df["local_timestamp"].dt.hour
+
+    bundle = _compute_bundle(df, [str(cid)])
+    bundle["pending"] = True
+    _bundle_cache[key] = (now, bundle)
+    return bundle
+
+
+def platform_display_label(platform: str | None) -> str:
+    labels = {"tiktok": "TikTok", "instagram": "Instagram", "youtube": "YouTube"}
+    return labels.get(str(platform), str(platform or "donation"))
+
+
+def discard_pending_upload(raw_path: str, filename: str) -> None:
+    """Remove a rejected pending upload: the raw file, its manifest entry, and
+    its tags-sidecar link (only when the collection isn't in the dataset)."""
+    from ..collection_accounts import drop_collection_entry
+
+    manifest = {}
+    if data_io.exists(storage_location=raw_path, filename=MANIFEST_FILENAME):
+        manifest = data_io.load_json(
+            storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False) or {}
+    entry = manifest.pop(filename, None) or {}
+    data_io.save_json(data=manifest, storage_location=raw_path,
+                      filename=MANIFEST_FILENAME, verbose=False)
+    if data_io.exists(storage_location=raw_path, filename=filename):
+        data_io.remove(storage_location=raw_path, filename=filename)
+
+    cid = entry.get("collection_id") or os.path.splitext(filename)[0]
+    meta = _load_metadata_personas([str(cid)])
+    in_dataset = meta is not None and str(cid) in meta.index
+    if not in_dataset:
+        drop_collection_entry(str(cid))
+    _bundle_cache.pop(("pending", raw_path, filename), None)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 def list_owned_collections(username: str) -> list[dict]:
-    """Light per-collection metadata for the picker cards."""
+    """Light per-collection metadata for the picker cards.
+
+    Includes uploaded-but-not-yet-processed donations (status "pending") —
+    the account link is written at upload time, so pending collections are
+    already owned; they just have no corpus metadata yet.
+    """
     cids = collections_for_user(username)
     if not cids:
         return []
     tags = get_collection_tags() or {}
     meta = _load_metadata_personas(cids)
+    pending = _pending_uploads_for_user(username)
 
     # One cheap two-column scan for platform/source (metadata doesn't carry it).
     platforms: dict[str, dict] = {}
@@ -266,11 +459,16 @@ def list_owned_collections(username: str) -> list[dict]:
     out = []
     for cid in cids:
         entry = tags.get(cid) if isinstance(tags.get(cid), dict) else {}
+        in_dataset = meta is not None and cid in meta.index
+        pend = pending.get(cid) if not in_dataset else None
         item = {
             "collection_id": cid,
             "display_id": entry.get("display_collection_id") or cid,
-            "source_platform": platforms.get(cid, {}).get("source_platform"),
-            "data_source": platforms.get(cid, {}).get("data_source"),
+            "source_platform": (pend or platforms.get(cid, {})).get("source_platform"),
+            "data_source": (pend or platforms.get(cid, {})).get("data_source"),
+            "status": "pending" if pend else "ready",
+            "raw_path": pend.get("raw_path") if pend else None,
+            "filename": pend.get("filename") if pend else None,
             "total_events": None,
             "active_days": None,
             "first_event_ts": None,
@@ -278,7 +476,7 @@ def list_owned_collections(username: str) -> list[dict]:
             "ts_added_to_dataset": None,
             "total_watch_time_s": None,
         }
-        if meta is not None and cid in meta.index:
+        if in_dataset:
             row = meta.loc[cid]
             for f in ("total_events", "active_days", "total_watch_time_s"):
                 v = row.get(f)
@@ -286,6 +484,10 @@ def list_owned_collections(username: str) -> list[dict]:
             for f in ("first_event_ts", "last_event_ts", "ts_added_to_dataset"):
                 v = row.get(f)
                 item[f] = None if (v is None or pd.isna(v)) else str(v)
+        elif not pend:
+            # Linked but neither in the dataset nor pending (e.g. mid-delete):
+            # keep the card with null stats rather than hiding it.
+            pass
         out.append(item)
     return out
 

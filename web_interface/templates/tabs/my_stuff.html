@@ -311,10 +311,34 @@
                 data only. Nothing is scraped, nothing is annotated, and
                 nobody else's data is involved.
             </p>
+            <div id="myc-upload-sources" style="margin-bottom: 16px;"></div>
             <div id="myc-picker">
                 <span class="text-sm" style="color: var(--color-text-muted);">Loading your collections&hellip;</span>
             </div>
+            <div id="myc-process" style="margin-top: 12px;"></div>
             <div id="myc-personality" style="margin-top: 20px;"></div>
+
+            <!-- Simplified donation upload: no tags, no account choice, no
+                 collection-id control. The account is the logged-in user and
+                 the filename becomes the collection id. -->
+            <div id="myc-upload-modal" class="modal" onclick="mycCloseUploadModal(event)">
+                <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 480px;">
+                    <span class="close-button" onclick="mycCloseUploadModal()">&times;</span>
+                    <h3 id="myc-upload-title" style="margin-top: 0;">Add your data</h3>
+                    <p id="myc-upload-hint" class="text-sm" style="color: var(--color-text-muted);"></p>
+                    <input type="file" id="myc-upload-file" style="display: none;">
+                    <div id="myc-upload-filebox"
+                         style="border: 1px dashed var(--color-border); border-radius: 8px; padding: 18px; text-align: center; cursor: pointer; margin-bottom: 12px;"
+                         onclick="document.getElementById('myc-upload-file').click()">
+                        <span class="text-sm" style="color: var(--color-text-muted);">Click to choose your file&hellip;</span>
+                    </div>
+                    <div id="myc-upload-status" class="text-sm" style="color: var(--color-text-muted); min-height: 20px; margin-bottom: 12px;"></div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button class="btn-discreet btn-compact" onclick="mycCloseUploadModal()">Cancel</button>
+                        <button id="myc-upload-submit" class="btn-primary btn-compact" onclick="mycSubmitUpload()" disabled>Upload</button>
+                    </div>
+                </div>
+            </div>
         </div>
         {% endif %}
 
