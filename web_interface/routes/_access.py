@@ -73,10 +73,16 @@ def owned_collection_access_error(collection_id: str):
     Ownership comes from the ``user_id`` links in collections_tags.json
     (``collection_accounts``), NOT study membership — participants typically
     hold no study grants, and this is the access path that lets them see
-    their own donated data. Admins pass unconditionally (support/debugging).
+    their own donated data. Admins pass unconditionally (support/debugging),
+    as do Edit Collections holders: they already see every collection's
+    metadata in Data Management, and the edit modal embeds the personality
+    view for any collection.
     """
     username, _role, is_admin = current_user_ctx()
     if is_admin:
+        return None
+    can_access = getattr(current_user, "can_access", None)
+    if callable(can_access) and can_access("tab.data_management.edit_collections"):
         return None
     # Function-level import: collection_accounts pulls in the security module
     # lazily and must stay import-light for the task-runner.

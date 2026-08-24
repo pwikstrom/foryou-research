@@ -5547,9 +5547,10 @@ function _dmAccountPayload(bulk) {
 }
 
 
-// Read-only metadata block in the edit modal. One collection gets a label/value
-// grid; several get a row each, so a bulk edit can still be checked against the
-// collections it will touch.
+// Read-only metadata block in the edit modal. One collection gets a compact
+// meta line plus the donated-data personality view (shared renderer from
+// my_collections.js); several get a row each, so a bulk edit can still be
+// checked against the collections it will touch.
 function _dmRenderCollectionDetails(objs) {
     const box = document.getElementById('edit-collection-details');
     if (!box) return;
@@ -5563,25 +5564,37 @@ function _dmRenderCollectionDetails(objs) {
 
     if (present.length === 1) {
         const c = present[0];
-        const grid = document.createElement('div');
-        grid.style.cssText = 'display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; align-items: baseline;';
-        _EDIT_COLLECTION_DETAILS.forEach(f => {
-            const label = document.createElement('span');
-            label.style.cssText = 'color: var(--color-text-tertiary); white-space: nowrap;';
-            label.textContent = f.label;
-            const value = document.createElement('span');
-            const raw = f.get(c);
-            value.style.cssText = 'word-break: break-word;';
-            if (raw === '' || raw === null || raw === undefined) {
-                value.style.color = 'var(--color-text-tertiary)';
-                value.textContent = '—';
-            } else {
-                value.textContent = String(raw);
-            }
-            grid.appendChild(label);
-            grid.appendChild(value);
-        });
-        box.appendChild(grid);
+        const meta = document.createElement('div');
+        meta.className = 'text-xs';
+        meta.style.cssText = 'margin-bottom: 12px; color: var(--color-text-tertiary);';
+        const parts = [`ID: ${c.id}`];
+        parts.push(`Account: ${_dmAccountCell(c) || 'no account'}`);
+        const added = fypFmtDate(c.other?.ts_added_to_dataset, '');
+        if (added) parts.push(`Added: ${added}`);
+        const tz = _dmTimezoneLabel(c);
+        if (tz) parts.push(`Timezone: ${tz}`);
+        if (c.participants?.campaign) parts.push(`Campaign: ${c.participants.campaign}`);
+        if (c.participants?.donationType) parts.push(`Donation type: ${c.participants.donationType}`);
+        meta.textContent = parts.join(' · ');
+        box.appendChild(meta);
+
+        const holder = document.createElement('div');
+        box.appendChild(holder);
+        if (typeof mycRenderPersonality === 'function') {
+            holder.innerHTML = '<span class="text-sm" style="color: var(--color-text-tertiary);">Computing the personality view&hellip;</span>';
+            fetch(`/api/my/collections/${encodeURIComponent(c.id)}/personality`)
+                .then(r => r.json().then(data => ({ ok: r.ok, data })))
+                .then(({ ok, data }) => {
+                    if (!ok) {
+                        holder.innerHTML = `<span class="text-sm" style="color: var(--color-text-tertiary);">${(data && data.error) || 'No personality view available.'}</span>`;
+                        return;
+                    }
+                    mycRenderPersonality(holder, data);
+                })
+                .catch(() => {
+                    holder.innerHTML = '<span class="text-sm" style="color: var(--color-text-tertiary);">No personality view available.</span>';
+                });
+        }
         return;
     }
 

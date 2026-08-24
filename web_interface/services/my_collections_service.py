@@ -117,6 +117,8 @@ def _load_metadata_personas(collection_ids: list[str] | None = None) -> pd.DataF
     for f in _PERSONA_FIELDS:
         columns.append(f"('personas', '{f}')")
         columns.append(f)
+    columns.append("('other', 'ts_added_to_dataset')")
+    columns.append("ts_added_to_dataset")
     try:
         df = data_io.load_parquet_selective(
             storage_location="recoded",
@@ -136,6 +138,10 @@ def _load_metadata_personas(collection_ids: list[str] | None = None) -> pd.DataF
             if candidate in df.columns:
                 flat[f] = df[candidate]
                 break
+    for candidate in (("other", "ts_added_to_dataset"), "ts_added_to_dataset"):
+        if candidate in df.columns:
+            flat["ts_added_to_dataset"] = df[candidate]
+            break
     if not flat:
         return None
     out = pd.DataFrame(flat)
@@ -269,6 +275,7 @@ def list_owned_collections(username: str) -> list[dict]:
             "active_days": None,
             "first_event_ts": None,
             "last_event_ts": None,
+            "ts_added_to_dataset": None,
             "total_watch_time_s": None,
         }
         if meta is not None and cid in meta.index:
@@ -276,7 +283,7 @@ def list_owned_collections(username: str) -> list[dict]:
             for f in ("total_events", "active_days", "total_watch_time_s"):
                 v = row.get(f)
                 item[f] = None if pd.isna(v) else float(v)
-            for f in ("first_event_ts", "last_event_ts"):
+            for f in ("first_event_ts", "last_event_ts", "ts_added_to_dataset"):
                 v = row.get(f)
                 item[f] = None if (v is None or pd.isna(v)) else str(v)
         out.append(item)
