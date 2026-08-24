@@ -44,9 +44,14 @@ def api_my_combined_personality():
 
 
 @my_collections_bp.route('/api/my/collections/<collection_id>/personality')
-@permission_required('tab.my_stuff.my_collections')
+@permission_required('tab.my_stuff.my_collections', 'tab.data_management.edit_collections')
 def api_my_collection_personality(collection_id):
-    """The personality bundle for one of the user's own collections."""
+    """The personality bundle for one of the user's own collections.
+
+    Also serves the Edit Collections modal (OR-gated on the pipeline
+    permission), where the ownership check is waived — see
+    ``owned_collection_access_error``.
+    """
     err = owned_collection_access_error(collection_id)
     if err:
         return err

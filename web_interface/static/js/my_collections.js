@@ -1,12 +1,17 @@
 // My Collections — the participant-facing "My Short-Video Personality" page.
 // Everything rendered here comes from /api/my/* endpoints, which serve donated
 // activity data only (ownership-gated; no scrape, no annotation).
+//
+// window.mycRenderPersonality(containerEl, bundle) renders one personality
+// bundle into any container (chart ids are scoped per render), so the Edit
+// Collections modal in data_management.js reuses the exact same view.
 (function () {
     'use strict';
 
     let mycCollections = null;       // cached list for this page load
     let mycActiveSelection = null;   // collection_id or 'combined'
-    let mycBundle = null;            // last personality bundle rendered
+    let mycRenderSeq = 0;            // unique id prefix per render
+    const mycMounted = [];           // {el, bundle, prefix} for theme re-renders
 
     const PLATFORM_LABELS = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube' };
     // Chart series colors for platform overlays (same approach as the
@@ -26,7 +31,7 @@
 
     function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 
-    // "2 days, 3 hours, 14 minutes" from seconds — the classic sentence needs it.
+    // "2 days, 3 hours, 14 minutes" from seconds.
     function humanizeDuration(totalSeconds) {
         const s = Math.round(totalSeconds);
         if (s < 60) return `${s} second${s === 1 ? '' : 's'}`;
@@ -64,6 +69,7 @@
 
     window.loadMyCollections = function () {
         if (mycCollections !== null) return;  // already loaded this page-load
+        if (!document.getElementById('myc-picker')) return;
         fetch('/api/my/collections')
             .then(r => r.json())
             .then(data => {
@@ -94,7 +100,7 @@
                 <div style="border: 1px dashed var(--color-border); border-radius: 8px; padding: 24px; max-width: 520px;">
                     <p style="margin: 0 0 6px 0; font-weight: 600;">No collections here yet.</p>
                     <p class="text-sm" style="color: var(--color-text-muted); margin: 0;">
-                        No collections are linked to your account yet &mdash; when you donate
+                        No collections are linked to your account yet. When you donate
                         data, it will show up here, along with your very own
                         short-video personality.
                     </p>
@@ -107,6 +113,8 @@
             const range = (c.first_event_ts && c.last_event_ts)
                 ? `${c.first_event_ts.slice(0, 10)} &rarr; ${c.last_event_ts.slice(0, 10)}` : '';
             const events = c.total_events != null ? `${fmtInt(c.total_events)} activities` : '';
+            const added = c.ts_added_to_dataset
+                ? `added to the Hub ${c.ts_added_to_dataset.slice(0, 10)}` : '';
             cards.push(`
                 <div class="myc-card" data-myc-select="${escapeHtml(c.collection_id)}"
                      onclick="openMyCollection('${escapeHtml(c.collection_id)}')"
@@ -115,6 +123,7 @@
                     <div class="text-sm" style="color: var(--color-text-muted);">${escapeHtml(c.display_id)}</div>
                     <div class="text-xs" style="color: var(--color-text-faint); margin-top: 4px;">${range}</div>
                     <div class="text-xs" style="color: var(--color-text-faint);">${events}</div>
+                    <div class="text-xs" style="color: var(--color-text-faint);">${added}</div>
                 </div>`);
         }
         if (mycCollections.length > 1) {
@@ -158,8 +167,7 @@
                     el.innerHTML = `<p class="text-sm" style="color: var(--color-text-muted);">${escapeHtml((data && data.error) || 'Something went wrong.')}</p>`;
                     return;
                 }
-                mycBundle = data;
-                renderBundle(el, data);
+                mycRenderPersonality(el, data);
             })
             .catch(() => {
                 el.innerHTML = '<p class="text-sm" style="color: var(--color-text-muted);">Something went wrong while computing your personality. Try again in a moment.</p>';
@@ -174,21 +182,30 @@
         return `<h3 style="margin: 0 0 10px 0; font-size: 1rem;">${text}</h3>`;
     }
 
-    function renderBundle(el, b) {
-        const plat = b.platforms && b.platforms.length === 1 ? platformLabel(b.platforms[0]) : 'short-video';
+    // Public: render one personality bundle into any container. Used by this
+    // page and by the Edit Collections modal (data_management.js).
+    window.mycRenderPersonality = function (el, b) {
+        const prefix = `myc-r${++mycRenderSeq}`;
+        renderBundle(el, b, prefix);
+        // Keep for theme re-renders; drop entries whose container left the DOM.
+        for (let i = mycMounted.length - 1; i >= 0; i--) {
+            if (!document.body.contains(mycMounted[i].el) || mycMounted[i].el === el) mycMounted.splice(i, 1);
+        }
+        mycMounted.push({ el, bundle: b, prefix });
+    };
+
+    function renderBundle(el, b, prefix) {
+        const singlePlat = b.platforms && b.platforms.length === 1;
+        const plat = singlePlat ? platformLabel(b.platforms[0]) : 'short-video';
         const html = [];
 
         // --- Persona headline
         const persona = b.persona || {};
         if (persona.statement) {
-            const compared = persona.n_corpus > 1
-                ? `<p class="text-xs" style="color: var(--color-text-faint); margin: 6px 0 0 0;">Compared with ${fmtInt(persona.n_corpus - (b.collection_ids || []).length)} other donated collections on the Hub.</p>`
-                : '';
             html.push(`
                 <div style="margin-bottom: 16px;">
                     <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 4px 0;">Your ${escapeHtml(plat)} personality:</p>
                     <p style="font-size: 1.5rem; font-weight: 700; margin: 0;">${escapeHtml(persona.statement)}</p>
-                    ${compared}
                 </div>`);
         }
 
@@ -198,20 +215,17 @@
         const axes = persona.axes || {};
         const presentAxes = Object.keys(AXIS_LABELS).filter(a => axes[a] && axes[a].score != null);
         if (presentAxes.length >= 3) {
-            html.push(sectionCard(cardTitle('The five scores behind it') + '<div id="myc-chart-radar" style="height: 300px;"></div>', '460px'));
+            html.push(sectionCard(cardTitle('The five scores behind it') + `<div id="${prefix}-chart-radar" style="height: 300px;"></div>`, '460px'));
         } else if (presentAxes.length) {
             const chips = presentAxes.map(a =>
                 `<span style="border: 1px solid var(--color-border); border-radius: 16px; padding: 4px 12px; display: inline-block; margin: 0 6px 6px 0;">${AXIS_LABELS[a]}: <strong>${Math.round(axes[a].score)}</strong></span>`).join('');
-            html.push(sectionCard(cardTitle('Your scores') + `<div>${chips}</div><p class="text-xs" style="color: var(--color-text-faint); margin: 8px 0 0 0;">This donation doesn't carry enough signal for the full radar &mdash; here's what we could measure.</p>`, '460px'));
+            html.push(sectionCard(cardTitle('Your scores') + `<div>${chips}</div><p class="text-xs" style="color: var(--color-text-faint); margin: 8px 0 0 0;">This donation doesn't carry enough signal for the full radar. Here's what we could measure.</p>`, '460px'));
         }
 
-        // --- You vs the cohort
+        // --- Your data vs the rest of the Hub
         if (b.comparisons && b.comparisons.length) {
             html.push(sectionCard(
-                cardTitle('You vs. everyone else') + cohortRows(b.comparisons) +
-                `<p class="text-xs" style="color: var(--color-text-faint); margin: 10px 0 0 0;">
-                    All rates, never raw counts &mdash; donations cover very different time spans,
-                    so everything is per active day or per 1,000 videos watched.</p>`,
+                cardTitle('Your data compared to other collections in the Hub') + cohortRows(b.comparisons),
                 '460px'));
         }
 
@@ -222,14 +236,14 @@
                 : `Your golden hour: you were most alive around <strong>${escapeHtml(friendlyHourLabel(b.hour_of_day))}</strong>`;
             html.push(sectionCard(
                 cardTitle(habitTitle) +
-                '<div id="myc-chart-hours" style="height: 300px;"></div>', '460px'));
+                `<div id="${prefix}-chart-hours" style="height: 300px;"></div>`, '460px'));
         }
 
         // --- Weekday
         if (b.weekday) {
             html.push(sectionCard(
                 cardTitle(`<strong>${cap(escapeHtml(b.weekday.top))}</strong> was your biggest ${escapeHtml(plat)} day`) +
-                '<div id="myc-chart-weekday" style="height: 260px;"></div>', '460px'));
+                `<div id="${prefix}-chart-weekday" style="height: 260px;"></div>`, '460px'));
         }
 
         // --- Weekly rhythm
@@ -237,19 +251,19 @@
             const tw = b.weekly.top_week;
             const [ty, tn] = String(tw.week).split('-');
             html.push(sectionCard(
-                cardTitle(`Week ${escapeHtml(tn)} of ${escapeHtml(ty)} &mdash; what happened there?! You never watched more`) +
-                '<div id="myc-chart-weekly" style="height: 260px;"></div>', '700px'));
+                cardTitle(`You never watched more than in week ${escapeHtml(tn)} of ${escapeHtml(ty)}`) +
+                `<div id="${prefix}-chart-weekly" style="height: 260px;"></div>`, '700px'));
         }
 
         // --- Calendar heatmap
         if (b.calendar && b.calendar.days && b.calendar.days.length > 6) {
             const streak = b.calendar.longest_streak;
             const streakLine = streak >= 3
-                ? `<p class="text-sm" style="margin: 8px 0 0 0; color: var(--color-text-muted);">Your longest streak: <strong>${fmtInt(streak)} days in a row</strong>. Impressive. Or concerning.</p>`
+                ? `<p class="text-sm" style="margin: 8px 0 0 0; color: var(--color-text-muted);">Your longest streak: <strong>${fmtInt(streak)} days in a row</strong>.</p>`
                 : '';
             html.push(sectionCard(
                 cardTitle('Your time here, one square per day') +
-                '<div id="myc-chart-calendar" style="height: 200px;"></div>' + streakLine, '700px'));
+                `<div id="${prefix}-chart-calendar" style="height: 200px;"></div>` + streakLine, '700px'));
         }
 
         // --- Doomscroll profile
@@ -258,8 +272,8 @@
             const over = b.stats && b.stats.over_60s != null ? b.stats.over_60s : b.doomscroll.buckets.over_60s;
             html.push(sectionCard(
                 cardTitle('Your scroll finger vs. your attention span') +
-                '<div id="myc-chart-doomscroll" style="height: 260px;"></div>' +
-                `<p class="text-sm" style="margin: 8px 0 0 0; color: var(--color-text-muted);">You scrolled past <strong>${fmtInt(under)}</strong> videos in under three seconds &mdash; but <strong>${fmtInt(over)}</strong> kept you hooked for over a minute.</p>`,
+                `<div id="${prefix}-chart-doomscroll" style="height: 260px;"></div>` +
+                `<p class="text-sm" style="margin: 8px 0 0 0; color: var(--color-text-muted);">You scrolled past <strong>${fmtInt(under)}</strong> videos in under three seconds, but <strong>${fmtInt(over)}</strong> kept you hooked for over a minute.</p>`,
                 '460px'));
         }
 
@@ -298,22 +312,23 @@
 
         // --- Stat strip
         if (b.stats) {
-            html.push(sectionCard(cardTitle("Let's look deeper into your life on the feed") + statStrip(b.stats, plat, b.pre_play_engagement_dropped), '700px'));
+            html.push(sectionCard(cardTitle("Let's look deeper into your life on the feed") + statStrip(b.stats, singlePlat ? plat : null), '700px'));
         }
 
         html.push('</div>');
         el.innerHTML = html.join('');
-        renderCharts(b);
+        renderCharts(b, el, prefix);
     }
 
-    function statStrip(s, plat, prePlayDropped) {
+    function statStrip(s, platOrNull) {
         const lines = [];
+        const watching = platOrNull ? `watching ${escapeHtml(platOrNull)} videos` : 'watching videos';
         if (s.total_watch_time_s != null && s.total_watch_time_s > 0) {
             const pct = s.watch_time_percentile != null && s.watch_time_percentile >= 75
                 ? ` That puts you in the top ${Math.max(1, Math.round(100 - s.watch_time_percentile))}% of watchers on the Hub.` : '';
-            lines.push(`You spent <strong>${humanizeDuration(s.total_watch_time_s)}</strong> watching ${escapeHtml(plat)} videos between ${escapeHtml(s.first_date || '?')} and ${escapeHtml(s.last_date || '?')}.${pct}`);
+            lines.push(`You spent <strong>${humanizeDuration(s.total_watch_time_s)}</strong> ${watching} between ${escapeHtml(s.first_date || '?')} and ${escapeHtml(s.last_date || '?')}.${pct}`);
         } else if (s.first_date) {
-            lines.push(`Your data covers ${escapeHtml(s.first_date)} to ${escapeHtml(s.last_date)} &mdash; <strong>${fmtInt(s.active_days)}</strong> active days.`);
+            lines.push(`Your data covers ${escapeHtml(s.first_date)} to ${escapeHtml(s.last_date)}: <strong>${fmtInt(s.active_days)}</strong> active days.`);
         }
         if (s.n_videos) lines.push(`You watched <strong>${fmtInt(s.n_videos)}</strong> videos.`);
         if (s.n_sessions) {
@@ -321,18 +336,10 @@
                 ? ` The longest lasted <strong>${humanizeDuration(s.longest_session_s)}</strong>.` : '';
             lines.push(`You completed <strong>${fmtInt(s.n_sessions)}</strong> sessions.${longest}`);
         }
-        if (s.n_likes) lines.push(`You handed out <strong>${fmtInt(s.n_likes)}</strong> likes. Generous.`);
+        if (s.n_likes) lines.push(`You handed out <strong>${fmtInt(s.n_likes)}</strong> likes.`);
         if (s.n_comments) lines.push(`You made <strong>${fmtInt(s.n_comments)}</strong> comments.`);
         if (s.n_posts) lines.push(`You posted <strong>${fmtInt(s.n_posts)}</strong> videos of your own.`);
-        let html = lines.map(l => `<p class="text-sm" style="margin: 0 0 6px 0;">${l}</p>`).join('');
-        if (prePlayDropped > 0) {
-            const who = plat === 'short-video' ? 'these platforms remember' : `${escapeHtml(plat)} remembers`;
-            html += `<p class="text-xs" style="color: var(--color-text-faint); margin: 10px 0 0 0;">
-                We left out ${fmtInt(prePlayDropped)} likes, comments and other activities from before
-                your watch history begins &mdash; ${who} your engagement much
-                further back than your plays, and counting those would make you look busier than you were.</p>`;
-        }
-        return html;
+        return lines.map(l => `<p class="text-sm" style="margin: 0 0 6px 0;">${l}</p>`).join('');
     }
 
     function friendlyHourLabel(h) {
@@ -351,16 +358,24 @@
 
     function cohortRows(comparisons) {
         return comparisons.map(c => {
-            const pct = c.percentile != null ? Math.max(2, Math.min(98, c.percentile)) : null;
-            const track = pct != null ? `
+            // Value-scaled track: 0 at the left, your value and the cohort
+            // median placed proportionally, so distances mean what they look like.
+            const maxv = Math.max(c.own, c.cohort_median) * 1.15;
+            let track = '';
+            if (maxv > 0) {
+                const ownPos = Math.max(1, Math.min(99, c.own / maxv * 100));
+                const medPos = Math.max(1, Math.min(99, c.cohort_median / maxv * 100));
+                track = `
                 <div style="position: relative; height: 6px; border-radius: 3px; background: var(--color-border); margin: 6px 0 2px 0;">
-                    <div style="position: absolute; left: 50%; top: -2px; width: 1px; height: 10px; background: var(--color-text-faint);"></div>
-                    <div style="position: absolute; left: ${pct}%; top: -3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--color-accent);"></div>
-                </div>` : '';
+                    <div style="position: absolute; left: ${medPos}%; top: -2px; width: 2px; height: 10px; background: var(--color-text-faint);" title="median"></div>
+                    <div style="position: absolute; left: ${ownPos}%; top: -3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--color-accent);" title="you"></div>
+                </div>`;
+            }
+            const phrase = ratioPhrase(c.ratio);
             return `
                 <div style="margin-bottom: 12px;">
-                    <div class="text-sm"><strong>${escapeHtml(c.label)}</strong> &mdash; ${escapeHtml(ratioPhrase(c.ratio))}</div>
-                    <div class="text-xs" style="color: var(--color-text-muted);">you: <strong>${fmtInt(Math.round(c.own * 10) / 10)}</strong> &middot; typical donor: ${fmtInt(Math.round(c.cohort_median * 10) / 10)}</div>
+                    <div class="text-sm"><strong>${escapeHtml(c.label)}</strong>${phrase ? ': ' + escapeHtml(phrase) : ''}</div>
+                    <div class="text-xs" style="color: var(--color-text-muted);">you: <strong>${fmtInt(Math.round(c.own * 10) / 10)}</strong> &middot; median: ${fmtInt(Math.round(c.cohort_median * 10) / 10)}</div>
                     ${track}
                 </div>`;
         }).join('');
@@ -380,12 +395,13 @@
     // Charts
     // ------------------------------------------------------------------
 
-    function renderCharts(b) {
+    function renderCharts(b, rootEl, prefix) {
         const accent = getCSSVar('--color-accent');
         const grid = getCSSVar('--chart-grid');
+        const byId = id => rootEl.querySelector(`#${prefix}-${id}`);
 
         // Radar
-        const radarEl = document.getElementById('myc-chart-radar');
+        const radarEl = byId('chart-radar');
         if (radarEl && b.persona && b.persona.axes) {
             const axes = b.persona.axes;
             const present = Object.keys(AXIS_LABELS).filter(a => axes[a] && axes[a].score != null);
@@ -411,7 +427,7 @@
 
         // Hour-of-day polar (24 spokes) — single-platform bars, or one line
         // per platform (each a share of ITS OWN plays) for multi-platform donors.
-        const hoursEl = document.getElementById('myc-chart-hours');
+        const hoursEl = byId('chart-hours');
         if (hoursEl && b.hour_of_day) {
             const counts = b.hour_of_day.counts;
             const labels = [];
@@ -464,7 +480,7 @@
         }
 
         // Weekday bar — grouped per platform for multi-platform donors.
-        const wdEl = document.getElementById('myc-chart-weekday');
+        const wdEl = byId('chart-weekday');
         if (wdEl && b.weekday) {
             const counts = b.weekday.counts || {};
             const wdByPlat = b.weekday.by_platform;
@@ -500,7 +516,7 @@
         }
 
         // Weekly rhythm line
-        const wkEl = document.getElementById('myc-chart-weekly');
+        const wkEl = byId('chart-weekly');
         if (wkEl && b.weekly) {
             const s = b.weekly.series;
             Plotly.newPlot(wkEl, [{
@@ -519,7 +535,7 @@
         }
 
         // Calendar heatmap: weekday rows x week columns
-        const calEl = document.getElementById('myc-chart-calendar');
+        const calEl = byId('chart-calendar');
         if (calEl && b.calendar) {
             const byDate = {};
             b.calendar.days.forEach(d => { byDate[d.date] = d.count; });
@@ -553,7 +569,7 @@
         }
 
         // Doomscroll histogram
-        const dsEl = document.getElementById('myc-chart-doomscroll');
+        const dsEl = byId('chart-doomscroll');
         if (dsEl && b.doomscroll) {
             const bk = b.doomscroll.buckets;
             const labels = ['< 3 s', '3–10 s', '10–30 s', '30–60 s', '> 60 s'];
@@ -575,10 +591,12 @@
         return `rgba(${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}, ${alpha})`;
     }
 
-    // Re-render charts with the new token colors when the theme flips.
+    // Re-render every mounted personality view with the new token colors.
     window.addEventListener('theme-changed', () => {
-        if (mycBundle && document.getElementById('myc-personality')) {
-            renderCharts(mycBundle);
+        for (let i = mycMounted.length - 1; i >= 0; i--) {
+            const m = mycMounted[i];
+            if (!document.body.contains(m.el)) { mycMounted.splice(i, 1); continue; }
+            renderBundle(m.el, m.bundle, m.prefix);
         }
     });
 })();
