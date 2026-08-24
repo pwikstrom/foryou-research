@@ -12,6 +12,10 @@
     let mycActiveSelection = null;   // collection_id or 'combined'
     let mycRenderSeq = 0;            // unique id prefix per render
     const mycMounted = [];           // {el, bundle, prefix} for theme re-renders
+    let mycSources = null;           // donation upload sources (registry-driven)
+    const mycPendingMap = {};        // cid -> {raw_path, filename} for pending uploads
+    let mycUpload = null;            // {source, file} for the open upload modal
+    let mycProcessPoll = null;       // interval id while watching ingest_refresh
 
     const PLATFORM_LABELS = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube' };
     // Chart series colors for platform overlays (same approach as the
@@ -67,18 +71,31 @@
     // Entry point (called from my_stuff_tab.js renderSettingsUI)
     // ------------------------------------------------------------------
 
-    window.loadMyCollections = function () {
-        if (mycCollections !== null) return;  // already loaded this page-load
+    window.loadMyCollections = function (opts) {
+        const force = !!(opts && opts.force);
+        if (mycCollections !== null && !force) return;  // already loaded this page-load
         if (!document.getElementById('myc-picker')) return;
-        fetch('/api/my/collections')
-            .then(r => r.json())
-            .then(data => {
+        const listUrl = force ? '/api/my/collections?fresh=1' : '/api/my/collections';
+        const sourcesPromise = mycSources !== null
+            ? Promise.resolve(mycSources)
+            : fetch('/api/my/collections/upload/sources').then(r => r.json())
+                .then(d => (d && d.sources) || []).catch(() => []);
+        Promise.all([fetch(listUrl).then(r => r.json()), sourcesPromise])
+            .then(([data, sources]) => {
                 mycCollections = (data && data.collections) || [];
+                mycSources = sources;
+                renderUploadSources();
                 renderPicker();
-                if (mycCollections.length === 1) {
-                    openMyCollection(mycCollections[0].collection_id);
-                } else if (mycCollections.length > 1) {
-                    openMyCollection('combined');
+                renderProcessButton();
+                const autoOpen = opts && opts.open;
+                if (autoOpen) {
+                    openMyCollection(autoOpen);
+                } else if (!force) {
+                    if (mycCollections.length === 1) {
+                        openMyCollection(mycCollections[0].collection_id);
+                    } else if (mycCollections.length > 1) {
+                        openMyCollection('combined');
+                    }
                 }
             })
             .catch(() => {
@@ -109,17 +126,23 @@
         }
 
         const cards = [];
+        Object.keys(mycPendingMap).forEach(k => delete mycPendingMap[k]);
         for (const c of mycCollections) {
+            const pending = c.status === 'pending';
+            if (pending) mycPendingMap[c.collection_id] = { raw_path: c.raw_path, filename: c.filename };
             const range = (c.first_event_ts && c.last_event_ts)
                 ? `${c.first_event_ts.slice(0, 10)} &rarr; ${c.last_event_ts.slice(0, 10)}` : '';
             const events = c.total_events != null ? `${fmtInt(c.total_events)} activities` : '';
             const added = c.ts_added_to_dataset
                 ? `added to the Hub ${c.ts_added_to_dataset.slice(0, 10)}` : '';
+            const badge = pending
+                ? `<span class="text-xs" style="border: 1px solid var(--color-accent); color: var(--color-accent); border-radius: 10px; padding: 1px 8px;">awaiting processing</span>`
+                : '';
             cards.push(`
                 <div class="myc-card" data-myc-select="${escapeHtml(c.collection_id)}"
                      onclick="openMyCollection('${escapeHtml(c.collection_id)}')"
                      style="border: 1px solid var(--color-border); border-radius: 8px; padding: 12px 16px; cursor: pointer; min-width: 190px; background: var(--color-bg-elevated);">
-                    <div style="font-weight: 600;">${escapeHtml(platformLabel(c.source_platform))}</div>
+                    <div style="font-weight: 600; display: flex; gap: 8px; align-items: center;">${escapeHtml(platformLabel(c.source_platform))} ${badge}</div>
                     <div class="text-sm" style="color: var(--color-text-muted);">${escapeHtml(c.display_id)}</div>
                     <div class="text-xs" style="color: var(--color-text-faint); margin-top: 4px;">${range}</div>
                     <div class="text-xs" style="color: var(--color-text-faint);">${events}</div>
@@ -157,14 +180,30 @@
         const el = document.getElementById('myc-personality');
         if (!el) return;
         el.innerHTML = '<p class="text-sm" style="color: var(--color-text-muted);">Crunching your numbers&hellip;</p>';
-        const url = selection === 'combined'
-            ? '/api/my/collections/combined/personality'
-            : `/api/my/collections/${encodeURIComponent(selection)}/personality`;
+        const pend = mycPendingMap[selection];
+        const url = pend
+            ? `/api/my/collections/pending/personality?raw_path=${encodeURIComponent(pend.raw_path)}&filename=${encodeURIComponent(pend.filename)}`
+            : (selection === 'combined'
+                ? '/api/my/collections/combined/personality'
+                : `/api/my/collections/${encodeURIComponent(selection)}/personality`);
         fetch(url)
             .then(r => r.json().then(data => ({ ok: r.ok, data })))
             .then(({ ok, data }) => {
                 if (!ok) {
+                    if (data && data.rejected) {
+                        // QA rejection: the file was removed server-side.
+                        el.innerHTML = `<p class="text-sm" style="color: var(--color-text-muted);">${escapeHtml(data.error)}</p>`;
+                        loadMyCollections({ force: true });
+                        return;
+                    }
                     el.innerHTML = `<p class="text-sm" style="color: var(--color-text-muted);">${escapeHtml((data && data.error) || 'Something went wrong.')}</p>`;
+                    return;
+                }
+                if (data.pending) {
+                    el.innerHTML = `<p class="text-sm" style="border: 1px solid var(--color-border); border-radius: 8px; padding: 8px 12px; color: var(--color-text-muted); margin: 0 0 12px 0;">
+                        Preview computed from your raw upload. It hasn't been merged into the Hub yet;
+                        the final numbers may shift slightly after processing.</p><div></div>`;
+                    mycRenderPersonality(el.lastElementChild, data);
                     return;
                 }
                 mycRenderPersonality(el, data);
@@ -388,6 +427,180 @@
         const distinct = new Set(habits.map(h => h.top_segment)).size > 1;
         if (distinct) return `Two apps, two lives: ${parts.join(', ')}`;
         return `All your feeds peak ${escapeHtml(segWords[habits[0].top_segment] || habits[0].top_segment)}`;
+    }
+
+    // ------------------------------------------------------------------
+    // Self-serve donation upload
+    // ------------------------------------------------------------------
+
+    const UPLOAD_HINTS = {
+        tiktok: 'Upload your extracted <strong>user_data_tiktok.json</strong>. If TikTok gave you a .zip, unzip it first and pick the .json inside.',
+        instagram: 'Upload your Instagram export <strong>.zip</strong>. We slim it in your browser first, so only the activity files leave your computer.',
+        youtube: 'Upload your Google Takeout <strong>.zip</strong>. We slim it in your browser first, so only your watch history and activity files leave your computer.',
+    };
+
+    function renderUploadSources() {
+        const el = document.getElementById('myc-upload-sources');
+        if (!el) return;
+        if (!mycSources || !mycSources.length) { el.innerHTML = ''; return; }
+        const cards = mycSources.map((s, i) => `
+            <div onclick="mycOpenUploadModal(${i})"
+                 style="border: 1px dashed var(--color-border); border-radius: 8px; padding: 10px 16px; cursor: pointer; min-width: 170px;">
+                <div style="font-weight: 600;">+ ${escapeHtml(platformLabel(s.source_platform))}</div>
+                <div class="text-xs" style="color: var(--color-text-faint);">upload your ${s.accepted_upload_suffixes.map(escapeHtml).join('/')} export</div>
+            </div>`);
+        el.innerHTML = `
+            <div class="text-sm font-semibold" style="margin-bottom: 8px;">Add your data</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px;">${cards.join('')}</div>`;
+    }
+
+    window.mycOpenUploadModal = function (sourceIndex) {
+        const source = mycSources && mycSources[sourceIndex];
+        if (!source) return;
+        mycUpload = { source, file: null };
+        const modal = document.getElementById('myc-upload-modal');
+        document.getElementById('myc-upload-title').textContent = `Add your ${platformLabel(source.source_platform)} data`;
+        document.getElementById('myc-upload-hint').innerHTML = UPLOAD_HINTS[source.source_platform]
+            || `Upload your ${escapeHtml(platformLabel(source.source_platform))} export (${source.accepted_upload_suffixes.map(escapeHtml).join(' or ')}).`;
+        const input = document.getElementById('myc-upload-file');
+        input.value = '';
+        input.accept = source.accepted_upload_suffixes.join(',');
+        input.onchange = () => mycFileChosen(input.files && input.files[0]);
+        document.getElementById('myc-upload-filebox').innerHTML =
+            '<span class="text-sm" style="color: var(--color-text-muted);">Click to choose your file&hellip;</span>';
+        document.getElementById('myc-upload-status').textContent = '';
+        document.getElementById('myc-upload-submit').disabled = true;
+        modal.style.display = 'block';
+    };
+
+    window.mycCloseUploadModal = function (event) {
+        if (event && event.target !== event.currentTarget) return;
+        document.getElementById('myc-upload-modal').style.display = 'none';
+        mycUpload = null;
+    };
+
+    async function mycFileChosen(file) {
+        if (!file || !mycUpload) return;
+        const status = document.getElementById('myc-upload-status');
+        const submit = document.getElementById('myc-upload-submit');
+        const box = document.getElementById('myc-upload-filebox');
+        submit.disabled = true;
+        box.innerHTML = `<span class="text-sm">${escapeHtml(file.name)}</span>`;
+
+        const suffixes = mycUpload.source.zip_member_suffixes || [];
+        if (suffixes.length && /\.zip$/i.test(file.name) && window.DonationZip) {
+            status.textContent = 'Checking your export in the browser…';
+            const result = await DonationZip.repackDonationZip(file, suffixes,
+                msg => { status.textContent = msg; });
+            if (!mycUpload) return;  // modal closed mid-scan
+            if (result.action === 'blocked') {
+                status.textContent = `We couldn't find any ${platformLabel(mycUpload.source.source_platform)} activity files inside this zip. Is it the right export?`;
+                mycUpload.file = null;
+                return;
+            }
+            mycUpload.file = result.file;
+            status.textContent = result.action === 'repacked'
+                ? `Ready. Slimmed from ${DonationZip.formatBytes(result.originalSize)} to ${DonationZip.formatBytes(result.newSize)} in your browser.`
+                : 'Ready.';
+        } else {
+            mycUpload.file = file;
+            status.textContent = 'Ready.';
+        }
+        submit.disabled = false;
+    }
+
+    window.mycSubmitUpload = function () {
+        if (!mycUpload || !mycUpload.file) return;
+        const status = document.getElementById('myc-upload-status');
+        const submit = document.getElementById('myc-upload-submit');
+        submit.disabled = true;
+        status.textContent = 'Uploading…';
+        const fd = new FormData();
+        fd.append('files', mycUpload.file, mycUpload.file.name);
+        fd.append('raw_path', mycUpload.source.raw_path);
+        try {
+            fd.append('tz', Intl.DateTimeFormat().resolvedOptions().timeZone || '');
+        } catch (e) { /* no tz — the pipeline infers one */ }
+        fetch('/api/my/collections/upload', { method: 'POST', body: fd })
+            .then(r => r.json().then(data => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                if (!ok) {
+                    status.textContent = (data && data.error) || 'The upload failed. Please try again.';
+                    submit.disabled = false;
+                    return;
+                }
+                const first = data.collections && data.collections[0];
+                mycCloseUploadModal();
+                // Instant gratification + QA: open the preview right away.
+                loadMyCollections({ force: true, open: first ? first.collection_id : undefined });
+            })
+            .catch(() => {
+                status.textContent = 'The upload failed. Please try again.';
+                submit.disabled = false;
+            });
+    };
+
+    // ------------------------------------------------------------------
+    // Process new collections
+    // ------------------------------------------------------------------
+
+    function renderProcessButton() {
+        const el = document.getElementById('myc-process');
+        if (!el) return;
+        const nPending = Object.keys(mycPendingMap).length;
+        if (!nPending) { el.innerHTML = ''; return; }
+        el.innerHTML = `
+            <button id="myc-process-btn" class="btn-primary btn-compact" onclick="mycStartProcess()">
+                Process new collections (${nPending})
+            </button>
+            <span id="myc-process-status" class="text-sm" style="color: var(--color-text-muted); margin-left: 10px;"></span>`;
+    }
+
+    window.mycStartProcess = function () {
+        const btn = document.getElementById('myc-process-btn');
+        if (btn) btn.disabled = true;
+        fetch('/api/my/collections/process', { method: 'POST' })
+            .then(r => r.json().then(data => ({ ok: r.ok, data })))
+            .then(({ ok }) => {
+                // 409 = already running elsewhere: watch it all the same.
+                mycWatchProcess();
+            })
+            .catch(() => { if (btn) btn.disabled = false; });
+    };
+
+    function mycWatchProcess() {
+        if (mycProcessPoll) return;  // already watching
+        const statusEl = () => document.getElementById('myc-process-status');
+        let sawRunning = false;
+        mycProcessPoll = setInterval(() => {
+            fetch('/api/status')
+                .then(r => r.json())
+                .then(data => {
+                    const ir = data && data.ingest_refresh;
+                    if (!ir) return;
+                    const running = ir.state === 'running' || ir.state === 'stopping';
+                    const el = statusEl();
+                    if (running) {
+                        sawRunning = true;
+                        if (el) {
+                            const pct = ir.progress && ir.progress.percent != null ? `${ir.progress.percent}% ` : '';
+                            const msg = (ir.progress && ir.progress.message) || 'working';
+                            el.textContent = `Processing… ${pct}${msg}`;
+                        }
+                        return;
+                    }
+                    if (!sawRunning) return;  // hasn't started yet
+                    clearInterval(mycProcessPoll);
+                    mycProcessPoll = null;
+                    if (el) {
+                        el.textContent = ir.last_run_outcome === 'Fail'
+                            ? 'Processing hit a problem. The research team can see the details.'
+                            : 'Done! Your collection is now part of the Hub.';
+                    }
+                    loadMyCollections({ force: true, open: mycActiveSelection || undefined });
+                })
+                .catch(() => { /* transient; keep polling */ });
+        }, 3000);
     }
 
     // ------------------------------------------------------------------

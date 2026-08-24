@@ -161,6 +161,21 @@ def set_collection_owner(collection_id: str, user_id, *, tags: dict | None = Non
     return tags
 
 
+def drop_collection_entry(collection_id: str) -> bool:
+    """Delete a collection's sidecar entry outright.
+
+    Used when a pending self-serve upload is rejected before ingestion — the
+    entry was created at upload time and nothing else references it. Never
+    call this for a collection that is already in the dataset.
+    """
+    tags = _load_tags_fresh()
+    if str(collection_id) in tags:
+        del tags[str(collection_id)]
+        _save_tags(tags)
+        return True
+    return False
+
+
 def unlink_user(user_id: str) -> list[str]:
     """Set every collection linked to ``user_id`` to unassigned (``null``).
 
