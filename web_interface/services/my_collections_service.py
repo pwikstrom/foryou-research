@@ -40,6 +40,7 @@ _PERSONA_FIELDS = [
     "total_events", "active_days", "first_event_ts", "last_event_ts",
     "total_watch_time_s", "daily_watch_time_s", "videos_per_day",
     "num_watches", "num_comments", "num_likes", "likes_per_video",
+    "median_watch_time_s",
 ]
 
 _WEEKDAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday",
@@ -311,7 +312,34 @@ def invalidate_cache() -> None:
 # Bundle computation
 # ---------------------------------------------------------------------------
 
+def _trim_to_watch_window(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Drop each collection's rows that predate its first viewing event.
+
+    Platform exports keep engagement (like lists especially) from the
+    beginning of time while the watch history only reaches back months —
+    counting those old likes would make a donor look far more engaged than
+    they are *per video watched*. The corpus personas stats
+    (``calc_collection_stats.process_single_collection``) apply the same
+    first-play cut, so trimming here keeps every cohort comparison
+    apples-to-apples. A collection with no viewing events at all is kept
+    whole (there is nothing to anchor the cut to).
+
+    Returns the trimmed frame and the number of dropped rows.
+    """
+    keep_masks = []
+    for _cid, grp in df.groupby("collection_id", sort=False):
+        first_play = grp.loc[grp["activity_type"].isin(_VIEW_TYPES), "local_timestamp"].min()
+        if pd.isna(first_play):
+            keep_masks.append(pd.Series(True, index=grp.index))
+        else:
+            keep_masks.append(grp["local_timestamp"] >= first_play)
+    keep = pd.concat(keep_masks).reindex(df.index, fill_value=True)
+    dropped = int((~keep).sum())
+    return df[keep], dropped
+
+
 def _compute_bundle(df: pd.DataFrame, collection_ids: list[str]) -> dict:
+    df, pre_play_dropped = _trim_to_watch_window(df)
     plays = df[df["activity_type"].isin(_VIEW_TYPES)]
     likes = df[df["activity_type"].isin(_LIKE_TYPES)]
     comments = df[df["activity_type"] == "comment"]
@@ -345,7 +373,10 @@ def _compute_bundle(df: pd.DataFrame, collection_ids: list[str]) -> dict:
         "collection_ids": collection_ids,
         "platforms": platforms,
         "capabilities": capabilities,
+        "pre_play_engagement_dropped": pre_play_dropped,
         "persona": persona,
+        "comparisons": _cohort_comparisons(plays, likes, comments, durations, corpus),
+        "platform_habits": _platform_habits(plays) if len(platforms) > 1 else None,
         "hour_of_day": _hour_of_day(plays),
         "weekday": _weekday(plays),
         "weekly": _weekly(plays),
@@ -473,13 +504,124 @@ def _persona_statement(axes: dict, plays: pd.DataFrame) -> dict:
     }
 
 
+def _cohort_comparisons(plays, likes, comments, durations, corpus) -> list[dict] | None:
+    """Rate-normalized "you vs the cohort" rows.
+
+    Donation lengths vary wildly, so every comparison is a rate — per active
+    day or per 1,000 videos watched (the corpus-wide per-play convention) —
+    never an absolute count. Cohort values come from the live personas
+    columns, which are computed with the same first-play cut this bundle
+    applies, so the rates are directly comparable.
+    """
+    if corpus is None or plays.empty:
+        return None
+    n_plays = len(plays)
+    active_days = max(1, plays["local_timestamp"].dt.date.nunique())
+
+    def _corpus_num(col):
+        return pd.to_numeric(corpus[col], errors="coerce") if col in corpus.columns else None
+
+    watches = _corpus_num("num_watches")
+    rows_spec = [
+        {
+            "key": "videos_per_day",
+            "label": "videos per active day",
+            "own": n_plays / active_days,
+            "series": _corpus_num("videos_per_day"),
+        },
+        {
+            "key": "watch_time_per_day",
+            "label": "minutes watched per active day",
+            "own": (float(durations.sum()) / active_days / 60) if len(durations) else None,
+            "series": (_corpus_num("daily_watch_time_s") / 60) if _corpus_num("daily_watch_time_s") is not None else None,
+        },
+        {
+            "key": "median_watch_time",
+            "label": "seconds per video before scrolling on",
+            "own": float(durations.median()) if len(durations) else None,
+            "series": _corpus_num("median_watch_time_s"),
+        },
+        {
+            "key": "likes_per_1k",
+            "label": "likes per 1,000 videos",
+            "own": (len(likes) / n_plays * 1000) if len(likes) else None,
+            "series": (_corpus_num("num_likes") / watches.clip(lower=1) * 1000)
+                      if watches is not None and _corpus_num("num_likes") is not None else None,
+        },
+        {
+            "key": "comments_per_1k",
+            "label": "comments per 1,000 videos",
+            "own": (len(comments) / n_plays * 1000) if len(comments) else None,
+            "series": (_corpus_num("num_comments") / watches.clip(lower=1) * 1000)
+                      if watches is not None and _corpus_num("num_comments") is not None else None,
+        },
+    ]
+
+    rows = []
+    for spec in rows_spec:
+        own, series = spec["own"], spec["series"]
+        if own is None or series is None:
+            continue
+        series = series.dropna()
+        series = series[series > 0] if spec["key"] != "videos_per_day" else series
+        if len(series) < 3:
+            continue
+        median = float(series.median())
+        pct = _percentile(series, own)
+        rows.append({
+            "key": spec["key"],
+            "label": spec["label"],
+            "own": round(float(own), 1),
+            "cohort_median": round(median, 1),
+            "ratio": round(float(own) / median, 2) if median > 0 else None,
+            "percentile": pct,
+        })
+    return rows or None
+
+
+def _platform_habits(plays: pd.DataFrame) -> list[dict] | None:
+    """Per-platform time-of-day signature, for multi-platform donors —
+    the "Instagram by day, TikTok after dark" comparison."""
+    if plays.empty or "local_day_segment" not in plays.columns:
+        return None
+    out = []
+    for plat, grp in plays.groupby("source_platform"):
+        if grp.empty:
+            continue
+        shares = grp["local_day_segment"].value_counts(normalize=True)
+        top = str(shares.idxmax())
+        peak_hour = int(grp["local_hour"].value_counts().idxmax())
+        out.append({
+            "platform": str(plat),
+            "top_segment": top,
+            "top_segment_share": round(float(shares.max()), 3),
+            "peak_hour": peak_hour,
+            "peak_label": _friendly_hour(peak_hour),
+            "n_plays": int(len(grp)),
+        })
+    out.sort(key=lambda d: -d["n_plays"])
+    return out if len(out) > 1 else None
+
+
 def _hour_of_day(plays: pd.DataFrame) -> dict | None:
     if plays.empty:
         return None
     counts = plays["local_hour"].value_counts()
     full = [int(counts.get(h, 0)) for h in range(24)]
     peak = int(counts.idxmax())
-    return {"counts": full, "peak_hour": peak, "peak_label": _friendly_hour(peak)}
+    result = {"counts": full, "peak_hour": peak, "peak_label": _friendly_hour(peak)}
+
+    # Per-platform overlay for multi-platform donors: each platform's curve is
+    # a SHARE of that platform's plays, so a small YouTube donation is still
+    # visible next to a huge TikTok one.
+    if plays["source_platform"].nunique() > 1:
+        by_platform = {}
+        for plat, grp in plays.groupby("source_platform"):
+            c = grp["local_hour"].value_counts()
+            total = max(1, len(grp))
+            by_platform[str(plat)] = [round(float(c.get(h, 0)) / total, 4) for h in range(24)]
+        result["by_platform"] = by_platform
+    return result
 
 
 def _friendly_hour(hour: int) -> str:
@@ -498,7 +640,14 @@ def _weekday(plays: pd.DataFrame) -> dict | None:
     counts = plays["local_weekday"].astype(str).str.lower().value_counts()
     ordered = {d: int(counts.get(d, 0)) for d in _WEEKDAY_ORDER}
     top = max(ordered, key=ordered.get)
-    return {"counts": ordered, "top": top}
+    result = {"counts": ordered, "top": top}
+    if plays["source_platform"].nunique() > 1:
+        by_platform = {}
+        for plat, grp in plays.groupby("source_platform"):
+            c = grp["local_weekday"].astype(str).str.lower().value_counts()
+            by_platform[str(plat)] = {d: int(c.get(d, 0)) for d in _WEEKDAY_ORDER}
+        result["by_platform"] = by_platform
+    return result
 
 
 def _weekly(plays: pd.DataFrame) -> dict | None:
