@@ -8,6 +8,10 @@
     };
 
     function openMyStuffPage(pageId, clickedItem) {
+        if (pageId === 'my-stuff-page-my-collections' && typeof mycResizeCharts === 'function') {
+            // Defer until after the page div gains .active below.
+            setTimeout(mycResizeCharts, 0);
+        }
         // Defense in depth — if the matching permission isn't granted, refuse.
         const requiredPerm = MY_STUFF_PAGE_PERM_MAP[pageId];
         if (requiredPerm && Array.isArray(window.USER_PERMS) && !window.USER_PERMS.includes(requiredPerm)) {
@@ -89,6 +93,10 @@
         // My Collections (page may be permission-hidden, JS not loaded)
         if (document.getElementById('myc-picker') && typeof loadMyCollections === 'function') {
             loadMyCollections();
+        }
+        // Plotly charts rendered while this tab was hidden need a resize now.
+        if (typeof mycResizeCharts === 'function') {
+            mycResizeCharts();
         }
     }
 

@@ -3744,6 +3744,16 @@ function loadIngestionMetadata() {
         .catch(err => console.error("Error loading ingestion metadata:", err));
 }
 
+// Keep the ingestion view fresh while it is on screen: participants upload
+// from My Collections without ever touching this page, so a teacher watching
+// a class donate needs the awaiting-files list to update by itself.
+setInterval(() => {
+    if (document.hidden) return;
+    const page = document.getElementById('dm-page-ingestion');
+    if (!page || page.offsetParent === null) return;  // page not visible
+    loadIngestionSources();
+}, 20000);
+
 function loadIngestionSources() {
     // The ingestion sub-page only renders for users with
     // 'tab.data_management.ingestion'. Without it the endpoint aborts 403
@@ -4004,7 +4014,10 @@ function renderPendingUploads(sources, totalPending) {
             const cidSuffix = f.collection_id
                 ? ` <span class="text-xxs" style="color: var(--color-text-tertiary);">→ ${f.collection_id}</span>`
                 : '';
-            return `<li style="margin-left: 16px; word-break: break-all;">${f.filename}${cidSuffix}${tagSuffix}</li>`;
+            const uploaderSuffix = f.user_id
+                ? ` <span class="text-xxs" style="color: var(--color-accent);">uploaded by ${escapeHtml(f.user_id)}</span>`
+                : '';
+            return `<li style="margin-left: 16px; word-break: break-all;">${f.filename}${cidSuffix}${tagSuffix}${uploaderSuffix}</li>`;
         }).join('');
         block.innerHTML = `
             <div class="text-sm font-semibold" style="margin-bottom: 4px;">

@@ -9,8 +9,10 @@
 </div>
 
 <div id="pending-uploads-panel" style="margin-top: 24px; display: none;">
+    <!-- These files are already stored server-side (the raw storage location /
+         GCS); they are waiting for the ingest run, not for an upload. -->
     <div class="text-sm font-semibold" style="margin-bottom: 8px; color: var(--color-text-secondary);">
-        Pending uploads
+        Uploaded, awaiting processing
     </div>
     <div id="pending-uploads-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
 </div>
@@ -38,7 +40,7 @@
     <a class="text-xs view-log-link" onclick="openLogModal('ingest_refresh', 'Process New Collections')">View Log</a>
     <button type="button" class="action-btn" id="clearPendingUploadsBtn"
         onclick="clearPendingUploads(this)"
-        style="padding: 6px 12px; display: none;">Cancel All Pending Uploads</button>
+        style="padding: 6px 12px; display: none;">Remove All Awaiting Files</button>
 </div>
 
 <div id="ingest-results-panel" style="margin-top: 24px; display: none;">
