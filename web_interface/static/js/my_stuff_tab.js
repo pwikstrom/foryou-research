@@ -4,6 +4,7 @@
         'my-stuff-page-preferences': 'tab.my_stuff.preferences',
         'my-stuff-page-video-tags':  'tab.my_stuff.video_tags',
         'my-stuff-page-profile':     'tab.my_stuff.profile',
+        'my-stuff-page-my-collections': 'tab.my_stuff.my_collections',
     };
 
     function openMyStuffPage(pageId, clickedItem) {
@@ -84,6 +85,11 @@
         renderVariablePrefsStatus();
         renderGettingStartedStatus();
         loadProfileForm();
+
+        // My Collections (page may be permission-hidden, JS not loaded)
+        if (document.getElementById('myc-picker') && typeof loadMyCollections === 'function') {
+            loadMyCollections();
+        }
     }
 
     function renderGettingStartedStatus() {

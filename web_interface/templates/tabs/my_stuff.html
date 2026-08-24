@@ -28,6 +28,11 @@
             Profile
         </div>
         {% endif %}
+        {% if user.can_access('tab.my_stuff.my_collections') %}
+        <div class="dm-sidebar-item" data-page="my-stuff-page-my-collections" onclick="openMyStuffPage('my-stuff-page-my-collections', this)">
+            My Collections
+        </div>
+        {% endif %}
     </nav>
 
     <!-- Content Area -->
@@ -298,6 +303,22 @@
         </div>
         {% endif %}
 
+        {% if user.can_access('tab.my_stuff.my_collections') %}
+        <div id="my-stuff-page-my-collections" class="dm-page">
+            <h2 style="margin: 0 0 8px 0;">My Collections</h2>
+            <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0; max-width: 640px;">
+                The data you donated, turned back into something for you.
+                Everything on this page is computed from your own donated activity
+                data only &mdash; nothing is scraped, nothing is annotated, and
+                nobody else's data is involved.
+            </p>
+            <div id="myc-picker">
+                <span class="text-sm" style="color: var(--color-text-muted);">Loading your collections&hellip;</span>
+            </div>
+            <div id="myc-personality" style="margin-top: 20px;"></div>
+        </div>
+        {% endif %}
+
     </div>
 
     {% if user.can_access('tab.my_stuff.my_studies') %}
@@ -319,5 +340,8 @@
 {% if user.can_access('tab.my_stuff.tasks') %}
 <script src="{{ url_for('static', filename='js/human_coding.js') }}" defer></script>
 {% endif %}
+{% if user.can_access('tab.my_stuff.my_collections') %}
+<script src="{{ url_for('static', filename='js/my_collections.js') }}?v=1" defer></script>
+{% endif %}
 
-<script src="{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=3"></script>
+<script src="{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=4"></script>
