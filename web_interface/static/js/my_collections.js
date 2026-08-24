@@ -358,16 +358,15 @@
 
     function cohortRows(comparisons) {
         return comparisons.map(c => {
-            // Value-scaled track: 0 at the left, your value and the cohort
-            // median placed proportionally, so distances mean what they look like.
-            const maxv = Math.max(c.own, c.cohort_median) * 1.15;
+            // Value-scaled track with the median pinned to the CENTER: the
+            // scale runs 0 .. 2x median, so distances are proportional and a
+            // value past double the median pins at the right edge.
             let track = '';
-            if (maxv > 0) {
-                const ownPos = Math.max(1, Math.min(99, c.own / maxv * 100));
-                const medPos = Math.max(1, Math.min(99, c.cohort_median / maxv * 100));
+            if (c.cohort_median > 0) {
+                const ownPos = Math.max(1, Math.min(99, c.own / (2 * c.cohort_median) * 100));
                 track = `
                 <div style="position: relative; height: 6px; border-radius: 3px; background: var(--color-border); margin: 6px 0 2px 0;">
-                    <div style="position: absolute; left: ${medPos}%; top: -2px; width: 2px; height: 10px; background: var(--color-text-faint);" title="median"></div>
+                    <div style="position: absolute; left: 50%; top: -2px; width: 2px; height: 10px; background: var(--color-text-faint);" title="median"></div>
                     <div style="position: absolute; left: ${ownPos}%; top: -3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--color-accent);" title="you"></div>
                 </div>`;
             }
