@@ -307,18 +307,40 @@
 
         {% if user.can_access('tab.my_stuff.my_collections') %}
         <div id="my-stuff-page-my-collections" class="dm-page">
-            <h2 id="myc-page-title" style="margin: 0 0 8px 0;">My Collections</h2>
-            <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0; max-width: 640px;">
-                Everything on this page is computed from your own donated activity
-                data only. Nothing is scraped, nothing is annotated, and
-                nobody else's data is involved.
-            </p>
-            <div id="myc-upload-sources" style="margin-bottom: 16px;"></div>
-            <div id="myc-picker">
-                <span class="text-sm" style="color: var(--color-text-muted);">Loading your collections&hellip;</span>
-            </div>
-            <div id="myc-process" style="margin-top: 12px;"></div>
-            <div id="myc-personality" style="margin-top: 20px;"></div>
+            <!-- Three sibling sections, all headed at the same level. Each is
+                 hidden until my_collections.js finds something to put in it, so
+                 a participant with nothing donated yet sees only the invitation.
+                 -->
+            <p id="myc-loading" class="text-sm" style="color: var(--color-text-muted);">Loading your collections&hellip;</p>
+
+            <!-- 1. What the participant has already given the Hub. -->
+            <section id="myc-section-collections" style="display: none;">
+                <h2 style="margin: 0 0 8px 0;">My Collections</h2>
+                <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0; max-width: 640px;">
+                    These are the collections you have donated to the For You Data Hub.
+                </p>
+                <div id="myc-picker"></div>
+            </section>
+
+            <!-- 2. The invitation: upload cards, anything waiting to be
+                 processed, and the button that processes it. -->
+            <section id="myc-section-donate" style="display: none; margin-top: 32px;">
+                <h2 style="margin: 0 0 12px 0;">Donate your TikTok, Instagram or YouTube data to the Hub</h2>
+                <div id="myc-upload-sources" style="margin-bottom: 16px;"></div>
+                <div id="myc-pending"></div>
+                <div id="myc-process" style="margin-top: 12px;"></div>
+            </section>
+
+            <!-- 3. The persona view for whichever collection is selected. -->
+            <section id="myc-section-persona" style="display: none; margin-top: 32px;">
+                <h2 style="margin: 0 0 8px 0;">Your short-video persona</h2>
+                <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0; max-width: 640px;">
+                    Everything in this section is computed from your own donated activity
+                    data only. Nothing is scraped, nothing is annotated, and
+                    nobody else's data is involved.
+                </p>
+                <div id="myc-personality"></div>
+            </section>
 
             <!-- Data withdrawal: delete a processed collection from the
                  dataset (30-day restore window). The participant must type

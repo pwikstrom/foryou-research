@@ -84,6 +84,7 @@
             .then(([data, sources]) => {
                 mycCollections = (data && data.collections) || [];
                 mycSources = sources;
+                setLoadingNote('');
                 syncMyCollectionsMenuLabel();
                 renderUploadSources();
                 renderPicker();
@@ -92,18 +93,45 @@
                 if (autoOpen) {
                     openMyCollection(autoOpen);
                 } else if (!force) {
-                    if (mycCollections.length === 1) {
-                        openMyCollection(mycCollections[0].collection_id);
-                    } else if (mycCollections.length > 1) {
+                    const ready = mycCollections.filter(c => c.status === 'ready');
+                    const pending = mycCollections.filter(c => c.status === 'pending');
+                    if (ready.length > 1) {
                         openMyCollection('combined');
+                    } else if (ready.length === 1) {
+                        openMyCollection(ready[0].collection_id);
+                    } else if (pending.length) {
+                        openMyCollection(pending[0].collection_id);
                     }
                 }
             })
             .catch(() => {
-                const el = document.getElementById('myc-picker');
-                if (el) el.innerHTML = '<p class="text-sm" style="color: var(--color-text-muted);">Could not load your collections. Try reloading the page.</p>';
+                setLoadingNote('Could not load your collections. Try reloading the page.');
             });
     };
+
+    // ------------------------------------------------------------------
+    // Section visibility — a section with nothing in it is hidden entirely,
+    // headline and blurb included.
+    // ------------------------------------------------------------------
+
+    function showSection(id, visible) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = visible ? '' : 'none';
+    }
+
+    // The one-line placeholder above the sections; '' removes it.
+    function setLoadingNote(text) {
+        const el = document.getElementById('myc-loading');
+        if (!el) return;
+        el.textContent = text;
+        el.style.display = text ? '' : 'none';
+    }
+
+    // The persona container, revealing or hiding its section as it goes.
+    function personaBox(visible) {
+        showSection('myc-section-persona', visible);
+        return document.getElementById('myc-personality');
+    }
 
     // Someone with nothing donated yet has no "collections" to speak of, so
     // the menu item states the invitation instead of naming an empty page.
@@ -113,8 +141,6 @@
         const has = Array.isArray(mycCollections) && mycCollections.length > 0;
         const text = has ? 'My Collections' : 'Share your data';
         label.textContent = text;
-        const title = document.getElementById('myc-page-title');
-        if (title) title.textContent = text;
         // Keep the mobile subnav copy in step.
         if (typeof _buildTabSubnavs === 'function') _buildTabSubnavs();
     }
@@ -123,24 +149,16 @@
     // Picker
     // ------------------------------------------------------------------
 
+    // Two card grids from one list: everything already in the Hub goes in the
+    // "My Collections" section, everything still awaiting processing goes in
+    // the donation section next to the upload cards.
     function renderPicker() {
         const el = document.getElementById('myc-picker');
-        if (!el) return;
-
-        if (!mycCollections.length) {
-            el.innerHTML = `
-                <div style="border: 1px dashed var(--color-border); border-radius: 8px; padding: 24px; max-width: 520px;">
-                    <p style="margin: 0 0 6px 0; font-weight: 600;">No collections here yet.</p>
-                    <p class="text-sm" style="color: var(--color-text-muted); margin: 0;">
-                        No collections are linked to your account yet. When you donate
-                        data, it will show up here, along with your very own
-                        short-video personality.
-                    </p>
-                </div>`;
-            return;
-        }
+        const pendEl = document.getElementById('myc-pending');
+        if (!el || !pendEl) return;
 
         const cards = [];
+        const pendingCards = [];
         Object.keys(mycPendingMap).forEach(k => delete mycPendingMap[k]);
         for (const c of mycCollections) {
             if (c.status === 'withdrawn') {
@@ -175,7 +193,7 @@
                 : `<button class="btn-compact text-xs"
                         style="position: absolute; bottom: 8px; right: 8px; background: none; border: 1px solid var(--color-danger); color: var(--color-danger); border-radius: 4px; padding: 2px 10px; cursor: pointer;"
                         onclick="event.stopPropagation(); mycOpenWithdrawModal('${escapeHtml(c.collection_id)}')">Delete</button>`;
-            cards.push(`
+            (pending ? pendingCards : cards).push(`
                 <div class="myc-card" data-myc-select="${escapeHtml(c.collection_id)}"
                      onclick="openMyCollection('${escapeHtml(c.collection_id)}')"
                      style="position: relative; border: 1px solid var(--color-border); border-radius: 8px; padding: 12px 16px 36px 16px; cursor: pointer; min-width: 190px; background: var(--color-bg-elevated);">
@@ -187,7 +205,9 @@
                     ${removeBtn}
                 </div>`);
         }
-        if (mycCollections.length > 1) {
+        // "Combined" spans what is actually in the dataset, so it only earns a
+        // card once more than one collection has been processed.
+        if (mycCollections.filter(c => c.status === 'ready').length > 1) {
             cards.push(`
                 <div class="myc-card" data-myc-select="combined"
                      onclick="openMyCollection('combined')"
@@ -197,13 +217,22 @@
                     <div class="text-xs" style="color: var(--color-text-faint); margin-top: 4px;">One persona to rule them all</div>
                 </div>`);
         }
+
         el.innerHTML = `<div style="display: flex; flex-wrap: wrap; gap: 10px;">${cards.join('')}</div>`;
+        pendEl.innerHTML = pendingCards.length
+            ? `<div class="text-sm font-semibold" style="margin-bottom: 8px;">Awaiting processing</div>
+               <div style="display: flex; flex-wrap: wrap; gap: 10px;">${pendingCards.join('')}</div>`
+            : '';
+        showSection('myc-section-collections', cards.length > 0);
+        // renderUploadSources() normally opens the donation section; keep it
+        // open for pending cards even if the source registry came back empty.
+        if (pendingCards.length) showSection('myc-section-donate', true);
         markActiveCard();
     }
 
     function markActiveCard() {
         const accent = getCSSVar('--color-accent');
-        document.querySelectorAll('#myc-picker .myc-card').forEach(card => {
+        document.querySelectorAll('#my-stuff-page-my-collections .myc-card').forEach(card => {
             const active = card.getAttribute('data-myc-select') === mycActiveSelection;
             card.style.outline = active ? `3px solid ${accent}` : 'none';
             card.style.backgroundColor = active ? hexToRgba(accent, 0.18) : 'var(--color-bg-elevated)';
@@ -218,7 +247,7 @@
     window.openMyCollection = function (selection) {
         mycActiveSelection = selection;
         markActiveCard();
-        const el = document.getElementById('myc-personality');
+        const el = personaBox(true);
         if (!el) return;
         el.innerHTML = '<p class="text-sm" style="color: var(--color-text-muted);">Crunching your numbers&hellip;</p>';
         const pend = mycPendingMap[selection];
@@ -279,27 +308,34 @@
         const plat = singlePlat ? platformLabel(b.platforms[0]) : 'short-video';
         const html = [];
 
-        // --- Persona headline
+        // --- Persona moniker. It heads the scores card, so it sits right next
+        //     to the five axes it is derived from. With no scores card to head
+        //     it (too little signal), it stands on its own above the row.
         const persona = b.persona || {};
-        if (persona.statement) {
-            html.push(`
-                <div style="margin-bottom: 16px;">
-                    <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 4px 0;">Your short-video profile:</p>
-                    <p style="font-size: 1.5rem; font-weight: 700; margin: 0;">${escapeHtml(persona.statement)}</p>
-                </div>`);
+        const axes = persona.axes || {};
+        const presentAxes = Object.keys(AXIS_LABELS).filter(a => axes[a] && axes[a].score != null);
+        // The moniker is the card's own headline, so the line it used to share
+        // the card with ("The five scores behind it") drops to a caption.
+        const moniker = persona.statement
+            ? `<p style="font-size: 1.15rem; font-weight: 700; line-height: 1.3; margin: 0 0 2px 0;">${escapeHtml(persona.statement)}</p>`
+            : '';
+        const monikerCaption = caption => moniker
+            ? `${moniker}<p class="text-xs" style="color: var(--color-text-muted); margin: 0 0 12px 0;">${caption}</p>`
+            : cardTitle(caption);
+
+        if (moniker && !presentAxes.length) {
+            html.push(`<div style="margin-bottom: 16px;">${moniker}</div>`);
         }
 
         html.push('<div style="display: flex; flex-wrap: wrap; gap: 14px;">');
 
         // --- Radar (or chips)
-        const axes = persona.axes || {};
-        const presentAxes = Object.keys(AXIS_LABELS).filter(a => axes[a] && axes[a].score != null);
         if (presentAxes.length >= 3) {
-            html.push(sectionCard(cardTitle('The five scores behind it') + `<div id="${prefix}-chart-radar" style="height: 300px;"></div>`, '460px'));
+            html.push(sectionCard(monikerCaption('The five scores behind it') + `<div id="${prefix}-chart-radar" style="height: 300px;"></div>`, '460px'));
         } else if (presentAxes.length) {
             const chips = presentAxes.map(a =>
                 `<span style="border: 1px solid var(--color-border); border-radius: 16px; padding: 4px 12px; display: inline-block; margin: 0 6px 6px 0;">${AXIS_LABELS[a]}: <strong>${Math.round(axes[a].score)}</strong></span>`).join('');
-            html.push(sectionCard(cardTitle('Your scores') + `<div>${chips}</div><p class="text-xs" style="color: var(--color-text-faint); margin: 8px 0 0 0;">This donation doesn't carry enough signal for the full radar. Here's what we could measure.</p>`, '460px'));
+            html.push(sectionCard(monikerCaption('Your scores') + `<div>${chips}</div><p class="text-xs" style="color: var(--color-text-faint); margin: 8px 0 0 0;">This donation doesn't carry enough signal for the full radar. Here's what we could measure.</p>`, '460px'));
         }
 
         // --- Your data vs the rest of the Hub
@@ -478,15 +514,14 @@
         const el = document.getElementById('myc-upload-sources');
         if (!el) return;
         if (!mycSources || !mycSources.length) { el.innerHTML = ''; return; }
+        showSection('myc-section-donate', true);
         const cards = mycSources.map((s, i) => `
             <div onclick="mycOpenUploadModal(${i})"
                  style="border: 1px dashed var(--color-border); border-radius: 8px; padding: 10px 16px; cursor: pointer; min-width: 170px;">
                 <div style="font-weight: 600;">+ ${escapeHtml(platformLabel(s.source_platform))}</div>
                 <div class="text-xs" style="color: var(--color-text-faint);">upload your ${s.accepted_upload_suffixes.map(escapeHtml).join('/')} export</div>
             </div>`);
-        el.innerHTML = `
-            <div class="text-sm font-semibold" style="margin-bottom: 8px;">Add your data</div>
-            <div style="display: flex; flex-wrap: wrap; gap: 10px;">${cards.join('')}</div>`;
+        el.innerHTML = `<div style="display: flex; flex-wrap: wrap; gap: 10px;">${cards.join('')}</div>`;
     }
 
     window.mycOpenUploadModal = function (sourceIndex) {
@@ -609,13 +644,13 @@
                     btn.disabled = false;
                     btn.textContent = 'Cancel';
                     btn.dataset.armed = '';
-                    const p = document.getElementById('myc-personality');
+                    const p = personaBox(true);
                     if (p) p.innerHTML = `<p class="text-sm" style="color: var(--color-text-muted);">${escapeHtml((data && data.error) || 'Could not remove the donation. Try again.')}</p>`;
                     return;
                 }
                 if (mycActiveSelection === cid) {
                     mycActiveSelection = null;
-                    const p = document.getElementById('myc-personality');
+                    const p = personaBox(false);
                     if (p) p.innerHTML = '';
                 }
                 loadMyCollections({ force: true });
@@ -680,7 +715,7 @@
                 mycCloseWithdrawModal();
                 if (mycActiveSelection === cid) {
                     mycActiveSelection = null;
-                    const p = document.getElementById('myc-personality');
+                    const p = personaBox(false);
                     if (p) p.innerHTML = '';
                 }
                 loadMyCollections({ force: true });
@@ -700,7 +735,7 @@
                 if (!ok) {
                     btn.disabled = false;
                     btn.textContent = 'Restore';
-                    const p = document.getElementById('myc-personality');
+                    const p = personaBox(true);
                     if (p) p.innerHTML = `<p class="text-sm" style="color: var(--color-text-muted);">${escapeHtml((data && data.error) || 'Could not restore. Try again.')}</p>`;
                     return;
                 }
