@@ -519,7 +519,7 @@
             <div class="myc-source-card" onclick="mycOpenUploadModal(${i})">
                 <div style="font-weight: 600;">+ ${escapeHtml(platformLabel(s.source_platform))}</div>
                 <a class="myc-howto-link text-xs" href="#"
-                   onclick="event.preventDefault(); event.stopPropagation(); mycOpenHowtoModal('${escapeHtml(s.source_platform)}')">Show me how to get my data</a>
+                   onclick="event.preventDefault(); event.stopPropagation(); mycOpenHowtoModal('${escapeHtml(s.source_platform)}')">How do I get my data?</a>
             </div>`);
         el.innerHTML = `<div style="display: flex; flex-wrap: wrap; gap: 10px;">${cards.join('')}</div>`;
     }
@@ -549,6 +549,14 @@
         if (!modal) return;
         modal.style.display = 'none';
         modal.querySelectorAll('iframe[data-src]').forEach(f => f.removeAttribute('src'));
+    };
+
+    // The guide's Continue button: straight from "how do I get my data" into
+    // that platform's upload modal.
+    window.mycHowtoContinue = function (platform) {
+        mycCloseHowtoModal();
+        const idx = (mycSources || []).findIndex(s => s.source_platform === platform);
+        if (idx !== -1) mycOpenUploadModal(idx);
     };
 
     window.mycOpenUploadModal = function (sourceIndex) {

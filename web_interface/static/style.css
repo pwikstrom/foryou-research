@@ -1869,6 +1869,14 @@ button {
     margin-bottom: 0;
 }
 
+.myc-howto-actions {
+    display: flex;
+    justify-content: flex-end;
+    border-top: 1px solid var(--color-border);
+    padding-top: 12px;
+    margin-top: 16px;
+}
+
 
 /* ============================================================
    Help Icon
