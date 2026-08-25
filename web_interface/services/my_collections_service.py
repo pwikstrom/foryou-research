@@ -440,6 +440,26 @@ def _save_withdrawals(w: dict) -> None:
                       filename=WITHDRAWALS_FILENAME, verbose=False)
 
 
+def _utc_now() -> pd.Timestamp:
+    """Now as an offset-aware UTC instant — these stamps reach the browser."""
+    return pd.Timestamp.now(tz="UTC")
+
+
+def _as_utc(value) -> pd.Timestamp | None:
+    """Parse a stored stamp to offset-aware UTC, or ``None`` if unusable.
+
+    Ledger entries written before the stamps became offset-aware are naive
+    UTC, so a zone-less value is localised rather than rejected.
+    """
+    try:
+        ts = pd.Timestamp(value)
+    except Exception:
+        return None
+    if pd.isna(ts):
+        return None
+    return ts.tz_localize("UTC") if ts.tz is None else ts.tz_convert("UTC")
+
+
 def load_withdrawals(purge: bool = True) -> dict:
     """The withdrawal ledger: {cid: {user_id, deleted_at, restorable_until,
     display_id, source_platform, raw_path, files: [filename, ...]}}.
@@ -452,14 +472,11 @@ def load_withdrawals(purge: bool = True) -> dict:
     w = _load_withdrawals_raw()
     if not purge or not w:
         return w
-    now = pd.Timestamp.utcnow().tz_localize(None)
+    now = _utc_now()
     expired = []
     for cid, entry in w.items():
-        try:
-            until = pd.Timestamp(entry.get("restorable_until"))
-        except Exception:
-            continue
-        if pd.isna(until) or now <= until:
+        until = _as_utc(entry.get("restorable_until"))
+        if until is None or now <= until:
             continue
         expired.append(cid)
         for fn in entry.get("files") or []:
@@ -479,7 +496,7 @@ def record_withdrawal(cid: str, username: str, files: list[str],
                       raw_path: str | None, display_id: str | None,
                       source_platform: str | None) -> dict:
     """Write the ledger entry for a just-requested withdrawal."""
-    now = pd.Timestamp.utcnow().tz_localize(None)
+    now = _utc_now()
     entry = {
         "user_id": username,
         "deleted_at": now.isoformat(timespec="seconds"),
@@ -518,11 +535,8 @@ def restore_withdrawal(cid: str) -> dict:
     entry = w.get(str(cid))
     if not isinstance(entry, dict):
         raise RestoreError("No withdrawal record found for this collection.")
-    try:
-        until = pd.Timestamp(entry.get("restorable_until"))
-    except Exception:
-        until = None
-    if until is None or pd.Timestamp.utcnow().tz_localize(None) > until:
+    until = _as_utc(entry.get("restorable_until"))
+    if until is None or _utc_now() > until:
         raise RestoreError("The restore window for this collection has closed.")
 
     raw_path = entry.get("raw_path")
