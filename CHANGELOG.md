@@ -12,6 +12,16 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Added
 
+- **Default study (Admin → Site Settings).** A new subsection picks one study
+  as the site-wide default. That study becomes readable by every role
+  regardless of its own Access list, and it is the study the Hub opens on for
+  users who have not chosen one themselves (a user's own last selection still
+  wins). Setting it back to *None* removes the every-role sharing again — the
+  study's Access list is never edited. With no default set, or one naming a
+  study that has since been deleted, the previous behaviour applies unchanged:
+  users see only the studies shared with them and the Hub opens on the first
+  of those. Renaming the default study carries the setting across.
+
 - **Collections belong to user accounts; demographics live on the account,
   not the collection.** Each collection can be linked to one user account
   (n-to-1). The link is set at upload (a "Participant account" picker in the

@@ -35,6 +35,15 @@ DEFAULTS: dict = {
     # one-time console password, never through the signup route.
     "new_user_admin_approval_required": True,
     "default_new_user_role": "viewer",
+    # The site-wide default study (Admin -> Site Settings). Empty means "no
+    # default" and the app keeps its historical behaviour: every user only
+    # sees the studies explicitly shared with them, and the client picks the
+    # first of those. When set, the named study is readable by EVERY logged-in
+    # user regardless of its USER_ACCESS list, and is the study the app opens
+    # on for anyone who has not chosen one themselves. A name that no longer
+    # matches a study (deleted/renamed) simply matches nothing, so the same
+    # historical behaviour returns without needing a migration.
+    "default_study": "",
     ANNOTATION_BACKEND_KEY: "gemini",
     EMBEDDING_BACKEND_KEY: "gemini",
     # Cost guardrails: the most items a single queue-build request from a
@@ -67,6 +76,7 @@ SESSION_FLOOR_KEYS: dict = {
 SETTING_TYPES: dict = {
     "new_user_admin_approval_required": bool,
     "default_new_user_role": str,
+    "default_study": str,
     ANNOTATION_BACKEND_KEY: str,
     EMBEDDING_BACKEND_KEY: str,
     "queue_cap_annotation_items": int,
@@ -106,6 +116,12 @@ def validate_setting_value(key: str, value) -> str | None:
     elif key in ("queue_cap_annotation_items", "queue_cap_scrape_items"):
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             return f"{key} must be a non-negative integer (0 = unlimited)"
+    elif key == "default_study":
+        # An admin can only point the default at a study that exists right
+        # now; a name that later disappears is tolerated on the read side.
+        known = study_names()
+        if value not in known:
+            return f"Unknown study: {value!r}"
     elif key in SESSION_FLOOR_KEYS:
         # bool is an int subclass — reject it explicitly or True becomes 1.
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
@@ -247,6 +263,41 @@ def get_setting(key: str):
 def get_new_user_approval_required() -> bool:
     """Whether new signups must be approved by an admin before activation."""
     return bool(get_setting("new_user_admin_approval_required"))
+
+
+
+
+def get_default_study() -> str:
+    """The admin-selected site-wide default study name, or ``""`` when unset.
+
+    The name is returned as stored — deliberately NOT checked against the
+    current study definitions. Every caller already looks the name up in
+    ``study_defs`` (to grant access, to list it, or to preselect it), so a
+    stale name matches nothing and the app falls back to its no-default
+    behaviour without this module having to load the study definitions.
+    """
+    value = get_setting("default_study")
+    return value.strip() if isinstance(value, str) else ""
+
+
+
+
+def study_names() -> list[str]:
+    """Defined study names, sorted — the choices for the default-study picker.
+
+    Reloads ``studies.json`` first, the way ``GET /api/manage/studies`` does —
+    the task-runner service writes study definitions too, so the in-memory copy
+    can be stale and the picker would then be missing a just-built study.
+    Returns ``[]`` rather than raising if the definitions cannot be loaded.
+    """
+    try:
+        from fyp.fyp_config import fyp_cf
+        from fyp.studies import init_study_defs
+
+        init_study_defs()
+        return sorted(fyp_cf.get('study_defs') or {})
+    except Exception:
+        return []
 
 
 
