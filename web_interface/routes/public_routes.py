@@ -1,12 +1,15 @@
 """Public (unauthenticated) mini-site pages.
 
-These routes are deliberately import-light — Flask only, no fyp imports — so
-registering them never touches config loading and cannot participate in the
-fyp_config import cycle. All page content is hardcoded in the templates under
-``templates/public/``.
+These routes are deliberately import-light — Flask and ``web_interface.seo``,
+no fyp imports — so registering them never touches config loading and cannot
+participate in the fyp_config import cycle. ``seo`` holds to the same rule and
+reads config lazily, inside the request. All page content is hardcoded in the
+templates under ``templates/public/``.
 """
 
-from flask import Blueprint, redirect, render_template, url_for
+from flask import Blueprint, Response, redirect, render_template, url_for
+
+from web_interface import seo
 
 public_bp = Blueprint('public_bp', __name__)
 
@@ -57,3 +60,20 @@ def be_a_citizen_scientist():
 def faq():
     """Frequently asked questions about the Data Hub and the project."""
     return render_template('public/faq.html', active_page='faq')
+
+
+@public_bp.route('/robots.txt')
+def robots():
+    """Crawl rules, plus the pointer that makes the sitemap discoverable.
+
+    Served from the app rather than a static file so the ``Sitemap:`` line
+    carries this instance's own hostname — a static file would hardcode one
+    operator's domain into every fork.
+    """
+    return Response(seo.robots_txt(), mimetype='text/plain')
+
+
+@public_bp.route('/sitemap.xml')
+def sitemap():
+    """The canonical URL of every public page, for Search Console to ingest."""
+    return Response(seo.sitemap_xml(), mimetype='application/xml')

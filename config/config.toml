@@ -359,8 +359,16 @@ var_schema_admin = true
 #   note (those passages are hidden while empty).
 # mail_sender: Gmail address outbound mail is sent from (mail no-ops while
 #   empty or while MAIL_PASSWORD is unset).
-# app_url: public URL of this instance, used for "log in at ..." links in
-#   outbound emails.
+# app_url: public URL of this instance. Two jobs: the "log in at ..." links in
+#   outbound emails, and — since 2026-08 — the canonical origin every search
+#   engine is told to index. The canonical <link>, the sitemap, the JSON-LD and
+#   the www-to-apex redirect all read it, so this is the ONE place a fork sets
+#   its own domain. Point it at the hostname visitors use (https://example.org),
+#   not at the platform URL underneath it: a value like the raw Cloud Run
+#   *.run.app address makes every page declare that address canonical, and the
+#   real domain then drops out of the index. Left empty, the app falls back to
+#   whatever host the request arrived on and skips the redirect, which is the
+#   right behaviour for a local or intranet install.
 contact_email = ""
 mail_sender = ""
 app_url = ""

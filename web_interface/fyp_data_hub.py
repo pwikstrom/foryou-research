@@ -106,6 +106,37 @@ def _register_web_ui(app):
     app.register_blueprint(human_eval_bp)
     app.register_blueprint(my_collections_bp)
 
+    @app.before_request
+    def canonicalise_host():
+        """Send ``www.`` traffic to the canonical host with a 301.
+
+        Two hostnames serving the same page with a 200 is what cost
+        foryouresearch.net its entire index in 2026-08: Google treated the apex
+        and ``www.`` as duplicates, kept ``www.`` — which still carried the old
+        Wix ``noindex`` — and dropped the real site with it. The redirect makes
+        the choice explicit instead of leaving it to a crawler. See
+        ``web_interface.seo`` for why it is scoped to the ``www.`` twin only.
+        """
+        from web_interface import seo
+        return seo.canonical_host_redirect()
+
+    @app.context_processor
+    def inject_seo():
+        """Expose the current page's search and social metadata as ``seo``.
+
+        A context processor rather than a per-route argument because the tags
+        live in the shared public layout: a new public page then needs no
+        template work at all, only an entry in ``seo.PUBLIC_PAGES``.
+        """
+        from web_interface import seo
+        try:
+            return {"seo": seo.page_meta()}
+        except Exception:
+            # Metadata is never worth a 500. A page with no canonical link
+            # still renders; the next crawl picks it up once this is fixed.
+            logging.warning("Could not build SEO metadata for this request.", exc_info=True)
+            return {"seo": {"indexable": False, "title": seo.DEFAULT_TITLE, "description": ""}}
+
     @app.context_processor
     def inject_scrape_platforms():
         """Expose the registered scrape platforms to every template.

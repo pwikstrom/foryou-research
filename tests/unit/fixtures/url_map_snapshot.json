@@ -813,6 +813,76 @@
   ]
  ],
  [
+  "/api/my/collections",
+  "my_collections_bp.api_my_collections",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/my/collections/<collection_id>/personality",
+  "my_collections_bp.api_my_collection_personality",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/my/collections/<collection_id>/restore",
+  "my_collections_bp.api_my_restore",
+  [
+   "POST"
+  ]
+ ],
+ [
+  "/api/my/collections/<collection_id>/withdraw",
+  "my_collections_bp.api_my_withdraw",
+  [
+   "POST"
+  ]
+ ],
+ [
+  "/api/my/collections/combined/personality",
+  "my_collections_bp.api_my_combined_personality",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/my/collections/pending/delete",
+  "my_collections_bp.api_my_pending_delete",
+  [
+   "POST"
+  ]
+ ],
+ [
+  "/api/my/collections/pending/personality",
+  "my_collections_bp.api_my_pending_personality",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/my/collections/process",
+  "my_collections_bp.api_my_process",
+  [
+   "POST"
+  ]
+ ],
+ [
+  "/api/my/collections/upload",
+  "my_collections_bp.api_my_upload",
+  [
+   "POST"
+  ]
+ ],
+ [
+  "/api/my/collections/upload/sources",
+  "my_collections_bp.api_my_upload_sources",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/semantic_space/collections",
   "semantic_space_bp.api_semantic_space_collections",
   [
@@ -1104,11 +1174,25 @@
   ]
  ],
  [
+  "/robots.txt",
+  "public_bp.robots",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/signup",
   "auth_bp.signup",
   [
    "GET",
    "POST"
+  ]
+ ],
+ [
+  "/sitemap.xml",
+  "public_bp.sitemap",
+  [
+   "GET"
   ]
  ],
  [
