@@ -239,7 +239,12 @@ def _register_web_ui(app):
         # The home pane is a user guide: it walks only the pipeline stages this
         # user can actually reach (see permissions.visible_pipeline_steps).
         pipeline_steps = visible_pipeline_steps(current_user)
-        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, media_on_gcs=media_on_gcs, platform_url_templates=platform_url_templates(), pipeline_steps=pipeline_steps)
+        # The site-wide default study (Admin -> Site Settings), or "" when the
+        # operator has not picked one. study_state.js opens on it for users
+        # who have not chosen a study themselves.
+        from .admin_settings import get_default_study
+        default_study = get_default_study()
+        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, media_on_gcs=media_on_gcs, platform_url_templates=platform_url_templates(), pipeline_steps=pipeline_steps, default_study=default_study)
 
 
 def create_app():

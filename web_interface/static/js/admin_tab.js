@@ -122,6 +122,29 @@
                 roleSelect.disabled = false;
             }
 
+            // General → "Default study" dropdown. Choices come from the same
+            // response (Site Settings holders only); "None" is the empty value.
+            // A stored name that no longer matches a study is still offered as
+            // a "(missing)" option so the admin can see what to fix — the
+            // server already ignores it.
+            const studySelect = document.getElementById('setting-default-study');
+            if (studySelect && Array.isArray(data.study_names)) {
+                const current = settings.default_study || '';
+                const names = data.study_names.slice();
+                if (current && !names.includes(current)) names.unshift(current);
+                const options = ['<option value="">None — no default study</option>'];
+                names.forEach(name => {
+                    const missing = !data.study_names.includes(name);
+                    options.push(
+                        `<option value="${escapeHtml(name)}" ${name === current ? 'selected' : ''}>` +
+                        `${escapeHtml(name)}${missing ? ' (missing)' : ''}</option>`
+                    );
+                });
+                studySelect.innerHTML = options.join('');
+                studySelect.value = current;
+                studySelect.disabled = false;
+            }
+
             // General → Cost guardrail caps + Sessions-tab list floors. The
             // server sends the EFFECTIVE floors (admin setting, else the
             // [sessions] config seed), so these fields always show what the
@@ -193,6 +216,44 @@
             }
         } catch (e) {
             console.error('saveDefaultNewUserRoleSetting:', e);
+            select.value = previous; // revert
+            if (status) status.textContent = `Failed — reverted (${e.message})`;
+        } finally {
+            select.disabled = false;
+        }
+    }
+
+    // The default study is readable by every account, so a failed save must
+    // not leave the dropdown showing a sharing state the server never stored.
+    async function saveDefaultStudySetting(select) {
+        const status = document.getElementById('setting-default-study-status');
+        const desired = select.value || '';
+        const previous = (window._adminSettings || {}).default_study || '';
+
+        select.disabled = true;
+        if (status) status.textContent = 'Saving…';
+
+        try {
+            const response = await fetch('/api/admin/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ default_study: desired })
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'Save failed');
+            }
+            (window._adminSettings || (window._adminSettings = {})).default_study = desired;
+            if (status) {
+                status.textContent = desired
+                    ? `Saved — '${desired}' is now shared with every role`
+                    : 'Saved — no default study';
+                setTimeout(() => {
+                    if (status.textContent.startsWith('Saved')) status.textContent = '';
+                }, 4000);
+            }
+        } catch (e) {
+            console.error('saveDefaultStudySetting:', e);
             select.value = previous; // revert
             if (status) status.textContent = `Failed — reverted (${e.message})`;
         } finally {

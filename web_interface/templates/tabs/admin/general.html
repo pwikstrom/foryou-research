@@ -31,6 +31,32 @@
     </div>
 </section>
 
+<!-- Default study -->
+<section style="margin-bottom: 28px;">
+    <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Default study</h3>
+    <p class="text-xs" style="margin: 0 0 12px 0; color: var(--color-text-muted);">
+        The study every account can open, and the one the app starts on for users
+        who have not picked a study themselves. Choosing one here shares it with
+        <strong>every role</strong>, whatever its own access list says — its access
+        list is left untouched, so setting this back to <em>None</em> takes that
+        sharing away again. With no default study set, users only see the studies
+        explicitly shared with them and the app opens on the first of those.
+    </p>
+
+    <div style="display: flex; align-items: center; gap: 8px;">
+        <label for="setting-default-study" class="text-sm" style="color: var(--color-text-primary); min-width: 220px;">
+            Default study
+        </label>
+        <select id="setting-default-study"
+            onchange="saveDefaultStudySetting(this)" disabled
+            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary); min-width: 220px;">
+            <!-- Populated dynamically -->
+        </select>
+        <span id="setting-default-study-status" class="text-xs"
+            style="color: var(--color-text-muted); margin-left: 4px;"></span>
+    </div>
+</section>
+
 <!-- Cost guardrails -->
 <section style="margin-bottom: 28px;">
     <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Cost guardrails</h3>

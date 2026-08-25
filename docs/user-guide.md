@@ -372,10 +372,11 @@ selected collections (searchable checklist), the **date range** (type dates,
 step by day, or drag the edge handles on the activities-per-day chart), the
 **sampling frame** (activities / scraped / annotated / off) and per-day and
 per-collection min/max sampling caps, and — via the **Access** dropdown — who
-the study is shared with (roles or users; an unshared study is visible only
-to study managers). The footer offers Delete, Rename (moves the study's
-artifacts in place, no rebuild), Duplicate, and **Save/Refresh Study**, which
-rebuilds the study dataset.
+the study is shared with (roles or users; an unshared study is visible only to
+study managers — the one exception is the study chosen as the default under
+Admin → Site Settings, which everyone can see). The footer offers Delete,
+Rename (moves the study's artifacts in place, no rebuild), Duplicate, and
+**Save/Refresh Study**, which rebuilds the study dataset.
 
 **Scrape.** Per-study queueing and per-platform scraper workers. Pick a
 **Target Study** and press "Queue videos for scraping" (optionally including
@@ -462,6 +463,18 @@ grouped into Users, Annotation Pipeline, Data & Variables and System.*
 **System**
 
 - **Site Settings** — signup approval gating, the default role for new
-  users, and cost guardrails (per-request queue caps for non-admin users).
+  users, the default study, and cost guardrails (per-request queue caps for
+  non-admin users).
 - **System Information** — runtime environment, revision, storage locations
   and a system-health panel.
+
+The **default study** is worth spelling out. Picking one under Site Settings
+does two things: that study becomes readable by *every* role, whatever its own
+Access list says, and it is the study the Hub opens on for anyone who has not
+already chosen one. A user's own last selection is remembered and still wins.
+Setting the picker back to *None* takes the every-role sharing away again — the
+study's own Access list is never edited, so nothing else changes. With no
+default study set, users see only the studies explicitly shared with them and
+the Hub opens on the first of those. If the chosen study is later deleted the
+setting simply stops matching anything and that same behaviour returns;
+renaming it carries the setting across.

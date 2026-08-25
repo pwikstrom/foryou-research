@@ -29,10 +29,18 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
     """
     from fyp.studies import init_study_defs
 
+    from ..admin_settings import get_default_study
+
     if 'study_defs' not in fyp_cf:
         init_study_defs()
 
     accessible_studies = []
+
+    # The site-wide default study is readable by every logged-in user, whatever
+    # its USER_ACCESS says — that is what picking one in Admin -> Site Settings
+    # means. Unset (or pointing at a study that no longer exists) it matches
+    # nothing and access falls back to USER_ACCESS alone.
+    default_study = get_default_study()
 
     # When stats are requested we also need to know which studies have
     # PCA scores and which have timelines — both gate tab availability in
@@ -81,6 +89,9 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
         for study_name, study_config in fyp_cf['study_defs'].items():
             # 1. Admin Override
             if is_admin:
+                has_access = True
+            # 1b. The site-wide default study is shared with everyone.
+            elif default_study and study_name == default_study:
                 has_access = True
             else:
                 user_access = study_config.get('USER_ACCESS')

@@ -54,13 +54,25 @@ def _is_study_manager() -> bool:
     )
 
 
-def _user_can_see_study(config: dict) -> bool:
+def _user_can_see_study(config: dict, study_name: str | None = None) -> bool:
     """True when the current user may read ``config``'s definition.
 
-    Managers see everything; everyone else needs their role or username in the
-    study's ``USER_ACCESS`` (or the wildcard ``"all"``).
+    Managers see everything; the site-wide default study is visible to
+    everyone (that is what selecting one in Admin -> Site Settings means);
+    everyone else needs their role or username in the study's ``USER_ACCESS``
+    (or the wildcard ``"all"``).
+
+    Args:
+        config: The study definition.
+        study_name: The study's name, for the default-study check. Falls back
+            to ``config["STUDY_NAME"]`` when omitted.
     """
     if _is_study_manager():
+        return True
+    from ...admin_settings import get_default_study
+    name = study_name or config.get("STUDY_NAME")
+    default_study = get_default_study()
+    if default_study and name == default_study:
         return True
     user_access = config.get("USER_ACCESS", [])
     return isinstance(user_access, list) and (
@@ -68,6 +80,29 @@ def _user_can_see_study(config: dict) -> bool:
         or current_user.username in user_access
         or 'all' in user_access
     )
+
+
+def _retarget_default_study(old_name: str, new_name: str) -> None:
+    """Point the site-wide default study at ``new_name`` if it was ``old_name``.
+
+    A no-op unless this study is the default. Never raises: a settings-store
+    failure must not fail the rename, and a stale default is harmless (it
+    matches no study, so the app falls back to its no-default behaviour).
+    """
+    try:
+        from ...admin_settings import (
+            get_default_study,
+            load_admin_settings,
+            save_admin_settings,
+        )
+
+        if get_default_study() != old_name:
+            return
+        settings = load_admin_settings()
+        settings["default_study"] = new_name
+        save_admin_settings(settings)
+    except Exception as e:
+        print(f"[rename_study] non-fatal: could not retarget default study: {e}")
 
 
 @management_bp.route('/api/manage/studies', methods=['GET'])
@@ -93,7 +128,7 @@ def list_studies():
 
         if is_manager:
             studies_list.append(config)
-        elif _user_can_see_study(config):
+        elif _user_can_see_study(config, name):
             # The My Studies read-only view renders from this payload, so it
             # ships the whole definition. USER_ACCESS is the one key that
             # says something about other users rather than about the study.
@@ -122,7 +157,7 @@ def study_set_viz(study):
     config = (fyp_cf.get('study_defs') or {}).get(study)
     if config is None:
         return jsonify({"error": "Unknown study"}), 404
-    if not _user_can_see_study(config):
+    if not _user_can_see_study(config, study):
         return jsonify({"error": "Not authorised for this study"}), 403
 
     study_config = dict(config)
@@ -661,6 +696,11 @@ def rename_study():
             print(f"[rename_study] non-fatal: could not rename {old_name}{suffix}: {e}")
 
     study_cache.invalidate(old_name)
+
+    # Follow the site-wide default study through the rename — the admin picked
+    # this study, not this name, and a dangling name would silently drop the
+    # every-role grant that goes with being the default.
+    _retarget_default_study(old_name, new_name)
 
     activity_log.record(
         actor=_actor(),

@@ -207,8 +207,15 @@ async function loadStudiesGlobal(options = {}) {
         } else {
             let stored = null;
             try { stored = localStorage.getItem(_STUDY_STORAGE_KEY); } catch (e) { /* ignore */ }
+            // The user's own last pick wins. Failing that, the site-wide
+            // default study set in Admin → Site Settings; failing that (unset,
+            // deleted, or not in this user's list) the first study, which is
+            // the behaviour from before the setting existed.
+            const siteDefault = window.DEFAULT_STUDY || '';
             if (stored && studies.includes(stored)) {
                 chosen = stored;
+            } else if (siteDefault && studies.includes(siteDefault)) {
+                chosen = siteDefault;
             } else if (studies.length > 0) {
                 chosen = studies[0];
             }

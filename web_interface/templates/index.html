@@ -21,6 +21,9 @@
 <script>
     window.USER_PERMS = {{ user_perms|tojson }};
     window.USER_IS_ADMIN = {{ user.is_admin()|tojson }};
+    // Site-wide default study (Admin → Site Settings), or "" when unset. Used
+    // by study_state.js as the initial study for anyone without a stored pick.
+    window.DEFAULT_STUDY = {{ default_study|tojson }};
     // source_platform -> "open on platform" URL template, from the collection
     // registry. Use fypPlatformUrl() rather than reading this directly.
     window.PLATFORM_URL_TEMPLATES = {{ platform_url_templates|tojson }};
@@ -230,7 +233,7 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='main.js') }}?v=19"></script>
 <script src="{{ url_for('static', filename='js/variable_prefs.js') }}"></script>
-<script src="{{ url_for('static', filename='study_state.js') }}?v=3"></script>
+<script src="{{ url_for('static', filename='study_state.js') }}?v=4"></script>
 <script src="{{ url_for('static', filename='filter_value_search.js') }}?v=1"></script>
 <script src="{{ url_for('static', filename='explore.js') }}?v=15"></script>
 <script src="{{ url_for('static', filename='video_analysis.js') }}?v=13"></script>

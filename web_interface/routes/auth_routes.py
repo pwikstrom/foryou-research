@@ -18,6 +18,7 @@ from ..admin_settings import (
     get_session_floors,
     load_admin_settings,
     save_admin_settings,
+    study_names as admin_study_names,
     validate_setting_value,
 )
 from .. import activity_log
@@ -546,9 +547,16 @@ def api_admin_settings():
         # page shows a number the Sessions tab is not using.
         merged.update(get_session_floors())
         from fyp.annotation.backends import BACKEND_IDS, implemented_backend_ids
-        return jsonify({"settings": merged,
-                        "backend_ids": list(BACKEND_IDS),
-                        "implemented_backends": list(implemented_backend_ids())})
+        payload = {"settings": merged,
+                   "backend_ids": list(BACKEND_IDS),
+                   "implemented_backends": list(implemented_backend_ids())}
+        # Choices for the default-study picker. Only Site Settings holders get
+        # them — the other two sub-pages that may read this endpoint have no
+        # business learning every study name.
+        from ..permissions import user_has_permission
+        if user_has_permission(current_user, 'tab.admin.general'):
+            payload["study_names"] = admin_study_names()
+        return jsonify(payload)
 
     # PUT — the backend selections belong to the Backends sub-page, every
     # other setting to Site Settings (tab.admin.general).
@@ -586,8 +594,21 @@ def api_admin_settings():
     current = load_admin_settings()
     prev_annotation_backend = current.get(
         "annotation_backend", ADMIN_SETTINGS_DEFAULTS.get("annotation_backend"))
+    prev_default_study = current.get(
+        "default_study", ADMIN_SETTINGS_DEFAULTS.get("default_study"))
     current.update(data)
     save_admin_settings(current)
+
+    # The default study is readable by every logged-in user, so changing it
+    # widens (or narrows) data access — leave a trail.
+    if "default_study" in data and data["default_study"] != prev_default_study:
+        activity_log.record(
+            actor=getattr(current_user, "username", "") or "",
+            category="admin",
+            action="default_study.change",
+            target=data["default_study"] or "",
+            details={"from": prev_default_study or "", "to": data["default_study"] or ""},
+        )
 
     # A backend switch forks the effective annotation version — register it
     # eagerly so it shows on the Versions page without waiting for the first
