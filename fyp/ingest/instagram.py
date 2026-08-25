@@ -53,6 +53,15 @@ class InstagramDDPCollection(ForYouBaseCollection):
         ("ads_and_topics/posts_viewed.json", "play"),
         ("likes/liked_posts.json", "fave"),
     ]
+    # Participant-facing card titles for the pre-upload review UI, keyed by
+    # stream suffix. A stream added to _STREAMS shows up in the review
+    # automatically (falling back to its suffix as the title until named here).
+    _STREAM_TITLES = {
+        "story_interactions/stories_viewed.json": "Stories you viewed",
+        "ads_and_topics/videos_watched.json": "Videos you watched",
+        "ads_and_topics/posts_viewed.json": "Posts you viewed",
+        "likes/liked_posts.json": "Posts you liked",
+    }
     _SHORTCODE_RE = re.compile(r"instagram\.com/(?:reel|p|tv)/([\w-]+)")
 
 
@@ -80,6 +89,25 @@ class InstagramDDPCollection(ForYouBaseCollection):
     def zip_member_suffixes(cls) -> list[str]:
         """The two activity-stream members read from the export zip."""
         return [suffix for suffix, _ in cls._STREAMS]
+
+
+
+
+    @classmethod
+    def review_manifest(cls) -> dict:
+        """Pre-upload review manifest: one row-level section per ingested stream."""
+        return {
+            "kind": "zip_members",
+            "viability": {
+                "min_total_rows": 10,
+                "message": "Removing this many items would leave too little activity to be usable.",
+            },
+            "sections": [
+                {"id": suffix, "title": cls._STREAM_TITLES.get(suffix, suffix),
+                 "parser": "instagram_records", "row_delete": True}
+                for suffix, _ in cls._STREAMS
+            ],
+        }
 
 
 

@@ -115,6 +115,11 @@ def api_my_upload():
     if donor_tz and parse_donor_timezone(donor_tz) is None:
         donor_tz = ''
 
+    # Set by the browser review step: the file was pruned client-side (rows
+    # deleted, unused sections stripped). Recorded in the manifest so the
+    # structure sentinel evaluates it against the "reviewed" baseline variant.
+    client_reviewed = request.form.get('client_review') == '1'
+
     username = current_user.username
 
     manifest = {}
@@ -172,6 +177,8 @@ def api_my_upload():
             manifest[filename] = {"collection_id": cid, "tags": [], "user_id": username}
             if donor_tz:
                 manifest[filename]["tz"] = donor_tz
+            if client_reviewed:
+                manifest[filename]["client_reviewed"] = True
             set_collection_owner(cid, username)
             uploaded.append({"collection_id": cid, "raw_path": raw_path_key,
                              "filename": filename})

@@ -270,6 +270,7 @@ def donation_upload_sources() -> list[dict]:
             "class_name": col.__class__.__name__,
             "accepted_upload_suffixes": col.accepted_upload_suffixes(),
             "zip_member_suffixes": col.zip_member_suffixes(),
+            "review": col.review_manifest(),
         })
     return out
 
