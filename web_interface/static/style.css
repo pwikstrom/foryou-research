@@ -762,6 +762,12 @@ button {
     color: var(--btn-primary-text);
 }
 
+.btn-start:disabled,
+.btn-primary:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
 .btn-stop {
     background: var(--btn-danger-bg);
     color: var(--btn-danger-text);
@@ -1584,6 +1590,283 @@ button {
     color: var(--white);
     text-decoration: none;
     cursor: pointer;
+}
+
+
+/* ============================================================
+   Donation pre-upload review (My Collections upload modal)
+   ============================================================ */
+
+/* Review mode widens the upload modal (its inline max-width is overridden). */
+.modal-content.myc-review-mode {
+    max-width: 780px !important;
+    width: 92vw;
+    margin: 6vh auto;
+}
+
+.rev-intro {
+    color: var(--color-text-muted);
+    margin-bottom: 12px;
+}
+
+.rev-card {
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    overflow: hidden;
+}
+
+.rev-card-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    flex-wrap: wrap;
+}
+
+.rev-disclose {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.rev-chevron { color: var(--color-text-tertiary); }
+
+.rev-title { font-weight: 600; }
+
+.rev-count {
+    color: var(--color-text-muted);
+    margin-left: auto;
+}
+
+.rev-actions { display: flex; gap: 8px; }
+
+.rev-chip {
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: none;
+    color: inherit;
+    font-size: var(--text-sm, 0.85em);
+    padding: 2px 10px;
+    cursor: pointer;
+}
+
+.rev-chip:disabled { opacity: 0.45; cursor: default; }
+
+.rev-chip:not(:disabled):hover { border-color: var(--color-text-tertiary); }
+
+.rev-body { padding: 0 12px 10px 12px; }
+
+.rev-search {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 8px;
+    padding: 4px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: inherit;
+    color: inherit;
+}
+
+.rev-toolbar { margin-bottom: 6px; }
+
+.rev-table-wrap {
+    max-height: 300px;
+    overflow-y: auto;
+    overflow-x: auto;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+}
+
+.rev-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm, 0.85em);
+}
+
+.rev-table th {
+    position: sticky;
+    top: 0;
+    background: var(--modal-bg);
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--color-border);
+    z-index: 1;
+}
+
+.rev-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--color-border);
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: top;
+}
+
+.rev-check-col { width: 28px; }
+
+.rev-empty { color: var(--color-text-muted); padding: 10px; }
+
+.rev-card-muted { background: rgba(128, 128, 128, 0.06); }
+
+.rev-muted-body {
+    color: var(--color-text-muted);
+    padding: 0 12px 10px 12px;
+}
+
+.rev-table a {
+    color: var(--color-link);
+    text-decoration: underline;
+}
+
+.rev-table a:hover { color: var(--color-link-hover); }
+
+.rev-more-note td {
+    color: var(--color-text-muted);
+    font-style: italic;
+    white-space: normal;
+}
+
+.rev-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+.rev-consent {
+    border-top: 1px solid var(--color-border);
+    margin-top: 12px;
+    padding-top: 10px;
+    margin-bottom: 10px;
+}
+
+.rev-consent-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.rev-consent-label input[type="checkbox"] { margin-top: 3px; }
+
+.rev-consent-toggle {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: var(--color-link);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.rev-consent-toggle:hover { color: var(--color-link-hover); }
+
+.rev-consent-text {
+    max-height: 280px;
+    overflow-y: auto;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 4px 14px;
+    margin-bottom: 10px;
+    color: var(--color-text-muted);
+    line-height: var(--leading-relaxed);
+}
+
+.rev-consent-text h4 {
+    margin: 10px 0 6px 0;
+    color: var(--color-text);
+}
+
+.rev-consent-text h5 {
+    margin: 12px 0 2px 0;
+    font-size: inherit;
+    color: var(--color-text);
+}
+
+.rev-consent-text p { margin: 4px 0 8px 0; }
+
+.rev-consent-text a { color: var(--color-link); }
+
+
+/* ============================================================
+   Donation upload cards + "how to get my data" guide modal
+   ============================================================ */
+
+.myc-source-card {
+    border: 1px dashed var(--color-border);
+    border-radius: 8px;
+    padding: 12px 18px;
+    cursor: pointer;
+    min-width: 180px;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.myc-source-card:hover {
+    border-color: var(--color-accent);
+    background: rgba(128, 128, 128, 0.06);
+}
+
+.myc-howto-link {
+    display: inline-block;
+    margin-top: 4px;
+    color: var(--color-link);
+    text-decoration: underline;
+}
+
+.myc-howto-link:hover { color: var(--color-link-hover); }
+
+.modal-content.myc-howto {
+    max-width: 640px;
+    width: 90vw;
+    margin: 8vh auto;
+    font-size: var(--text-base, 1rem);
+}
+
+.myc-howto-body h3 { margin: 0 0 10px 0; }
+
+.myc-howto-body p { margin: 0 0 12px 0; line-height: var(--leading-relaxed); }
+
+.myc-howto-body ul { margin: 0 0 14px 0; padding-left: 22px; }
+
+.myc-howto-body li { margin-bottom: 6px; line-height: var(--leading-relaxed); }
+
+.myc-howto-body a { color: var(--color-link); }
+
+.myc-steps {
+    margin: 0 0 14px 0;
+    padding-left: 24px;
+}
+
+.myc-steps li { margin-bottom: 8px; }
+
+/* Responsive 16:9 video embed */
+.myc-video-frame {
+    position: relative;
+    padding-bottom: 56.25%;
+    height: 0;
+    overflow: hidden;
+    border-radius: 8px;
+    margin-bottom: 14px;
+    background: rgba(128, 128, 128, 0.1);
+}
+
+.myc-video-frame iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
+
+.myc-howto-note {
+    color: var(--color-text-muted);
+    border-top: 1px solid var(--color-border);
+    padding-top: 10px;
+    margin-bottom: 0;
 }
 
 

@@ -31,9 +31,57 @@ class TikTokDDPCollection(ForYouBaseCollection):
     source_platform = "tiktok"
     raw_path = "ddp_raw"
 
+    # Lowercased export parent key -> activity_type. This is the whitelist of
+    # sections process_single keeps; it also drives the pre-upload review UI
+    # (review_manifest), so the two can never drift apart.
+    _ACTIVITY_TYPE_MAP = {
+        'videolist': 'play', 'commentslist': 'comment', 'post': 'post',
+        'searchlist': 'search', 'fanslist': 'followed_by', 'following': 'following',
+        'itemfavoritelist': 'fave', 'favoritevideolist': 'fave',
+    }
+    # Participant-facing card titles for the review UI, keyed by section id.
+    _REVIEW_TITLES = {
+        'videolist': 'Videos you watched',
+        'commentslist': 'Comments you made',
+        'post': 'Videos you posted',
+        'searchlist': 'Your searches',
+        'fanslist': 'Accounts that follow you',
+        'following': 'Accounts you follow',
+        'itemfavoritelist': 'Videos you liked',
+        'favoritevideolist': 'Your favourite videos',
+    }
+
     @classmethod
     def accepted_upload_suffixes(cls) -> list[str]:
         return [".json"]
+
+    @classmethod
+    def review_manifest(cls) -> dict:
+        """Pre-upload review manifest: the whitelist sections plus login history.
+
+        ``unmapped_policy: "strip"`` — every list-of-dicts section the client's
+        DFS walk finds that is not listed here (DMs, settings, ads data, …) is
+        removed from the upload in the browser and disclosed to the donor as
+        "not included". The ``second_key_ip`` rule mirrors process_single's
+        login detection (a list whose records' second key is ``ip``).
+        """
+        sections = [
+            {"id": sid, "title": cls._REVIEW_TITLES.get(sid, sid), "row_delete": True}
+            for sid in cls._ACTIVITY_TYPE_MAP
+        ]
+        sections.append({
+            "id": "__login__", "id_rule": "second_key_ip",
+            "title": "Login history (IP addresses)", "row_delete": True,
+        })
+        return {
+            "kind": "json_sections",
+            "unmapped_policy": "strip",
+            "viability": {
+                "section": "videolist", "min_rows": 11,
+                "message": "A TikTok donation needs at least 11 watched videos to be usable.",
+            },
+            "sections": sections,
+        }
 
     def __init__(self, collection_id: str = None, verbose: bool = False):
         # The extra_data column is used for the comment string, the account name that was just followed, etc...
@@ -186,12 +234,8 @@ class TikTokDDPCollection(ForYouBaseCollection):
         # -----------------------------------------------------
         # activity_type: 
 
-        # map activity types
-        df["activity_type"] = df["activity_type"].map({
-            'videolist':'play', 'commentslist':'comment', 'post':'post',
-            'searchlist':'search', 'fanslist':'followed_by', 'following':'following',
-            'itemfavoritelist':'fave', 'favoritevideolist':'fave'
-        })
+        # map activity types (whitelist shared with review_manifest)
+        df["activity_type"] = df["activity_type"].map(self._ACTIVITY_TYPE_MAP)
         reaction_activities = {"comment","fave","share"}
         
         # activity_type is NA for login activities - this fixes that by creating a new activity type

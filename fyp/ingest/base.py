@@ -914,7 +914,11 @@ class ForYouBaseCollection(ABC):
                 verdict = None
                 if self.sentinel is not None:
                     try:
-                        verdict = self.sentinel.check_raw(self, fn, one_df)
+                        # Client-reviewed (browser-pruned) uploads are missing
+                        # whole sections by design, so they evaluate against
+                        # their own "__reviewed" baseline variant.
+                        variant = "reviewed" if file_meta.get("client_reviewed") else None
+                        verdict = self.sentinel.check_raw(self, fn, one_df, variant=variant)
                     except Exception as exc:
                         logger.warning(f"WARNING: structure check failed for '{fn}': {exc}. Ingesting anyway.")
                 if verdict is not None and verdict["status"] == "quarantined":
@@ -998,6 +1002,25 @@ class ForYouBaseCollection(ABC):
             does not apply to this platform.
         """
         return []
+
+
+
+    @classmethod
+    def review_manifest(cls) -> dict | None:
+        """Describe this platform's export sections for the pre-upload review UI.
+
+        The participant donation flow parses the export in the browser, shows
+        one card per section listed here, lets the donor delete rows, and
+        uploads only the pruned artifact. The manifest must stay in lockstep
+        with what ``load_single_raw`` / ``process_single`` actually read —
+        platform classes build it from the same constants their parsers use
+        (guarded by tests/unit/test_donation_review_manifest.py).
+
+        Returns:
+            A manifest dict (see the platform overrides), or None when the
+            platform has no pre-upload review (uploads go through unchanged).
+        """
+        return None
 
 
 

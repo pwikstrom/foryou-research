@@ -245,9 +245,13 @@
 {# Shared zip slimming, used by both the admin ingestion modal and the participant upload #}
 <script src="{{ url_for('static', filename='js/donation_zip.js') }}?v=1"></script>
 {% endif %}
+{% if user.can_access('tab.my_stuff.my_collections') %}
+{# Pre-upload donation review: parse/review/prune the export in the browser #}
+<script src="{{ url_for('static', filename='js/donation_review.js') }}?v=1"></script>
+{% endif %}
 {% if user.can_access('tab.my_stuff.my_collections') or user.can_access('tab.data_management.edit_collections') %}
 {# Shared personality renderer: the My Collections page and the Edit Collections modal #}
-<script src="{{ url_for('static', filename='js/my_collections.js') }}?v=9"></script>
+<script src="{{ url_for('static', filename='js/my_collections.js') }}?v=10"></script>
 {% endif %}
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
 <script src="{{ url_for('static', filename='js/data_management.js') }}?v=23"></script>

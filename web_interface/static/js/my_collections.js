@@ -505,9 +505,9 @@
     // ------------------------------------------------------------------
 
     const UPLOAD_HINTS = {
-        tiktok: 'Upload your extracted <strong>user_data_tiktok.json</strong>. If TikTok gave you a .zip, unzip it first and pick the .json inside.',
-        instagram: 'Upload your Instagram export <strong>.zip</strong>. We slim it in your browser first, so only the activity files leave your computer.',
-        youtube: 'Upload your Google Takeout <strong>.zip</strong>. We slim it in your browser first, so only your watch history and activity files leave your computer.',
+        tiktok: 'Choose your extracted <strong>user_data_tiktok.json</strong>. If TikTok gave you a .zip, unzip it first and pick the .json inside. You can review and remove items before anything is uploaded.',
+        instagram: 'Choose your Instagram export <strong>.zip</strong>. It is opened in your browser so you can review and remove items — only the activity you approve leaves your computer.',
+        youtube: 'Choose your Google Takeout <strong>.zip</strong>. It is opened in your browser so you can review and remove items — only the activity you approve leaves your computer.',
     };
 
     function renderUploadSources() {
@@ -516,18 +516,46 @@
         if (!mycSources || !mycSources.length) { el.innerHTML = ''; return; }
         showSection('myc-section-donate', true);
         const cards = mycSources.map((s, i) => `
-            <div onclick="mycOpenUploadModal(${i})"
-                 style="border: 1px dashed var(--color-border); border-radius: 8px; padding: 10px 16px; cursor: pointer; min-width: 170px;">
+            <div class="myc-source-card" onclick="mycOpenUploadModal(${i})">
                 <div style="font-weight: 600;">+ ${escapeHtml(platformLabel(s.source_platform))}</div>
-                <div class="text-xs" style="color: var(--color-text-faint);">upload your ${s.accepted_upload_suffixes.map(escapeHtml).join('/')} export</div>
+                <a class="myc-howto-link text-xs" href="#"
+                   onclick="event.preventDefault(); event.stopPropagation(); mycOpenHowtoModal('${escapeHtml(s.source_platform)}')">Show me how to get my data</a>
             </div>`);
         el.innerHTML = `<div style="display: flex; flex-wrap: wrap; gap: 10px;">${cards.join('')}</div>`;
     }
 
+    // Per-platform "how do I get my data" guide modal. The content blocks
+    // live in my_stuff.html; the video iframe is lazy-loaded from data-src on
+    // open and unloaded on close so playback stops with the modal.
+    window.mycOpenHowtoModal = function (platform) {
+        const modal = document.getElementById('myc-howto-modal');
+        if (!modal) return;
+        let found = false;
+        modal.querySelectorAll('.myc-howto-body').forEach(body => {
+            const active = body.id === `myc-howto-${platform}`;
+            body.style.display = active ? 'block' : 'none';
+            if (active) {
+                found = true;
+                const frame = body.querySelector('iframe[data-src]');
+                if (frame && !frame.getAttribute('src')) frame.src = frame.dataset.src;
+            }
+        });
+        if (found) modal.style.display = 'block';
+    };
+
+    window.mycCloseHowtoModal = function (event) {
+        if (event && event.target !== event.currentTarget) return;
+        const modal = document.getElementById('myc-howto-modal');
+        if (!modal) return;
+        modal.style.display = 'none';
+        modal.querySelectorAll('iframe[data-src]').forEach(f => f.removeAttribute('src'));
+    };
+
     window.mycOpenUploadModal = function (sourceIndex) {
         const source = mycSources && mycSources[sourceIndex];
         if (!source) return;
-        mycUpload = { source, file: null };
+        mycUpload = { source, file: null, review: null };
+        mycExitReviewMode();  // reset any leftover review state from a prior open
         const modal = document.getElementById('myc-upload-modal');
         document.getElementById('myc-upload-title').textContent = `Add your ${platformLabel(source.source_platform)} data`;
         document.getElementById('myc-upload-hint').innerHTML = UPLOAD_HINTS[source.source_platform]
@@ -546,7 +574,62 @@
     window.mycCloseUploadModal = function (event) {
         if (event && event.target !== event.currentTarget) return;
         document.getElementById('myc-upload-modal').style.display = 'none';
-        mycUpload = null;
+        mycExitReviewMode();
+        mycUpload = null;  // also frees the parsed review model
+    };
+
+    // Switch the upload modal into review mode: the parsed export is shown as
+    // per-section cards (DonationReview) and the submit button becomes
+    // "Share N items", disabled while the pruned file would fail the server's
+    // minimum-rows gate.
+    function mycEnterReviewMode(model) {
+        const content = document.querySelector('#myc-upload-modal .modal-content');
+        content.classList.add('myc-review-mode');
+        document.getElementById('myc-upload-filebox').style.display = 'none';
+        document.getElementById('myc-upload-hint').style.display = 'none';
+        document.getElementById('myc-review-back').style.display = '';
+        const holder = document.getElementById('myc-review');
+        holder.style.display = 'block';
+        const submit = document.getElementById('myc-upload-submit');
+        const consentSrc = document.getElementById('myc-consent-source');
+        DonationReview.renderReview(holder, model, {
+            consentHtml: consentSrc ? consentSrc.innerHTML : '',
+            onChange: ({ totalKept, viabilityError, consentOk }) => {
+                const warn = document.getElementById('myc-review-warning');
+                warn.textContent = viabilityError || '';
+                // Share requires both a viable donation and the ticked
+                // read-and-understood consent box.
+                submit.disabled = !!viabilityError || !consentOk;
+                submit.title = (!viabilityError && !consentOk)
+                    ? 'Tick the consent box above to enable sharing.' : '';
+                submit.textContent = `Share ${totalKept.toLocaleString()} items`;
+            },
+        });
+    }
+
+    window.mycExitReviewMode = function () {
+        const content = document.querySelector('#myc-upload-modal .modal-content');
+        if (content) content.classList.remove('myc-review-mode');
+        const holder = document.getElementById('myc-review');
+        if (holder) { holder.innerHTML = ''; holder.style.display = 'none'; }
+        const back = document.getElementById('myc-review-back');
+        if (back) back.style.display = 'none';
+        const warn = document.getElementById('myc-review-warning');
+        if (warn) warn.textContent = '';
+        const box = document.getElementById('myc-upload-filebox');
+        if (box) {
+            box.style.display = '';
+            box.innerHTML = '<span class="text-sm" style="color: var(--color-text-muted);">Click to choose your file&hellip;</span>';
+        }
+        const hint = document.getElementById('myc-upload-hint');
+        if (hint) hint.style.display = '';
+        const input = document.getElementById('myc-upload-file');
+        if (input) input.value = '';
+        const submit = document.getElementById('myc-upload-submit');
+        if (submit) { submit.disabled = true; submit.textContent = 'Upload'; submit.title = ''; }
+        const status = document.getElementById('myc-upload-status');
+        if (status) status.textContent = '';
+        if (mycUpload) { mycUpload.review = null; mycUpload.file = null; }
     };
 
     async function mycFileChosen(file) {
@@ -557,37 +640,67 @@
         submit.disabled = true;
         box.innerHTML = `<span class="text-sm">${escapeHtml(file.name)}</span>`;
 
-        const suffixes = mycUpload.source.zip_member_suffixes || [];
-        if (suffixes.length && /\.zip$/i.test(file.name) && window.DonationZip) {
-            status.textContent = 'Checking your export in the browser…';
-            const result = await DonationZip.repackDonationZip(file, suffixes,
-                msg => { status.textContent = msg; });
-            if (!mycUpload) return;  // modal closed mid-scan
-            if (result.action === 'blocked') {
-                status.textContent = `We couldn't find any ${platformLabel(mycUpload.source.source_platform)} activity files inside this zip. Is it the right export?`;
+        const source = mycUpload.source;
+        if (source.review && window.DonationReview) {
+            // Review-before-upload: parse the export locally and open the
+            // review step. On ANY failure the upload is blocked — an
+            // unreviewed original file is never sent (privacy invariant).
+            status.textContent = 'Reading your export in your browser…';
+            let model;
+            try {
+                model = await DonationReview.buildReviewModel(file, source,
+                    msg => { status.textContent = msg; });
+            } catch (err) {
+                if (!mycUpload) return;  // modal closed mid-parse
+                console.warn('donation review failed:', err);
                 mycUpload.file = null;
+                mycUpload.review = null;
+                status.textContent = (err && err.code === 'no_members')
+                    ? `We couldn't find any ${platformLabel(source.source_platform)} activity in this file. Is it the right export?`
+                    : "We couldn't open this file for review in your browser, so nothing was uploaded. Please reload the page and try again, or use a different browser.";
                 return;
             }
-            mycUpload.file = result.file;
-            status.textContent = result.action === 'repacked'
-                ? `Ready. Slimmed from ${DonationZip.formatBytes(result.originalSize)} to ${DonationZip.formatBytes(result.newSize)} in your browser.`
-                : 'Ready.';
-        } else {
-            mycUpload.file = file;
-            status.textContent = 'Ready.';
+            if (!mycUpload) return;  // modal closed mid-parse
+            mycUpload.review = model;
+            status.textContent = '';
+            mycEnterReviewMode(model);
+            return;
         }
+
+        // Platforms without a review manifest (none today) fall back to the
+        // plain upload path.
+        mycUpload.file = file;
+        status.textContent = 'Ready.';
         submit.disabled = false;
     }
 
-    window.mycSubmitUpload = function () {
-        if (!mycUpload || !mycUpload.file) return;
+    window.mycSubmitUpload = async function () {
+        if (!mycUpload || (!mycUpload.file && !mycUpload.review)) return;
         const status = document.getElementById('myc-upload-status');
         const submit = document.getElementById('myc-upload-submit');
         submit.disabled = true;
+
+        let uploadFile = mycUpload.file;
+        const reviewed = !!mycUpload.review;
+        if (reviewed) {
+            status.textContent = 'Preparing your file…';
+            try {
+                uploadFile = await DonationReview.buildPrunedFile(mycUpload.review);
+            } catch (err) {
+                console.warn('pruned-file build failed:', err);
+                if (!mycUpload) return;
+                status.textContent = "We couldn't prepare your reviewed file, so nothing was uploaded. Please try again.";
+                submit.disabled = false;
+                return;
+            }
+            if (!mycUpload) return;  // modal closed mid-build
+        }
+
         status.textContent = 'Uploading…';
         const fd = new FormData();
-        fd.append('files', mycUpload.file, mycUpload.file.name);
+        fd.append('files', uploadFile, uploadFile.name);
         fd.append('raw_path', mycUpload.source.raw_path);
+        if (reviewed) fd.append('client_review', '1');
         try {
             fd.append('tz', Intl.DateTimeFormat().resolvedOptions().timeZone || '');
         } catch (e) { /* no tz — the pipeline infers one */ }

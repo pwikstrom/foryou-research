@@ -469,9 +469,17 @@ def _empty_baseline() -> dict:
 
 
 
-def baseline_key(platform: str | None, source: str | None) -> str:
-    """Baseline dictionary key for one (platform, data_source) pair."""
-    return f"{platform}_{source}"
+def baseline_key(platform: str | None, source: str | None, variant: str | None = None) -> str:
+    """Baseline dictionary key for one (platform, data_source) pair.
+
+    ``variant`` separates structurally distinct upload populations of the same
+    platform/source — client-reviewed (pruned in the browser before upload)
+    files are missing whole sections by design, so they learn and evaluate
+    against their own ``__reviewed`` baseline instead of quarantining as
+    missing-core-path drift from the verbatim-export baseline.
+    """
+    key = f"{platform}_{source}"
+    return f"{key}__{variant}" if variant else key
 
 
 
@@ -828,26 +836,31 @@ class StructureSentinel:
 
 
 
-    def _baseline_for(self, collection) -> dict:
-        key = baseline_key(collection.source_platform, collection.data_source)
+    def _baseline_for(self, collection, variant: str | None = None) -> dict:
+        key = baseline_key(collection.source_platform, collection.data_source, variant)
         return self.baselines["baselines"].setdefault(key, _empty_baseline())
 
 
 
 
 
-    def check_raw(self, collection, filename: str, df: pd.DataFrame) -> dict:
+    def check_raw(self, collection, filename: str, df: pd.DataFrame,
+                  variant: str | None = None) -> dict:
         """Phase A: fingerprint a freshly loaded raw file and run structure checks.
 
         Args:
             collection: The sub-collection that loaded the file.
             filename: The raw file's name.
             df: The per-file raw DataFrame from ``load_single_raw``.
+            variant: Baseline variant for this upload population (e.g.
+                ``"reviewed"`` for client-pruned donations), or None for the
+                default baseline. Persisted on the verdict so Phase B, commit
+                and admin approval all learn into the same baseline.
 
         Returns:
             The verdict dict (status ``ok``/``warn``/``learning``/``quarantined``).
         """
-        baseline = self._baseline_for(collection)
+        baseline = self._baseline_for(collection, variant)
         fingerprint = None
         try:
             fingerprint = collection.fingerprint_raw(filename)
@@ -868,6 +881,7 @@ class StructureSentinel:
             "status": status,
             "platform": collection.source_platform,
             "source": collection.data_source,
+            "variant": variant,
             "ts_evaluated": _now_iso(),
             "findings": findings,
             "raw_stats": raw_stats,
@@ -895,10 +909,10 @@ class StructureSentinel:
         Returns:
             The (possibly upgraded) verdict dict.
         """
-        baseline = self._baseline_for(collection)
         verdict = self.observations.get(filename)
         if verdict is None:
             verdict = self.check_raw(collection, filename, df_file)
+        baseline = self._baseline_for(collection, verdict.get("variant"))
 
         raw_rows = int(verdict["raw_stats"].get("raw_rows") or len(df_file))
         processed_stats = compute_processed_stats(raw_rows, df_file)
@@ -935,7 +949,7 @@ class StructureSentinel:
         """
         for filename, verdict in self.observations.items():
             if verdict["status"] in ("ok", "warn", "learning") and filename in ingested_filenames:
-                key = baseline_key(verdict["platform"], verdict["source"])
+                key = baseline_key(verdict["platform"], verdict["source"], verdict.get("variant"))
                 baseline = self.baselines["baselines"].setdefault(key, _empty_baseline())
                 learn_file(
                     baseline,
@@ -988,7 +1002,7 @@ def approve_file(filename: str, reviewed_by: str | None) -> dict:
         raise ValueError(f"'{filename}' has status '{entry.get('status')}', nothing to approve")
 
     baselines = load_baselines()
-    key = baseline_key(entry.get("platform"), entry.get("source"))
+    key = baseline_key(entry.get("platform"), entry.get("source"), entry.get("variant"))
     baseline = baselines["baselines"].setdefault(key, _empty_baseline())
     learn_file(
         baseline,

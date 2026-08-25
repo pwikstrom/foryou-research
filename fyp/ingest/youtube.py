@@ -126,6 +126,46 @@ class YouTubeDDPCollection(ForYouBaseCollection):
 
 
 
+    # Participant-facing card titles for the pre-upload review UI.
+    _REVIEW_CSV_TITLES = {
+        "comments/comments.csv": "Comments you made",
+        "playlists/Liked videos.csv": "Videos you liked",
+        "playlists/Favorites videos.csv": "Your favourite videos",
+    }
+
+    @classmethod
+    def review_manifest(cls) -> dict:
+        """Pre-upload review manifest.
+
+        The JSON watch history gets a row-level table; the HTML fallback is
+        toggle-only (rewriting individual rows of Takeout's HTML is not
+        supported — the member is included or excluded as a whole). When both
+        are present the client shows only the JSON section and omits the HTML
+        member from the upload, matching load_single_raw's JSON preference.
+        """
+        sections = [
+            {"id": cls._MEMBER_SUFFIX_JSON, "title": "Videos you watched",
+             "parser": "youtube_watch_json", "row_delete": True},
+            {"id": cls._MEMBER_SUFFIX_HTML, "title": "Videos you watched (HTML export)",
+             "parser": "opaque", "row_delete": False, "toggle_only": True,
+             "note": "This export format can only be included or excluded as a whole."},
+        ] + [
+            {"id": suffix, "title": cls._REVIEW_CSV_TITLES.get(suffix, suffix),
+             "parser": "csv", "row_delete": True}
+            for suffix, _, _ in cls._ENGAGEMENT_MEMBERS
+        ]
+        return {
+            "kind": "zip_members",
+            "viability": {
+                "min_total_rows": 10,
+                "message": "Removing this many items would leave too little activity to be usable.",
+            },
+            "sections": sections,
+        }
+
+
+
+
 
     @classmethod
     def _parse_history(cls, html_text: str) -> list[dict]:
