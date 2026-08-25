@@ -234,6 +234,13 @@ def _status_flags(iid_keys: np.ndarray, df_status: pd.DataFrame | None) -> tuple
     return scraped_flag, annotated_flag
 
 
+# Public aliases: the My Collections coverage column shares this cache and
+# join logic, so the enrichment_status table is cached once per process, not
+# once per consumer.
+get_enrichment_status_cached = _get_enrichment_status_cached
+status_flags = _status_flags
+
+
 
 
 def _prepare_preview_frame(selected: list, df_status: pd.DataFrame | None) -> pd.DataFrame | None:

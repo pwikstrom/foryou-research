@@ -395,9 +395,25 @@ def api_my_combined_personality():
     """
     from ..collection_accounts import collections_for_user
     from ..services.my_collections_service import build_personality
-    cids = collections_for_user(current_user.username)
-    if not cids:
+    owned = [str(c) for c in collections_for_user(current_user.username)]
+    if not owned:
         return jsonify({"error": "No collections are linked to your account"}), 404
+
+    # Optional subset (the Persona checkboxes): ?collections=a,b. Every
+    # requested id must be owned; unknown ids are a 403, an empty request a
+    # 400. Absent param keeps the historical behavior (all owned).
+    raw = (request.args.get('collections') or '').strip()
+    if raw:
+        requested = sorted({c.strip() for c in raw.split(',') if c.strip()})
+        if not requested:
+            return jsonify({"error": "No collections selected"}), 400
+        unowned = [c for c in requested if c not in set(owned)]
+        if unowned:
+            return jsonify({"error": "You can only build a persona from your own collections"}), 403
+        cids = requested
+    else:
+        cids = owned
+
     bundle = build_personality(cids)
     if bundle is None:
         return jsonify({"error": "No donated activity data found for your collections"}), 404

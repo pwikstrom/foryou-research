@@ -91,7 +91,7 @@
         loadProfileForm();
 
         // My Collections (page may be permission-hidden, JS not loaded)
-        if (document.getElementById('myc-picker') && typeof loadMyCollections === 'function') {
+        if (document.getElementById('myc-table-body') && typeof loadMyCollections === 'function') {
             loadMyCollections();
         }
         // Plotly charts rendered while this tab was hidden need a resize now.
