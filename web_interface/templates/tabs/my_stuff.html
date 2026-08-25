@@ -390,29 +390,27 @@
 
                     <div id="myc-howto-tiktok" class="myc-howto-body" style="display: none;">
                         <h3>How to get your personal data from TikTok</h3>
-                        <p>Getting your data is super easy! First, you'll need to request your data from
-                           TikTok. Once you've requested it, just wait until it's ready to download.
-                           (This usually takes only a few seconds, but sometimes it can take longer &mdash;
-                           maybe even a few hours.) Once your data is ready, download the file. Then,
-                           upload it here to explore what's inside and discover your short-video
-                           personality profile!</p>
-                        <p>You can request and download your data directly through the TikTok app on your
-                           phone or by visiting <a href="https://www.tiktok.com" target="_blank" rel="noopener">www.TikTok.com</a>
-                           in your favourite web browser. Our simple guide below will show you both:</p>
-                        <ul>
-                            <li>Parts 1 &amp; 2 of the guide show you how to get your data using the TikTok phone app.</li>
-                            <li>Parts 3 &amp; 4 explain how to do the same on the TikTok website.</li>
-                        </ul>
-                        <div class="myc-video-frame">
-                            <iframe data-src="https://www.youtube-nocookie.com/embed/L_1NdOpu5ic?modestbranding=1&rel=0"
-                                    title="How to download your TikTok data"
-                                    frameborder="0"
-                                    allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
-                                    allowfullscreen></iframe>
+                        <p>Getting your data is super easy! Request it from TikTok, wait until it's ready
+                           to download (usually a few seconds, sometimes a few hours), download the file,
+                           and upload it here. You can do this in the TikTok app or in a browser at
+                           <a href="https://www.tiktok.com" target="_blank" rel="noopener">tiktok.com</a>.</p>
+                        <ol class="myc-steps">
+                            <li>In the TikTok app, tap <strong>Profile</strong>, open the menu (&#9776;) and choose
+                                <strong>Settings and privacy</strong> &mdash; or on
+                                <a href="https://www.tiktok.com" target="_blank" rel="noopener">tiktok.com</a>,
+                                click your profile picture and choose <strong>Settings</strong>.</li>
+                            <li>Go to <strong>Account &rarr; Download your data</strong> (on the website, look
+                                under <strong>Privacy</strong>).</li>
+                            <li>Select <strong>All data</strong> (or at least your <strong>Activity</strong>) and
+                                choose <strong>JSON</strong> as the file format, then tap <strong>Request data</strong>.</li>
+                            <li>When your file appears under the <strong>Download data</strong> tab, download the
+                                <strong>.zip</strong>.</li>
+                            <li>Unzip it and upload the <strong>user_data_tiktok.json</strong> inside. You review
+                                everything before it is shared.</li>
+                        </ol>
+                        <div class="myc-howto-actions">
+                            <button class="btn-primary btn-compact" onclick="mycHowtoContinue('tiktok')">Continue</button>
                         </div>
-                        <p class="text-sm myc-howto-note">Choose <strong>JSON</strong> as the file format when TikTok asks.
-                           If the download is a .zip, unzip it and upload the
-                           <strong>user_data_tiktok.json</strong> inside.</p>
                     </div>
 
                     <div id="myc-howto-instagram" class="myc-howto-body" style="display: none;">
@@ -434,7 +432,9 @@
                                 here as-is &mdash; no need to unzip. Only the activity files are read, and you review
                                 everything before it is shared.</li>
                         </ol>
-                        <p class="text-sm myc-howto-note">A video guide for Instagram is coming soon.</p>
+                        <div class="myc-howto-actions">
+                            <button class="btn-primary btn-compact" onclick="mycHowtoContinue('instagram')">Continue</button>
+                        </div>
                     </div>
 
                     <div id="myc-howto-youtube" class="myc-howto-body" style="display: none;">
@@ -454,7 +454,9 @@
                                 Only your watch history and activity files are read, and you review everything
                                 before it is shared.</li>
                         </ol>
-                        <p class="text-sm myc-howto-note">A video guide for YouTube is coming soon.</p>
+                        <div class="myc-howto-actions">
+                            <button class="btn-primary btn-compact" onclick="mycHowtoContinue('youtube')">Continue</button>
+                        </div>
                     </div>
                 </div>
             </div>
