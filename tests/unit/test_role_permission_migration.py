@@ -71,25 +71,25 @@ def test_umbrella_keys_imply_split_out_pages():
 
 
 def test_migration_is_idempotent_and_skips_wildcard():
-    from web_interface.permissions import STUDENT_PERMISSIONS
+    from web_interface.permissions import (
+        PERMISSION_KEYS_GRANT_ALL,
+        STUDENT_PERMISSIONS,
+    )
 
+    # The grant-all keys are re-appended on every boot, so a role that lacks
+    # any one of them makes the migration save. Build the fixture from the
+    # live list rather than a hand-copied one — otherwise this test fails the
+    # next time a key joins the list, which is drift in the test, not a bug.
+    grant_all = list(PERMISSION_KEYS_GRANT_ALL)
     already = {
         "custom": {"permissions": [
             "tab.admin.general", "tab.admin.backends", "tab.admin.stoplist",
-            # GRANT_ALL keys must already be present or the older My-stuff
-            # migration path saves and muddies the idempotency assertion.
-            "tab.my_stuff.tasks", "tab.my_stuff.preferences",
-            "tab.my_stuff.video_tags", "tab.my_stuff.profile",
-            "feature.annotation_votes",
+            *grant_all,
         ]},
         "admin": {"permissions": ["*"]},
         # _ensure_defaults adds missing built-in roles (and saves) — include
         # them all so the only possible save is the migration under test.
-        "viewer": {"permissions": [
-            "tab.my_stuff.tasks", "tab.my_stuff.preferences",
-            "tab.my_stuff.video_tags", "tab.my_stuff.profile",
-            "feature.annotation_votes",
-        ]},
+        "viewer": {"permissions": grant_all},
         "student": {"permissions": list(STUDENT_PERMISSIONS)},
     }
     rm, stub = _make_role_manager(already)

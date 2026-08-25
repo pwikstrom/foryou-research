@@ -8,8 +8,12 @@ computation (agreement / Cohen's kappa / Jaccard / correlation, human-vs-
 machine and human-vs-human), the blindness of the task definition, and the
 invitation gate.
 
+The tests share one planted run and build on each other's state (responses
+are saved in one test and scored in the next), so they run in file order as a
+sequence — selecting a single test by name will not stand on its own.
+
 Run:
-    python tests/unit/test_human_eval.py
+    python -m pytest tests/unit/test_human_eval.py
 """
 
 import copy
@@ -25,23 +29,10 @@ import pytest
 
 from fyp import ab_eval, data_io, human_eval
 
-# 2026-07 triage: the planted fixture run predates the current annotation
-# contract (variable catalog no longer contains 'multilingual' etc.), so the
-# tests fail on contract drift, not on regressions in fyp.human_eval.
-pytestmark = pytest.mark.stale
-
-PASS = 0
-FAIL = 0
-
 
 def _check(name: str, ok: bool, detail: str = ""):
-    global PASS, FAIL
-    if ok:
-        PASS += 1
-        print(f"  PASS  {name}")
-    else:
-        FAIL += 1
-        print(f"  FAIL  {name}  {detail}")
+    assert ok, f"{name}  {detail}"
+    print(f"  PASS  {name}")
 
 
 RUN_ID = "20260710T000000Z_test01"
@@ -50,8 +41,13 @@ ITEMS = [f"70000000000000000{i}" for i in range(6)]
 _STORE: dict = {}
 
 
-def _patch_data_io():
-    """Route every data_io call human_eval/ab_eval make onto the in-memory store."""
+def _patch_data_io() -> dict:
+    """Route every data_io call human_eval/ab_eval make onto the in-memory store.
+
+    Returns the original attributes so the fixture can put them back — these
+    are module-level rebinds, so leaving them in place would follow the whole
+    pytest session into every other test module.
+    """
     def save_json(data=None, storage_location="cache", filename="", **kw):
         _STORE[(storage_location, filename)] = copy.deepcopy(data)
 
@@ -70,16 +66,35 @@ def _patch_data_io():
     def load_parquet(storage_location="cache", filename="", **kw):
         return _STORE[(storage_location, filename)].copy()
 
-    data_io.save_json = save_json
-    data_io.load_json = load_json
-    data_io.exists = exists
-    data_io.remove = remove
-    data_io.save_parquet = save_parquet
-    data_io.load_parquet = load_parquet
-    ab_eval.ensure_locations = lambda: None
-    ab_eval.resolve_items = lambda ids: [
-        {"item_id": str(i), "platform": "tiktok", "downloaded": True} for i in ids
-    ]
+    patches = {
+        (data_io, "save_json"): save_json,
+        (data_io, "load_json"): load_json,
+        (data_io, "exists"): exists,
+        (data_io, "remove"): remove,
+        (data_io, "save_parquet"): save_parquet,
+        (data_io, "load_parquet"): load_parquet,
+        (ab_eval, "ensure_locations"): lambda: None,
+        (ab_eval, "resolve_items"): lambda ids: [
+            {"item_id": str(i), "platform": "tiktok", "downloaded": True} for i in ids
+        ],
+    }
+    originals = {(mod, attr): getattr(mod, attr) for mod, attr in patches}
+    for (mod, attr), fn in patches.items():
+        setattr(mod, attr, fn)
+    return originals
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _fake_run():
+    """Plant the in-memory run once for the whole module, then restore data_io."""
+    originals = _patch_data_io()
+    _plant_fake_run()
+    try:
+        yield
+    finally:
+        for (mod, attr), fn in originals.items():
+            setattr(mod, attr, fn)
+        _STORE.clear()
 
 
 def _plant_fake_run():
@@ -110,18 +125,19 @@ def _plant_fake_run():
                       filename=ab_eval._run_file(RUN_ID, "manifest.json"))
     data_io.save_json(data=report, storage_location=ab_eval.LOCATION,
                       filename=ab_eval._run_file(RUN_ID, "report.json"))
-    # NOTE: "No" is an ab_eval sentinel ("nothing found"), so a Yes/No enum has
-    # few filled-both pairs; Yes/Unclear keeps all six pairs kappa-eligible.
+    # NOTE: "Unclear" is an ab_eval NA sentinel ("nothing found"), so an
+    # enum using it has few filled-both pairs and kappa comes back None.
+    # Yes/No are both real answers, keeping all six pairs kappa-eligible.
     live = pd.DataFrame({
         "item_id": ITEMS,
-        "multilingual": ["Yes", "Unclear", "Yes", "Unclear", "Yes", "Unclear"],
+        "multilingual": ["Yes", "No", "Yes", "No", "Yes", "No"],
         "objects": [["car", "dog"], ["cat"], [], ["car"], ["tree"], ["dog"]],
         "faces_age_estimate": [20.0, 30.0, 40.0, 50.0, 60.0, 70.0],
         "transcript": ["a"] * 6,
         "annotated_ok": [True] * 6,
     })
     cand = live.copy()
-    cand["multilingual"] = ["Yes", "Yes", "Yes", "Unclear", "Yes", "Unclear"]
+    cand["multilingual"] = ["Yes", "Yes", "Yes", "No", "Yes", "No"]
     data_io.save_parquet(df=live, storage_location=ab_eval.LOCATION,
                          filename=ab_eval._run_file(RUN_ID, "arm_live.parquet"))
     data_io.save_parquet(df=cand, storage_location=ab_eval.LOCATION,
@@ -204,7 +220,7 @@ def test_responses_and_validation():
         _check("non-numeric rejected", True)
 
     # Coder A agrees with the live arm on 5 of 6 enum answers.
-    a_enum = ["Yes", "Unclear", "Yes", "Unclear", "Yes", "Yes"]
+    a_enum = ["Yes", "No", "Yes", "No", "Yes", "Yes"]
     for i, item in enumerate(ITEMS):
         state = human_eval.save_response(RUN_ID, "coding", "coder_a@x.com", item, {
             "multilingual": a_enum[i],
@@ -482,24 +498,3 @@ def test_delete():
     _check("index emptied", human_eval.list_tasks() == [])
     leftovers = [k for k in _STORE if "/human/" in k[1]]
     _check("no human artifacts left", not leftovers, str(leftovers))
-
-
-def main():
-    _patch_data_io()
-    _plant_fake_run()
-    test_available_variables()
-    test_task_crud()
-    test_responses_and_validation()
-    test_notes_and_coder_rows()
-    test_submit_and_metrics()
-    test_vote_task_crud()
-    test_vote_permutation()
-    test_vote_responses_and_results()
-    test_notifications()
-    test_delete()
-    print(f"\n{PASS} passed, {FAIL} failed")
-    return 1 if FAIL else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
