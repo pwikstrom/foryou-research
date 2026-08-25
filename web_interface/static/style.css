@@ -1795,20 +1795,6 @@ button {
    Donation upload cards + "how to get my data" guide modal
    ============================================================ */
 
-.myc-source-card {
-    border: 1px dashed var(--color-border);
-    border-radius: 8px;
-    padding: 12px 18px;
-    cursor: pointer;
-    min-width: 180px;
-    transition: border-color 0.15s ease, background-color 0.15s ease;
-}
-
-.myc-source-card:hover {
-    border-color: var(--color-accent);
-    background: rgba(128, 128, 128, 0.06);
-}
-
 .myc-howto-link {
     display: inline-block;
     margin-top: 4px;
@@ -1875,6 +1861,120 @@ button {
     border-top: 1px solid var(--color-border);
     padding-top: 12px;
     margin-top: 16px;
+}
+
+
+/* ============================================================
+   My Collections table (collections + share rows in one)
+   ============================================================ */
+
+.myc-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: var(--color-bg-elevated);
+}
+
+.myc-table {
+    width: 100%;
+    min-width: 760px;
+    border-collapse: collapse;
+    font-size: var(--text-sm, 0.9em);
+}
+
+.myc-table th {
+    text-align: left;
+    padding: 9px 10px;
+    color: var(--color-text-muted);
+    font-weight: 600;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+}
+
+.myc-table td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.myc-table tbody tr:last-child td { border-bottom: none; }
+
+.myc-table .myc-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.myc-cell-platform { font-weight: 600; }
+.myc-cell-id { color: var(--color-text-muted); }
+.myc-cell-muted { color: var(--color-text-faint); }
+.myc-cell-center { text-align: center; }
+.myc-cell-actions { text-align: right; }
+
+tr.myc-row { cursor: pointer; }
+tr.myc-row:hover { background: rgba(128, 128, 128, 0.07); }
+tr.myc-row-active td { background: rgba(128, 128, 128, 0.12); box-shadow: inset 3px 0 0 var(--color-accent); }
+tr.myc-row-active td ~ td { box-shadow: none; }
+
+/* Withdrawn rows dim, but the Restore control stays fully legible. */
+tr.myc-row-withdrawn td { opacity: 0.55; }
+tr.myc-row-withdrawn td.myc-cell-actions { opacity: 1; }
+
+.myc-badge {
+    display: inline-block;
+    border-radius: 10px;
+    padding: 1px 9px;
+    font-size: 0.85em;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+.myc-badge--ok { color: var(--color-success, #4cbf8f); border-color: var(--color-success, #4cbf8f); }
+.myc-badge--wait { color: var(--color-accent); border-color: var(--color-accent); }
+.myc-badge--gone { color: var(--color-danger, #c0392b); border-color: var(--color-danger, #c0392b); }
+
+.myc-actbtn {
+    background: none;
+    border: 1px solid var(--color-border);
+    color: var(--color-text-muted);
+    border-radius: 4px;
+    padding: 2px 10px;
+    cursor: pointer;
+    font-size: 0.85em;
+}
+.myc-actbtn--danger { border-color: var(--color-danger, #c0392b); color: var(--color-danger, #c0392b); }
+.myc-actbtn--accent { border-color: var(--color-accent); color: var(--color-accent); }
+
+/* Share rows: the inviting upload entry points. The whole row is clickable. */
+tr.myc-share-row { cursor: pointer; }
+tr.myc-share-row td {
+    background: linear-gradient(90deg, rgba(0, 168, 150, 0.14), rgba(0, 168, 150, 0.03) 55%, transparent);
+    padding-top: 12px;
+    padding-bottom: 12px;
+}
+tr.myc-share-row:hover td {
+    background: linear-gradient(90deg, rgba(0, 168, 150, 0.24), rgba(0, 168, 150, 0.07) 55%, transparent);
+}
+
+.myc-share-flex {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.myc-share-label { font-weight: 600; color: var(--color-accent); }
+
+/* Persona container while a subset fetch is in flight. */
+#myc-personality.myc-persona-loading { opacity: 0.5; transition: opacity 0.15s ease; }
+
+.myc-share-plus {
+    display: inline-flex;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1.5px solid var(--color-accent);
+    align-items: center;
+    justify-content: center;
+    margin-right: 8px;
+    font-weight: 700;
 }
 
 

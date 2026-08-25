@@ -9,7 +9,10 @@
     'use strict';
 
     let mycCollections = null;       // cached list for this page load
-    let mycActiveSelection = null;   // collection_id or 'combined'
+    let mycActiveSelection = null;   // collection_id, 'combined' or 'subset'
+    let mycCheckedSet = null;        // Set of ready cids ticked for the combined persona
+    let mycPersonaDebounce = null;   // pending checkbox-change timer
+    let mycPersonaReqSeq = 0;        // guards against out-of-order persona responses
     let mycRenderSeq = 0;            // unique id prefix per render
     const mycMounted = [];           // {el, bundle, prefix} for theme re-renders
     let mycSources = null;           // donation upload sources (registry-driven)
@@ -74,7 +77,7 @@
     window.loadMyCollections = function (opts) {
         const force = !!(opts && opts.force);
         if (mycCollections !== null && !force) return;  // already loaded this page-load
-        if (!document.getElementById('myc-picker')) return;
+        if (!document.getElementById('myc-table-body')) return;
         const listUrl = force ? '/api/my/collections?fresh=1' : '/api/my/collections';
         const sourcesPromise = mycSources !== null
             ? Promise.resolve(mycSources)
@@ -86,13 +89,16 @@
                 mycSources = sources;
                 setLoadingNote('');
                 syncMyCollectionsMenuLabel();
-                renderUploadSources();
-                renderPicker();
+                renderTable();
                 renderProcessButton();
+                // The persona is always visible below the table whenever any
+                // data exists: combined when several collections are in the
+                // Hub, the single one otherwise, the pending preview when only
+                // an unprocessed upload exists.
                 const autoOpen = opts && opts.open;
                 if (autoOpen) {
                     openMyCollection(autoOpen);
-                } else if (!force) {
+                } else {
                     const ready = mycCollections.filter(c => c.status === 'ready');
                     const pending = mycCollections.filter(c => c.status === 'pending');
                     if (ready.length > 1) {
@@ -101,6 +107,8 @@
                         openMyCollection(ready[0].collection_id);
                     } else if (pending.length) {
                         openMyCollection(pending[0].collection_id);
+                    } else {
+                        personaBox(false);
                     }
                 }
             })
@@ -146,97 +154,183 @@
     }
 
     // ------------------------------------------------------------------
-    // Picker
+    // The collections table: one row per collection (ready, pending and
+    // withdrawn alike), then one inviting "share row" per platform. Clicking
+    // a collection row shows its persona below; clicking a share row opens
+    // the upload modal.
     // ------------------------------------------------------------------
 
-    // Two card grids from one list: everything already in the Hub goes in the
-    // "My Collections" section, everything still awaiting processing goes in
-    // the donation section next to the upload cards.
-    function renderPicker() {
-        const el = document.getElementById('myc-picker');
-        const pendEl = document.getElementById('myc-pending');
-        if (!el || !pendEl) return;
+    const COL_COUNT = 8;
 
-        const cards = [];
-        const pendingCards = [];
-        Object.keys(mycPendingMap).forEach(k => delete mycPendingMap[k]);
-        for (const c of mycCollections) {
-            if (c.status === 'withdrawn') {
-                const until = (c.restorable_until || '').slice(0, 10);
-                cards.push(`
-                    <div class="myc-card" data-myc-select="${escapeHtml(c.collection_id)}"
-                         style="position: relative; border: 1px dashed var(--color-danger); border-radius: 8px; padding: 12px 16px 36px 16px; min-width: 190px; background: var(--color-bg-elevated); opacity: 0.85;">
-                        <div style="font-weight: 600;">${escapeHtml(platformLabel(c.source_platform))}</div>
-                        <div class="text-sm" style="color: var(--color-text-muted);">${escapeHtml(c.display_id)}</div>
-                        <div class="text-xs" style="color: var(--color-danger); margin-top: 4px;">Deleted from the dataset</div>
-                        <div class="text-xs" style="color: var(--color-text-faint);">restorable until ${escapeHtml(until)}</div>
-                        <button class="btn-compact text-xs"
-                            style="position: absolute; bottom: 8px; right: 8px; background: none; border: 1px solid var(--color-accent); color: var(--color-accent); border-radius: 4px; padding: 2px 10px; cursor: pointer;"
-                            onclick="mycRestore('${escapeHtml(c.collection_id)}', this)">Restore</button>
-                    </div>`);
-                continue;
-            }
-            const pending = c.status === 'pending';
-            if (pending) mycPendingMap[c.collection_id] = { raw_path: c.raw_path, filename: c.filename };
-            const range = (c.first_event_ts && c.last_event_ts)
-                ? `${c.first_event_ts.slice(0, 10)} &rarr; ${c.last_event_ts.slice(0, 10)}` : '';
-            const events = c.total_events != null ? `${fmtInt(c.total_events)} activities` : '';
-            const added = c.ts_added_to_dataset
-                ? `added to the Hub ${c.ts_added_to_dataset.slice(0, 10)}` : '';
-            const badge = pending
-                ? `<span class="text-xs" style="border: 1px solid var(--color-accent); color: var(--color-accent); border-radius: 10px; padding: 1px 8px;">awaiting processing</span>`
-                : '';
-            const removeBtn = pending
-                ? `<button class="btn-compact text-xs" data-myc-cancel="${escapeHtml(c.collection_id)}"
-                        style="position: absolute; bottom: 8px; right: 8px; background: none; border: 1px solid var(--color-danger); color: var(--color-danger); border-radius: 4px; padding: 2px 10px; cursor: pointer;"
-                        onclick="event.stopPropagation(); mycDeletePending('${escapeHtml(c.collection_id)}', this)">Cancel</button>`
-                : `<button class="btn-compact text-xs"
-                        style="position: absolute; bottom: 8px; right: 8px; background: none; border: 1px solid var(--color-danger); color: var(--color-danger); border-radius: 4px; padding: 2px 10px; cursor: pointer;"
-                        onclick="event.stopPropagation(); mycOpenWithdrawModal('${escapeHtml(c.collection_id)}')">Delete</button>`;
-            (pending ? pendingCards : cards).push(`
-                <div class="myc-card" data-myc-select="${escapeHtml(c.collection_id)}"
-                     onclick="openMyCollection('${escapeHtml(c.collection_id)}')"
-                     style="position: relative; border: 1px solid var(--color-border); border-radius: 8px; padding: 12px 16px 36px 16px; cursor: pointer; min-width: 190px; background: var(--color-bg-elevated);">
-                    <div style="font-weight: 600; display: flex; gap: 8px; align-items: center;">${escapeHtml(platformLabel(c.source_platform))} ${badge}</div>
-                    <div class="text-sm" style="color: var(--color-text-muted);">${escapeHtml(c.display_id)}</div>
-                    <div class="text-xs" style="color: var(--color-text-faint); margin-top: 4px;">${range}</div>
-                    <div class="text-xs" style="color: var(--color-text-faint);">${events}</div>
-                    <div class="text-xs" style="color: var(--color-text-faint);">${added}</div>
-                    ${removeBtn}
-                </div>`);
+    function statusBadge(c) {
+        if (c.status === 'pending') {
+            return '<span class="myc-badge myc-badge--wait">awaiting processing</span>';
         }
-        // "Combined" spans what is actually in the dataset, so it only earns a
-        // card once more than one collection has been processed.
-        if (mycCollections.filter(c => c.status === 'ready').length > 1) {
-            cards.push(`
-                <div class="myc-card" data-myc-select="combined"
-                     onclick="openMyCollection('combined')"
-                     style="border: 1px solid var(--color-accent); border-radius: 8px; padding: 12px 16px; cursor: pointer; min-width: 190px; background: var(--color-bg-elevated);">
-                    <div style="font-weight: 600;">All my data</div>
-                    <div class="text-sm" style="color: var(--color-text-muted);">Everything, combined</div>
-                    <div class="text-xs" style="color: var(--color-text-faint); margin-top: 4px;">One persona to rule them all</div>
-                </div>`);
+        if (c.status === 'withdrawn') {
+            const until = (c.restorable_until || '').slice(0, 10);
+            return `<span class="myc-badge myc-badge--gone" title="Restorable until ${escapeHtml(until)}">deleted</span>`;
         }
-
-        el.innerHTML = `<div style="display: flex; flex-wrap: wrap; gap: 10px;">${cards.join('')}</div>`;
-        pendEl.innerHTML = pendingCards.length
-            ? `<div class="text-sm font-semibold" style="margin-bottom: 8px;">Awaiting processing</div>
-               <div style="display: flex; flex-wrap: wrap; gap: 10px;">${pendingCards.join('')}</div>`
-            : '';
-        showSection('myc-section-collections', cards.length > 0);
-        // renderUploadSources() normally opens the donation section; keep it
-        // open for pending cards even if the source registry came back empty.
-        if (pendingCards.length) showSection('myc-section-donate', true);
-        markActiveCard();
+        return '<span class="myc-badge myc-badge--ok">In the Hub</span>';
     }
 
-    function markActiveCard() {
-        const accent = getCSSVar('--color-accent');
-        document.querySelectorAll('#my-stuff-page-my-collections .myc-card').forEach(card => {
-            const active = card.getAttribute('data-myc-select') === mycActiveSelection;
-            card.style.outline = active ? `3px solid ${accent}` : 'none';
-            card.style.backgroundColor = active ? hexToRgba(accent, 0.18) : 'var(--color-bg-elevated)';
-            card.style.boxShadow = active ? `0 0 0 1px ${accent} inset` : 'none';
+    function coverageCell(c) {
+        // Stage 2 fills pct_scraped / pct_annotated; until then (and for
+        // pending/withdrawn rows) an em-dash.
+        if (c.pct_scraped == null || c.pct_annotated == null) {
+            return '<span class="myc-cell-muted">&mdash;</span>';
+        }
+        return `${Math.round(c.pct_scraped * 100)}% / ${Math.round(c.pct_annotated * 100)}%`;
+    }
+
+    function collectionRow(c) {
+        const cid = escapeHtml(c.collection_id);
+        const pending = c.status === 'pending';
+        const withdrawn = c.status === 'withdrawn';
+        if (pending) mycPendingMap[c.collection_id] = { raw_path: c.raw_path, filename: c.filename };
+
+        const range = (c.first_event_ts && c.last_event_ts)
+            ? `${escapeHtml(c.first_event_ts.slice(0, 10))} &rarr; ${escapeHtml(c.last_event_ts.slice(0, 10))}` : '';
+        const added = c.ts_added_to_dataset ? escapeHtml(c.ts_added_to_dataset.slice(0, 10)) : '';
+        const events = c.total_events != null ? fmtInt(c.total_events) : '';
+
+        // Persona checkboxes: ready rows drive the combined persona below
+        // (debounced live updates); pending/withdrawn rows cannot take part.
+        const ticked = mycCheckedSet && mycCheckedSet.has(c.collection_id);
+        const personaBoxHtml = withdrawn ? '' : (pending
+            ? '<input type="checkbox" disabled title="Available once processed">'
+            : `<input type="checkbox" class="myc-persona-check" data-cid="${cid}"
+                   ${ticked ? 'checked' : ''} title="Include in your combined persona"
+                   onclick="event.stopPropagation()" onchange="mycPersonaToggled(this)">`);
+
+        const action = withdrawn
+            ? `<button class="myc-actbtn myc-actbtn--accent" onclick="event.stopPropagation(); mycRestore('${cid}', this)">Restore</button>`
+            : (pending
+                ? `<button class="myc-actbtn myc-actbtn--danger" data-myc-cancel="${cid}"
+                       onclick="event.stopPropagation(); mycDeletePending('${cid}', this)">Cancel</button>`
+                : `<button class="myc-actbtn myc-actbtn--danger"
+                       onclick="event.stopPropagation(); mycOpenWithdrawModal('${cid}')">Delete</button>`);
+
+        const clickable = withdrawn ? '' : ` class="myc-row" onclick="openMyCollection('${cid}')"`;
+        return `
+            <tr${withdrawn ? ' class="myc-row-withdrawn"' : clickable} data-myc-select="${cid}">
+                <td>
+                    <div class="myc-cell-platform">${escapeHtml(platformLabel(c.source_platform))}</div>
+                    <div class="myc-cell-id text-xs">${escapeHtml(c.display_id)}</div>
+                </td>
+                <td>${range}</td>
+                <td class="myc-num">${events}</td>
+                <td class="myc-num">${coverageCell(c)}</td>
+                <td class="myc-cell-muted">${added}</td>
+                <td>${statusBadge(c)}</td>
+                <td class="myc-cell-center">${personaBoxHtml}</td>
+                <td class="myc-cell-actions">${action}</td>
+            </tr>`;
+    }
+
+    function shareRow(s, i) {
+        const plat = escapeHtml(platformLabel(s.source_platform));
+        return `
+            <tr class="myc-share-row" onclick="mycOpenUploadModal(${i})">
+                <td colspan="${COL_COUNT}">
+                    <div class="myc-share-flex">
+                        <span class="myc-share-label"><span class="myc-share-plus">+</span>Share your ${plat} data</span>
+                        <a class="myc-howto-link text-xs" href="#"
+                           onclick="event.preventDefault(); event.stopPropagation(); mycOpenHowtoModal('${escapeHtml(s.source_platform)}')">How do I get my data?</a>
+                    </div>
+                </td>
+            </tr>`;
+    }
+
+    function renderPersonaFooter() {
+        const el = document.getElementById('myc-persona-footer');
+        if (!el) return;
+        const ready = mycCollections.filter(c => c.status === 'ready');
+        if (!ready.length) { el.textContent = ''; el.style.display = 'none'; return; }
+        el.style.display = '';
+        // A clicked row overrides the ticked-set view until the next toggle.
+        if (mycActiveSelection && mycActiveSelection !== 'combined' && mycActiveSelection !== 'subset') {
+            const c = mycCollections.find(x => x.collection_id === mycActiveSelection);
+            if (c) {
+                el.innerHTML = c.status === 'ready'
+                    ? `Showing <strong>${escapeHtml(c.display_id)}</strong> only &mdash; tick the Persona boxes to build a combined persona.`
+                    : 'Showing a preview of your unprocessed upload.';
+                return;
+            }
+        }
+        const n = mycCheckedSet ? mycCheckedSet.size : ready.length;
+        el.innerHTML = n
+            ? `Your persona below is built from the <strong>${n} ticked collection${n === 1 ? '' : 's'}</strong>.`
+            : 'Tick at least one collection to build your combined persona.';
+    }
+
+    function renderTable() {
+        const body = document.getElementById('myc-table-body');
+        if (!body) return;
+        Object.keys(mycPendingMap).forEach(k => delete mycPendingMap[k]);
+        // The ticked set defaults to every ready collection and survives
+        // re-renders; collections that left the list fall out of it.
+        const readyIds = mycCollections.filter(c => c.status === 'ready').map(c => c.collection_id);
+        if (mycCheckedSet === null) {
+            mycCheckedSet = new Set(readyIds);
+        } else {
+            mycCheckedSet = new Set(readyIds.filter(id => mycCheckedSet.has(id)));
+            if (!mycCheckedSet.size && readyIds.length) mycCheckedSet = new Set(readyIds);
+        }
+        const rows = mycCollections.map(collectionRow);
+        (mycSources || []).forEach((s, i) => rows.push(shareRow(s, i)));
+        body.innerHTML = rows.join('');
+        showSection('myc-section-collections', rows.length > 0);
+        renderPersonaFooter();
+        markActiveRow();
+    }
+
+    // A Persona checkbox changed: update the set and footer immediately, then
+    // fetch the subset persona after a short debounce so a burst of toggles
+    // costs one request.
+    window.mycPersonaToggled = function (cb) {
+        if (!mycCheckedSet) mycCheckedSet = new Set();
+        if (cb.checked) mycCheckedSet.add(cb.dataset.cid);
+        else mycCheckedSet.delete(cb.dataset.cid);
+        mycActiveSelection = 'subset';
+        markActiveRow();
+        renderPersonaFooter();
+        if (mycPersonaDebounce) clearTimeout(mycPersonaDebounce);
+        mycPersonaDebounce = setTimeout(() => {
+            mycPersonaDebounce = null;
+            refreshSubsetPersona();
+        }, 300);
+    };
+
+    function refreshSubsetPersona() {
+        const ids = Array.from(mycCheckedSet || []).sort();
+        if (!ids.length) return;  // footer already says "tick at least one"
+        const el = personaBox(true);
+        if (!el) return;
+        const seq = ++mycPersonaReqSeq;
+        el.classList.add('myc-persona-loading');
+        fetch(`/api/my/collections/combined/personality?collections=${encodeURIComponent(ids.join(','))}`)
+            .then(r => r.json().then(data => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                if (seq !== mycPersonaReqSeq) return;  // a newer request superseded this one
+                el.classList.remove('myc-persona-loading');
+                if (!ok) {
+                    el.innerHTML = `<p class="text-sm" style="color: var(--color-text-muted);">${escapeHtml((data && data.error) || 'Something went wrong.')}</p>`;
+                    return;
+                }
+                mycRenderPersonality(el, data);
+                mycResizeCharts();
+            })
+            .catch(() => {
+                if (seq !== mycPersonaReqSeq) return;
+                el.classList.remove('myc-persona-loading');
+                el.innerHTML = '<p class="text-sm" style="color: var(--color-text-muted);">Something went wrong while computing your persona. Try again in a moment.</p>';
+            });
+    }
+
+    function markActiveRow() {
+        document.querySelectorAll('#myc-table-body tr[data-myc-select]').forEach(tr => {
+            tr.classList.toggle('myc-row-active',
+                tr.getAttribute('data-myc-select') === mycActiveSelection);
         });
     }
 
@@ -246,9 +340,11 @@
 
     window.openMyCollection = function (selection) {
         mycActiveSelection = selection;
-        markActiveCard();
+        markActiveRow();
+        renderPersonaFooter();
         const el = personaBox(true);
         if (!el) return;
+        const seq = ++mycPersonaReqSeq;  // shared with refreshSubsetPersona: last request wins
         el.innerHTML = '<p class="text-sm" style="color: var(--color-text-muted);">Crunching your numbers&hellip;</p>';
         const pend = mycPendingMap[selection];
         const url = pend
@@ -259,6 +355,7 @@
         fetch(url)
             .then(r => r.json().then(data => ({ ok: r.ok, data })))
             .then(({ ok, data }) => {
+                if (seq !== mycPersonaReqSeq) return;  // superseded by a newer request
                 if (!ok) {
                     if (data && data.rejected) {
                         // QA rejection: the file was removed server-side.
@@ -279,6 +376,7 @@
                 mycRenderPersonality(el, data);
             })
             .catch(() => {
+                if (seq !== mycPersonaReqSeq) return;
                 el.innerHTML = '<p class="text-sm" style="color: var(--color-text-muted);">Something went wrong while computing your personality. Try again in a moment.</p>';
             });
     };
@@ -509,20 +607,6 @@
         instagram: 'Choose your Instagram export <strong>.zip</strong>. It is opened in your browser so you can review and remove items — only the activity you approve leaves your computer.',
         youtube: 'Choose your Google Takeout <strong>.zip</strong>. It is opened in your browser so you can review and remove items — only the activity you approve leaves your computer.',
     };
-
-    function renderUploadSources() {
-        const el = document.getElementById('myc-upload-sources');
-        if (!el) return;
-        if (!mycSources || !mycSources.length) { el.innerHTML = ''; return; }
-        showSection('myc-section-donate', true);
-        const cards = mycSources.map((s, i) => `
-            <div class="myc-source-card" onclick="mycOpenUploadModal(${i})">
-                <div style="font-weight: 600;">+ ${escapeHtml(platformLabel(s.source_platform))}</div>
-                <a class="myc-howto-link text-xs" href="#"
-                   onclick="event.preventDefault(); event.stopPropagation(); mycOpenHowtoModal('${escapeHtml(s.source_platform)}')">How do I get my data?</a>
-            </div>`);
-        el.innerHTML = `<div style="display: flex; flex-wrap: wrap; gap: 10px;">${cards.join('')}</div>`;
-    }
 
     // Per-platform "how do I get my data" guide modal. The content blocks
     // live in my_stuff.html; the video iframe is lazy-loaded from data-src on

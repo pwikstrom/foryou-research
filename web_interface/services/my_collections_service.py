@@ -109,6 +109,25 @@ _EMOJI_RE = re.compile(
 _CACHE_TTL_S = 600
 _bundle_cache: dict[tuple, tuple[float, dict]] = {}
 _corpus_cache: dict[str, tuple[float, dict]] = {}
+# Per-user (platforms, coverage) maps from the owned-collections scan — the
+# scan now carries item_id/activity_type for the coverage column, so it is
+# worth memoising. {username: (ts, platforms, coverage)}.
+_coverage_cache: dict[str, tuple[float, dict, dict]] = {}
+
+# The Persona checkboxes make _bundle_cache keys combinatorial (any subset of
+# a user's collections), so the cache needs bounds: expired entries are swept
+# on every write and the total is capped by dropping the oldest.
+_BUNDLE_CACHE_MAX = 32
+
+
+def _evict_bundle_cache(now: float) -> None:
+    """Called before every cache write: drop expired entries, then oldest
+    entries until the incoming write will fit under the cap."""
+    for k in [k for k, (ts, _) in _bundle_cache.items() if now - ts >= _CACHE_TTL_S]:
+        _bundle_cache.pop(k, None)
+    while len(_bundle_cache) >= _BUNDLE_CACHE_MAX:
+        oldest = min(_bundle_cache, key=lambda k: _bundle_cache[k][0])
+        _bundle_cache.pop(oldest, None)
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +408,7 @@ def build_pending_personality(raw_path: str, filename: str) -> dict:
 
     bundle = _compute_bundle(df, [str(cid)])
     bundle["pending"] = True
+    _evict_bundle_cache(now)
     _bundle_cache[key] = (now, bundle)
     return bundle
 
@@ -575,6 +595,63 @@ def restore_withdrawal(cid: str) -> dict:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _platforms_and_coverage(username: str, cids: list[str]) -> tuple[dict, dict]:
+    """Per-collection platform/source plus scraped/annotated coverage, TTL-cached.
+
+    One selective scan of the recoded parquet over the user's collections.
+    Coverage is the share of a collection's VIEW activities (play/observe —
+    never ``total_events``, which counts likes/searches/follows that have no
+    scrapeable item) whose item is scraped / annotated in
+    ``enrichment_status.parquet``. Missing status table or no view rows →
+    the collection simply has no coverage entry (UI shows an em-dash).
+    """
+    now = time.time()
+    hit = _coverage_cache.get(username)
+    if hit and (now - hit[0]) < _CACHE_TTL_S:
+        return hit[1], hit[2]
+
+    platforms: dict[str, dict] = {}
+    coverage: dict[str, dict] = {}
+    try:
+        df = data_io.load_parquet_selective(
+            storage_location="recoded",
+            filename=RECODED_FILENAME,
+            columns=["collection_id", "source_platform", "data_source",
+                     "item_id", "activity_type"],
+            filters=[("collection_id", "in", cids)],
+        )
+        if df is not None and not df.empty:
+            for cid, grp in df.groupby("collection_id", observed=True):
+                platforms[str(cid)] = {
+                    "source_platform": str(grp["source_platform"].mode().iloc[0]),
+                    "data_source": str(grp["data_source"].mode().iloc[0]),
+                }
+            from . import preview_cache
+            status = preview_cache.get_enrichment_status_cached()
+            views = df[df["activity_type"].astype(str).isin(_VIEW_TYPES)]
+            if status is not None and len(views):
+                iid_keys = views["item_id"].astype(str).to_numpy()
+                scraped, annotated = preview_cache.status_flags(iid_keys, status)
+                flags = pd.DataFrame({
+                    "collection_id": views["collection_id"].astype(str).to_numpy(),
+                    "scraped": scraped,
+                    "annotated": annotated,
+                })
+                for cid, grp in flags.groupby("collection_id", observed=True):
+                    coverage[str(cid)] = {
+                        "pct_scraped": round(float(grp["scraped"].mean()), 4),
+                        "pct_annotated": round(float(grp["annotated"].mean()), 4),
+                    }
+    except Exception as e:
+        print(f"[my_collections] platform/coverage lookup failed: {e}")
+        # Fall through with whatever was collected; do not cache a failure
+        # for the full TTL.
+        return platforms, coverage
+
+    _coverage_cache[username] = (now, platforms, coverage)
+    return platforms, coverage
+
+
 def list_owned_collections(username: str) -> list[dict]:
     """Light per-collection metadata for the picker cards.
 
@@ -591,26 +668,13 @@ def list_owned_collections(username: str) -> list[dict]:
     meta = _load_metadata_personas(cids)
     pending = _pending_uploads_for_user(username)
 
-    # One cheap two-column scan for platform/source (metadata doesn't carry
-    # it). Skipped for a withdrawn-only listing: an empty id list makes the
-    # pyarrow filter throw.
+    # One selective scan for platform/source (metadata doesn't carry it) and
+    # enrichment coverage. Skipped for a withdrawn-only listing: an empty id
+    # list makes the pyarrow filter throw.
     platforms: dict[str, dict] = {}
+    coverage: dict[str, dict] = {}
     if cids:
-        try:
-            df = data_io.load_parquet_selective(
-                storage_location="recoded",
-                filename=RECODED_FILENAME,
-                columns=["collection_id", "source_platform", "data_source"],
-                filters=[("collection_id", "in", cids)],
-            )
-            if df is not None and not df.empty:
-                for cid, grp in df.groupby("collection_id"):
-                    platforms[str(cid)] = {
-                        "source_platform": str(grp["source_platform"].mode().iloc[0]),
-                        "data_source": str(grp["data_source"].mode().iloc[0]),
-                    }
-        except Exception as e:
-            print(f"[my_collections] platform lookup failed: {e}")
+        platforms, coverage = _platforms_and_coverage(username, cids)
 
     out = []
     for cid in cids:
@@ -633,6 +697,8 @@ def list_owned_collections(username: str) -> list[dict]:
             "last_event_ts": None,
             "ts_added_to_dataset": None,
             "total_watch_time_s": None,
+            "pct_scraped": (coverage.get(cid) or {}).get("pct_scraped"),
+            "pct_annotated": (coverage.get(cid) or {}).get("pct_annotated"),
         }
         if in_dataset:
             row = meta.loc[cid]
@@ -667,6 +733,8 @@ def list_owned_collections(username: str) -> list[dict]:
             "last_event_ts": None,
             "ts_added_to_dataset": None,
             "total_watch_time_s": None,
+            "pct_scraped": None,
+            "pct_annotated": None,
         })
     return out
 
@@ -687,6 +755,7 @@ def build_personality(collection_ids: list[str]) -> dict | None:
         return None
 
     bundle = _compute_bundle(df, list(key))
+    _evict_bundle_cache(now)
     _bundle_cache[key] = (now, bundle)
     return bundle
 
@@ -694,6 +763,7 @@ def build_personality(collection_ids: list[str]) -> dict | None:
 def invalidate_cache() -> None:
     _bundle_cache.clear()
     _corpus_cache.clear()
+    _coverage_cache.clear()
 
 
 # ---------------------------------------------------------------------------

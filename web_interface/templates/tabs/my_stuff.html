@@ -313,28 +313,37 @@
                  -->
             <p id="myc-loading" class="text-sm" style="color: var(--color-text-muted);">Loading your collections&hellip;</p>
 
-            <!-- 1. What the participant has already given the Hub. -->
+            <!-- 1. Everything in one place: donated collections, uploads
+                 awaiting processing, and the share rows inviting new
+                 donations. Rows are rendered by renderTable() in
+                 my_collections.js. -->
             <section id="myc-section-collections" style="display: none;">
                 <h2 style="margin: 0 0 8px 0;">My Collections</h2>
-                <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0; max-width: 640px;">
-                    These are the collections you have donated to the For You Data Hub.
-                </p>
-                <div id="myc-picker"></div>
-            </section>
-
-            <!-- 2. The invitation: upload cards, anything waiting to be
-                 processed, and the button that processes it. -->
-            <section id="myc-section-donate" style="display: none; margin-top: 32px;">
-                <h2 style="margin: 0 0 8px 0;">Donate your short-video platform data</h2>
                 <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 14px 0; max-width: 680px;">
-                    Your donation powers research into how recommendation systems shape what we
-                    watch &mdash; and shows you your own short-video personality.
+                    Your donated data collections, and the ones you can still add. Click a
+                    collection to see its short-video persona. Your donation powers research into
+                    how recommendation systems shape what we watch.
                     <a href="/participate" target="_blank" rel="noopener">Read why your donation matters</a>.
                 </p>
-                <p class="text-sm" style="margin: 0 0 10px 0;">You can upload data from these platforms:</p>
-                <div id="myc-upload-sources" style="margin-bottom: 16px;"></div>
-                <div id="myc-pending"></div>
+                <div class="myc-table-wrap">
+                    <table id="myc-table" class="myc-table">
+                        <thead>
+                            <tr>
+                                <th>Collection</th>
+                                <th>Activity period</th>
+                                <th class="myc-num">Activities</th>
+                                <th class="myc-num" title="Share of your viewing activities with scraped / annotated video metadata">Scraped&thinsp;/&thinsp;annotated</th>
+                                <th>Added</th>
+                                <th>Status</th>
+                                <th title="Include this collection in your combined persona">Persona</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="myc-table-body"></tbody>
+                    </table>
+                </div>
                 <div id="myc-process" style="margin-top: 12px;"></div>
+                <p id="myc-persona-footer" class="text-sm" style="color: var(--color-text-muted); margin: 10px 0 0 0;"></p>
             </section>
 
             <!-- 3. The persona view for whichever collection is selected. -->
@@ -540,4 +549,4 @@
 {% if user.can_access('tab.my_stuff.tasks') %}
 <script src="{{ url_for('static', filename='js/human_coding.js') }}" defer></script>
 {% endif %}
-<script src="{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=6"></script>
+<script src="{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=7"></script>
