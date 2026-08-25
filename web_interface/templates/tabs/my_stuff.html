@@ -1,10 +1,27 @@
 <div id="my_stuff" class="tab-pane">
 
-    <!-- Sidebar Navigation -->
+    <!-- Sidebar Navigation.
+         Order is the menu order and also drives the mobile sub-nav
+         (main.js _buildTabSubnavs walks these items in document order).
+         Tasks and Video Tags start hidden and are unhidden by JS only when
+         the user actually has something there. -->
     <nav class="dm-sidebar">
         {% if user.can_access('tab.my_stuff.my_studies') %}
         <div class="dm-sidebar-item" data-page="my-stuff-page-studies" onclick="openMyStuffPage('my-stuff-page-studies', this)">
             My Studies
+        </div>
+        {% endif %}
+        {% if user.can_access('tab.my_stuff.my_collections') %}
+        <!-- Relabelled "Share your data" by my_collections.js when the user
+             owns no collections yet. -->
+        <div class="dm-sidebar-item" data-page="my-stuff-page-my-collections" onclick="openMyStuffPage('my-stuff-page-my-collections', this)">
+            <span class="js-my-collections-label">My Collections</span>
+        </div>
+        {% endif %}
+        {% if user.can_access('tab.my_stuff.video_tags') %}
+        <!-- Unhidden by main.js loadAndRenderUserTags() when the user has tags. -->
+        <div class="dm-sidebar-item" data-page="my-stuff-page-video-tags" style="display: none;" onclick="openMyStuffPage('my-stuff-page-video-tags', this)">
+            My Video Tags
         </div>
         {% endif %}
         {% if user.can_access('tab.my_stuff.tasks') %}
@@ -13,24 +30,14 @@
             My Tasks
         </div>
         {% endif %}
-        {% if user.can_access('tab.my_stuff.preferences') %}
-        <div class="dm-sidebar-item" data-page="my-stuff-page-preferences" onclick="openMyStuffPage('my-stuff-page-preferences', this)">
-            Preferences
-        </div>
-        {% endif %}
-        {% if user.can_access('tab.my_stuff.video_tags') %}
-        <div class="dm-sidebar-item" data-page="my-stuff-page-video-tags" onclick="openMyStuffPage('my-stuff-page-video-tags', this)">
-            My Video Tags
-        </div>
-        {% endif %}
         {% if user.can_access('tab.my_stuff.profile') %}
         <div class="dm-sidebar-item" data-page="my-stuff-page-profile" onclick="openMyStuffPage('my-stuff-page-profile', this)">
-            Profile
+            My Profile
         </div>
         {% endif %}
-        {% if user.can_access('tab.my_stuff.my_collections') %}
-        <div class="dm-sidebar-item" data-page="my-stuff-page-my-collections" onclick="openMyStuffPage('my-stuff-page-my-collections', this)">
-            My Collections
+        {% if user.can_access('tab.my_stuff.preferences') %}
+        <div class="dm-sidebar-item" data-page="my-stuff-page-preferences" onclick="openMyStuffPage('my-stuff-page-preferences', this)">
+            My Preferences
         </div>
         {% endif %}
     </nav>
@@ -116,7 +123,7 @@
 
         {% if user.can_access('tab.my_stuff.preferences') %}
         <div id="my-stuff-page-preferences" class="dm-page">
-            <h2 style="margin: 0 0 16px 0;">Preferences</h2>
+            <h2 style="margin: 0 0 16px 0;">My Preferences</h2>
 
             <h4 class="text-sm font-semibold" style="margin-top: 15px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Appearance</h4>
 
@@ -227,7 +234,7 @@
 
         {% if user.can_access('tab.my_stuff.profile') %}
         <div id="my-stuff-page-profile" class="dm-page">
-            <h2 style="margin: 0 0 16px 0;">Profile</h2>
+            <h2 style="margin: 0 0 16px 0;">My Profile</h2>
 
             <div class="setting-group" style="margin-bottom: 20px; max-width: 480px;">
                 <div style="margin-bottom: 16px;">
@@ -275,11 +282,6 @@
                         style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 220px; background: var(--color-bg-input); color: var(--color-text-primary);">
                 </div>
                 <div style="margin-bottom: 12px;">
-                    <label for="profile-tiktok-handle" class="text-sm font-medium" style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">TikTok handle</label>
-                    <input type="text" id="profile-tiktok-handle" data-profile-field="tiktok_handle" maxlength="100" placeholder="@handle"
-                        style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 220px; background: var(--color-bg-input); color: var(--color-text-primary);">
-                </div>
-                <div style="margin-bottom: 12px;">
                     <label for="profile-consent-to-contact" class="text-sm font-medium" style="display: block; margin-bottom: 4px; color: var(--color-text-primary);">OK to contact me about this research?</label>
                     <select id="profile-consent-to-contact" data-profile-field="consent_to_contact"
                         style="padding: 8px; border: 1px solid var(--color-border); border-radius: 4px; width: 220px; background: var(--color-bg-input); color: var(--color-text-primary);">
@@ -305,7 +307,7 @@
 
         {% if user.can_access('tab.my_stuff.my_collections') %}
         <div id="my-stuff-page-my-collections" class="dm-page">
-            <h2 style="margin: 0 0 8px 0;">My Collections</h2>
+            <h2 id="myc-page-title" style="margin: 0 0 8px 0;">My Collections</h2>
             <p class="text-sm" style="color: var(--color-text-muted); margin: 0 0 16px 0; max-width: 640px;">
                 Everything on this page is computed from your own donated activity
                 data only. Nothing is scraped, nothing is annotated, and
@@ -396,4 +398,4 @@
 {% if user.can_access('tab.my_stuff.tasks') %}
 <script src="{{ url_for('static', filename='js/human_coding.js') }}" defer></script>
 {% endif %}
-<script src="{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=5"></script>
+<script src="{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=6"></script>

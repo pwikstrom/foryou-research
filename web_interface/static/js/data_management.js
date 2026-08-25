@@ -239,33 +239,20 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
     }
 }
 
-// Read-only collection list for the My Studies modal. Built from the study's own
-// SELECTED_COLLECTIONS rather than the global `availableCollections`, which comes
-// from an endpoint a plain viewer is refused — and which would expose every donor
-// in the system, not just this study's.
+// Collection summary for the read-only My Studies modal: how many collections
+// the study draws on, never which ones. A collection id names a participant's
+// donation, so the list stays with the people who manage studies. Counted from
+// the study's own SELECTED_COLLECTIONS, not the global `availableCollections`
+// (that comes from an endpoint a plain viewer is refused anyway).
 function _renderReadOnlyCollectionList(container, selectedList) {
-    const ids = Array.from(selectedList).sort();
-    if (!ids.length) {
-        container.innerHTML = '<div style="padding: 10px; color: var(--color-text-tertiary);">This study has no collections.</div>';
-        return;
-    }
-
-    const header = document.createElement('div');
-    header.className = 'text-xs';
-    header.style.cssText = 'padding: 6px 5px; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border-strong);';
-    header.textContent = `${ids.length.toLocaleString()} collection${ids.length === 1 ? '' : 's'} in this study`;
-    container.appendChild(header);
-
-    const list = document.createElement('div');
-    list.className = 'text-sm';
-    list.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 8px 5px; color: var(--color-text-secondary);';
-    ids.forEach(id => {
-        const span = document.createElement('span');
-        span.style.cssText = 'font-family: var(--font-mono); white-space: nowrap;';
-        span.textContent = id;
-        list.appendChild(span);
-    });
-    container.appendChild(list);
+    const count = Array.from(selectedList).length;
+    const summary = document.createElement('div');
+    summary.className = 'text-sm';
+    summary.style.cssText = 'padding: 10px 5px; color: var(--color-text-secondary);';
+    summary.textContent = count
+        ? `${count.toLocaleString()} collection${count === 1 ? '' : 's'} in this study`
+        : 'This study has no collections.';
+    container.appendChild(summary);
 }
 
 const _LARGE_STUDY_THRESHOLD = 500000;
@@ -660,6 +647,12 @@ function _lockStudyForm(row) {
         el.disabled = true;
     });
     row.querySelectorAll('.sampling-input').forEach(el => { el.style.opacity = ''; });
+    // A disabled Delete/Save still reads as an offer. Nothing here is
+    // actionable from My Studies, so drop the whole action row and the
+    // collection search box (there is no list to search).
+    row.querySelectorAll('.study-form-actions, .collection-search-row').forEach(el => {
+        el.style.display = 'none';
+    });
 }
 
 function closeStudyModal() {
@@ -798,6 +791,12 @@ function populateForm(row, study) {
     row.dataset.initialFetch = '1';
     if (stats.universe && Number(stats.universe.activities) > 0) {
         _renderStudySetViz(row, { universe: stats.universe, included: stats, frame: study.SAMPLE_FRAME, seeded: true });
+    } else if (readOnly && Array.isArray(study.SELECTED_COLLECTIONS) && study.SELECTED_COLLECTIONS.length) {
+        // No persisted universe (study saved before it was recorded, or the
+        // refresh skipped it). Read-only can't run the editable modal's
+        // estimate, so fetch the mosaic for this one saved study instead —
+        // otherwise the spinner below would never resolve.
+        _fetchReadOnlySetViz(row, study);
     } else if (Array.isArray(study.SELECTED_COLLECTIONS) && study.SELECTED_COLLECTIONS.length) {
         // Collections are selected but no seeded stats exist (e.g. a duplicated
         // study) — the estimate is already on its way, so say so instead of
@@ -1196,6 +1195,38 @@ function _showStudyVizLoading(row, message) {
         + '<span class="global-tasks-spinner"></span><span>' + message + '</span></div>';
     const badge = row.querySelector('.study-viz-updating');
     if (badge) badge.style.display = 'none';
+}
+
+// My Studies has no /calculate_stats access (it is Data-Management only, and
+// takes a client-supplied definition). This asks for the mosaic of ONE saved
+// study by name, which the server recomputes from the study's own definition.
+function _fetchReadOnlySetViz(row, study) {
+    _showStudyVizLoading(row, 'Estimating study size…');
+    fetch(`/api/manage/studies/${encodeURIComponent(study.STUDY_NAME)}/set_viz`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.status !== 'success' || !data.universe
+                || !(Number(data.universe.activities) > 0)) {
+                _showStudyVizUnavailable(row);
+                return;
+            }
+            _renderStudySetViz(row, {
+                universe: data.universe,
+                included: data.stats || {},
+                frame: data.frame || study.SAMPLE_FRAME,
+            });
+        })
+        .catch(() => _showStudyVizUnavailable(row));
+}
+
+function _showStudyVizUnavailable(row) {
+    const viz = row.querySelector('.study-set-viz');
+    if (!viz) return;
+    viz.style.opacity = '1';
+    viz.dataset.state = 'empty';
+    viz.innerHTML =
+        '<div class="study-set-viz-empty text-xs" style="color: var(--color-text-tertiary); padding: 12px; border: 1px dashed var(--color-border); border-radius: 4px; background: var(--color-bg-surface);">'
+        + 'Coverage breakdown is not available for this study yet. It appears once the study has been refreshed.</div>';
 }
 
 function _scheduleStudyEstimate(row, delay = 200) {
@@ -2321,7 +2352,11 @@ function _renderStudySetViz(row, { universe, included, frame, seeded } = {}) {
         `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--eligible"></span>inside frame, not sampled</span>` +
         `<span class="study-viz__legend-item"><span class="study-viz__swatch study-viz__swatch--outframe"></span>outside frame</span>` +
         `</div>` +
-        (seeded ? `<div class="study-viz__seeded-note text-xxs">Showing the last saved result; adjust the sampling or date range to refresh.</div>` : '');
+        // The "adjust to refresh" nudge only makes sense where the controls
+        // are live — read-only has nothing to adjust.
+        (seeded && row.dataset.readOnly !== '1'
+            ? `<div class="study-viz__seeded-note text-xxs">Showing the last saved result; adjust the sampling or date range to refresh.</div>`
+            : '');
     viz.dataset.state = seeded ? 'seeded' : 'ready';
     requestAnimationFrame(() => _fitMosaicLabels(viz));
 }

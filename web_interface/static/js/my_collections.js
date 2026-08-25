@@ -84,6 +84,7 @@
             .then(([data, sources]) => {
                 mycCollections = (data && data.collections) || [];
                 mycSources = sources;
+                syncMyCollectionsMenuLabel();
                 renderUploadSources();
                 renderPicker();
                 renderProcessButton();
@@ -103,6 +104,20 @@
                 if (el) el.innerHTML = '<p class="text-sm" style="color: var(--color-text-muted);">Could not load your collections. Try reloading the page.</p>';
             });
     };
+
+    // Someone with nothing donated yet has no "collections" to speak of, so
+    // the menu item states the invitation instead of naming an empty page.
+    function syncMyCollectionsMenuLabel() {
+        const label = document.querySelector('#my_stuff .js-my-collections-label');
+        if (!label) return;
+        const has = Array.isArray(mycCollections) && mycCollections.length > 0;
+        const text = has ? 'My Collections' : 'Share your data';
+        label.textContent = text;
+        const title = document.getElementById('myc-page-title');
+        if (title) title.textContent = text;
+        // Keep the mobile subnav copy in step.
+        if (typeof _buildTabSubnavs === 'function') _buildTabSubnavs();
+    }
 
     // ------------------------------------------------------------------
     // Picker

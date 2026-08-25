@@ -848,17 +848,28 @@
             return; // No active-users sub-page on this page; nothing left to do.
         }
 
+        window._activeUsersData = active;
+
         if (active.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--color-text-faint);">No active users found.</td></tr>';
-            window._activeUsersData = [];
+            tableBody.innerHTML = '<tr><td colspan="6" style="padding: 16px; text-align: center; color: var(--color-text-faint);">No active users found.</td></tr>';
+            _updateActiveUsersCount(0, 0);
             return;
         }
 
-        window._activeUsersData = active;
-        const sorted = _sortActiveUsersData(active);
+        const visible = _filterActiveUsersData(active);
+        _updateActiveUsersCount(visible.length, active.length);
+
+        if (visible.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="6" style="padding: 16px; text-align: center; color: var(--color-text-faint);">No users match the current search or filter.</td></tr>';
+            _updateActiveUsersSortIndicators();
+            return;
+        }
+
+        const sorted = _sortActiveUsersData(visible);
 
         tableBody.innerHTML = sorted.map(user => {
             const lastLogin = fypFmtDateTime(user.last_login, 'Never');
+            const registered = fypFmtDateTime(user.created_at, 'Unknown');
             const safeUser = user.username.replace(/'/g, "\\'");
             const safeDisplayName = String(user.display_username || '')
                 .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -886,6 +897,9 @@
             <td style="padding: 12px 16px; color: var(--color-text-primary);">
                 <span class="text-xs" style="color: var(--color-text-muted);">${lastLogin}</span>
             </td>
+            <td style="padding: 12px 16px; color: var(--color-text-primary);">
+                <span class="text-xs" style="color: var(--color-text-muted);">${registered}</span>
+            </td>
             <td style="padding: 12px 16px;">
                 <span class="text-xs" style="color: var(--color-text-muted);" title="${collectionsTitle}">${collectionsCount > 0 ? collectionsCount : '—'}</span>
             </td>
@@ -906,6 +920,39 @@
         _updateActiveUsersSortIndicators();
     }
 
+    // --- Search / participant filter for Active Users table ---
+
+    // Participant accounts (created from donation data, incl. the login-less
+    // placeholders) outnumber real members, so they get their own toggle.
+    function _filterActiveUsersData(users) {
+        const searchEl = document.getElementById('activeUsersSearch');
+        const participantsEl = document.getElementById('activeUsersIncludeParticipants');
+        const needle = (searchEl ? searchEl.value : '').trim().toLowerCase();
+        const includeParticipants = participantsEl ? participantsEl.checked : true;
+
+        return users.filter(u => {
+            if (!includeParticipants && u.account_kind === 'participant') return false;
+            if (!needle) return true;
+            const haystack = [u.display_username, u.username, u.role].join(' ').toLowerCase();
+            return haystack.includes(needle);
+        });
+    }
+
+    function _updateActiveUsersCount(shown, total) {
+        const el = document.getElementById('activeUsersCount');
+        if (!el) return;
+        el.textContent = shown === total
+            ? `${total} user${total === 1 ? '' : 's'}`
+            : `${shown} of ${total} users`;
+    }
+
+    // Re-render from the cached payload; no refetch needed to filter.
+    function filterActiveUsers() {
+        if (Array.isArray(window._lastUsersPayload)) {
+            renderUsers(window._lastUsersPayload);
+        }
+    }
+
     // --- Sorting for Active Users table ---
 
     window._activeUsersSort = window._activeUsersSort || { key: 'username', dir: 'asc' };
@@ -917,6 +964,7 @@
             case 'username':   return (user.username || '').toLowerCase();
             case 'role':       return (user.role || '').toLowerCase();
             case 'last_login': return user.last_login ? Date.parse(user.last_login) : -Infinity;
+            case 'created_at': return user.created_at ? Date.parse(user.created_at) : -Infinity;
             case 'collections': return Number(user.collections_count || (user.collections || []).length || 0);
             case 'videos':     return Number(stats.unique_videos || 0);
             case 'notes':      return Number(stats.notes || 0);

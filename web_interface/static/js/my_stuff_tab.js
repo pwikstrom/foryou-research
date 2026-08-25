@@ -184,12 +184,17 @@
 
     // --- Profile page ---
 
-    // The seven "About you" fields; each has a form control carrying
-    // data-profile-field="<key>" in the Profile panel.
-    const PROFILE_FIELDS = ['full_name', 'age', 'postcode', 'country', 'occupation', 'tiktok_handle', 'consent_to_contact'];
+    // The "About you" fields; each has a form control carrying
+    // data-profile-field="<key>" in the Profile panel. Fields the user is not
+    // asked for (tiktok_handle) are simply absent — update_profile merges, so
+    // omitting a key leaves any stored value untouched rather than clearing it.
+    const PROFILE_FIELDS = ['full_name', 'age', 'postcode', 'country', 'occupation', 'consent_to_contact'];
 
+    // Scoped to this page on purpose: the admin user modal carries the same
+    // data-profile-field attributes, and an unscoped lookup would read and
+    // write ANOTHER user's form.
     function profileFieldEl(key) {
-        return document.querySelector('[data-profile-field="' + key + '"]');
+        return document.querySelector('#my-stuff-page-profile [data-profile-field="' + key + '"]');
     }
 
     // consent_to_contact is a tri-state select: "" (unset) / "yes" / "no".

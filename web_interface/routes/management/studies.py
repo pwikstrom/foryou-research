@@ -45,6 +45,31 @@ from ...services.worker_status import (
 from ._blueprint import management_bp
 
 
+def _is_study_manager() -> bool:
+    """Study managers see every study regardless of per-study USER_ACCESS."""
+    from web_interface.permissions import user_has_permission
+    return (
+        current_user.is_admin()
+        or user_has_permission(current_user, 'tab.data_management.studies')
+    )
+
+
+def _user_can_see_study(config: dict) -> bool:
+    """True when the current user may read ``config``'s definition.
+
+    Managers see everything; everyone else needs their role or username in the
+    study's ``USER_ACCESS`` (or the wildcard ``"all"``).
+    """
+    if _is_study_manager():
+        return True
+    user_access = config.get("USER_ACCESS", [])
+    return isinstance(user_access, list) and (
+        current_user.role in user_access
+        or current_user.username in user_access
+        or 'all' in user_access
+    )
+
+
 @management_bp.route('/api/manage/studies', methods=['GET'])
 @login_required
 @permission_required('tab.data_management.studies', 'tab.my_stuff.my_studies')
@@ -61,31 +86,61 @@ def list_studies():
     #     managers" — they see every study regardless of per-study USER_ACCESS.
     #   - Users who only have the My Studies tab see the curated subset: studies
     #     where their role appears in USER_ACCESS (or USER_ACCESS contains "all").
-    from web_interface.permissions import user_has_permission
-    is_manager = (
-        current_user.is_admin()
-        or user_has_permission(current_user, 'tab.data_management.studies')
-    )
+    is_manager = _is_study_manager()
 
     for name, config in studies.items():
         config['STUDY_NAME'] = name
 
         if is_manager:
             studies_list.append(config)
-        else:
-            user_access = config.get("USER_ACCESS", [])
-            if isinstance(user_access, list) and (
-                current_user.role in user_access
-                or current_user.username in user_access
-                or 'all' in user_access
-            ):
-                # The My Studies read-only view renders from this payload, so it
-                # ships the whole definition. USER_ACCESS is the one key that
-                # says something about other users rather than about the study.
-                shared = {k: v for k, v in config.items() if k != "USER_ACCESS"}
-                studies_list.append(shared)
+        elif _user_can_see_study(config):
+            # The My Studies read-only view renders from this payload, so it
+            # ships the whole definition. USER_ACCESS is the one key that
+            # says something about other users rather than about the study.
+            shared = {k: v for k, v in config.items() if k != "USER_ACCESS"}
+            studies_list.append(shared)
 
     return jsonify(studies_list)
+
+
+@management_bp.route('/api/manage/studies/<study>/set_viz', methods=['GET'])
+@login_required
+@permission_required('tab.data_management.studies', 'tab.my_stuff.my_studies')
+def study_set_viz(study):
+    """Enrichment mosaic for ONE saved study, for the read-only My Studies modal.
+
+    The editable modal gets this from /calculate_stats, which is Data-Management
+    only and takes a client-supplied definition. Here the definition comes from
+    the saved study, so a viewer can only ever ask about a study they can already
+    see — no arbitrary collection selections. Used when the study's persisted
+    ``stats.universe`` is missing (saved before it was recorded, or the refresh
+    skipped it), which would otherwise leave the mosaic on a spinner forever.
+    """
+    if fyp_cf.get('study_defs', None) is None:
+        init_study_defs()
+
+    config = (fyp_cf.get('study_defs') or {}).get(study)
+    if config is None:
+        return jsonify({"error": "Unknown study"}), 404
+    if not _user_can_see_study(config):
+        return jsonify({"error": "Not authorised for this study"}), 403
+
+    study_config = dict(config)
+    study_config["STUDY_NAME"] = study
+
+    try:
+        cells, coll_stats = get_preview_cells()
+        stats, _included_per_day, _sparse, _total, _report = _estimate_from_cells(
+            cells, coll_stats, study_config)
+        _pot_activities, _pot_days, universe, _has_days = _universe_from_cells(cells, study_config)
+        return jsonify({
+            "status": "success",
+            "stats": stats,
+            "universe": universe,
+            "frame": study_config.get("SAMPLE_FRAME"),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 

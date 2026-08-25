@@ -505,8 +505,6 @@ window.timelines = {
 
     selectDonation: async function (collectionId) {
         this.currentDonationId = collectionId;
-        const header = document.getElementById('timelines-header');
-        if (header) header.style.display = '';
 
         const collection = this.collectionList.find(d => d.collection_id === collectionId);
         this.currentStudy = (collection && collection.study) || null;
@@ -530,78 +528,16 @@ window.timelines = {
             }
         }
 
-        // --- Collection Info Tooltip ---
+        // The participant info tooltip that used to live next to the collection
+        // dropdown is gone; the only thing still read from pe_data is the first
+        // activity date, which the "exclude before first activity" filter needs.
         let pe_collection = null;
         if (window.pe_data && window.pe_data.length > 0) {
             pe_collection = window.pe_data.find(d => d.collection_id === collectionId);
         }
-
-        if (pe_collection) {
-
-            // Helper to dynamically hide empty items just like PE
-            let visibleInfoCount = 0;
-            const updateInfoStat = (elementId, value) => {
-                const el = document.getElementById(elementId);
-                if (!el) return;
-
-                const li = el.closest('li');
-                if (value !== null && value !== undefined && value !== '') {
-                    el.innerText = value;
-                    if (li) li.style.display = 'flex';
-                    visibleInfoCount++;
-                } else {
-                    if (li) li.style.display = 'none';
-                }
-            };
-
-            // Participant Info
-            updateInfoStat('timelines-stat-age', pe_collection.age);
-            updateInfoStat('timelines-stat-country', pe_collection.country);
-            updateInfoStat('timelines-stat-postcode', pe_collection.postCode);
-            updateInfoStat('timelines-stat-display-id', pe_collection.display_collection_id);
-
-            const pInfoSection = document.getElementById('timelines-participant-info-section');
-            if (pInfoSection) {
-                pInfoSection.style.display = visibleInfoCount > 0 ? 'block' : 'none';
-            }
-
-            // The donation date is a real instant (the upload's mtime); the
-            // first/last event bounds are participant wall-clock and must not
-            // be shifted into the viewer's timezone.
-            const fmtDonationDate = (ts) => fypFmtDate(ts, 'not provided');
-            const fmtEventDate = (ts) => fypWallDate(ts, 'not provided');
-            document.getElementById('timelines-stat-collection-date').innerText = fmtDonationDate(pe_collection.date);
-
-            // Activity Stats
-            const tz = pe_collection.inferred_tz_offset;
-            const tzStr = tz !== null && tz !== undefined ? `UTC${tz >= 0 ? '+' : ''}${tz}` : 'Unknown';
-            document.getElementById('timelines-stat-timezone').innerText = tzStr;
-            document.getElementById('timelines-stat-active-days').innerText = pe_collection.active_days || 0;
-            document.getElementById('timelines-stat-total-events').innerText = (pe_collection.total_events || 0).toLocaleString();
-            document.getElementById('timelines-stat-peak-segment').innerText = pe_collection.peak_day_segment || 'Unknown';
-
-            document.getElementById('timelines-stat-first-event').innerText = fmtEventDate(pe_collection.first_event_ts);
-            document.getElementById('timelines-stat-last-event').innerText = fmtEventDate(pe_collection.last_event_ts);
-
-            // Store first event date for the 'exclude before first activity' filter
-            this.firstActivityDate = pe_collection.first_event_ts ? pe_collection.first_event_ts.substring(0, 10) : null;
-
-            // Tags
-            const currentTags = Array.isArray(pe_collection.annotation_tags) ? pe_collection.annotation_tags : [];
-            const tagsDisplay = document.getElementById('timelines-stat-tags');
-            if (tagsDisplay) {
-                if (currentTags.length > 0) {
-                    tagsDisplay.innerText = currentTags.join(', ');
-                    const li = tagsDisplay.closest('li');
-                    if (li) li.style.display = 'flex';
-                } else {
-                    tagsDisplay.innerText = '';
-                    const li = tagsDisplay.closest('li');
-                    if (li) li.style.display = 'none';
-                }
-            }
-
-        }
+        this.firstActivityDate = (pe_collection && pe_collection.first_event_ts)
+            ? pe_collection.first_event_ts.substring(0, 10)
+            : null;
 
         const container = document.getElementById('timelines-charts-container');
         // Force resize of existing plots if any, just in case

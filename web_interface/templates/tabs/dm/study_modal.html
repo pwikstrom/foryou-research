@@ -152,7 +152,7 @@ Included videos can still be enriched afterwards, so a wider frame is fine."
 
             <div class="form-group" style="margin-top: 8px;">
                 <div class="collection-selector" style="border: 1px solid var(--color-border-strong); padding: 4px; background: var(--color-border);">
-                    <div style="margin-bottom: 4px; padding: 0 4px;">
+                    <div class="collection-search-row" style="margin-bottom: 4px; padding: 0 4px;">
                         <input type="text" placeholder="Search collections by ID or metadata..."
                             class="control-input collection-search-input" style="width: 300px;"
                             onkeyup="filterCollections(this)" {% if not current_user.is_admin() %}disabled{% endif
@@ -169,7 +169,7 @@ Included videos can still be enriched afterwards, so a wider frame is fine."
             <input type="hidden" data-field="SELECTED_COLLECTIONS" value="[]">
 
             {% if current_user.is_admin() %}
-            <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+            <div class="study-form-actions" style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                 <div style="display: flex; gap: 8px;">
                     <button type="button" class="btn-danger text-xs" onclick="deleteStudy(this, event)"
                         style="padding: 2px 8px;">Delete</button>

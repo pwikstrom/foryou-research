@@ -53,23 +53,23 @@
         onclick="toggleNavDrawer()">☰</button>
     <span id="current-tab-label" class="current-tab-label">Home</span>
     <div class="tab-nav-drawer">
+        {% if user.can_access('tab.semantic_space') %}
+        <button class="tab-button" data-tab="semantic_space" onclick="openTab(event, 'semantic_space')">Semantic Space</button>
+        {% endif %}
         {% if user.can_access('tab.explore') %}
         <button class="tab-button" data-tab="explore" onclick="openTab(event, 'explore')">Explore</button>
-        {% endif %}
-        {% if user.can_access('tab.timelines') %}
-        <button class="tab-button" data-tab="timelines" onclick="openTab(event, 'timelines')">Timelines</button>
-        {% endif %}
-        {% if user.can_access('tab.video_analysis') %}
-        <button class="tab-button" data-tab="video_analysis" onclick="openTab(event, 'video_analysis')">Video Analysis</button>
         {% endif %}
         {% if user.can_access('tab.correlations') %}
         <button class="tab-button" data-tab="correlations" onclick="openTab(event, 'correlations')">Correlations</button>
         {% endif %}
-        {% if user.can_access('tab.semantic_space') %}
-        <button class="tab-button" data-tab="semantic_space" onclick="openTab(event, 'semantic_space')">Semantic Space</button>
+        {% if user.can_access('tab.video_analysis') %}
+        <button class="tab-button" data-tab="video_analysis" onclick="openTab(event, 'video_analysis')">Video Analysis</button>
         {% endif %}
         {% if user.can_access('tab.sessions') %}
         <button class="tab-button" data-tab="sessions" onclick="openTab(event, 'sessions')">Sessions</button>
+        {% endif %}
+        {% if user.can_access('tab.timelines') %}
+        <button class="tab-button" data-tab="timelines" onclick="openTab(event, 'timelines')">Timelines</button>
         {% endif %}
         {% if user.can_access('tab.my_stuff') %}
         <button class="tab-button has-subpages" data-subpages-for="my_stuff"
@@ -228,7 +228,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='main.js') }}?v=18"></script>
+<script src="{{ url_for('static', filename='main.js') }}?v=19"></script>
 <script src="{{ url_for('static', filename='js/variable_prefs.js') }}"></script>
 <script src="{{ url_for('static', filename='study_state.js') }}?v=3"></script>
 <script src="{{ url_for('static', filename='filter_value_search.js') }}?v=1"></script>
@@ -237,16 +237,16 @@
 <script src="{{ url_for('static', filename='correlations.js') }}?v=5"></script>
 <script src="{{ url_for('static', filename='semantic_space.js') }}?v=10"></script>
 <script src="{{ url_for('static', filename='sessions.js') }}?v=16"></script>
-<script src="{{ url_for('static', filename='timelines.js') }}?v=5"></script>
+<script src="{{ url_for('static', filename='timelines.js') }}?v=6"></script>
 {% if user.can_access('tab.my_stuff.my_collections') or user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
 {# Shared zip slimming, used by both the admin ingestion modal and the participant upload #}
 <script src="{{ url_for('static', filename='js/donation_zip.js') }}?v=1"></script>
 {% endif %}
 {% if user.can_access('tab.my_stuff.my_collections') or user.can_access('tab.data_management.edit_collections') %}
 {# Shared personality renderer: the My Collections page and the Edit Collections modal #}
-<script src="{{ url_for('static', filename='js/my_collections.js') }}?v=7"></script>
+<script src="{{ url_for('static', filename='js/my_collections.js') }}?v=8"></script>
 {% endif %}
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
-<script src="{{ url_for('static', filename='js/data_management.js') }}?v=22"></script>
+<script src="{{ url_for('static', filename='js/data_management.js') }}?v=23"></script>
 {% endif %}
 {% endblock %}

@@ -771,6 +771,13 @@
   ]
  ],
  [
+  "/api/manage/studies/<study>/set_viz",
+  "management_bp.study_set_viz",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/manage/studies/calculate_stats",
   "management_bp.calculate_study_stats",
   [

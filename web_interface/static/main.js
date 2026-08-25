@@ -226,6 +226,16 @@ async function restoreGettingStarted() {
 }
 
 // --- Tag Management ---
+// Show / hide the "My Video Tags" sidebar item — like "My Tasks", it only
+// earns a menu slot once the user actually has something on the page.
+function _setVideoTagsMenuVisible(visible) {
+    const item = document.querySelector('#my_stuff .dm-sidebar-item[data-page="my-stuff-page-video-tags"]');
+    if (!item) return;
+    item.style.display = visible ? '' : 'none';
+    // Refresh the mobile subnav so the item (dis)appears there too.
+    if (typeof _buildTabSubnavs === 'function') _buildTabSubnavs();
+}
+
 async function loadAndRenderUserTags() {
     const container = document.getElementById('settings-tags-container');
     if (!container) return;
@@ -250,6 +260,8 @@ async function loadAndRenderUserTags() {
 
         // Sort by Count Descending
         const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+
+        _setVideoTagsMenuVisible(sortedTags.length > 0);
 
         if (sortedTags.length === 0) {
             container.innerHTML = '<span class="italic" style="color: var(--color-text-faint);">No tags found.</span>';
