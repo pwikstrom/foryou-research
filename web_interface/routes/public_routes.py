@@ -97,6 +97,17 @@ def terms():
     return render_template('public/terms.html', active_page=None)
 
 
+@public_bp.route('/ethics')
+def ethics():
+    """Participant information, consent statement and ethics approval.
+
+    The same statement the donation upload shows before sharing, on a stable
+    URL so a participant can re-read it without starting an upload. Reached
+    from My stuff -> Information in the app, and linked from the FAQ.
+    """
+    return render_template('public/ethics.html', active_page=None)
+
+
 @public_bp.route('/faq')
 def faq():
     """Frequently asked questions about the Data Hub and the project."""

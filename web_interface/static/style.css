@@ -569,6 +569,22 @@ a:hover {
     vertical-align: middle;
 }
 
+/* Sidebar rows that are links out of the app rather than sub-pages
+   (My stuff -> Information). Anchors, so middle-click and "copy link" work;
+   the arrow marks that they leave the Hub for a new tab. */
+.dm-sidebar-item--link {
+    display: block;
+    text-decoration: none;
+}
+
+.dm-sidebar-ext {
+    /* The markup puts an &nbsp; before this, so the arrow can never wrap onto
+       a line of its own; this is only the extra optical gap. */
+    margin-left: 1px;
+    font-size: var(--text-xs);
+    opacity: 0.65;
+}
+
 /* Non-clickable section header between sidebar item groups */
 .dm-sidebar-group {
     padding: 11px 16px 3px 16px;
@@ -2833,6 +2849,11 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 .auth-header {
     display: flex;
     align-items: center;
+    /* 18px keeps this the same height as the public mini-site's
+       .public-header (14px padding around a 39px CTA button): the study
+       dropdown is the tallest thing in here, so 18 + 31 + 18 lands on the
+       same 67-68px. The header used to be ~10px taller purely because
+       .app-brand was set at 1.75rem. */
     padding: 18px 24px;
     background: var(--color-bg-primary);
 }
@@ -2886,7 +2907,8 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 
 .app-brand {
     font-family: 'DM Sans', var(--font-sans);
-    font-size: 1.75rem;
+    /* Matches .public-wordmark — see .auth-header. */
+    font-size: var(--text-h3);
     font-weight: 700;
     letter-spacing: 0.02em;
     color: var(--color-text-primary);
@@ -4011,6 +4033,24 @@ html.fyp-floating-tooltips .meta-tooltip::after {
         color: var(--tab-active-text);
         border-left-color: var(--tab-active-border);
         font-weight: var(--weight-bold);
+    }
+
+    /* Reference links mirrored from a .dm-sidebar-item--link. Styled as a
+       sub-nav row, but the anchor does the navigating. */
+    .tab-subnav-linkitem > a {
+        display: block;
+        padding: 12px 18px 12px 36px;
+        font-size: var(--text-sm);
+        font-weight: var(--weight-medium);
+        color: var(--color-text-secondary);
+        text-decoration: none;
+        border-left: 3px solid transparent;
+        transition: background 0.15s, color 0.15s;
+    }
+
+    .tab-subnav-linkitem > a:hover {
+        background: var(--tab-hover-bg);
+        color: var(--color-text-primary);
     }
 
     /* Non-clickable section header inside the two-level drawer (mirrors

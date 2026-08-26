@@ -1873,6 +1873,22 @@ function _buildTabSubnavs() {
                 ul.appendChild(li);
                 return;
             }
+            // External reference links (My stuff -> Information): mirror them
+            // as anchors, not sub-page rows. A distinct class keeps them out of
+            // the .tab-subnav-item handler below, which preventDefault()s.
+            if (src.tagName === 'A') {
+                const li = document.createElement('li');
+                li.className = 'tab-subnav-linkitem';
+                const a = document.createElement('a');
+                a.href = src.href;
+                a.target = src.target || '_blank';
+                a.rel = 'noopener';
+                a.title = src.title || '';
+                a.innerHTML = src.innerHTML;
+                li.appendChild(a);
+                ul.appendChild(li);
+                return;
+            }
             const pageId = src.getAttribute('data-page');
             if (!pageId) return;
             // Skip items hidden by feature logic (e.g. "My Tasks" until the
@@ -2023,6 +2039,12 @@ document.addEventListener('DOMContentLoaded', function () {
         sub.parentElement.querySelectorAll('.tab-subnav-item').forEach(li => li.classList.remove('active'));
         sub.classList.add('active');
         closeNavDrawer();
+    });
+
+    // Reference links mirrored into the sub-nav open in a new tab; close the
+    // drawer so the Hub isn't left behind a half-open overlay.
+    document.addEventListener('click', function (e) {
+        if (e.target.closest('.tab-subnav-linkitem')) closeNavDrawer();
     });
 
     // When a sidebar item inside a mobile drawer is clicked, close the drawer

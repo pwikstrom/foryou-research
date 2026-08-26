@@ -1,0 +1,29 @@
+{# Participant information and consent statement for the For You Research
+   Project. Single source, two callers:
+     - the donation upload modal (tabs/my_stuff.html), as hidden source markup
+       that donation_review.js renders with the read-and-understood checkbox;
+     - the public /ethics page, so a participant can re-read what they agreed
+       to without starting an upload.
+   `consent_heading` is the tag used for the section headings, so each caller
+   keeps a valid heading order (h5 under the modal's h4, h2 under the page's
+   h1). The body carries no title of its own — callers supply it. #}
+{% set h = consent_heading | default('h5') %}
+<p>Before you decide if you are willing to share your data, you must be well informed about the purpose of the study and what your participation involves:</p>
+<{{ h }}>Why is the study being conducted?</{{ h }}>
+<p>This project examines how automated content recommendation systems (such as TikTok) affect everyday users of media platforms. It explores how these systems shape what we see online, how different audiences understand and engage with them, and their impact on short-video creators.</p>
+<{{ h }}>Who benefits from the results of this research?</{{ h }}>
+<p>The findings from this research support policymakers in designing policies and regulations for digital platforms and broader government priorities on automation and AI technologies. The project also helps content creators understand and adapt to platform policies and strategies and make better career decisions.</p>
+<{{ h }}>What are the possible benefits for you if you take part?</{{ h }}>
+<p>By participating in this project, you will gain a new perspective on how you use short-video platforms and learn about the personal data platforms store about you.</p>
+<{{ h }}>What does your participation involve?</{{ h }}>
+<p>You have already requested and received your personal data from TikTok, Instagram or YouTube and used this website to review which data items you want to share. Now, you are at the stage where you upload your data file to the research team. Your participation in this research project is entirely voluntary. Even if you initially agree to participate, you can withdraw from the research project without comment or penalty. If you withdraw, on request, any information already obtained that can be linked to you will be destroyed. Your decision to participate or not participate will not impact your current or future relationship with QUT.</p>
+<{{ h }}>What are the possible risks for you if you take part?</{{ h }}>
+<p>There are no risks beyond day-to-day living associated with your participation in this research project.</p>
+<{{ h }}>What about privacy and confidentiality?</{{ h }}>
+<p>The data you share is anonymised, and the research team will not link your real-world identity with your data. Any data collected for this research project will be stored securely per QUT&rsquo;s data management policies for a minimum of five years. It can be disclosed to protect you or others from harm if specifically required by law or if a regulatory or monitoring body such as the QUT Human Research Ethics Committee requests it.</p>
+<{{ h }}>How do I give my consent to participate?</{{ h }}>
+<p>You will consent to participate by actively sharing your data via this website.</p>
+<{{ h }}>What if I have questions about the research project?</{{ h }}>
+<p>If you have any questions or require further information, please get in touch with the research team at <a href="mailto:foryou@qut.edu.au">foryou@qut.edu.au</a> or <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a>.</p>
+<{{ h }}>What if I have a concern or complaint regarding the conduct of the research project?</{{ h }}>
+<p>QUT is committed to research integrity and the ethical conduct of research projects. If you wish to discuss the study with someone not directly involved, particularly about matters concerning policies, information or complaints about the conduct of the study or your rights as a participant, you may contact the QUT Research Ethics Advisory Team on +61&nbsp;(0)7&nbsp;3138&nbsp;5123 or email <a href="mailto:humanethics@qut.edu.au">humanethics@qut.edu.au</a>, stating the project&rsquo;s QUT Ethics Approval Number LR&nbsp;2024-8002-21442. Thank you for helping with this research project.</p>

@@ -1,0 +1,44 @@
+{% extends 'public/base_public.html' %}
+
+{% block public_content %}
+
+<section class="landing-section">
+    <div class="prose" style="max-width: 720px; margin: 0 auto;">
+        <h1 class="text-h1 font-semibold">Consent and research ethics</h1>
+        <p class="text-sm" style="color: var(--color-text-muted);">
+            This is the same participant information and consent statement you are shown
+            before you share a data file, reproduced here so you can read it at any time
+            &mdash; before you decide, or long after.
+        </p>
+
+        <h2 class="text-h2 font-semibold">Ethics approval</h2>
+        <p>
+            The For You Research Project is conducted under approval from the QUT Human
+            Research Ethics Committee, approval number
+            LR&nbsp;2024-8002-21442. The project is led from QUT's Digital Media Research
+            Centre with the University of Sydney, and funded by the Australian Research
+            Council (grant DP240102939). The
+            <a href="{{ url_for('public_bp.about') }}">About page</a> lists the investigators.
+        </p>
+
+        <h2 class="text-h2 font-semibold">Participant information and consent</h2>
+        {% with consent_heading = 'h3' %}
+            {% include 'partials/_consent_statement.html' %}
+        {% endwith %}
+
+        <h2 class="text-h2 font-semibold">Withdrawing data you have already shared</h2>
+        <p>
+            You can withdraw a collection you have shared at any time from
+            My&nbsp;stuff&nbsp;&rarr;&nbsp;My&nbsp;Collections in the Hub, or by emailing
+            the team. Withdrawal removes the collection from the corpus and from any study
+            built on it.
+        </p>
+
+        <p class="text-sm" style="color: var(--color-text-muted);">
+            Account terms are separate and cover your Hub login rather than your data:
+            see the <a href="{{ url_for('public_bp.terms') }}">terms of use</a>.
+        </p>
+    </div>
+</section>
+
+{% endblock %}

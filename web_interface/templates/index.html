@@ -42,7 +42,11 @@
             if (!tab) return;
             if (tab.querySelector('.dm-page.active')) return;
             const items = Array.from(tab.querySelectorAll('.dm-sidebar-item'))
-                .filter(function (item) { return item.style.display !== 'none'; });
+                .filter(function (item) {
+                    // Skip hidden items and the external reference links in
+                    // My stuff -> Information, which own no sub-page.
+                    return item.style.display !== 'none' && item.hasAttribute('data-page');
+                });
             const firstItem = items[0];
             const firstPage = firstItem
                 ? tab.querySelector('#' + firstItem.getAttribute('data-page'))

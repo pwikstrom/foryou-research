@@ -1138,6 +1138,13 @@
   ]
  ],
  [
+  "/ethics",
+  "public_bp.ethics",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/faq",
   "public_bp.faq",
   [

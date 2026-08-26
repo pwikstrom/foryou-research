@@ -97,6 +97,14 @@ PUBLIC_PAGES = {
             "Hub, and how to cite it."
         ),
     },
+    "public_bp.ethics": {
+        "title": "Consent and Ethics: For You Research Project",
+        "description": (
+            "The participant information and consent statement for the For You "
+            "Research Project, plus its QUT ethics approval and how to withdraw "
+            "data you have already shared."
+        ),
+    },
     "public_bp.terms": {
         "title": "For You Data Hub: Terms of Use",
         "description": (
