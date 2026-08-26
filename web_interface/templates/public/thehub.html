@@ -5,9 +5,9 @@
 <section class="landing-hero reveal">
     <h1 class="hero-title">The For You Data Hub</h1>
     <p class="hero-subtitle landing-hero-sub">
-        The Hub is where shared feeds become research: a browser-based workbench that turns
+        If you are a researcher studying short-video culture, we invite you to discover what you can do with the For You Data Hub. We created this Hub for our own research and we would love to see it used by others. The Hub is an open-source browser-based workbench that turns
         thousands of short videos into datasets, timelines, maps and findings, all built
-        on data donation. You can use our hosted instance without installing anything.
+        on data donation. You can use our hosted instance without installing anything or set up your own instance locally or on Google Cloud. Create an account and explore the Hub.
     </p>
     <p class="hero-donation-link">
         <a href="{{ url_for('public_bp.data_donation') }}">What is data donation? →</a>
@@ -18,49 +18,20 @@
     </div>
     {% if contact_email %}
     <p class="hero-subtitle landing-hero-sub">
-        Thinking about using the Hub in your own project? Email us at
-        <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>. We'd love to hear from you.
+        A new account opens on a <strong>default dataset</strong>, chosen so there is no
+        participant privacy at stake while you look around. Ingesting your own participants'
+        data and running the full pipeline isn't part of that preview. When you're ready for
+        it, email us at <a href="mailto:{{ contact_email }}">{{ contact_email }}</a> and we'll
+        walk you through it. We'd love to hear from you.
     </p>
     {% endif %}
 </section>
 
-<section class="landing-section reveal">
-    <div class="note-callout">
-        <p>
-            New accounts get access to a <strong>small, safe sample dataset</strong>,
-            chosen so there is no participant privacy at stake while you look around.
-            Ingesting your own participants' data and running the full pipeline isn't part
-            of this preview. When you're ready for that, get in touch and we'll walk you
-            through it.
-        </p>
-    </div>
-</section>
-
-<section class="landing-section reveal" id="access">
-    <h2 class="text-h2 font-semibold landing-section-title">Getting access</h2>
-    <ol class="step-list">
-        <li>
-            <strong>Create an account.</strong> Go to the
-            <a href="{{ url_for('auth_bp.signup') }}">sign-up page</a> and register with your email
-            address, a username and a password.
-        </li>
-        <li>
-            <strong>Wait for approval.</strong> New accounts are reviewed before they're enabled.
-            You'll see "pending approval" until your account is activated; it
-            shouldn't take more than 24 hours.
-        </li>
-        <li>
-            <strong>Log in.</strong> You'll land in the app with the analysis tabs (Explore,
-            Timelines, Video Analysis and Correlations) ready to use against the sample dataset.
-            Ingestion and administration aren't part of this peek.
-        </li>
-    </ol>
-</section>
 
 <section class="landing-section reveal" id="tour">
     <h2 class="text-h2 font-semibold landing-section-title">A short tour of the analysis tools</h2>
     <p class="prose landing-section-intro">
-        With the sample dataset open, here are some things you might try:
+        With the default dataset open, here are some things you might try:
     </p>
     <ol class="step-list">
         <li>
@@ -171,7 +142,7 @@
 <section class="landing-section landing-cta-band reveal">
     <h2 class="text-h2 font-semibold">Could the Data Hub be useful in your project?</h2>
     <p class="prose">
-        The sample dataset is just a taste of what the Hub does. If you're thinking about ingesting your
+        The default dataset is just a taste of what the Hub does. If you're thinking about ingesting your
         own participants' data, running the full pipeline and bringing in your team,
         {% if contact_email %}write to us at
         <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>. We'd be glad to show

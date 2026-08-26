@@ -132,7 +132,8 @@ def test_participate_start_renders_all_stages_and_platforms(client):
     resp = client.get("/participate/start")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    for label in ("Request your data", "Waiting for your data", "I have my data"):
+    for label in ("I want to request my data", "I'm waiting for my data",
+                  "I have received my data"):
         assert label in body
     # The shared how-to partial in inline mode: one body per platform.
     for platform in ("tiktok", "instagram", "youtube"):

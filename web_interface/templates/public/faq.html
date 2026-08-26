@@ -4,27 +4,306 @@
 
 <section class="landing-hero">
     <h1 class="hero-title">Frequently Asked Questions</h1>
+    <p class="hero-subtitle landing-hero-sub">
+        Four kinds of people usually end up on this page. Jump to whichever sounds most
+        like you: <a href="#for-users">you watch short videos</a>,
+        <a href="#for-creators">you make them</a>,
+        <a href="#for-journalists">you're writing about them</a>, or
+        <a href="#for-researchers">you study them</a>.
+    </p>
 </section>
 
+<!-- ============================ The basics ============================ -->
 <section class="landing-section faq-accordion">
+    <h2 class="text-h2 font-semibold landing-section-title">The basics</h2>
 
     <details>
         <summary>Who is the Data Hub for?</summary>
         <p>
-            It's built for HASS researchers working with short-video data donations: people who
-            want to study lived platform experience from participants' own feeds without spending
-            months reconciling export formats, recovering stripped-out metadata and hand-coding
-            thousands of videos. The Hub automates that pipeline so you can get to analysis.
+            Researchers, journalists, creators, and the people whose feeds it is built from.
+            The Hub runs on data that everyday platform users have donated. Working with that
+            data by hand is slow: every platform exports a different format, useful metadata
+            is missing, and someone has to sit and code thousands of videos. The Hub does
+            that part for you, so you can get to the analysis.
         </p>
     </details>
 
     <details>
-        <summary>Can I use the Hub for my own research project?</summary>
+        <summary>What's the difference between the For You Research Project and the For You Data Hub?</summary>
         <p>
-            Possibly. We're interested in working with other research teams. The Hub supports
-            bespoke annotation prompts per project and role-based access for collaborators and
-            students. Get in touch at <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a> to
-            discuss your project.
+            The <strong>For You Research Project</strong> is the research. It's an academic
+            project based at QUT's Digital Media Research Centre and the University of Sydney,
+            funded by the Australian Research Council, and it studies how short-video
+            recommendation shapes what people watch and who gets seen.
+        </p>
+        <p>
+            The <strong>For You Data Hub</strong> is the software we built to do that work: a
+            browser-based workbench that turns donated feeds into datasets. It's open source,
+            and other teams are welcome to use it.
+            <a href="{{ url_for('public_bp.about') }}">More about the project</a> &middot;
+            <a href="{{ url_for('public_bp.thehub') }}">More about the Hub</a>.
+        </p>
+    </details>
+
+    <details>
+        <summary>What data does the Hub hold, and where does it come from?</summary>
+        <p>
+            Short-video activity donated by study participants: TikTok feed activity,
+            Instagram activity and YouTube watch history, taken from the data export each
+            platform lets a user download of themselves. We then add public metadata about the
+            videos that appeared in those feeds (captions, creators, popularity) and
+            AI-generated content annotations (categories, themes, style and more).
+        </p>
+        <p>
+            None of it is scraped from private accounts or pulled from a platform API. It is
+            the feed a real person was actually served, shared by that person.
+            <a href="{{ url_for('public_bp.data_donation') }}">What is data donation?</a>
+        </p>
+    </details>
+
+    <details>
+        <summary>Which platforms are supported?</summary>
+        <p>
+            TikTok is the project's focus, and the Hub also ingests donated Instagram activity
+            and YouTube watch history, so you can compare recommendation dynamics across
+            platforms. Adding another platform is deliberately small work in the code, so the
+            list can grow.
+        </p>
+    </details>
+
+    <details>
+        <summary>Do I need an account, and does it cost anything?</summary>
+        <p>
+            An account is free, and you need one for two things: sharing your own data, and
+            looking around the analysis tools. Register on the
+            <a href="{{ url_for('auth_bp.signup') }}">sign-up page</a> with an email address
+            and a password. Depending on how this instance is set up, an administrator may
+            review new accounts first, in which case you'll see "pending approval" for a
+            short while.
+        </p>
+        <p>
+            A new account opens on a default study built from donated data, with the analysis
+            tabs ready to use. Ingesting your own participants' data and running the full
+            pipeline is a separate conversation, so
+            <a href="mailto:info@foryouresearch.net">get in touch</a> when you're at that point.
+        </p>
+    </details>
+</section>
+
+<!-- ======================= Users / participants ======================= -->
+<section class="landing-section faq-accordion" id="for-users">
+    <h2 class="text-h2 font-semibold landing-section-title">If you watch short videos</h2>
+
+    <details>
+        <summary>Can I share my own data with the project?</summary>
+        <p>
+            Yes, please do. We're actively looking for participants who use TikTok, Instagram
+            Reels or YouTube Shorts. You ask the platform for a copy of your data, review it in
+            your browser when it arrives, and share what you're comfortable with.
+            <a href="{{ url_for('public_bp.participate') }}">How to participate</a>.
+        </p>
+    </details>
+
+    <details>
+        <summary>What do I get out of it?</summary>
+        <p>
+            A view of your own feed that no platform gives you. Once your data is in, the Hub
+            builds your short-video persona: what you binge, when you scroll, your rewatch
+            habits and viewing rhythms, and how that compares with everyone else who has shared
+            a feed. You also get to see what personal data the platforms have been storing
+            about you.
+        </p>
+    </details>
+
+    <details>
+        <summary>What exactly do you see? Do you get my messages?</summary>
+        <p>
+            No. Your export is opened and read <em>inside your own browser</em>, so it never
+            goes anywhere to be inspected. Direct messages are never uploaded at all. They are
+            dropped before you even see the review screen, along with your profile and settings
+            details. What's left is the activity the research needs, such as which videos were
+            served to you and when.
+        </p>
+        <p>
+            You then go through it section by section and delete anything you'd rather not
+            share. The file that leaves your device is rebuilt from what you kept, so the rest
+            simply isn't in it. Nothing is shared until you consent, and you can read the full
+            statement you agree to on the
+            <a href="{{ url_for('public_bp.ethics') }}">consent and research ethics</a> page.
+        </p>
+    </details>
+
+    <details>
+        <summary>How is my privacy protected once I've shared?</summary>
+        <p>
+            Your data is anonymised, and we don't link it to your real-world identity. It's
+            stored securely under QUT's data management policies, only approved accounts can
+            reach the Hub, and each account only sees what its role allows. The analysis views
+            are built around aggregate patterns rather than individuals, so findings are about
+            how feeds behave, never about you.
+        </p>
+        <p>
+            All of this runs under approval from the QUT Human Research Ethics Committee
+            (approval number LR&nbsp;2024-8002-21442). The
+            <a href="{{ url_for('public_bp.ethics') }}">ethics page</a> has the details.
+        </p>
+    </details>
+
+    <details>
+        <summary>How long does the whole thing take?</summary>
+        <p>
+            Requesting your data is a couple of taps. The platform then takes somewhere between
+            a few minutes and a couple of days to prepare the file. That's the slow part, and
+            nobody can speed it up. Reviewing and sharing takes about two minutes. After that,
+            the Hub fetches and analyses the videos you watched in batches over the following
+            days, and your My&nbsp;Collections page shows how far along it is.
+        </p>
+    </details>
+
+    <details>
+        <summary>Do I have to install anything, or will you keep tracking me?</summary>
+        <p>
+            No. There's no app and no extension to install. You share a one-off copy of the data
+            the platform already holds about you, through this website. We don't watch your
+            account afterwards, and nothing changes about how you use the platform.
+        </p>
+    </details>
+
+    <details>
+        <summary>Can I change my mind after sharing?</summary>
+        <p>
+            Yes, at any time and without giving a reason. You can withdraw a collection you've
+            shared from My&nbsp;stuff&nbsp;&rarr;&nbsp;My&nbsp;Collections in the Hub, or by
+            emailing us at
+            <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a>. Withdrawal
+            removes the collection from the corpus and from any study built on it.
+        </p>
+    </details>
+</section>
+
+<!-- ============================= Creators ============================= -->
+<section class="landing-section faq-accordion" id="for-creators">
+    <h2 class="text-h2 font-semibold landing-section-title">If you make short videos</h2>
+
+    <details>
+        <summary>Does the project study creators, or just viewers?</summary>
+        <p>
+            Both. One of our three research questions is specifically about creators: how do
+            creators adapt their strategies to stay visible and relevant? Alongside the feed
+            analysis there's a research stream that works directly with creators of all sizes,
+            through interviews, about how you navigate visibility.
+            <a href="{{ url_for('public_bp.about') }}">More about the research</a>.
+        </p>
+    </details>
+
+    <details>
+        <summary>Can you tell me how the algorithm works, or how to get more views?</summary>
+        <p>
+            Not as a formula, and be sceptical of anyone who offers you one. What the project
+            can show is what recommendation looks like from the audience side, at scale: which
+            kinds of content get served to whom, how feeds change over time, and which patterns
+            hold up across many people's feeds rather than in one viral story.
+        </p>
+    </details>
+
+    <details>
+        <summary>Could my videos end up in the dataset?</summary>
+        <p>
+            If a participant was recommended one of your videos, that video becomes part of
+            their feed data. What the Hub stores about it is public information: the caption,
+            the creator handle and engagement counts, plus AI-generated annotations describing
+            the content. Analysis and publications report aggregate patterns, not profiles of
+            individual creators. If you have questions about how your content is handled, email
+            <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a>.
+        </p>
+    </details>
+
+    <details>
+        <summary>How can I get involved as a creator?</summary>
+        <p>
+            Two ways, and you can do either or both. You can share your own platform data like
+            any other participant, which for a creator covers your posting activity as well as
+            what you watched: see <a href="{{ url_for('public_bp.participate') }}">how to
+            participate</a>. Or you can talk to us, because the creator research stream is
+            interested in creators at every scale. Email
+            <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a>, or find us on
+            <a href="https://www.tiktok.com/@for.you.research" target="_blank" rel="noopener">TikTok</a>
+            and <a href="https://www.linkedin.com/company/107376504/" target="_blank" rel="noopener">LinkedIn</a>.
+        </p>
+    </details>
+</section>
+
+<!-- ============================ Journalists =========================== -->
+<section class="landing-section faq-accordion" id="for-journalists">
+    <h2 class="text-h2 font-semibold landing-section-title">If you're writing about this</h2>
+
+    <details>
+        <summary>Can I use the project's research in a story, and who do I talk to?</summary>
+        <p>
+            Yes, and we'd rather talk to you first than have the numbers travel on their own.
+            Email <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a> with what
+            you're working on and your deadline. The
+            <a href="{{ url_for('public_bp.about') }}">About page</a> lists the investigators and
+            what each of them works on, so you can see who to ask about platform policy, creator
+            labour, content moderation or the data analysis itself.
+        </p>
+    </details>
+
+    <details>
+        <summary>What can this kind of data actually support, and what can't it?</summary>
+        <p>
+            Donated feeds are good evidence for lived experience: what real people were actually
+            served, how a feed behaves from day to day, and how one participant's feed differs
+            from another's. Neither platform transparency libraries nor APIs can show you that.
+        </p>
+        <p>
+            What they can't support are population-level claims. Participants volunteered, so
+            they aren't a representative sample, and "X% of TikTok users see Y" is not a sentence
+            this data can support.
+            <a href="{{ url_for('public_bp.data_donation') }}">The longer version is here</a>.
+        </p>
+    </details>
+
+    <details>
+        <summary>Can I get the data, or see the numbers behind a finding?</summary>
+        <p>
+            The participant data isn't a public download. People shared it with a named research
+            team under a specific consent statement and ethics approval, and that consent doesn't
+            cover passing it on. What we can do is walk you through the method, share aggregate
+            figures, and explain how a particular result was produced. Ask us at
+            <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a>.
+        </p>
+        <p>
+            The software itself is a different matter. It's open source, and you're welcome to
+            create an account and look around the analysis tools yourself.
+        </p>
+    </details>
+
+    <details>
+        <summary>Can I publish screenshots or charts from the Hub?</summary>
+        <p>
+            Check with us first if the image comes from a study of participant data, and never
+            publish anything that could identify a participant. When you do use material from the
+            Hub, cite the software and acknowledge the project. The citation formats are in the
+            researchers' section below, and they work in a methods box just as well as in a
+            reference list.
+        </p>
+    </details>
+</section>
+
+<!-- ============================ Researchers =========================== -->
+<section class="landing-section faq-accordion" id="for-researchers">
+    <h2 class="text-h2 font-semibold landing-section-title">If you're a researcher</h2>
+
+    <details>
+        <summary>How can I use the Hub for my own research project?</summary>
+        <p>
+            Two routes: use our hosted version of the Data Hub, or install the Hub on your own
+            machine or cloud project. For a real study you probably want your own instance, so
+            your participants' data sits on infrastructure you control and under your own ethics
+            approval. We're really interested in working with other research teams, so get in
+            touch and we can talk about how we might collaborate:
+            <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a>.
         </p>
     </details>
 
@@ -38,11 +317,12 @@
             that repository, and you are free to run it, fork it and adapt it for your own project.
         </p>
         <p>
-            Running your own instance means you keep your participants' data on infrastructure you
-            control, under your own ethics approval. Start with the
+            Start with the
             <a href="{{ repo_url }}/blob/main/docs/installation.md" target="_blank" rel="noopener">installation
-            guide</a>; the Hub runs locally on a laptop for small studies and on Google Cloud Run for
-            larger ones.
+            guide</a>. A setup wizard writes your configuration, and the Hub runs locally on a
+            laptop for small studies and on Google Cloud Run for larger ones. Enrichment and AI
+            annotation call external services, so your instance brings its own API keys. The
+            guide lists which ones and what they cost.
         </p>
         {% else %}
         <p>
@@ -54,67 +334,37 @@
     </details>
 
     <details>
-        <summary>How do I get an account?</summary>
+        <summary>Can I get access to the For You Project's own data?</summary>
         <p>
-            Register on the <a href="{{ url_for('auth_bp.signup') }}">sign-up page</a> with your email
-            address. New accounts are reviewed by an administrator before they can log in, so you may
-            see "pending approval" for a short while. The hub is intended for researchers connected to
-            the For You Research Project. If you'd like access, get in touch at
-            <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a>.
+            Not as a dataset download. Participants consented to a named research team under QUT
+            ethics approval LR&nbsp;2024-8002-21442, and that consent doesn't cover passing the
+            data on. Collaboration is a different question, and one we're open to. Arrangements
+            between institutions, with the appropriate ethics in place, are how this normally
+            works. Write to
+            <a href="mailto:info@foryouresearch.net">info@foryouresearch.net</a> with what you
+            have in mind.
         </p>
     </details>
 
     <details>
-        <summary>What data does the hub contain, and where does it come from?</summary>
+        <summary>Can I annotate the videos my own way?</summary>
         <p>
-            The hub holds short-video activity data donated by study participants (TikTok feed
-            activity, Instagram activity and YouTube watch history), enriched with public metadata
-            about the videos that appear in those feeds (captions, creators, popularity) and with
-            AI-generated content annotations (categories, themes, style and more).
-        </p>
-    </details>
-
-    <details>
-        <summary>How is participant privacy protected?</summary>
-        <p>
-            Participation is voluntary and participants choose what data to contribute. Donations are
-            handled under the project's research ethics protocols, access to the hub is restricted to
-            approved accounts with role-based permissions, and analysis views are designed around
-            aggregate patterns rather than exposing individuals.
-        </p>
-        <p>
-            The full participant information and consent statement &mdash; the one shown before
-            anyone shares a file &mdash; is on the
-            <a href="{{ url_for('public_bp.ethics') }}">consent and research ethics</a> page,
-            along with the project's QUT ethics approval number.
-        </p>
-    </details>
-
-    <details>
-        <summary>Can I donate my own data?</summary>
-        <p>
-            Yes. The project is actively looking for TikTok users and creators to take part. See
-            <a href="{{ url_for('public_bp.participate') }}">how to participate</a>.
-            Data donors also receive insights back into their own platform activity.
-        </p>
-    </details>
-
-    <details>
-        <summary>Which platforms are supported?</summary>
-        <p>
-            TikTok is the project's focus, and the hub also ingests donated Instagram activity and
-            YouTube watch history, so recommendation dynamics can be compared across platforms.
+            Yes, and it's one of the better reasons to run your own instance. Annotation prompts
+            are declarative contracts you edit in the browser rather than in code, so a project
+            can define its own codebook and variables, version them, and evaluate the results
+            against human coders. Role-based access lets you bring in collaborators and students
+            at the level of access each of them should have.
         </p>
     </details>
 
     <details>
         <summary>How reliable are the AI annotations?</summary>
         <p>
-            Video annotations are generated by a large multimodal AI model against a structured,
-            versioned codebook, and the team continuously evaluates annotation quality, including
-            comparisons with human coders. Still, some outputs may be imperfect or unexpected; treat
-            individual annotations with appropriate care and look at aggregate patterns where
-            possible.
+            A large multimodal AI model generates the video annotations against a structured,
+            versioned codebook, and we continuously evaluate annotation quality, including
+            comparisons with human coders. Some outputs will still be imperfect or unexpected, so
+            treat individual annotations with appropriate care and look at aggregate patterns
+            where you can.
         </p>
     </details>
 
@@ -122,8 +372,8 @@
         <summary>How do I cite the Hub, and how do I acknowledge the project?</summary>
         <p>
             Two separate things, in this order. <strong>Cite the software</strong> in your reference
-            list, the same way you would cite any other research software you used — copy one of
-            these:
+            list, the same way you would cite any other research software you used. Copy whichever
+            form your publisher wants:
         </p>
         <div class="cite-disclosure__body">
             {% with cite_scope = 'faq-cite', cite_ack = false %}
@@ -132,7 +382,7 @@
         </div>
         <p>
             <strong>Then acknowledge the project</strong> in your funding or acknowledgements
-            section — the Hub and the data in it exist because of that funding:
+            section. The Hub and the data in it exist because of that funding:
         </p>
         <div class="cite-disclosure__body">
             {% with cite_scope = 'faq-ack', cite_software = false %}
@@ -140,12 +390,29 @@
             {% endwith %}
         </div>
     </details>
+</section>
+
+<!-- ==================== The project and the software =================== -->
+<section class="landing-section faq-accordion" id="about-software">
+    <h2 class="text-h2 font-semibold landing-section-title">The project and the software</h2>
+
+    <details>
+        <summary>Who is behind the project, and who funds it?</summary>
+        <p>
+            The For You Research Project is led from QUT's Digital Media Research Centre in
+            Brisbane with the University of Sydney, and funded by the Australian Research Council
+            (grant DP240102939). It is also supported by the Australian Internet Observatory. The
+            <a href="{{ url_for('public_bp.about') }}">About page</a> introduces the investigators
+            and the institutions.
+        </p>
+    </details>
 
     <details>
         <summary>Is this affiliated with TikTok?</summary>
         <p>
             No. TikTok is a registered trademark of Bytedance Ltd. This website and the research
-            project are not affiliated with or endorsed by TikTok or Bytedance Ltd.
+            project are not affiliated with or endorsed by TikTok or Bytedance Ltd. The same goes
+            for Instagram and YouTube.
         </p>
     </details>
 
@@ -153,7 +420,7 @@
         <summary>I found a bug. Who do I tell?</summary>
         {% if repo_url %}
         <p>
-            The hub is under active development, so bugs happen. Bug reports and feature requests
+            The Hub is under active development, so bugs happen. Bug reports and feature requests
             belong in the public issue tracker:
             <a href="{{ repo_issues_url }}" target="_blank" rel="noopener">browse the open issues</a>
             first in case yours is already known, then
@@ -162,7 +429,7 @@
             help a lot.
         </p>
         <p>
-            Two things that don't belong in an issue, because issues are public: participant data
+            Two things don't belong in an issue, because issues are public: participant data
             (including screenshots that identify a participant) and suspected security problems.
             Report the latter privately, following the
             <a href="{{ repo_url }}/blob/main/SECURITY.md" target="_blank" rel="noopener">security
@@ -171,7 +438,7 @@
         </p>
         {% else %}
         <p>
-            The hub is under active development, so bugs happen.
+            The Hub is under active development, so bugs happen.
             {% if contact_email %}Email {{ contact_email }} with what you were
             doing and what went wrong; screenshots help a lot.
             {% else %}Let the team running this instance know what you were

@@ -6,8 +6,7 @@
     <div class="wizard-eyebrow">Become a participant</div>
     <h1 class="hero-title">Share your For You feed in three steps</h1>
     <p class="hero-subtitle landing-hero-sub">
-        Getting your data from a platform takes a little while, so the process happens
-        in steps. Pick the step you're at, and this page remembers where you left off.
+        Getting your data from a platform takes a little while, so the process happens in steps.
     </p>
 </section>
 
@@ -16,15 +15,15 @@
     <div class="wizard-stages" id="wizard-steps" role="tablist" aria-label="Participation steps">
         <button class="wizard-stage-pill" data-step="1" role="tab">
             <span class="wizard-stage-n">Step 1</span>
-            <span class="wizard-stage-t">Request your data</span>
+            <span class="wizard-stage-t">I want to request my data</span>
         </button>
         <button class="wizard-stage-pill" data-step="2" role="tab">
             <span class="wizard-stage-n">Step 2</span>
-            <span class="wizard-stage-t">Waiting for your data</span>
+            <span class="wizard-stage-t">I'm waiting for my data</span>
         </button>
         <button class="wizard-stage-pill" data-step="3" role="tab">
             <span class="wizard-stage-n">Step 3</span>
-            <span class="wizard-stage-t">I have my data</span>
+            <span class="wizard-stage-t">I have received my data</span>
         </button>
     </div>
 
@@ -56,7 +55,7 @@
 
     <!-- ============ Step 2: waiting ============ -->
     <div class="wizard-pane" data-pane="2">
-        <h2 class="text-h2 font-semibold">While you wait: get a guided tour of the Hub</h2>
+        <h2 class="text-h2 font-semibold">While you wait: Take a guided tour of the Hub</h2>
         <div class="wizard-step-row">
             <p class="prose wizard-sub">
                 The platform is preparing your file, which usually takes somewhere between
@@ -95,13 +94,13 @@
 
     <!-- ============ Step 3: share ============ -->
     <div class="wizard-pane" data-pane="3">
-        <h2 class="text-h2 font-semibold">Your data is ready: share it and meet your persona</h2>
+        <h2 class="text-h2 font-semibold">Your data is ready: share it and explore</h2>
         <p class="prose wizard-sub">
             Sharing happens entirely on your terms. You review the file in your browser
             first, see exactly what's inside, remove anything you like, and nothing
             leaves your device until you consent. The moment you share, the Hub builds
-            your short-video persona: your archetype, viewing rhythms, doomscroll and
-            rewatch habits, and how you compare with the rest of the cohort.
+            your short-video persona: your archetype, viewing rhythms and rewatch
+            habits, and how you compare with other short-video watchers.
             {% if not current_user.is_authenticated %}
             Log in and you'll land right where sharing starts. No account yet? Signing
             up takes a minute.
@@ -135,7 +134,7 @@
             </div>
             <div class="wizard-tl">
                 <div class="wizard-tl-rail"><span class="wizard-tl-dot"></span><span class="wizard-tl-bar"></span></div>
-                <div class="wizard-tl-body"><strong>Then: annotation, in batches.</strong>
+                <div class="wizard-tl-body"><strong>Then: scraping and annotation.</strong>
                     <span>We fetch and analyse the videos you watched: content, themes,
                           style. This happens in batches over time, and your My Collections
                           page always shows how far along your collection is.</span></div>
@@ -143,7 +142,7 @@
             <div class="wizard-tl">
                 <div class="wizard-tl-rail"><span class="wizard-tl-dot"></span></div>
                 <div class="wizard-tl-body"><strong>Finally: explore for real.</strong>
-                    <span>Take the tour again, this time with your own annotated data.</span></div>
+                    <span>Explore your data and learn how it compares to other short-video users who have donated their data to the For You Project.</span></div>
             </div>
         </div>
     </div>

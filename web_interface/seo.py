@@ -92,9 +92,9 @@ PUBLIC_PAGES = {
     "public_bp.faq": {
         "title": "For You Data Hub: Frequently Asked Questions",
         "description": (
-            "Answers on accounts, supported platforms, participant privacy, AI "
-            "annotation reliability, running your own instance of the open-source "
-            "Hub, and how to cite it."
+            "Answers for viewers, creators, journalists and researchers: what "
+            "sharing your feed involves, what donated data can and cannot show, "
+            "and running the Hub yourself."
         ),
     },
     "public_bp.ethics": {

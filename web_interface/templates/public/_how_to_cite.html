@@ -35,10 +35,10 @@
     </div>
 
     <p class="cite-note text-sm">
-        Please cite the version you actually used{% if citation.doi_url %} — each release is archived
+        Please cite the version you actually used.{% if citation.doi_url %} Each release is archived
         with its own DOI at
         <a href="{{ citation.doi_url }}" target="_blank" rel="noopener">{{ citation.doi_url | replace('https://', '') }}</a>,
-        which always resolves to the latest one{% endif %}.
+        which always resolves to the latest one.{% endif %}
     </p>
     {% elif show_software and repo_url %}
     <p class="cite-note text-sm">
