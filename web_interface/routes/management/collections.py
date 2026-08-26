@@ -337,6 +337,21 @@ def save_collection_annotation():
                 **({"user_id": {"from": previous_user, "to": user_id}} if set_user else {}),
             },
         )
+
+        # An ownership change moves the collection between accounts' auto-
+        # managed study pairs — reconcile both sides (new owner gains it,
+        # previous owner loses it) on a background thread so the save stays
+        # snappy. Never fails the save.
+        if set_user and user_id != previous_user:
+            try:
+                from ...services.participant_studies import sync_for_cids
+                sync_for_cids(
+                    [str(collection_id)],
+                    usernames=[u for u in (previous_user,) if u],
+                )
+            except Exception as exc:
+                print(f"[save_collection_annotation] participant-study sync failed: {exc}")
+
         return jsonify({"status": "success"})
     except Exception as e:
         print(f"Error saving annotation: {e}")

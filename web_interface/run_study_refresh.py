@@ -71,6 +71,16 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     study_config = studies[study_name]
     study_config["STUDY_NAME"] = study_name
 
+    # Composed ("Everyone & Me") studies must never be materialised — their
+    # frame is assembled at read time from the default study plus the owner's
+    # Just Me dataset. Building artifacts under the composed name would both
+    # waste a default-study-sized rebuild per participant and shadow the
+    # live composition with a stale copy.
+    from fyp.studies import is_composed_study
+    if is_composed_study(study_config):
+        reporter.log(f"'{study_name}' is a composed study — nothing to build. Skipping.")
+        return
+
     # _calculate_stats creates the recoded dataset and returns it alongside stats.
     # If force_full_rebuild is requested, remove the sidecar first so the
     # fingerprint short-circuit inside create_study_recoded_dataset cannot fire.

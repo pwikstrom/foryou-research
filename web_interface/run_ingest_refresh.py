@@ -398,6 +398,28 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     except Exception as exc:
         reporter.log(f"First-batch queueing failed (ingest unaffected): {exc}")
 
+    # Auto-managed participant studies ("Just Me" / "Everyone & Me"): ensure
+    # the pair for every owner among this run's ingested collections and
+    # build/refresh their Just Me dataset. Runs after link_aio_collections so
+    # it covers both self-serve uploads (owned at upload time) and AIO
+    # donations (owned just above). Never blocks the refresh.
+    try:
+        from web_interface.services.participant_studies import sync_for_cids
+
+        # Recomputed rather than reusing ingested_cids: that name is local to
+        # the previous try block and unbound if it failed before assignment.
+        _owner_sync_cids = sorted({
+            str(e["canonical_collection_id"]) for e in per_file_summary
+            if e.get("canonical_collection_id")
+            and e.get("outcome") in ("added_as_new", "merged_with_existing")
+        })
+        if _owner_sync_cids:
+            affected_users = sync_for_cids(_owner_sync_cids, wait=True, log=reporter.log)
+            if affected_users:
+                reporter.log(f"Participant studies ensured for: {affected_users}")
+    except Exception as exc:
+        reporter.log(f"Participant-study sync failed (ingest unaffected): {exc}")
+
     # Build the list of ledger entries that were SKIPPED this run (i.e. files
     # the ledger remembers from prior runs but didn't reload). Useful for the
     # UI's "previously skipped" section.

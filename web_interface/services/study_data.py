@@ -18,7 +18,7 @@ from cachetools import LRUCache
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
 from fyp.organize_datasets import COLLECTIONS_LABEL
-from fyp.studies import init_study_defs
+from fyp.studies import init_study_defs, is_composed_study, participant_me_name
 
 from .. import explorer_backend as explorer
 
@@ -208,6 +208,62 @@ def _get_recoded_mtime(study):
     return _ttl_mtime(f"{study}_recoded.parquet")
 
 
+# --- Composed (participant "Everyone & Me") studies --------------------------
+#
+# A composed study stores NO artifacts of its own. Its frame is assembled at
+# load time from the site default study (base) plus the owner's Just Me
+# dataset (overlay); PCA / correlations / sequence / methods artifacts are
+# served from the base. See web_interface/services/participant_studies.py for
+# the lifecycle and fyp.analysis.studies for the def markers.
+
+
+def resolve_compose(study):
+    """Return ``(base_name, overlay_name)`` for a composed study, else None.
+
+    The base is resolved to the CURRENT site default study at every call, so
+    an admin repointing the default retargets every Everyone & Me study
+    without touching their defs. Returns None when the study is not composed,
+    the default is unset/missing, or the default is itself a composed study.
+    """
+    if "study_defs" not in fyp_cf:
+        init_study_defs()
+    defs = fyp_cf.get("study_defs") or {}
+    cfg = defs.get(study)
+    if not is_composed_study(cfg):
+        return None
+    from ..admin_settings import get_default_study
+    base = get_default_study()
+    owner = cfg.get("OWNER")
+    if not base or not owner or base == study:
+        return None
+    base_cfg = defs.get(base)
+    if not isinstance(base_cfg, dict) or is_composed_study(base_cfg):
+        return None
+    return base, participant_me_name(owner)
+
+
+def resolve_artifact_study(study):
+    """The study whose cached artifacts serve ``study``'s requests.
+
+    Composed studies borrow the base (default) study's PCA / correlations /
+    sequence / methods artifacts — the owner's extra videos are simply absent
+    from those views. Every other study serves its own.
+    """
+    pair = resolve_compose(study)
+    return pair[0] if pair else study
+
+
+def _composed_mtime(base, overlay):
+    """Joint staleness token for a composed frame: either side's rewrite
+    changes the tuple, which the StudyCache treats as any other mtime value.
+    Returns None when either parquet is missing (composed frame unavailable)."""
+    base_mtime = _get_recoded_mtime(base)
+    overlay_mtime = _get_recoded_mtime(overlay)
+    if base_mtime is None or overlay_mtime is None:
+        return None
+    return (base_mtime, overlay_mtime)
+
+
 
 
 # In-process cache for study sidecars. Sidecars carry the (cid, day) cell map
@@ -266,12 +322,86 @@ _explorer_meta_cache = LRUCache(maxsize=8)
 _explorer_meta_lock = threading.Lock()
 
 
+def _merge_explorer_metadata(base_meta, overlay_meta):
+    """Union two explorer-metadata payloads for a composed study.
+
+    Generic recursive merge: dicts merge key-wise, lists union (base order
+    first — so overlay-only categorical values, e.g. the owner's collection
+    ids, become filterable), numeric ``min``/``max`` take the envelope, and
+    any other conflict keeps the base value (counts therefore read as the
+    base's — approximate, like the composed stats).
+    """
+    if isinstance(base_meta, dict) and isinstance(overlay_meta, dict):
+        merged = dict(base_meta)
+        for key, o_val in overlay_meta.items():
+            if key not in merged:
+                merged[key] = o_val
+            else:
+                merged[key] = _merge_explorer_metadata(merged[key], o_val)
+        return merged
+    if isinstance(base_meta, list) and isinstance(overlay_meta, list):
+        seen = {v for v in base_meta if not isinstance(v, (dict, list))}
+        extra = [v for v in overlay_meta
+                 if isinstance(v, (dict, list)) or v not in seen]
+        # Unhashable entries (dicts/lists) can't be deduped cheaply; keep base
+        # only in that case to avoid duplicating structured rows.
+        if any(isinstance(v, (dict, list)) for v in base_meta + overlay_meta):
+            return base_meta
+        return base_meta + extra
+    if isinstance(base_meta, (int, float)) and isinstance(overlay_meta, (int, float)) \
+            and not isinstance(base_meta, bool) and not isinstance(overlay_meta, bool):
+        # Only meaningful for min/max-style bounds; for other numerics the
+        # envelope is harmless (they are display hints, not counts the API
+        # promises to be exact).
+        return base_meta  # resolved by the min/max special case below
+    return base_meta
+
+
+def _merge_meta_bounds(merged, base_meta, overlay_meta):
+    """Second pass: min/max envelopes wherever both sides carry them."""
+    if not (isinstance(merged, dict) and isinstance(base_meta, dict)
+            and isinstance(overlay_meta, dict)):
+        return merged
+    for key in ("min", "max"):
+        b, o = base_meta.get(key), overlay_meta.get(key)
+        if isinstance(b, (int, float)) and isinstance(o, (int, float)) \
+                and not isinstance(b, bool) and not isinstance(o, bool):
+            merged[key] = min(b, o) if key == "min" else max(b, o)
+    for key, m_val in merged.items():
+        if isinstance(m_val, dict):
+            merged[key] = _merge_meta_bounds(
+                m_val, base_meta.get(key), overlay_meta.get(key))
+    return merged
+
+
 def get_explorer_metadata_cached(study):
     """Parsed ``{study}_explorer_metadata.json``, or ``{}`` when absent.
 
     Cached in-process keyed by the file's mtime (probed through the 15s TTL),
-    so a metadata rebuild is picked up within the TTL window.
+    so a metadata rebuild is picked up within the TTL window. A composed
+    study has no metadata file of its own: base and overlay payloads are
+    merged on the fly and cached under the composed name, keyed by the pair
+    of source mtimes.
     """
+    compose = resolve_compose(study)
+    if compose:
+        base_name, overlay_name = compose
+        token = (_ttl_mtime(f"{base_name}_explorer_metadata.json"),
+                 _ttl_mtime(f"{overlay_name}_explorer_metadata.json"))
+        with _explorer_meta_lock:
+            entry = _explorer_meta_cache.get(study)
+            if entry is not None and entry[0] == token:
+                return entry[1]
+        base_meta = get_explorer_metadata_cached(base_name)
+        overlay_meta = get_explorer_metadata_cached(overlay_name)
+        if not base_meta:
+            return overlay_meta
+        merged = _merge_explorer_metadata(base_meta, overlay_meta)
+        merged = _merge_meta_bounds(merged, base_meta, overlay_meta)
+        with _explorer_meta_lock:
+            _explorer_meta_cache[study] = (token, merged)
+        return merged
+
     filename = f"{study}_explorer_metadata.json"
     mtime = _ttl_mtime(filename)
     if mtime is None:
@@ -364,6 +494,36 @@ def _apply_context_filter(raw_df, verbose=False):
     return filtered, status
 
 
+def _load_composed_raw(study, base, overlay, verbose=False):
+    """Assemble a composed study's raw frame: base ∪ overlay, deduped.
+
+    The overlay (the owner's Just Me dataset) is authoritative for the owner's
+    collections: any base rows from those collections are dropped before the
+    concat, so a collection that is both owned and in the default study
+    contributes its full, unwindowed, unsampled Just Me rows exactly once.
+    Base rows keep the base study's window and sampling. Column types come
+    from the base — both parquets are written by the same recode pipeline.
+    """
+    raw_base, col_types = explorer.load_data(base, verbose=False)
+    if raw_base is None:
+        return None, None
+    raw_overlay, _overlay_types = explorer.load_data(overlay, verbose=False)
+    if raw_overlay is None or raw_overlay.empty:
+        # A missing/empty overlay should not happen (the listing gates on its
+        # parquet), but serving just the base beats a 500.
+        return raw_base, col_types
+
+    own_cids = set(raw_overlay['collection_id'].astype(str).unique())
+    base_kept = raw_base[~raw_base['collection_id'].astype(str).isin(own_cids)]
+    del raw_base
+    combined = pd.concat([base_kept, raw_overlay], ignore_index=True, copy=False)
+    if verbose:
+        print(f"    Composed {study}: base {len(base_kept):,} rows "
+              f"(after dropping {len(own_cids)} owned collection(s)) "
+              f"+ overlay {len(raw_overlay):,} rows -> {len(combined):,}")
+    return combined, col_types
+
+
 def _cached_study_frame(study, verbose=False):
     """Return the cached context-filtered frame for ``study``, loading it once.
 
@@ -377,8 +537,17 @@ def _cached_study_frame(study, verbose=False):
     """
     # Capture parquet mtime up front so a worker rewriting the file in another
     # process invalidates this Flask process's RAM cache automatically on the
-    # next request.
-    current_mtime = _get_recoded_mtime(study)
+    # next request. For a composed study the token covers both source parquets.
+    compose = resolve_compose(study)
+    if compose:
+        current_mtime = _composed_mtime(*compose)
+        if current_mtime is None:
+            # Either side missing: the composed frame does not exist (and a
+            # stale cache entry must not be served in its place).
+            study_cache.invalidate(study)
+            return None, None, None
+    else:
+        current_mtime = _get_recoded_mtime(study)
 
     # Check cache (First Check)
     cached = study_cache.get(study, current_mtime=current_mtime)
@@ -407,13 +576,16 @@ def _cached_study_frame(study, verbose=False):
         # at insert time (the LRU default) happens after the peak. A missing
         # sidecar reads as big — the cost of over-evicting is a re-load,
         # the cost of under-evicting is the instance.
-        sidecar = get_study_sidecar(study)
+        sidecar = get_study_sidecar(compose[0] if compose else study)
         row_count = (sidecar or {}).get('row_count')
         if row_count is None or row_count >= _BIG_STUDY_ROW_THRESHOLD:
             study_cache.clear_except(study)
 
-        # Resolve path
-        raw_df, col_types = explorer.load_data(study, verbose=False)
+        if compose:
+            raw_df, col_types = _load_composed_raw(study, *compose, verbose=verbose)
+        else:
+            # Resolve path
+            raw_df, col_types = explorer.load_data(study, verbose=False)
 
         if raw_df is None:
             if verbose:
@@ -453,7 +625,7 @@ def _cached_study_frame(study, verbose=False):
             "df": filtered_df,
             "col_types": col_types,
             "status": status,
-            "mtime": _get_recoded_mtime(study),
+            "mtime": _composed_mtime(*compose) if compose else _get_recoded_mtime(study),
         }
         study_cache.put(study, cache_item)
         return filtered_df, col_types, status
@@ -1118,6 +1290,18 @@ def get_study_frame_collections(study) -> set | None:
     """
     if not study:
         return None
+
+    compose = resolve_compose(study)
+    if compose:
+        # Union of what both source frames actually contain. Base unbuilt ⇒
+        # the composed frame does not exist either; a missing overlay reads
+        # as empty rather than hiding the base's data.
+        base_cids = get_study_frame_collections(compose[0])
+        if base_cids is None:
+            return None
+        overlay_cids = get_study_frame_collections(compose[1]) or set()
+        return set(base_cids) | set(overlay_cids)
+
     mtime = _get_recoded_mtime(study)
     if mtime is None:
         return None
@@ -1181,7 +1365,19 @@ def get_study_date_window(study) -> tuple[pd.Timestamp, pd.Timestamp]:
     """
     if "study_defs" not in fyp_cf:
         init_study_defs()
-    cfg = (fyp_cf.get("study_defs", {}) or {}).get(study) or {}
+
+    compose = resolve_compose(study)
+    if compose:
+        # Envelope of both sides. The composed def carries no dates (the
+        # owner's rows span their full range) so this resolves to the wide
+        # default window — base rows outside the base study's own window are
+        # already absent from the composed frame, and the sessions index only
+        # covers what some study's window spans, so the wide bound over-scopes
+        # by at most a padding's worth of edge sessions.
+        base_start, base_end = get_study_date_window(compose[0])
+        cfg = (fyp_cf.get("study_defs", {}) or {}).get(study) or {}
+    else:
+        cfg = (fyp_cf.get("study_defs", {}) or {}).get(study) or {}
 
     def _bound(key: str, default: str) -> pd.Timestamp:
         raw = cfg.get(key)
@@ -1193,8 +1389,10 @@ def get_study_date_window(study) -> tuple[pd.Timestamp, pd.Timestamp]:
         return pd.Timestamp(default)
 
     start = _bound("START_DATE", "1970-01-01")
-    end = _bound("END_DATE", "2099-12-31")
-    return start, end + pd.Timedelta(days=1)
+    end_bound = _bound("END_DATE", "2099-12-31") + pd.Timedelta(days=1)
+    if compose:
+        return min(start, base_start), max(end_bound, base_end)
+    return start, end_bound
 
 
 
@@ -1212,6 +1410,16 @@ def get_study_collections(study):
         return []
 
     selected_collections = fyp_cf["study_defs"][study].get("SELECTED_COLLECTIONS", [])
+
+    compose = resolve_compose(study)
+    if compose:
+        # A composed study's own list holds only the owner's collections; the
+        # base (default) study contributes the rest at read time.
+        base_selected = (fyp_cf["study_defs"].get(compose[0]) or {}).get(
+            "SELECTED_COLLECTIONS", []) or []
+        seen = {str(c).strip() for c in selected_collections}
+        selected_collections = list(selected_collections) + [
+            c for c in base_selected if str(c).strip() not in seen]
 
     selected_collections = [{"collection_id": str(d).strip()} for d in selected_collections]
 

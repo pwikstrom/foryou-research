@@ -490,9 +490,11 @@ function renderStudiesTable() {
         } else {
             // My Studies opens the same modal read-only: every field disabled,
             // no Save/Delete/Access, and rendered without the Data-Management
-            // endpoints a plain viewer would be refused.
+            // endpoints a plain viewer would be refused. System-managed
+            // participant studies are read-only everywhere — the backend
+            // refuses edits to them, so the modal must not offer any.
             tr.style.cursor = 'pointer';
-            tr.onclick = () => openStudyModal(index, !allowEdit);
+            tr.onclick = () => openStudyModal(index, !allowEdit || !!study.SYSTEM);
         }
 
         const stats = study.stats || {};
@@ -512,8 +514,12 @@ function renderStudiesTable() {
             actionHtml = '<button class="btn-discreet text-xs js-study-methods-btn">Methods</button>';
         }
 
+        const nameLabel = escapeHtml(study.DISPLAY_LABEL || study.STUDY_NAME);
+        const systemBadge = study.SYSTEM
+            ? ' <span class="text-xs" style="color: var(--color-text-muted);" title="Auto-managed participant study — updated automatically, not editable.">(auto)</span>'
+            : '';
         tr.innerHTML = `
-            <td style="padding: 5px;"><strong>${study.STUDY_NAME}</strong></td>
+            <td style="padding: 5px;"><strong>${nameLabel}</strong>${systemBadge}</td>
             <td style="padding: 5px;">${study.START_DATE || '-'}</td>
             <td style="padding: 5px;">${study.END_DATE || '-'}</td>
             <td style="padding: 5px;">${(study.SAMPLE_FRAME === 'events' ? 'activities' : study.SAMPLE_FRAME) || '-'}</td>
@@ -557,9 +563,35 @@ function renderStudiesTable() {
             tbody.appendChild(tr);
             return;
         }
+        // The Define Studies table hides the auto-managed participant pairs
+        // (two per participant — they would bury the real studies) behind a
+        // toggle. My Studies keeps them: a participant's own pair is exactly
+        // what that view is for.
+        const showSystem = !allowEdit
+            || !!document.getElementById('dm-show-participant-studies')?.checked;
+        let hiddenSystem = 0;
         allStudies.forEach((study, index) => {
+            if (!showSystem && study.SYSTEM) {
+                hiddenSystem += 1;
+                return;
+            }
             tbody.appendChild(buildRow(study, index, allowEdit));
         });
+        const toggleLabel = document.getElementById('dm-participant-studies-count');
+        if (toggleLabel && allowEdit) {
+            const nSystem = allStudies.filter(s => s.SYSTEM).length;
+            toggleLabel.textContent = nSystem ? `(${nSystem})` : '(0)';
+        }
+        if (hiddenSystem && tbody.children.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 10;
+            td.className = 'text-sm';
+            td.style.cssText = 'padding: 16px; text-align: center; color: var(--color-text-muted);';
+            td.textContent = `Only auto-managed participant studies exist (${hiddenSystem} hidden).`;
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+        }
     });
 }
 

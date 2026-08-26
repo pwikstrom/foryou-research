@@ -32,6 +32,10 @@ def study_defs(monkeypatch):
     }
     monkeypatch.setitem(fyp_cf, "study_defs", defs)
     monkeypatch.setattr(user_variables.data_io, "exists", lambda **kw: True)
+    # The listing now answers existence from one cache listdir; failing it
+    # forces the per-study exists() fallback the line above satisfies.
+    monkeypatch.setattr(user_variables.data_io, "listdir",
+                        lambda **kw: (_ for _ in ()).throw(RuntimeError("no cache")))
     # Both the My Studies listing and the settings picker reload studies.json
     # from disk before reading — keep the synthetic dict in place instead.
     monkeypatch.setattr(fyp_studies, "init_study_defs", lambda: None)

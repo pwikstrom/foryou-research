@@ -27,7 +27,12 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
             with ``has_pca`` and ``has_timelines`` booleans so the UI can
             gate the Correlations and Timelines tabs per study.
     """
-    from fyp.studies import init_study_defs
+    from fyp.studies import (
+        init_study_defs,
+        is_composed_study,
+        is_system_study,
+        participant_me_name,
+    )
 
     from ..admin_settings import get_default_study
 
@@ -52,13 +57,27 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
     # alone was insufficient — stray cache files from other studies can
     # falsely mark a study as timeline-capable even when every collection
     # in it falls below the analysable-length threshold.
-    cache_files: set[str] = set()
+    # One cache listing serves EVERY existence question below (recoded parquet,
+    # PCA, timelines, sessions) — the per-study data_io.exists() probe this
+    # replaces was one GCS round-trip per study per call, which scales O(N)
+    # with the auto-created participant studies. When the listing itself fails
+    # we fall back to per-study probes rather than hiding every study.
+    cache_files: set[str] | None
+    try:
+        cache_files = set(data_io.listdir(storage_location="cache"))
+    except Exception:
+        cache_files = None
+
+    def _has_cache_file(filename: str) -> bool:
+        if cache_files is not None:
+            return filename in cache_files
+        try:
+            return data_io.exists(storage_location="cache", filename=filename)
+        except Exception:
+            return False
+
     timeline_capable_cids: set[str] = set()
     if include_stats:
-        try:
-            cache_files = set(data_io.listdir(storage_location="cache"))
-        except Exception:
-            cache_files = set()
         try:
             from fyp.organize_datasets import COLLECTIONS_LABEL
             from fyp.timeline_analysis import MIN_ACTIVE_DAYS_FOR_TIMELINE
@@ -85,73 +104,135 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
         except Exception:
             timeline_capable_cids = set()
 
-    if 'study_defs' in fyp_cf:
-        for study_name, study_config in fyp_cf['study_defs'].items():
-            # 1. Admin Override
-            if is_admin:
-                has_access = True
-            # 1b. The site-wide default study is shared with everyone.
-            elif default_study and study_name == default_study:
+    study_defs = fyp_cf.get('study_defs') or {}
+
+    def _study_stats(config) -> dict:
+        stats = config.get('stats', {})
+        # Defensive: a bad client save could persist stats as a string
+        # (e.g. "[object Object]"). Treat anything non-dict as empty
+        # so the listing endpoint keeps working for other studies.
+        return stats if isinstance(stats, dict) else {}
+
+    for study_name, study_config in study_defs.items():
+        # 1. Admin Override
+        if is_admin:
+            has_access = True
+        # 1b. The site-wide default study is shared with everyone.
+        elif default_study and study_name == default_study:
+            has_access = True
+        else:
+            user_access = study_config.get('USER_ACCESS')
+
+            # 2. Access requires an explicit grant: 'all', the user's role,
+            #    or their username. Missing/empty/malformed => deny — a
+            #    study is shared with nobody until someone shares it.
+            #    (Pre-S4 the default was allow; the boot-time
+            #    migrate_user_access_defaults() wrote explicit grants into
+            #    every study that relied on that.)
+            if isinstance(user_access, list) and (
+                    'all' in user_access
+                    or role in user_access
+                    or username in user_access):
                 has_access = True
             else:
-                user_access = study_config.get('USER_ACCESS')
+                has_access = False
 
-                # 2. Access requires an explicit grant: 'all', the user's role,
-                #    or their username. Missing/empty/malformed => deny — a
-                #    study is shared with nobody until someone shares it.
-                #    (Pre-S4 the default was allow; the boot-time
-                #    migrate_user_access_defaults() wrote explicit grants into
-                #    every study that relied on that.)
-                if isinstance(user_access, list) and (
-                        'all' in user_access
-                        or role in user_access
-                        or username in user_access):
-                    has_access = True
-                else:
-                    has_access = False
+        if not has_access:
+            continue
 
-            if has_access:
-                # Data Integrity Checks
-                if not data_io.exists(storage_location="cache", filename=f"{study_name}_recoded.parquet"):
-                    continue
+        # A composed study ("Everyone & Me") stores no artifacts of its own:
+        # its frame is assembled at load time from the site default study
+        # (base) plus the owner's Just Me dataset (overlay). It is listable
+        # only when both sides actually exist. Every artifact-driven flag
+        # resolves through the base; stats are approximated as base + overlay
+        # (overlap between the two is not subtracted — exact counts would
+        # need a frame load).
+        composed = is_composed_study(study_config)
+        if composed:
+            base_name = default_study
+            base_config = study_defs.get(base_name) if base_name else None
+            if (not isinstance(base_config, dict)
+                    or is_composed_study(base_config)
+                    or base_name == study_name):
+                continue
+            if not _has_cache_file(f"{base_name}_recoded.parquet"):
+                continue
+            owner_id = study_config.get('OWNER')
+            overlay_name = participant_me_name(owner_id) if owner_id else None
+            if not overlay_name or not _has_cache_file(f"{overlay_name}_recoded.parquet"):
+                continue
+            base_stats = _study_stats(base_config)
+            overlay_stats = _study_stats(study_defs.get(overlay_name) or {})
+            stats = dict(base_stats)
+            for key in ("total_activities", "unique_videos", "scraped_videos",
+                        "annotated_videos", "unique_collections", "active_days"):
+                stats[key] = int(base_stats.get(key) or 0) + int(overlay_stats.get(key) or 0)
+            artifact_name = base_name
+            effective_selected = list(base_config.get('SELECTED_COLLECTIONS') or []) + \
+                list(study_config.get('SELECTED_COLLECTIONS') or [])
+        else:
+            # Data Integrity Checks
+            if not _has_cache_file(f"{study_name}_recoded.parquet"):
+                continue
+            stats = _study_stats(study_config)
+            artifact_name = study_name
+            effective_selected = study_config.get('SELECTED_COLLECTIONS', []) or []
 
-                stats = study_config.get('stats', {})
-                # Defensive: a bad client save could persist stats as a string
-                # (e.g. "[object Object]"). Treat anything non-dict as empty
-                # so the listing endpoint keeps working for other studies.
-                if not isinstance(stats, dict):
-                    stats = {}
-                if stats.get('unique_videos', 0) <= 0:
-                    continue
+        if stats.get('unique_videos', 0) <= 0:
+            continue
 
-                if include_stats:
-                    stats = dict(stats)
-                    stats['has_pca'] = f"{study_name}_PCA.parquet" in cache_files
-                    # A study "has timelines" only when at least one of its
-                    # collections is long enough to analyse (active_days >=
-                    # threshold) AND has an actual cached timeline parquet.
-                    # Both gates matter: without the length check, a stale
-                    # cache file would re-enable the tab for a study whose
-                    # collections are all too short; without the file check,
-                    # collections that qualify on paper but whose timelines
-                    # have never been generated would appear available.
-                    selected = study_config.get('SELECTED_COLLECTIONS', []) or []
-                    stats['has_timelines'] = any(
-                        (cid_clean := str(cid).strip()) in timeline_capable_cids
-                        and f"timeline_{cid_clean}_day.parquet" in cache_files
-                        for cid in selected
-                    )
-                    # The sessions artifact is global (all collections) — the
-                    # tab enables everywhere once it exists and shows a
-                    # per-study empty state when no sessions match.
-                    stats['has_sessions'] = "sessions_index.parquet" in cache_files
-                    accessible_studies.append({"name": study_name, "stats": stats})
-                else:
-                    accessible_studies.append(study_name)
+        # The pair's fixed display names ("Just Me" / "Everyone & Me") are
+        # self-explanatory to their owner; anyone else who can see the study
+        # (admins, managers) needs the owner spelled out to tell N identical
+        # labels apart.
+        system = is_system_study(study_config)
+        display_name = study_config.get('DISPLAY_NAME') or study_name
+        owner = study_config.get('OWNER')
+        if system and owner and owner != username:
+            display_name = f"{display_name} — {owner}"
 
-    if include_stats:
-        return sorted(accessible_studies, key=lambda s: s["name"])
-    return sorted(accessible_studies)
+        if include_stats:
+            stats = dict(stats)
+            stats['has_pca'] = _has_cache_file(f"{artifact_name}_PCA.parquet")
+            # A study "has timelines" only when at least one of its
+            # collections is long enough to analyse (active_days >=
+            # threshold) AND has an actual cached timeline parquet.
+            # Both gates matter: without the length check, a stale
+            # cache file would re-enable the tab for a study whose
+            # collections are all too short; without the file check,
+            # collections that qualify on paper but whose timelines
+            # have never been generated would appear available.
+            stats['has_timelines'] = any(
+                (cid_clean := str(cid).strip()) in timeline_capable_cids
+                and _has_cache_file(f"timeline_{cid_clean}_day.parquet")
+                for cid in effective_selected
+            )
+            # The sessions artifact is global (all collections) — the
+            # tab enables everywhere once it exists and shows a
+            # per-study empty state when no sessions match.
+            stats['has_sessions'] = _has_cache_file("sessions_index.parquet")
+            accessible_studies.append({
+                "name": study_name,
+                "display_name": display_name,
+                "system": system,
+                "stats": stats,
+            })
+        else:
+            accessible_studies.append(study_name)
+
+    # Order: the user's own participant pair first, then regular studies, then
+    # (for admins/managers) other users' system studies — so N participant
+    # pairs never bury the real studies in the picker.
+    def _sort_key(entry):
+        name = entry["name"] if isinstance(entry, dict) else entry
+        config = study_defs.get(name) or {}
+        if is_system_study(config):
+            group = 0 if config.get('OWNER') == username else 2
+        else:
+            group = 1
+        return (group, name)
+
+    return sorted(accessible_studies, key=_sort_key)
 
 
 

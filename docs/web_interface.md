@@ -51,6 +51,21 @@ roles but skip-lists `student`). Per-study sharing is the study definition's
 empty/missing list means **shared with nobody** on every surface, and a
 boot-time migration (`fyp.studies.migrate_user_access_defaults`, serving
 processes only) backfilled explicit grants into pre-flip studies.
+
+Participants who own donated collections additionally get an auto-managed
+study pair — `__me__{username}` ("Just Me", their own collections,
+materialised) and `__me_plus__{username}` ("Everyone & Me", composed at read
+time from the site default study plus the Just Me dataset; never
+materialised). The pair is created/updated by
+`services/participant_studies.py` from the ownership links in
+`collections_tags.json`. Provisioning is lazy: an owner's pair is first
+created on login (`ensure_on_login`, run on every successful login), so
+donation-linked accounts that never log in get no studies; existing pairs
+are reconciled by every sync path regardless. Defs carry
+`SYSTEM`/`OWNER`/`DISPLAY_NAME` markers and
+`USER_ACCESS = [username]`, is skipped by the boot migration and the
+all-studies refresh sweeps, is excluded from the default-study picker, and is
+refused by the study save/rename endpoints (delete is admin-only cleanup).
 `POST /api/user/settings` accepts only the whitelisted
 `USER_SETTINGS_KEYS`.
 

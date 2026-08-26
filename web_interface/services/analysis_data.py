@@ -46,6 +46,12 @@ def get_pca_df(study_name):
     if not study_name:
         return None
 
+    # Composed (Everyone & Me) studies have no PCA of their own — they serve
+    # the base (default) study's scores. Resolving here also keeps the lazy
+    # compute below from ever building artifacts under a composed name.
+    from .study_data import resolve_artifact_study
+    study_name = resolve_artifact_study(study_name)
+
     pca_filename = f"{study_name}_PCA.parquet"
     comp_inter_filename = f"{study_name}_comp_interpretations.json"
 
@@ -126,6 +132,8 @@ def get_sequence_summary(study_name):
     """
     if not study_name:
         return None
+    from .study_data import resolve_artifact_study
+    study_name = resolve_artifact_study(study_name)
     mtime = _sequence_mtime(study_name, "_summary.json")
     if mtime is None:
         return None
@@ -155,6 +163,8 @@ def get_sequence_df(study_name):
     """
     if not study_name:
         return None
+    from .study_data import resolve_artifact_study
+    study_name = resolve_artifact_study(study_name)
     mtime = _sequence_mtime(study_name, ".parquet")
     if mtime is None:
         return None

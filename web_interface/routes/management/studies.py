@@ -11,7 +11,13 @@ from fyp.fyp_config import (
     fyp_cf,
 )
 import fyp.annotation_versioning as annotation_versioning
-from fyp.studies import init_study_defs, save_study_defs
+from fyp.studies import (
+    STUDY_ARTIFACT_SUFFIXES,
+    SYSTEM_STUDY_NAME_PREFIX,
+    init_study_defs,
+    is_system_study,
+    save_study_defs,
+)
 
 from ... import activity_log
 from ...data_service import (
@@ -126,6 +132,16 @@ def list_studies():
     for name, config in studies.items():
         config['STUDY_NAME'] = name
 
+        # System-managed studies show a fixed display name ("Just Me" /
+        # "Everyone & Me"); anyone but the owner gets the owner appended so N
+        # identical labels stay tellable-apart in the managers' table.
+        if is_system_study(config):
+            label = config.get('DISPLAY_NAME') or name
+            owner = config.get('OWNER')
+            if owner and owner != current_user.username:
+                label = f"{label} — {owner}"
+            config['DISPLAY_LABEL'] = label
+
         if is_manager:
             studies_list.append(config)
         elif _user_can_see_study(config, name):
@@ -196,11 +212,20 @@ def save_study():
     study_name = data.get("STUDY_NAME")
     if not study_name:
         return jsonify({"error": "Missing STUDY_NAME"}), 400
-        
-    
+
+    # The "__" namespace is reserved for system-managed studies (the
+    # auto-created participant pair). Those follow one fixed pattern owned by
+    # services/participant_studies — they are never defined or edited here.
+    if study_name.startswith(SYSTEM_STUDY_NAME_PREFIX):
+        return jsonify({"error": "Study names starting with '__' are reserved for "
+                                 "system-managed studies"}), 400
+
     # load studies from disk into memory - overwrite whatever was there previously
     init_study_defs()
     studies = fyp_cf['study_defs'].copy()
+
+    if is_system_study(studies.get(study_name)):
+        return jsonify({"error": "System-managed studies cannot be edited"}), 400
 
     # If updating an existing study, check for actual changes
     if study_name in studies:
@@ -635,20 +660,9 @@ def daily_activities():
 
 
 
-# Per-study cached artifacts, all in the "cache" location. Keep in sync with
-# delete_study and the run_* workers that write them (study/recode refresh,
-# pca refresh, meta refresh, sequence refresh, methods note).
-_STUDY_ARTIFACT_SUFFIXES = [
-    "_recoded.parquet",
-    "_recoded.meta.json",
-    "_explorer_metadata.json",
-    "_comp_interpretations.json",
-    "_PCA.parquet",
-    "_corr_stats.json",
-    "_methods.json",
-    "_sequence.parquet",
-    "_sequence_summary.json",
-]
+# Canonical per-study artifact list now lives in fyp.analysis.studies so the
+# participant-study lifecycle service can share it without importing routes.
+_STUDY_ARTIFACT_SUFFIXES = STUDY_ARTIFACT_SUFFIXES
 
 
 
@@ -670,11 +684,18 @@ def rename_study():
         return jsonify({"error": "Missing OLD_NAME or NEW_NAME"}), 400
     if new_name == old_name:
         return jsonify({"error": "The new name is the same as the old name"}), 400
+    if new_name.startswith(SYSTEM_STUDY_NAME_PREFIX):
+        return jsonify({"error": "Study names starting with '__' are reserved for "
+                                 "system-managed studies"}), 400
 
     init_study_defs()
     studies = fyp_cf.get('study_defs', {})
     if old_name not in studies:
         return jsonify({"error": f"Study not found: {old_name}"}), 404
+    # A participant study's name IS its identity (__me__{username}); renaming
+    # one would desync it from the account it belongs to.
+    if is_system_study(studies.get(old_name)):
+        return jsonify({"error": "System-managed studies cannot be renamed"}), 400
     if new_name in studies:
         return jsonify({"error": f"A study named '{new_name}' already exists"}), 400
 
@@ -728,7 +749,13 @@ def delete_study():
     init_study_defs()
     if 'study_defs' not in fyp_cf:
         return jsonify({"error": "No study defs found"}), 404
-        
+
+    # The participant-study lifecycle owns these; deleting one out from under
+    # it would just have it recreated on the next sync. Admins may still
+    # delete for cleanup (e.g. after a manual account removal).
+    if is_system_study(fyp_cf['study_defs'].get(study_name)) and not current_user.is_admin():
+        return jsonify({"error": "System-managed studies can only be deleted by an admin"}), 403
+
     if study_name in fyp_cf['study_defs']:
         del fyp_cf['study_defs'][study_name]
         save_study_defs()

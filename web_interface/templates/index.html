@@ -249,7 +249,7 @@
 </script>
 <script src="{{ url_for('static', filename='main.js') }}?v=20"></script>
 <script src="{{ url_for('static', filename='js/variable_prefs.js') }}"></script>
-<script src="{{ url_for('static', filename='study_state.js') }}?v=4"></script>
+<script src="{{ url_for('static', filename='study_state.js') }}?v=5"></script>
 <script src="{{ url_for('static', filename='filter_value_search.js') }}?v=1"></script>
 <script src="{{ url_for('static', filename='explore.js') }}?v=15"></script>
 <script src="{{ url_for('static', filename='video_analysis.js') }}?v=13"></script>
@@ -274,6 +274,6 @@
    actually see, so any role may take it. #}
 <script src="{{ url_for('static', filename='js/hub_tour.js') }}?v=3"></script>
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
-<script src="{{ url_for('static', filename='js/data_management.js') }}?v=23"></script>
+<script src="{{ url_for('static', filename='js/data_management.js') }}?v=24"></script>
 {% endif %}
 {% endblock %}

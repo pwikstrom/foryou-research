@@ -12,6 +12,29 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Added
 
+- **Auto-managed participant studies ("Just Me" / "Everyone & Me").** Every
+  user who owns donated collections gets two system studies, kept in sync
+  automatically when their collections are ingested, re-linked, or deleted.
+  Provisioning is lazy: the pair is first created when the owner actually
+  logs in (a cheap idempotent check on every login) — donation-linked
+  accounts that never log in (placeholders, participants minted from AIO
+  records) get no studies built for them, while an existing pair keeps being
+  reconciled regardless. *Just Me* covers only their own collections and is built like any
+  other (small) study, but refreshes only when that user's collections change
+  — never in the all-studies refresh sweeps. *Everyone & Me* combines their
+  collections with the site default study and stores no dataset at all: its
+  frame is composed at load time from the default study's dataset plus the
+  Just Me dataset (the user's own rows win where a collection appears in
+  both), and its PCA/correlations/methods views serve the default study's
+  artifacts. Both are shared with exactly their owner (`USER_ACCESS` by
+  username), appear in the study picker under their display names, and are
+  read-only everywhere: the save/rename endpoints refuse them, the `__` name
+  prefix is reserved, the boot access migration skips them, and the
+  default-study picker excludes them. The Define Studies table hides them
+  behind a "Show participant studies" toggle. Study listings now answer
+  artifact-existence from a single cache listing instead of one storage probe
+  per study.
+
 - **Default study (Admin → Site Settings).** A new subsection picks one study
   as the site-wide default. That study becomes readable by every role
   regardless of its own Access list, and it is the study the Hub opens on for

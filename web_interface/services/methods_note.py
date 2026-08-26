@@ -350,6 +350,11 @@ def write_methods_note(
 
 def read_methods_note(study_name: str) -> dict | None:
     """Load a study's methods note, or ``None`` if missing/malformed."""
+    # Composed (Everyone & Me) studies have no note of their own and read the
+    # base (default) study's — the closest honest description of the bulk of
+    # their rows. Read-side only: nothing ever writes under a composed name.
+    from .study_data import resolve_artifact_study
+    study_name = resolve_artifact_study(study_name)
     try:
         if not data_io.exists(storage_location=NOTE_LOCATION, filename=note_filename(study_name)):
             return None
@@ -370,8 +375,11 @@ def note_staleness(study_name: str, note: dict) -> dict:
     """Freshness signal: is the note behind the study's recoded parquet?
 
     Mirrors ``correlations_service.build_status_payload`` — informational only,
-    with a 1-second tolerance on the mtime comparison.
+    with a 1-second tolerance on the mtime comparison. Composed studies
+    compare against the base study's parquet — the note they serve.
     """
+    from .study_data import resolve_artifact_study
+    study_name = resolve_artifact_study(study_name)
     try:
         recoded_mtime = data_io.getmtime(
             storage_location="cache", filename=f"{study_name}_recoded.parquet"

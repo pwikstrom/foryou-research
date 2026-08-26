@@ -137,7 +137,11 @@ def total_videos(df: pd.DataFrame) -> int | None:
 
 
 def load_interpretations(study: str) -> dict:
-    """Load ``{study}_comp_interpretations.json`` from cache, or {} if absent."""
+    """Load ``{study}_comp_interpretations.json`` from cache, or {} if absent.
+
+    Composed (Everyone & Me) studies serve the base study's artifact."""
+    from .study_data import resolve_artifact_study
+    study = resolve_artifact_study(study)
     try:
         inter_path = f"{study}_comp_interpretations.json"
         if data_io.exists(storage_location="cache", filename=inter_path):
@@ -469,7 +473,11 @@ def _matrix_to_json(mat) -> list:
 
 
 def load_group_stats(study: str) -> dict | None:
-    """Load the worker-precomputed ``{study}_corr_stats.json``, or None."""
+    """Load the worker-precomputed ``{study}_corr_stats.json``, or None.
+
+    Composed (Everyone & Me) studies serve the base study's artifact."""
+    from .study_data import resolve_artifact_study
+    study = resolve_artifact_study(study)
     try:
         filename = f"{study}_corr_stats.json"
         if data_io.exists(storage_location="cache", filename=filename):
@@ -490,8 +498,12 @@ def build_status_payload(study: str) -> dict:
 
     Compares the mtimes of ``{study}_recoded.parquet`` and ``{study}_PCA.parquet``
     (both in the ``cache`` location). Informational only — the tab keeps
-    rendering; the frontend shows a banner when stale.
+    rendering; the frontend shows a banner when stale. Composed studies
+    compare the base study's pair, since that is what they serve.
     """
+    from .study_data import resolve_artifact_study
+    study = resolve_artifact_study(study)
+
     def _mtime(filename):
         try:
             if data_io.exists(storage_location="cache", filename=filename):

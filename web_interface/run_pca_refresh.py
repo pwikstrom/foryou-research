@@ -33,6 +33,19 @@ def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None)
         studies = {k: v for k, v in studies.items() if k in target_names}
         reporter.log(f"Targeted refresh for {len(studies)} study/studies: {', '.join(studies.keys())}")
 
+    # System-managed participant studies refresh only when explicitly targeted
+    # (their owner's collections changed, or a consolidation impact named
+    # them) — a full sweep must stay O(regular studies), not O(participants).
+    # Composed ("Everyone & Me") defs store no artifacts and never run here.
+    from fyp.studies import is_composed_study, is_system_study
+    _skipped_system = sorted(
+        k for k, v in studies.items()
+        if is_composed_study(v) or (is_system_study(v) and not target_studies_str)
+    )
+    if _skipped_system:
+        studies = {k: v for k, v in studies.items() if k not in _skipped_system}
+        reporter.log(f"Skipping {len(_skipped_system)} system-managed study/studies.")
+
     total = len(studies)
     if total == 0:
         reporter.log("No studies found to refresh.")

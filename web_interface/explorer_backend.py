@@ -785,6 +785,15 @@ def load_data(study: str, verbose: bool = False):
         print("    Loading study data for viewer/explorer...")
     df = None
 
+    # Composed (Everyone & Me) studies have no recoded parquet and must never
+    # reach the cold-build path below — their frame is assembled upstream in
+    # services.study_data from the base + overlay parquets.
+    from fyp.studies import is_composed_study
+    if is_composed_study((fyp_cf.get("study_defs", {}) or {}).get(study)):
+        if verbose:
+            print(f"    Study '{study}' is composed; load its sources instead.")
+        return None, {}
+
     if not data_io.exists(
         storage_location = "cache",
         filename = f"{study}_recoded.parquet",

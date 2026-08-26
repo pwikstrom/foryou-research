@@ -236,7 +236,11 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
     )
     refresh_dispatched: list[str] = []
     refresh_failed: list[dict] = []
+    from fyp.studies import is_composed_study as _is_composed
     for sname in affected_studies:
+        # Composed participant studies store no artifacts — never build them.
+        if _is_composed((fyp_cf.get('study_defs') or {}).get(sname)):
+            continue
         sub_args = {
             "study_name": sname,
             "refresh_pca": True,
@@ -250,6 +254,24 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
         else:
             refresh_failed.append({"study": sname, "error": msg})
             reporter.log(f"study_refresh dispatch for {sname} failed: {msg}")
+
+    # Reconcile the former owners' auto-managed study pairs: shrink their
+    # SELECTED_COLLECTIONS, or remove the pair when nothing is owned any more.
+    # Owners come from the pre-delete tags snapshot — the live entries are
+    # already gone. Never fails the delete.
+    try:
+        from web_interface.services.participant_studies import sync_for_cids
+
+        former_owners = sorted({
+            entry.get("user_id") for cid, entry in (tags_snapshot or {}).items()
+            if str(cid) in id_set and isinstance(entry, dict) and entry.get("user_id")
+        })
+        if former_owners:
+            affected_users = sync_for_cids(
+                [], usernames=former_owners, wait=True, log=reporter.log)
+            reporter.log(f"Participant studies reconciled for: {affected_users}")
+    except Exception as exc:
+        reporter.log(f"Participant-study reconciliation failed (delete unaffected): {exc}")
 
     # Placeholder participant accounts (p-N@…) left owning nothing after this
     # delete. Reported, never removed here — cleanup is an admin action on

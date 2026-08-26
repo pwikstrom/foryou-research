@@ -38,6 +38,19 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
         studies = {k: v for k, v in studies.items() if k in target_names}
         reporter.log(f"Targeted refresh for {len(studies)} study/studies: {', '.join(studies.keys())}")
 
+    # System-managed participant studies refresh only when explicitly targeted
+    # (their owner's collections changed, or a consolidation impact named
+    # them) — a full sweep must stay O(regular studies), not O(participants).
+    # Composed ("Everyone & Me") defs store no artifacts and never run here.
+    from fyp.studies import is_composed_study, is_system_study
+    _skipped_system = sorted(
+        k for k, v in studies.items()
+        if is_composed_study(v) or (is_system_study(v) and not target_studies_str)
+    )
+    if _skipped_system:
+        studies = {k: v for k, v in studies.items() if k not in _skipped_system}
+        reporter.log(f"Skipping {len(_skipped_system)} system-managed study/studies.")
+
     total = len(studies)
     if total == 0:
         reporter.log("No studies found to refresh.")
@@ -134,6 +147,20 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
     save_study_defs()
     reporter.log("Stats saved to studies.json.")
     _t_run = time.perf_counter() - _t_run_start
+    # Safety net for the auto-managed participant pairs the sweep above
+    # deliberately skipped: reconcile every pair against the ownership store
+    # and rebuild only those whose collection set drifted. Untargeted runs
+    # only — targeted pipeline runs already name the studies they touched.
+    if not target_studies_str:
+        try:
+            from web_interface.services.participant_studies import (
+                refresh_stale_participant_studies,
+            )
+
+            refresh_stale_participant_studies(wait=True, log=reporter.log)
+        except Exception as exc:
+            reporter.log(f"Participant-study reconciliation failed (sweep unaffected): {exc}")
+
     reporter.log(f"[TIMING] recode_refresh_studies wall={_t_run:.2f}s studies={total}")
     reporter.log("Study Definitions (Recoded Data) refresh completed.")
 

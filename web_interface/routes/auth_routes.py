@@ -68,6 +68,13 @@ def login():
                 else:
                     login_user(user_obj)
                     user_manager.update_last_login(user_obj.username)
+                    # Lazy provisioning of the participant study pair: most
+                    # donation-linked accounts never log in, so the pair is
+                    # created on first login rather than for every owner.
+                    # Idempotent and cheap; must run AFTER update_last_login
+                    # (the dormancy gate reads it) and never fails the login.
+                    from ..services.participant_studies import ensure_on_login
+                    ensure_on_login(user_obj.username)
                     session['login_time'] = datetime.now(timezone.utc).isoformat()
                     next_page = _safe_next(request.args.get('next'))
                     return redirect(next_page or url_for('index'))
@@ -459,6 +466,15 @@ def api_admin_users():
             target=username,
             details={"unlinked_collections": unlinked, "cascade": cascade},
         )
+
+        # Remove the deleted account's auto-managed study pair (it now owns
+        # nothing, so the sync deletes both defs and the Just Me artifacts).
+        try:
+            from ..services.participant_studies import ensure_participant_studies
+            ensure_participant_studies(username)
+        except Exception as exc:
+            print(f"[delete_user] participant-study cleanup failed (non-fatal): {exc}")
+
         result = {"status": "success", "message": msg, "unlinked_collections": unlinked}
         if cascade and unlinked:
             from fyp.fyp_config import COLLECTION_DELETE_SCRIPT

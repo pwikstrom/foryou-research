@@ -335,10 +335,15 @@ def study_names() -> list[str]:
     """
     try:
         from fyp.fyp_config import fyp_cf
-        from fyp.studies import init_study_defs
+        from fyp.studies import init_study_defs, is_system_study
 
         init_study_defs()
-        return sorted(fyp_cf.get('study_defs') or {})
+        # System-managed participant studies are excluded: pointing the
+        # site-wide default at one would share that participant's data with
+        # every account (the default-study grant bypasses USER_ACCESS), and
+        # the Everyone & Me composition resolves against the default.
+        return sorted(name for name, cfg in (fyp_cf.get('study_defs') or {}).items()
+                      if not is_system_study(cfg))
     except Exception:
         return []
 

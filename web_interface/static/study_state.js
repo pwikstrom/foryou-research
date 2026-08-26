@@ -17,6 +17,10 @@ window.studyState = {
     previous: null,
     stats: {},
     studies: [],
+    // Backend name → label. System-managed participant studies carry fixed
+    // display names ("Just Me" / "Everyone & Me"); everything else shows its
+    // own name. Every API call and event keeps using the backend name.
+    displayNames: {},
     ready: null,
     _readyResolve: null,
     _lastUserPick: null
@@ -45,7 +49,7 @@ function _populateStudySelect(select, studies, current) {
     studies.forEach(name => {
         const opt = document.createElement('option');
         opt.value = name;
-        opt.textContent = name;
+        opt.textContent = (window.studyState.displayNames || {})[name] || name;
         if (name === current) opt.selected = true;
         select.appendChild(opt);
     });
@@ -99,8 +103,9 @@ function updateTabAvailability() {
         btn.disabled = disabled;
         btn.classList.toggle('is-disabled', disabled);
         if (disabled) {
+            const label = (window.studyState.displayNames || {})[current] || current;
             btn.setAttribute('aria-disabled', 'true');
-            btn.setAttribute('title', `Not available for '${current}' — this study has no ${tab === 'correlations' ? 'PCA scores' : 'timelines data'}.`);
+            btn.setAttribute('title', `Not available for '${label}' — this study has no ${tab === 'correlations' ? 'PCA scores' : 'timelines data'}.`);
         } else {
             btn.removeAttribute('aria-disabled');
             btn.removeAttribute('title');
@@ -188,17 +193,22 @@ async function loadStudiesGlobal(options = {}) {
         // Normalise response: may be a list of names or list of {name, stats}.
         const studies = [];
         const statsMap = {};
+        const displayMap = {};
         (payload || []).forEach(item => {
             if (typeof item === 'string') {
                 studies.push(item);
             } else if (item && item.name) {
                 studies.push(item.name);
                 statsMap[item.name] = item.stats || {};
+                if (item.display_name && item.display_name !== item.name) {
+                    displayMap[item.name] = item.display_name;
+                }
             }
         });
 
         window.studyState.studies = studies;
         window.studyState.stats = statsMap;
+        window.studyState.displayNames = displayMap;
 
         // Pick initial study.
         let chosen = null;

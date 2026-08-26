@@ -5,9 +5,16 @@
 {% if not read_only %}
 <h2 style="margin: 0 0 16px 0; display: flex; justify-content: space-between; align-items: center;">
     Define Study Datasets
-    {% if current_user.is_admin() %}
-    <button type="button" class="action-btn" onclick="createNewStudy(); event.stopPropagation();">Define new study</button>
-    {% endif %}
+    <span style="display: flex; align-items: center; gap: 16px;">
+        <label class="text-sm" style="display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer;"
+               title="Two auto-managed studies per participant ('Just Me' / 'Everyone &amp; Me'). Created and updated automatically; not editable here.">
+            <input type="checkbox" id="dm-show-participant-studies" onchange="renderStudiesTable()">
+            Show participant studies <span id="dm-participant-studies-count"></span>
+        </label>
+        {% if current_user.is_admin() %}
+        <button type="button" class="action-btn" onclick="createNewStudy(); event.stopPropagation();">Define new study</button>
+        {% endif %}
+    </span>
 </h2>
 {% else %}
 <h2 style="margin: 0 0 8px 0;">My Studies</h2>
