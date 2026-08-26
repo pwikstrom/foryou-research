@@ -122,7 +122,7 @@
             title: 'Raw versus annotated data',
             body: real
                 ? 'Your activity history was usable immediately; the deeper analysis of what the videos are about arrives in annotation batches. The "Scraped / annotated" column on My Collections shows how far along your collection is.'
-                : 'Your upload arrives as raw activity history: when and what you watched. The persona works right away. The deeper analysis of what the videos are about happens when we fetch and annotate them in batches. Your first batch is prioritised, and we email you the moment it is ready. The tabs that follow show what annotated data unlocks.',
+                : 'Your upload arrives as raw activity history: when and what you watched. The persona works right away. The deeper analysis of what the videos are about happens when the research team fetches and annotates them in batches; the "Scraped / annotated" column on My Collections shows how far along yours is. The tabs that follow show what annotated data unlocks.',
         });
 
         const demoIntro = real ? 'your data' : `the demo collection`;
@@ -252,7 +252,7 @@
             list.push({
                 target: '#my-stuff-page-profile',
                 title: 'Tell us about yourself',
-                body: 'A few details (age range, country, occupation) are genuinely valuable to the research team: they are what turn a shared feed into research-grade data about real audiences. And ticking "consent to contact" lets us email you the moment your annotated data is ready.',
+                body: 'A few details (age range, country, occupation) are genuinely valuable to the research team: they are what turn a shared feed into research-grade data about real audiences. And ticking "consent to contact" lets us email you when there is something new to explore in your data.',
                 onEnter: () => navigate('my_stuff', 'my-stuff-page-profile'),
             });
         }
