@@ -44,6 +44,10 @@ DEFAULTS: dict = {
     # matches a study (deleted/renamed) simply matches nothing, so the same
     # historical behaviour returns without needing a migration.
     "default_study": "",
+    # The collection the guided tour uses to illustrate the analysis tabs
+    # (Admin -> Site Settings). Must belong to the default study, since the
+    # tour opens that study; empty means the tour skips its analysis steps.
+    "demo_collection": "",
     ANNOTATION_BACKEND_KEY: "gemini",
     EMBEDDING_BACKEND_KEY: "gemini",
     # Cost guardrails: the most items a single queue-build request from a
@@ -77,6 +81,7 @@ SETTING_TYPES: dict = {
     "new_user_admin_approval_required": bool,
     "default_new_user_role": str,
     "default_study": str,
+    "demo_collection": str,
     ANNOTATION_BACKEND_KEY: str,
     EMBEDDING_BACKEND_KEY: str,
     "queue_cap_annotation_items": int,
@@ -122,6 +127,16 @@ def validate_setting_value(key: str, value) -> str | None:
         known = study_names()
         if value not in known:
             return f"Unknown study: {value!r}"
+    elif key == "demo_collection":
+        # The tour opens the default study, so the demo collection must be one
+        # of that study's collections (checked against the study definition;
+        # membership in the built frame is the picker's concern, not a hard
+        # save-time requirement — frames rebuild).
+        default = get_default_study()
+        if not default:
+            return "Set a default study before choosing a demo collection"
+        if value not in demo_collection_choices():
+            return f"Collection {value!r} is not part of the default study {default!r}"
     elif key in SESSION_FLOOR_KEYS:
         # bool is an int subclass — reject it explicitly or True becomes 1.
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
@@ -280,6 +295,34 @@ def get_default_study() -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+
+
+def get_demo_collection() -> str:
+    """The admin-selected demo collection for the guided tour, or ``""``.
+
+    Returned as stored, mirroring ``get_default_study``: a collection that
+    later leaves the default study simply matches nothing client-side and the
+    tour skips its analysis steps.
+    """
+    value = get_setting("demo_collection")
+    return value.strip() if isinstance(value, str) else ""
+
+
+def demo_collection_choices() -> list[str]:
+    """Collection ids eligible as the demo collection: the default study's.
+
+    Sourced from the study definition's selected collections. Returns ``[]``
+    when no default study is set or the lookup fails.
+    """
+    default = get_default_study()
+    if not default:
+        return []
+    try:
+        from web_interface.services.study_data import get_study_collections
+        rows = get_study_collections(default) or []
+        return sorted({str(r.get("collection_id")) for r in rows if r.get("collection_id")})
+    except Exception:
+        return []
 
 
 def study_names() -> list[str]:

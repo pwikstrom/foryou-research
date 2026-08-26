@@ -24,6 +24,9 @@
     // Site-wide default study (Admin → Site Settings), or "" when unset. Used
     // by study_state.js as the initial study for anyone without a stored pick.
     window.DEFAULT_STUDY = {{ default_study|tojson }};
+    // The demo collection for the guided tour (Admin → Site Settings), or ""
+    // when unset. Always one of the default study's collections.
+    window.DEMO_COLLECTION = {{ demo_collection|tojson }};
     // source_platform -> "open on platform" URL template, from the collection
     // registry. Use fypPlatformUrl() rather than reading this directly.
     window.PLATFORM_URL_TEMPLATES = {{ platform_url_templates|tojson }};
@@ -137,7 +140,8 @@
         <span class="close-button" onclick="closeHelpModal(event)">&times;</span>
         <div id="helpText" class="help-text"></div>
         <p class="text-sm" style="margin-top: 14px; color: var(--color-text-muted);">
-            New here? Read the <a href="{{ url_for('public_bp.thehub') }}">full guide</a> for a walkthrough,
+            New here? <a href="#" onclick="closeHelpModal(); if (window.HubTour) HubTour.start('example'); return false;">Take the guided tour</a>,
+            read the <a href="{{ url_for('public_bp.thehub') }}">full guide</a> for a walkthrough,
             or <a href="#" onclick="closeHelpModal(); restoreGettingStarted(); return false;">show the Getting started panel</a> again on the Home tab.
         </p>
     </div>
@@ -231,7 +235,15 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='main.js') }}?v=19"></script>
+<script>
+    // Guided-tour bootstrap flags (hub_tour.js reads these on DOMContentLoaded).
+    // Server-rendered so the tour doesn't race the async settings load.
+    window.HUB_TOUR_FLAGS = {
+        pending: {{ (user.settings.get('hub_tour_pending', false) and not user.settings.get('hub_tour_done', false)) | tojson }},
+        realDataPending: {{ user.settings.get('hub_tour_real_data_pending', false) | tojson }}
+    };
+</script>
+<script src="{{ url_for('static', filename='main.js') }}?v=20"></script>
 <script src="{{ url_for('static', filename='js/variable_prefs.js') }}"></script>
 <script src="{{ url_for('static', filename='study_state.js') }}?v=4"></script>
 <script src="{{ url_for('static', filename='filter_value_search.js') }}?v=1"></script>
@@ -251,8 +263,12 @@
 {% endif %}
 {% if user.can_access('tab.my_stuff.my_collections') or user.can_access('tab.data_management.edit_collections') %}
 {# Shared personality renderer: the My Collections page and the Edit Collections modal #}
-<script src="{{ url_for('static', filename='js/my_collections.js') }}?v=12"></script>
+<script src="{{ url_for('static', filename='js/my_collections.js') }}?v=13"></script>
 {% endif %}
+{# Guided tour for new participants (auto-starts via HUB_TOUR_FLAGS / #tour).
+   Ungated: it walks the analysis tabs and feature-detects what this user can
+   actually see, so any role may take it. #}
+<script src="{{ url_for('static', filename='js/hub_tour.js') }}?v=2"></script>
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
 <script src="{{ url_for('static', filename='js/data_management.js') }}?v=23"></script>
 {% endif %}

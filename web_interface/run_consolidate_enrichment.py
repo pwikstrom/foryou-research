@@ -359,6 +359,20 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     )
     reporter.log("Consolidation finished.")
 
+    # Recruitment funnel: consolidation is the moment new annotations become
+    # visible in enrichment_status.parquet, so check whether any participant's
+    # prioritised first batch just completed (emails the owner + arms the
+    # real-data tour re-offer). Never blocks the run.
+    if had_new_data:
+        try:
+            from web_interface.services.participant_enrichment import check_first_batch_completions
+
+            done = check_first_batch_completions()
+            if done:
+                reporter.log(f"Participant first batches completed: {', '.join(done)}")
+        except Exception as exc:
+            reporter.log(f"First-batch completion check failed (consolidation unaffected): {exc}")
+
     # ---- Pipeline dispatch: chain into stale downstream refreshes ----
     # Always write a last_pipeline_summary so the UI has a definitive
     # statement of the outcome (persists alongside "Last consolidation

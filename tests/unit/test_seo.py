@@ -24,6 +24,9 @@ NON_PAGE_ENDPOINTS = {
     "public_bp.guide",
     "public_bp.our_team",
     "public_bp.be_a_citizen_scientist",
+    # Post-login hash-redirect helpers for the participation wizard, not pages.
+    "public_bp.participate_go_upload",
+    "public_bp.participate_go_tour",
 }
 
 CANONICAL = "https://example.org"

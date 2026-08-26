@@ -391,82 +391,15 @@
             </div>
 
             <!-- Per-platform "how do I get my data" guide. One modal, one
-                 content block per platform; the video iframe is lazy-loaded
+                 content block per platform (shared with the public wizard via
+                 partials/_platform_howto.html); the video iframe is lazy-loaded
                  on open (data-src) and unloaded on close to stop playback. -->
             <div id="myc-howto-modal" class="modal" onclick="mycCloseHowtoModal(event)">
                 <div class="modal-content myc-howto" onclick="event.stopPropagation()">
                     <span class="close-button" onclick="mycCloseHowtoModal()">&times;</span>
-
-                    <div id="myc-howto-tiktok" class="myc-howto-body" style="display: none;">
-                        <h3>How to get your personal data from TikTok</h3>
-                        <p>Getting your data is super easy! Request it from TikTok, wait until it's ready
-                           to download (usually a few seconds, sometimes a few hours), download the file,
-                           and upload it here. You can do this in the TikTok app or in a browser at
-                           <a href="https://www.tiktok.com" target="_blank" rel="noopener">tiktok.com</a>.</p>
-                        <ol class="myc-steps">
-                            <li>In the TikTok app, tap <strong>Profile</strong>, open the menu (&#9776;) and choose
-                                <strong>Settings and privacy</strong> &mdash; or on
-                                <a href="https://www.tiktok.com" target="_blank" rel="noopener">tiktok.com</a>,
-                                click your profile picture and choose <strong>Settings</strong>.</li>
-                            <li>Go to <strong>Account &rarr; Download your data</strong> (on the website, look
-                                under <strong>Privacy</strong>).</li>
-                            <li>Select <strong>All data</strong> (or at least your <strong>Activity</strong>) and
-                                choose <strong>JSON</strong> as the file format, then tap <strong>Request data</strong>.</li>
-                            <li>When your file appears under the <strong>Download data</strong> tab, download the
-                                <strong>.zip</strong>.</li>
-                            <li>Unzip it and upload the <strong>user_data_tiktok.json</strong> inside. You review
-                                everything before it is shared.</li>
-                        </ol>
-                        <div class="myc-howto-actions">
-                            <button class="btn-primary btn-compact" onclick="mycHowtoContinue('tiktok')">Continue</button>
-                        </div>
-                    </div>
-
-                    <div id="myc-howto-instagram" class="myc-howto-body" style="display: none;">
-                        <h3>How to get your personal data from Instagram</h3>
-                        <p>Instagram data is requested through Meta's Accounts Centre. It usually takes
-                           from a few minutes up to a day before your file is ready.</p>
-                        <ol class="myc-steps">
-                            <li>In the Instagram app, open your profile, tap the menu (&#9776;), then
-                                <strong>Your activity &rarr; Download your information</strong> &mdash; or go to
-                                <a href="https://accountscenter.instagram.com/info_and_permissions/" target="_blank" rel="noopener">Accounts Centre &rarr; Your information and permissions</a>
-                                in a browser.</li>
-                            <li>Choose <strong>Download or transfer information</strong> and select your Instagram account.</li>
-                            <li>Pick <strong>All available information</strong> (simplest), or "Some of your information"
-                                with at least <strong>Likes</strong>, <strong>Story interactions</strong> and
-                                <strong>Ads information</strong> selected.</li>
-                            <li>Choose <strong>Download to device</strong>, set Date range to <strong>All time</strong>
-                                and Format to <strong>JSON</strong>, then create the file.</li>
-                            <li>Instagram notifies you when the <strong>.zip</strong> is ready. Download it and upload it
-                                here as-is &mdash; no need to unzip. Only the activity files are read, and you review
-                                everything before it is shared.</li>
-                        </ol>
-                        <div class="myc-howto-actions">
-                            <button class="btn-primary btn-compact" onclick="mycHowtoContinue('instagram')">Continue</button>
-                        </div>
-                    </div>
-
-                    <div id="myc-howto-youtube" class="myc-howto-body" style="display: none;">
-                        <h3>How to get your personal data from YouTube</h3>
-                        <p>YouTube data comes through Google Takeout. The export usually arrives within
-                           minutes, occasionally hours.</p>
-                        <ol class="myc-steps">
-                            <li>Go to <a href="https://takeout.google.com" target="_blank" rel="noopener">takeout.google.com</a>
-                                and sign in with the Google account you use for YouTube.</li>
-                            <li>Click <strong>Deselect all</strong>, then tick only <strong>YouTube and YouTube Music</strong>.</li>
-                            <li>Click <strong>All YouTube data included</strong> and keep at least
-                                <strong>history</strong>, <strong>comments</strong> and <strong>playlists</strong>.</li>
-                            <li>Click <strong>Multiple formats</strong> and set History to <strong>JSON</strong>.</li>
-                            <li>Continue with <strong>Export once</strong> and create the export. Google emails you a
-                                download link when it is ready.</li>
-                            <li>Download the <strong>.zip</strong> and upload it here as-is &mdash; no need to unzip.
-                                Only your watch history and activity files are read, and you review everything
-                                before it is shared.</li>
-                        </ol>
-                        <div class="myc-howto-actions">
-                            <button class="btn-primary btn-compact" onclick="mycHowtoContinue('youtube')">Continue</button>
-                        </div>
-                    </div>
+                    {% with mode='modal', id_prefix='myc' %}
+                        {% include 'partials/_platform_howto.html' %}
+                    {% endwith %}
                 </div>
             </div>
 

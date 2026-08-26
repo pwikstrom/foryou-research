@@ -380,6 +380,24 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     except Exception as exc:
         reporter.log(f"Participant-account linking failed (ingest unaffected): {exc}")
 
+    # Recruitment funnel: queue a small prioritised scrape/annotation batch
+    # for each collection ingested this run that is owned by a user account,
+    # so a new participant sees annotated data soon (and gets an email when
+    # the batch completes — see services/participant_enrichment). Never
+    # blocks the refresh.
+    try:
+        from web_interface.services.participant_enrichment import enqueue_first_batches
+
+        ingested_cids = sorted({
+            str(e["canonical_collection_id"]) for e in per_file_summary
+            if e.get("canonical_collection_id")
+            and e.get("outcome") in ("added_as_new", "merged_with_existing")
+        })
+        if ingested_cids:
+            enqueue_first_batches(ingested_cids, log=reporter.log)
+    except Exception as exc:
+        reporter.log(f"First-batch queueing failed (ingest unaffected): {exc}")
+
     # Build the list of ledger entries that were SKIPPED this run (i.e. files
     # the ledger remembers from prior runs but didn't reload). Useful for the
     # UI's "previously skipped" section.

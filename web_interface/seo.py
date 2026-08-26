@@ -57,6 +57,14 @@ PUBLIC_PAGES = {
             "the algorithm works."
         ),
     },
+    "public_bp.participate_start": {
+        "title": "Share Your For You Feed in Three Steps",
+        "description": (
+            "Request your data from TikTok, Instagram or YouTube, get to know the "
+            "For You Data Hub while you wait, then review and share your feed with "
+            "the research team."
+        ),
+    },
     "public_bp.thehub": {
         "title": "The For You Data Hub: A Short-Video Research Workbench",
         "description": (
@@ -87,6 +95,13 @@ PUBLIC_PAGES = {
             "Answers on accounts, supported platforms, participant privacy, AI "
             "annotation reliability, running your own instance of the open-source "
             "Hub, and how to cite it."
+        ),
+    },
+    "public_bp.terms": {
+        "title": "For You Data Hub: Terms of Use",
+        "description": (
+            "The account terms for the For You Data Hub: what an account needs, how "
+            "account and profile data are handled, and acceptable use."
         ),
     },
 }

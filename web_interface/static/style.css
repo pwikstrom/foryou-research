@@ -5173,11 +5173,9 @@ body:has(.public-page) {
 /* ----- Landing: hero image + login card above the main title ----- */
 
 .landing-login-hero {
-    display: grid;
-    grid-template-columns: 1.7fr 1fr;
-    align-items: center;
-    gap: 36px;
     padding-top: 24px;
+    max-width: 860px;
+    margin: 0 auto;
 }
 
 .landing-login-hero__media {
@@ -5190,29 +5188,9 @@ body:has(.public-page) {
     height: auto;
 }
 
-.landing-login-hero__card {
-    background: var(--color-bg-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
-    box-shadow: var(--shadow-md);
-}
-
-.landing-login-hero__card.auth-form-container {
-    border-bottom: 1px solid var(--color-border);
-    padding: 26px 24px;
-}
-
 @media (max-width: 860px) {
     .landing-login-hero {
-        grid-template-columns: 1fr;
-        gap: 24px;
         padding-top: 10px;
-    }
-
-    .landing-login-hero__card {
-        max-width: 420px;
-        width: 100%;
-        margin: 0 auto;
     }
 }
 
@@ -6767,3 +6745,281 @@ body:has(.public-page) {
     color: var(--color-accent);
     border-color: var(--color-accent);
 }
+
+/* ============================================================
+   Participation wizard (/participate/start)
+   ============================================================ */
+
+.wizard-hero { padding-bottom: 8px; }
+
+.wizard-eyebrow {
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    margin-bottom: 6px;
+}
+
+.wizard-body { max-width: 820px; margin: 0 auto; }
+
+.wizard-stages {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin: 0 0 30px;
+}
+
+.wizard-stage-pill {
+    position: relative;
+    overflow: hidden;
+    text-align: left;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: var(--color-bg-surface);
+    padding: 12px 14px 11px;
+    cursor: pointer;
+    font-family: var(--font-sans);
+}
+
+.wizard-stage-pill::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 3px;
+    background: var(--color-border);
+}
+
+.wizard-stage-pill:hover { border-color: var(--color-accent); }
+.wizard-stage-pill.active { border-color: var(--color-accent); }
+.wizard-stage-pill.active::before { background: var(--color-accent); }
+
+.wizard-stage-n {
+    display: block;
+    font-size: 11px;
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
+
+.wizard-stage-pill.active .wizard-stage-n { color: var(--color-accent); }
+
+.wizard-stage-t {
+    display: block;
+    font-weight: var(--weight-semibold);
+    font-size: var(--text-sm);
+    margin-top: 2px;
+    color: var(--color-text-primary);
+}
+
+.wizard-pane { display: none; }
+.wizard-pane.show { display: block; }
+
+.wizard-sub { color: var(--color-text-muted); max-width: 62ch; margin-bottom: 22px; }
+
+.wizard-platform-tabs { display: flex; gap: 8px; }
+
+.wizard-platform-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid var(--color-border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    background: var(--color-bg-primary);
+    padding: 9px 18px;
+    font-family: var(--font-sans);
+    font-weight: var(--weight-semibold);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    cursor: pointer;
+}
+
+.wizard-platform-tab.active {
+    background: var(--color-bg-surface);
+    color: var(--color-text-primary);
+    position: relative;
+}
+
+.wizard-platform-tab.active::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: -1px;
+    height: 1px;
+    background: var(--color-bg-surface);
+}
+
+.wizard-pdot { width: 8px; height: 8px; border-radius: 50%; }
+.wizard-pdot--tiktok { background: #ec4899; }
+.wizard-pdot--instagram { background: #8b5cf6; }
+.wizard-pdot--youtube { background: #dc2626; }
+
+.wizard-howto {
+    border: 1px solid var(--color-border);
+    border-radius: 0 10px 10px 10px;
+    background: var(--color-bg-surface);
+    padding: 20px 24px;
+}
+
+.wizard-howto .myc-howto-body h3 { margin-top: 0; }
+
+.wizard-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 26px;
+}
+
+.wizard-hint { font-size: var(--text-sm); color: var(--color-text-muted); }
+
+.wizard-cta-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 4px 0 10px; }
+.wizard-or { font-size: var(--text-sm); color: var(--color-text-muted); }
+
+.wizard-step-row {
+    display: flex;
+    gap: 26px;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.wizard-step-row .wizard-sub { flex: 1 1 320px; margin-bottom: 12px; }
+
+.wizard-hero-mini {
+    margin: 4px 0 0;
+    flex: 0 1 340px;
+}
+
+.wizard-hero-mini img {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.wizard-h3 {
+    font-size: var(--text-body);
+    font-weight: var(--weight-semibold);
+    margin: 26px 0 10px;
+}
+
+.wizard-timeline { display: grid; }
+
+.wizard-tl { display: grid; grid-template-columns: 22px 1fr; gap: 12px; }
+.wizard-tl-rail { display: flex; flex-direction: column; align-items: center; }
+.wizard-tl-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--color-accent);
+    flex: none;
+    margin-top: 5px;
+}
+.wizard-tl-bar { width: 2px; flex: 1; background: var(--color-border); }
+.wizard-tl-body { padding-bottom: 16px; }
+.wizard-tl-body span {
+    display: block;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    max-width: 58ch;
+}
+
+@media (max-width: 640px) {
+    .wizard-stages { grid-template-columns: 1fr; }
+    .wizard-step-row { flex-direction: column; }
+    .wizard-hero-mini { flex-basis: auto; }
+}
+
+/* ============================================================
+   Guided tour (hub_tour.js)
+   ============================================================ */
+
+.hub-tour-backdrop {
+    position: fixed;
+    inset: 0;
+    background: var(--color-bg-overlay);
+    z-index: 1200;
+}
+
+.hub-tour-ring {
+    position: fixed;
+    z-index: 1201;
+    border: 2px solid var(--color-accent);
+    border-radius: 8px;
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-accent) 25%, transparent);
+    pointer-events: none;
+    display: none;
+}
+
+.hub-tour-card {
+    position: fixed;
+    z-index: 1202;
+    width: 360px;
+    max-width: calc(100vw - 28px);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+    padding: 16px 18px 14px;
+}
+
+.hub-tour-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 2px;
+}
+
+.hub-tour-step-n {
+    font-size: 11px;
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+}
+
+.hub-tour-nav-btns { display: inline-flex; gap: 4px; }
+
+.hub-tour-nav-btn {
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-bg-surface);
+    color: var(--color-text-primary);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.hub-tour-nav-btn:hover:not(:disabled) {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+
+.hub-tour-nav-btn:disabled { opacity: 0.4; cursor: default; }
+.hub-tour-close { color: var(--color-text-muted); }
+
+.hub-tour-card h4 {
+    margin: 3px 0 5px;
+    font-size: var(--text-h3);
+}
+
+.hub-tour-card > p {
+    margin: 0 0 12px;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+}
+
+.hub-tour-sketch {
+    margin: 2px 0 6px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: var(--color-bg-surface);
+}
+
+.hub-tour-sketch svg { display: block; width: 100%; height: auto; }

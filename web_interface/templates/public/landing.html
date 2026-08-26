@@ -2,45 +2,14 @@
 
 {% block public_content %}
 
-<!-- Hero image + login card, above the main title (anonymous visitors only) -->
+<!-- Hero image above the main title (anonymous visitors only). Logging in
+     happens through the top-menu items, not an inline form. -->
 {% if not current_user.is_authenticated %}
 <section class="landing-login-hero">
     <figure class="landing-login-hero__media">
         <img src="{{ url_for('static', filename='landing/hero_collage.webp') }}"
             alt="The For You Data Hub: video analysis, timelines and semantic map views" loading="eager">
     </figure>
-
-    <div class="landing-login-hero__card auth-form-container">
-        <h3 class="text-h3 auth-card-title">Log in to the For You Data Hub</h3>
-
-        {% with messages = get_flashed_messages() %}
-        {% if messages %}
-        <div class="auth-flash-info">
-            {% for message in messages %}
-            <div>{{ message }}</div>
-            {% endfor %}
-        </div>
-        {% endif %}
-        {% endwith %}
-
-        <form method="POST" action="{{ url_for('auth_bp.login') }}" class="auth-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-            <div>
-                <label>Email address</label>
-                <input type="text" name="username" required>
-            </div>
-            <div>
-                <label>Password</label>
-                <input type="password" name="password" required>
-            </div>
-            <button type="submit" class="auth-submit-btn">
-                Sign In
-            </button>
-        </form>
-        <div class="text-sm auth-card-footer">
-            <a href="{{ url_for('auth_bp.signup') }}">Create an account</a>
-        </div>
-    </div>
 </section>
 {% endif %}
 

@@ -57,6 +57,30 @@
     </div>
 </section>
 
+<!-- Demo collection (guided tour) -->
+<section style="margin-bottom: 28px;">
+    <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Demo collection</h3>
+    <p class="text-xs" style="margin: 0 0 12px 0; color: var(--color-text-muted);">
+        The collection the guided tour uses to show new participants around the
+        analysis tabs (its trajectory on the Semantic Space, an Explore
+        comparison, its Timelines, a Sessions binge). It must be one of the
+        default study's collections. With none set, the tour skips those steps.
+    </p>
+
+    <div style="display: flex; align-items: center; gap: 8px;">
+        <label for="setting-demo-collection" class="text-sm" style="color: var(--color-text-primary); min-width: 220px;">
+            Demo collection
+        </label>
+        <select id="setting-demo-collection"
+            onchange="saveDemoCollectionSetting(this)" disabled
+            style="padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary); min-width: 220px;">
+            <!-- Populated dynamically -->
+        </select>
+        <span id="setting-demo-collection-status" class="text-xs"
+            style="color: var(--color-text-muted); margin-left: 4px;"></span>
+    </div>
+</section>
+
 <!-- Cost guardrails -->
 <section style="margin-bottom: 28px;">
     <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Cost guardrails</h3>

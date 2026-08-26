@@ -16,7 +16,11 @@
         {% endif %}
         {% endwith %}
 
-        <form method="POST" action="/login" class="auth-form">
+        {# The form's action keeps ?next= so a wizard-originated login still
+           lands where it intended after the POST. #}
+        <form method="POST"
+              action="{{ url_for('auth_bp.login', next=request.args.get('next')) if request.args.get('next') else url_for('auth_bp.login') }}"
+              class="auth-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
             <div>
                 <label>Email address</label>
@@ -27,11 +31,11 @@
                 <input type="password" name="password" required>
             </div>
             <button type="submit" class="auth-submit-btn">
-                Sign In
+                Log in
             </button>
         </form>
         <div class="text-sm auth-card-footer">
-            <a href="{{ url_for('auth_bp.signup') }}">Create an account</a>
+            <a href="{{ url_for('auth_bp.signup', next=request.args.get('next')) if request.args.get('next') else url_for('auth_bp.signup') }}">Create an account</a>
         </div>
     </div>
 

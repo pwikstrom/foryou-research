@@ -352,3 +352,50 @@ def send_batch_annotation_email_async(to_email, kind, **details) -> None:
         target=send_batch_annotation_email, args=(to_email, kind), kwargs=details
     )
     thread.start()
+
+
+def send_first_batch_ready_email(to_email, collection_id, n_items) -> bool:
+    """Tell a participant their first annotated batch is ready to explore.
+
+    Sent once per collection, when the first prioritised scrape/annotation
+    batch queued at ingest (see ``services/participant_enrichment``) has been
+    annotated. Deliberately makes no promises about when the rest of the
+    collection will be done — batches run when the research team runs them.
+
+    Returns:
+        True when actually sent; False on no-op or failure. Never raises.
+    """
+    if not is_email(to_email):
+        return False
+    app_url = str(_site().get("app_url", "") or "").strip()
+    link = f'{app_url}/participate/go-upload' if app_url else ""
+    open_line = (
+        f'<p><a href="{link}">Open your My Collections page</a> to explore it.</p>'
+        if link else f"<p>Log in to {_app_link()} and open My stuff &rarr; My Collections to explore it.</p>"
+    )
+    body = f"""
+    <html>
+      <body>
+        <h2>Your first annotated videos are ready</h2>
+        <p>Good news: the first batch of videos from your collection
+        <b>{collection_id}</b> has been analysed. <b>{n_items}</b> of the videos
+        you watched now carry content annotations.</p>
+        {open_line}
+        <p>When you log in we'll offer you a short tour of what the annotated
+        data unlocks, this time built from your own feed. The rest of your
+        collection is annotated in further batches over time; the
+        &ldquo;Scraped&nbsp;/&nbsp;annotated&rdquo; column on My Collections
+        always shows how far along it is.</p>
+        <p>Thank you again for taking part in the For You Research Project.</p>
+      </body>
+    </html>
+    """
+    return _send_html_email(to_email, "Your first annotated videos are ready", body)
+
+
+def send_first_batch_ready_email_async(to_email, collection_id, n_items) -> None:
+    """Send the first-batch-ready participant notification in a background thread."""
+    thread = threading.Thread(
+        target=send_first_batch_ready_email, args=(to_email, collection_id, n_items)
+    )
+    thread.start()

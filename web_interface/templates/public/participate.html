@@ -9,8 +9,8 @@
         feed, and you'll help researchers figure out how platform algorithms really work.
     </p>
     <div class="landing-hero-ctas">
-        <a href="https://www.foryouparticipate.net/tiktok/index.html" target="_blank" rel="noopener"
-            class="btn-primary public-cta">Show me how →</a>
+        <a href="{{ url_for('public_bp.participate_start') }}"
+            class="btn-primary public-cta">I want to participate →</a>
     </div>
 </section>
 
@@ -86,11 +86,12 @@
 
 <section class="landing-section landing-cta-band landing-cta-band--participate reveal">
     <div class="landing-hero-ctas">
-        <a href="https://www.foryouparticipate.net/tiktok/index.html" target="_blank" rel="noopener"
-            class="btn-primary public-cta">I'm ready to share my data →</a>
+        <a href="{{ url_for('public_bp.participate_start') }}"
+            class="btn-primary public-cta">I want to participate →</a>
     </div>
     <p class="text-sm participate-cta-note">
-        You'll continue on our secure participation site, foryouparticipate.net, run by QUT.
+        A three-step guide walks you through requesting, reviewing and sharing your data
+        &mdash; you stay in control at every step.
         Curious how it works as research?
         <a href="{{ url_for('public_bp.data_donation') }}">Read about data donation</a>.
     </p>

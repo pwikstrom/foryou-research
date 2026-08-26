@@ -417,7 +417,7 @@ def empty_profile() -> dict:
 # --- User Class ---
 
 class User(UserMixin):
-    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None, created_at=None, approval_notification=None, profile=None, account_kind=None, placeholder=False, origin=None):
+    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None, created_at=None, approval_notification=None, profile=None, account_kind=None, placeholder=False, origin=None, terms_accepted_at=None):
         self.id = username
         self.username = username
         self.role = role
@@ -446,6 +446,10 @@ class User(UserMixin):
         #  "collection_id": <first linked collection>} — how the account came
         # to exist. None for accounts that predate the field.
         self.origin = origin
+        # ISO timestamp of the signup form's terms-of-use acceptance. None for
+        # accounts that predate the checkbox or were created by an admin/ingest.
+        # Compliance data, so a top-level field rather than a settings entry.
+        self.terms_accepted_at = terms_accepted_at
 
     def is_admin(self):
         return self.role == ROLE_ADMIN and self.approved
@@ -482,6 +486,7 @@ class User(UserMixin):
             "account_kind": self.account_kind,
             "placeholder": self.placeholder,
             "origin": self.origin,
+            "terms_accepted_at": self.terms_accepted_at,
         }
 
 def _user_from_record(user_data: dict) -> "User":
@@ -501,6 +506,7 @@ def _user_from_record(user_data: dict) -> "User":
         account_kind=user_data.get("account_kind"),
         placeholder=user_data.get("placeholder", False),
         origin=user_data.get("origin"),
+        terms_accepted_at=user_data.get("terms_accepted_at"),
     )
 
 
@@ -836,7 +842,8 @@ class UserManager:
         return None
 
     def add_user(self, username, password, role, approved=False, display_username=None,
-                 account_kind=None, profile=None, origin=None, placeholder=False):
+                 account_kind=None, profile=None, origin=None, placeholder=False,
+                 terms_accepted_at=None):
         """Create a user. ``password=None`` creates an account that cannot log
         in until an admin sets a password (participant accounts)."""
         if not role_manager.role_exists(role):
@@ -855,7 +862,7 @@ class UserManager:
                 logger.warning(f"Dropped invalid profile data while creating {username}: {dropped}")
         new_user = User(username, role, password_hash, approved=approved, display_username=display_username,
                         created_at=created_at, profile=profile, account_kind=account_kind,
-                        placeholder=placeholder, origin=origin)
+                        placeholder=placeholder, origin=origin, terms_accepted_at=terms_accepted_at)
         # Default Settings for New Users (annotation sharing is opt-in)
         new_user.settings = {
             "share_annotations": False,
@@ -866,7 +873,8 @@ class UserManager:
         self.save_user(username)
         return True, "User created"
 
-    def claim_participant_account(self, username, password, display_username=None, approved=True):
+    def claim_participant_account(self, username, password, display_username=None, approved=True,
+                                  terms_accepted_at=None):
         """Give a passwordless participant account a password (and display name).
 
         Only accounts that cannot log in yet are claimable; a placeholder
@@ -886,6 +894,8 @@ class UserManager:
             user.display_username = cleaned
         user.password_hash = hash_password(password)
         user.approved = approved
+        if terms_accepted_at is not None:
+            user.terms_accepted_at = terms_accepted_at
         self.save_user(username)
         return True, "Account claimed"
 

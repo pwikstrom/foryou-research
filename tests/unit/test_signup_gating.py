@@ -79,6 +79,7 @@ def test_signup_approves_only_when_gating_is_off(
             "display_username": "someone",
             "password": "correct horse battery staple",
             "confirm_password": "correct horse battery staple",
+            "accept_terms": "on",
         },
         follow_redirects=False,
     )

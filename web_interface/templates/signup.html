@@ -17,9 +17,11 @@
 
         <form method="POST" action="{{ url_for('auth_bp.signup') }}" class="auth-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            {% if next_target %}<input type="hidden" name="next" value="{{ next_target }}" />{% endif %}
             <div>
                 <label for="username">Email</label>
                 <input type="text" id="username" name="username" required>
+                <div id="email-check-note" class="text-xs" style="margin-top: 4px; display: none;"></div>
             </div>
 
             <div>
@@ -41,14 +43,69 @@
                 <input type="password" id="confirm_password" name="confirm_password" required>
             </div>
 
+            <label class="text-sm" style="display: flex; gap: 8px; align-items: flex-start; cursor: pointer;">
+                <input type="checkbox" name="accept_terms" required style="margin-top: 3px;">
+                <span>I have read and accept the
+                    <a href="{{ url_for('public_bp.terms') }}" target="_blank" rel="noopener">terms of use</a>
+                    (opens in a new tab).</span>
+            </label>
+
             <button type="submit" class="auth-submit-btn">
                 Create Account
             </button>
         </form>
 
         <div class="text-sm auth-card-footer" style="color: var(--color-text-muted);">
-            Already have an account? <a href="{{ url_for('auth_bp.login') }}">Log in</a>
+            Already have an account?
+            <a href="{{ url_for('auth_bp.login', next=next_target) if next_target else url_for('auth_bp.login') }}">Log in</a>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block public_scripts %}
+<script>
+    // Catch a duplicate email on blur, before the visitor fills in the rest
+    // of the form and loses it to a failed submit.
+    (function () {
+        const emailEl = document.getElementById('username');
+        const noteEl = document.getElementById('email-check-note');
+        const submitEl = document.querySelector('.auth-submit-btn');
+        let lastChecked = '';
+
+        function setNote(text, tone) {
+            noteEl.style.display = text ? '' : 'none';
+            noteEl.textContent = text;
+            noteEl.style.color = tone === 'error'
+                ? 'var(--color-danger, #c0392b)' : 'var(--color-text-muted)';
+        }
+
+        function check() {
+            const email = emailEl.value.trim();
+            if (!email || email === lastChecked) return;
+            lastChecked = email;
+            fetch('/api/signup/email-check?email=' + encodeURIComponent(email))
+                .then((r) => r.json())
+                .then((d) => {
+                    if (emailEl.value.trim() !== email) return;  // field changed meanwhile
+                    if (d.status === 'taken') {
+                        setNote('An account with this email already exists. Log in instead (link below).', 'error');
+                        submitEl.disabled = true;
+                    } else if (d.status === 'claimable') {
+                        setNote('Good news: we already hold data linked to this email. Signing up claims that account and keeps your collections.');
+                        submitEl.disabled = false;
+                    } else {
+                        setNote('');
+                        submitEl.disabled = false;
+                    }
+                })
+                .catch(() => { setNote(''); submitEl.disabled = false; });
+        }
+
+        emailEl.addEventListener('blur', check);
+        emailEl.addEventListener('input', () => {
+            if (submitEl.disabled) { setNote(''); submitEl.disabled = false; lastChecked = ''; }
+        });
+    })();
+</script>
 {% endblock %}

@@ -97,13 +97,69 @@ def test_public_pages_drop_repo_links_when_repo_url_is_empty(client):
         site["repo_url"] = original
 
 
+def test_logout_lands_on_the_home_page(app, client, monkeypatch):
+    """Logging out ends on '/', which renders the public landing for the
+    now-anonymous visitor, not on the login form."""
+    user = User("logout-test", "admin", password_hash="x", approved=True)
+    monkeypatch.setattr(fl_utils, "_get_user", lambda: user)
+    resp = client.get("/logout")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].rstrip("/") in ("", "http://localhost")
+
+
+def test_landing_has_no_inline_login_form(client):
+    """The landing hero stands alone; logging in happens via the top menu."""
+    body = client.get("/").get_data(as_text=True)
+    assert "landing-login-hero__card" not in body
+    assert 'action="/login"' not in body
+
+
 def test_old_guide_url_redirects_to_thehub(client):
     resp = client.get("/guide")
     assert resp.status_code == 301
     assert resp.headers["Location"].endswith("/thehub")
 
 
-def test_participate_links_the_donation_flow(client):
-    """The participate page must hand TikTok users on to the donation site."""
+def test_participate_links_the_wizard(client):
+    """Both participate CTAs must lead into the on-site participation wizard."""
     body = client.get("/participate").get_data(as_text=True)
-    assert "https://www.foryouparticipate.net/tiktok/index.html" in body
+    assert "/participate/start" in body
+    # The external QUT donation site is no longer the entry point.
+    assert "foryouparticipate.net" not in body
+
+
+def test_participate_start_renders_all_stages_and_platforms(client):
+    resp = client.get("/participate/start")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    for label in ("Request your data", "Waiting for your data", "I have my data"):
+        assert label in body
+    # The shared how-to partial in inline mode: one body per platform.
+    for platform in ("tiktok", "instagram", "youtube"):
+        assert f'id="wiz-howto-{platform}"' in body
+    # Anonymous visitors get the signup/login CTAs, threaded through ?next=.
+    assert "/signup?next=" in body
+    assert "/login?next=" in body
+
+
+def test_participate_start_in_sitemap(client):
+    body = client.get("/sitemap.xml").get_data(as_text=True)
+    assert "/participate/start" in body
+
+
+def test_go_upload_redirects_to_my_collections_hash(client):
+    resp = client.get("/participate/go-upload")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/#my_stuff/my-collections/upload")
+
+
+def test_go_tour_redirects_to_tour_hash(client):
+    resp = client.get("/participate/go-tour")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/#tour")
+
+
+def test_terms_page_renders(client):
+    resp = client.get("/terms")
+    assert resp.status_code == 200
+    assert "Terms of use" in resp.get_data(as_text=True)

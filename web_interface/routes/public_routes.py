@@ -26,6 +26,37 @@ def participate():
     return render_template('public/participate.html', active_page='participate')
 
 
+@public_bp.route('/participate/start')
+def participate_start():
+    """Three-stage participation wizard: request data, wait, upload.
+
+    Stage selection is entirely client-side (``?stage=`` plus localStorage)
+    so the route stays static, cacheable and deep-linkable.
+    """
+    return render_template('public/participate_start.html', active_page='participate')
+
+
+@public_bp.route('/participate/go-upload')
+def participate_go_upload():
+    """Land a logged-in participant on My Collections with the upload open.
+
+    Used as the ``?next=`` target of the wizard's stage-3 login link: URL
+    fragments don't survive a form-posted login, so login redirects here and
+    this route 302s to the app shell's hash contract (see index.html).
+    """
+    return redirect('/#my_stuff/my-collections/upload')
+
+
+@public_bp.route('/participate/go-tour')
+def participate_go_tour():
+    """Start the in-app guided tour: redirect to the app shell's #tour hash.
+
+    Same fragment-preserving trick as ``participate_go_upload`` — used as the
+    stage-2 login/signup ``?next=`` target.
+    """
+    return redirect('/#tour')
+
+
 @public_bp.route('/data-donation')
 def data_donation():
     """Explainer: what data donation is, why donated feeds, what they can tell us."""
@@ -54,6 +85,16 @@ def our_team():
 def be_a_citizen_scientist():
     """Old Wix-site path; foryouresearch.net now serves the hub directly."""
     return redirect(url_for('public_bp.participate'), code=301)
+
+
+@public_bp.route('/terms')
+def terms():
+    """Terms of use for a Hub account — linked from the signup checkbox.
+
+    Account terms only; the research-participation consent statement stays in
+    the donation upload flow, where sharing actually happens.
+    """
+    return render_template('public/terms.html', active_page=None)
 
 
 @public_bp.route('/faq')

@@ -242,9 +242,12 @@ def _register_web_ui(app):
         # The site-wide default study (Admin -> Site Settings), or "" when the
         # operator has not picked one. study_state.js opens on it for users
         # who have not chosen a study themselves.
-        from .admin_settings import get_default_study
+        from .admin_settings import get_default_study, get_demo_collection
         default_study = get_default_study()
-        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, media_on_gcs=media_on_gcs, platform_url_templates=platform_url_templates(), pipeline_steps=pipeline_steps, default_study=default_study)
+        # The admin-chosen collection the guided tour demonstrates with (part
+        # of the default study; "" when unset, and the tour skips those steps).
+        demo_collection = get_demo_collection()
+        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, media_on_gcs=media_on_gcs, platform_url_templates=platform_url_templates(), pipeline_steps=pipeline_steps, default_study=default_study, demo_collection=demo_collection)
 
 
 def create_app():

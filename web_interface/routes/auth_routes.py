@@ -37,6 +37,17 @@ auth_bp = Blueprint('auth_bp', __name__)
 from ..slack_service import get_recent_messages
 
 
+def _safe_next(target: str | None) -> str | None:
+    """Restrict a ``?next=`` redirect target to same-site relative paths.
+
+    An absolute URL (or a scheme-relative ``//host`` one) in ``next`` would let
+    a crafted login link bounce a fresh session to an attacker's site.
+    """
+    if target and target.startswith('/') and not target.startswith('//'):
+        return target
+    return None
+
+
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -58,7 +69,7 @@ def login():
                     login_user(user_obj)
                     user_manager.update_last_login(user_obj.username)
                     session['login_time'] = datetime.now(timezone.utc).isoformat()
-                    next_page = request.args.get('next')
+                    next_page = _safe_next(request.args.get('next'))
                     return redirect(next_page or url_for('index'))
             else:
                 flash('Invalid username or password')
@@ -78,26 +89,35 @@ def signup():
     if current_user.is_authenticated:
          return redirect(url_for('index'))
          
+    # Kept through the whole signup → login round trip so a funnel entry
+    # (e.g. the participation wizard's "?next=/participate/go-upload") still
+    # lands where it intended after the account exists.
+    next_target = _safe_next(request.form.get('next') or request.args.get('next'))
+
     if request.method == 'POST':
         username = request.form.get('username')
         display_username = request.form.get('display_username')
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
 
+        if not request.form.get('accept_terms'):
+            flash("Please accept the terms of use to create an account")
+            return render_template('signup.html', next_target=next_target)
+
         if password != confirm_password:
             flash("Passwords do not match")
-            return render_template('signup.html')
+            return render_template('signup.html', next_target=next_target)
 
         try:
             validate_email(username, check_deliverability=False)
         except EmailNotValidError as e:
             flash(f"Invalid email: {e!s}")
-            return render_template('signup.html')
+            return render_template('signup.html', next_target=next_target)
 
         cleaned_display, display_err = auth.validate_display_username(display_username)
         if display_err:
             flash(display_err)
-            return render_template('signup.html')
+            return render_template('signup.html', next_target=next_target)
 
         # Admin-controlled flag (UI-toggleable, persisted in admin_settings.json).
         require_approval = get_new_user_approval_required()
@@ -109,17 +129,25 @@ def signup():
         # Signing up with that email claims it — the profile and linked
         # collections stay, the person gains a login — instead of bouncing
         # on "User already exists".
+        terms_accepted_at = datetime.now(timezone.utc).isoformat()
+
         existing = user_manager.find_user_by_email(username)
         if existing is not None and not existing.can_login() and not existing.placeholder:
             success, msg = user_manager.claim_participant_account(
-                existing.username, password, cleaned_display, approved=is_approved)
+                existing.username, password, cleaned_display, approved=is_approved,
+                terms_accepted_at=terms_accepted_at)
             username = existing.username
         else:
             success, msg = user_manager.add_user(
                 username, password, get_default_new_user_role(), approved=is_approved,
                 display_username=cleaned_display,
-                origin={"source": "signup", "at": datetime.now(timezone.utc).isoformat()})
+                origin={"source": "signup", "at": datetime.now(timezone.utc).isoformat()},
+                terms_accepted_at=terms_accepted_at)
         if success:
+            if next_target and next_target.startswith('/participate'):
+                # Funnel-origin signup: queue the guided tour for the first
+                # visit to the app shell (index.html checks this setting).
+                user_manager.update_user_settings(username, {"hub_tour_pending": True})
             if is_approved:
                 flash("Account created! You can now login.")
             else:
@@ -127,11 +155,33 @@ def signup():
                 # Approval gating is on: email the oldest admin so they know a
                 # request is waiting, and stamp the pending user once it sends.
                 _notify_admin_of_pending_signup(username, cleaned_display)
-            return redirect(url_for('auth_bp.login'))
+            return redirect(url_for('auth_bp.login', next=next_target) if next_target
+                            else url_for('auth_bp.login'))
         else:
             flash(msg)
 
-    return render_template('signup.html')
+    return render_template('signup.html', next_target=next_target)
+
+
+@auth_bp.route('/api/signup/email-check')
+def api_signup_email_check():
+    """Tell the signup form whether an email can still register.
+
+    Called on blur of the email field so a duplicate is caught before the
+    visitor fills in the rest of the form. Three answers: ``available``
+    (no account), ``claimable`` (a passwordless participant account exists and
+    signing up will claim it, keeping its linked collections), ``taken``
+    (an account that can already log in).
+    """
+    email = (request.args.get('email') or '').strip()
+    if not email:
+        return jsonify({"status": "available"})
+    existing = user_manager.find_user_by_email(email)
+    if existing is None:
+        return jsonify({"status": "available"})
+    if not existing.can_login() and not existing.placeholder:
+        return jsonify({"status": "claimable"})
+    return jsonify({"status": "taken"})
 
 
 def _notify_admin_of_pending_signup(new_username: str, new_display: str | None) -> None:
@@ -162,7 +212,9 @@ def _notify_admin_of_pending_signup(new_username: str, new_display: str | None) 
 @login_required
 def logout():
     logout_user()
-    return redirect(url_for('auth_bp.login'))
+    # Land on the home page: for a now-anonymous visitor, index() renders the
+    # public landing page, which has the Log in item in its top menu.
+    return redirect(url_for('index'))
 
 @auth_bp.route('/api/admin/users', methods=['GET', 'POST', 'PUT', 'DELETE'])
 @permission_required('tab.admin.new_users', 'tab.admin.active_users')
@@ -556,6 +608,8 @@ def api_admin_settings():
         from ..permissions import user_has_permission
         if user_has_permission(current_user, 'tab.admin.general'):
             payload["study_names"] = admin_study_names()
+            from ..admin_settings import demo_collection_choices
+            payload["demo_collection_choices"] = demo_collection_choices()
         return jsonify(payload)
 
     # PUT — the backend selections belong to the Backends sub-page, every
@@ -749,6 +803,10 @@ USER_SETTINGS_KEYS = frozenset({
     "share_annotations",
     "video_autostart",
     "getting_started_dismissed",
+    "hub_tour_pending",
+    "hub_tour_done",
+    "hub_tour_real_data_pending",
+    "funnel_stage",
     "big_dots",
     "timelines_include_empty_dates",
     "timelines_include_pre_activity",

@@ -145,6 +145,27 @@
                 studySelect.disabled = false;
             }
 
+            // General → "Demo collection" dropdown (guided tour). Choices are
+            // the default study's collections; same "(missing)" fallback as
+            // the study picker. Disabled while no default study is set.
+            const demoSelect = document.getElementById('setting-demo-collection');
+            if (demoSelect && Array.isArray(data.demo_collection_choices)) {
+                const current = settings.demo_collection || '';
+                const ids = data.demo_collection_choices.slice();
+                if (current && !ids.includes(current)) ids.unshift(current);
+                const options = ['<option value="">None — tour skips the analysis steps</option>'];
+                ids.forEach(cid => {
+                    const missing = !data.demo_collection_choices.includes(cid);
+                    options.push(
+                        `<option value="${escapeHtml(cid)}" ${cid === current ? 'selected' : ''}>` +
+                        `${escapeHtml(cid)}${missing ? ' (missing)' : ''}</option>`
+                    );
+                });
+                demoSelect.innerHTML = options.join('');
+                demoSelect.value = current;
+                demoSelect.disabled = !(settings.default_study || '');
+            }
+
             // General → Cost guardrail caps + Sessions-tab list floors. The
             // server sends the EFFECTIVE floors (admin setting, else the
             // [sessions] config seed), so these fields always show what the
@@ -254,6 +275,42 @@
             }
         } catch (e) {
             console.error('saveDefaultStudySetting:', e);
+            select.value = previous; // revert
+            if (status) status.textContent = `Failed — reverted (${e.message})`;
+        } finally {
+            select.disabled = false;
+        }
+    }
+
+    async function saveDemoCollectionSetting(select) {
+        const status = document.getElementById('setting-demo-collection-status');
+        const desired = select.value || '';
+        const previous = (window._adminSettings || {}).demo_collection || '';
+
+        select.disabled = true;
+        if (status) status.textContent = 'Saving…';
+
+        try {
+            const response = await fetch('/api/admin/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ demo_collection: desired })
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'Save failed');
+            }
+            (window._adminSettings || (window._adminSettings = {})).demo_collection = desired;
+            if (status) {
+                status.textContent = desired
+                    ? `Saved — the tour demonstrates with '${desired}'`
+                    : 'Saved — tour skips the analysis steps';
+                setTimeout(() => {
+                    if (status.textContent.startsWith('Saved')) status.textContent = '';
+                }, 4000);
+            }
+        } catch (e) {
+            console.error('saveDemoCollectionSetting:', e);
             select.value = previous; // revert
             if (status) status.textContent = `Failed — reverted (${e.message})`;
         } finally {

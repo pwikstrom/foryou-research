@@ -1,0 +1,157 @@
+{% extends 'public/base_public.html' %}
+
+{% block public_content %}
+
+<section class="landing-hero wizard-hero">
+    <div class="wizard-eyebrow">Become a participant</div>
+    <h1 class="hero-title">Share your For You feed in three steps</h1>
+    <p class="hero-subtitle landing-hero-sub">
+        Getting your data from a platform takes a little while, so the process happens
+        in steps. Pick the step you're at, and this page remembers where you left off.
+    </p>
+</section>
+
+<section class="landing-section wizard-body">
+
+    <div class="wizard-stages" id="wizard-steps" role="tablist" aria-label="Participation steps">
+        <button class="wizard-stage-pill" data-step="1" role="tab">
+            <span class="wizard-stage-n">Step 1</span>
+            <span class="wizard-stage-t">Request your data</span>
+        </button>
+        <button class="wizard-stage-pill" data-step="2" role="tab">
+            <span class="wizard-stage-n">Step 2</span>
+            <span class="wizard-stage-t">Waiting for your data</span>
+        </button>
+        <button class="wizard-stage-pill" data-step="3" role="tab">
+            <span class="wizard-stage-n">Step 3</span>
+            <span class="wizard-stage-t">I have my data</span>
+        </button>
+    </div>
+
+    <!-- ============ Step 1: request your data ============ -->
+    <div class="wizard-pane" data-pane="1">
+        <h2 class="text-h2 font-semibold">Request a copy of your personal data</h2>
+        <p class="prose wizard-sub">
+            Every platform lets you download the data it holds about you. Pick your
+            platform and follow the steps. The request itself takes about two minutes.
+        </p>
+
+        <div class="wizard-platform-tabs" id="wizard-platform-tabs">
+            <button class="wizard-platform-tab" data-platform="tiktok"><span class="wizard-pdot wizard-pdot--tiktok"></span>TikTok</button>
+            <button class="wizard-platform-tab" data-platform="instagram"><span class="wizard-pdot wizard-pdot--instagram"></span>Instagram</button>
+            <button class="wizard-platform-tab" data-platform="youtube"><span class="wizard-pdot wizard-pdot--youtube"></span>YouTube</button>
+        </div>
+
+        <div class="wizard-howto">
+            {% with mode='inline', id_prefix='wiz' %}
+                {% include 'partials/_platform_howto.html' %}
+            {% endwith %}
+        </div>
+
+        <div class="wizard-actions">
+            <button class="btn-primary public-cta" data-goto="2">I've requested my data, continue &rarr;</button>
+            <span class="wizard-hint">Already have the file? <a href="#" data-goto="3">Skip to step 3</a></span>
+        </div>
+    </div>
+
+    <!-- ============ Step 2: waiting ============ -->
+    <div class="wizard-pane" data-pane="2">
+        <h2 class="text-h2 font-semibold">While you wait: get a guided tour of the Hub</h2>
+        <div class="wizard-step-row">
+            <p class="prose wizard-sub">
+                The platform is preparing your file, which usually takes somewhere between
+                minutes and a couple of days. Perfect time to see what your data will unlock.
+                {% if not current_user.is_authenticated %}
+                Create an account (it takes a minute, just an email and a password) and
+                we'll walk you through the Hub: the analysis tools, the semantic map of
+                hundreds of thousands of videos, and the short-video persona you'll get
+                from your own feed.
+                {% else %}
+                You're already signed up, so we can walk you through the Hub right now: the
+                analysis tools, the semantic map of hundreds of thousands of videos, and
+                the short-video persona you'll get from your own feed.
+                {% endif %}
+            </p>
+            <figure class="wizard-hero-mini">
+                <img src="{{ url_for('static', filename='landing/hero_collage.webp') }}"
+                    alt="The For You Data Hub: video analysis, timelines and semantic map views" loading="lazy">
+            </figure>
+        </div>
+
+        <div class="wizard-cta-row">
+            {% if not current_user.is_authenticated %}
+            <a class="btn-primary public-cta" href="{{ url_for('auth_bp.signup', next='/participate/go-tour') }}">Create an account</a>
+            <span class="wizard-or">or</span>
+            <a class="btn-discreet public-cta" href="{{ url_for('auth_bp.login', next='/participate/go-tour') }}">Log in</a>
+            {% else %}
+            <a class="btn-primary public-cta" href="{{ url_for('public_bp.participate_go_tour') }}">Take the guided tour</a>
+            {% endif %}
+        </div>
+
+        <div class="wizard-actions">
+            <button class="btn-discreet public-cta" data-goto="3">My data has arrived &rarr;</button>
+        </div>
+    </div>
+
+    <!-- ============ Step 3: share ============ -->
+    <div class="wizard-pane" data-pane="3">
+        <h2 class="text-h2 font-semibold">Your data is ready: share it and meet your persona</h2>
+        <p class="prose wizard-sub">
+            Sharing happens entirely on your terms. You review the file in your browser
+            first, see exactly what's inside, remove anything you like, and nothing
+            leaves your device until you consent. The moment you share, the Hub builds
+            your short-video persona: your archetype, viewing rhythms, doomscroll and
+            rewatch habits, and how you compare with the rest of the cohort.
+            {% if not current_user.is_authenticated %}
+            Log in and you'll land right where sharing starts. No account yet? Signing
+            up takes a minute.
+            {% endif %}
+        </p>
+
+        <div class="wizard-cta-row">
+            {% if not current_user.is_authenticated %}
+            <a class="btn-primary public-cta" href="{{ url_for('auth_bp.login', next='/participate/go-upload') }}">Log in and share</a>
+            <span class="wizard-or">or</span>
+            <a class="btn-discreet public-cta" href="{{ url_for('auth_bp.signup', next='/participate/go-upload') }}">Sign up first</a>
+            {% else %}
+            <a class="btn-primary public-cta" href="{{ url_for('public_bp.participate_go_upload') }}">Share your data &rarr;</a>
+            {% endif %}
+        </div>
+
+        <h3 class="wizard-h3">What happens after you share</h3>
+        <div class="wizard-timeline">
+            <div class="wizard-tl">
+                <div class="wizard-tl-rail"><span class="wizard-tl-dot"></span><span class="wizard-tl-bar"></span></div>
+                <div class="wizard-tl-body"><strong>Instantly: your persona.</strong>
+                    <span>The Hub reads your file and shows your short-video persona right
+                          away: viewing rhythms, archetype, cohort comparison.</span></div>
+            </div>
+            <div class="wizard-tl">
+                <div class="wizard-tl-rail"><span class="wizard-tl-dot"></span><span class="wizard-tl-bar"></span></div>
+                <div class="wizard-tl-body"><strong>Raw data first.</strong>
+                    <span>Your activity history is in the Hub, but the videos themselves
+                          aren't analysed yet. That is the difference between raw and
+                          annotated data.</span></div>
+            </div>
+            <div class="wizard-tl">
+                <div class="wizard-tl-rail"><span class="wizard-tl-dot"></span><span class="wizard-tl-bar"></span></div>
+                <div class="wizard-tl-body"><strong>Then: annotation, in batches.</strong>
+                    <span>We fetch and analyse the videos you watched: content, themes,
+                          style. Your first batch is prioritised, and we'll email you the
+                          moment it's ready to explore.</span></div>
+            </div>
+            <div class="wizard-tl">
+                <div class="wizard-tl-rail"><span class="wizard-tl-dot"></span></div>
+                <div class="wizard-tl-body"><strong>Finally: explore for real.</strong>
+                    <span>Take the tour again, this time with your own annotated data.</span></div>
+            </div>
+        </div>
+    </div>
+
+</section>
+
+{% endblock %}
+
+{% block public_scripts %}
+<script src="{{ url_for('static', filename='js/participate_start.js') }}?v=2"></script>
+{% endblock %}

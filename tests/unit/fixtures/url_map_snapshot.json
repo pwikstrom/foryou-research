@@ -939,6 +939,13 @@
   ]
  ],
  [
+  "/api/signup/email-check",
+  "auth_bp.api_signup_email_check",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/start/<name>",
   "process_bp.api_start",
   [
@@ -1181,6 +1188,27 @@
   ]
  ],
  [
+  "/participate/go-tour",
+  "public_bp.participate_go_tour",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/participate/go-upload",
+  "public_bp.participate_go_upload",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/participate/start",
+  "public_bp.participate_start",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/robots.txt",
   "public_bp.robots",
   [
@@ -1205,6 +1233,13 @@
  [
   "/static/<path:filename>",
   "static",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/terms",
+  "public_bp.terms",
   [
    "GET"
   ]

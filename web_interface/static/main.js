@@ -1762,10 +1762,14 @@ const _HASH_SLUG_ALIASES = {
 };
 
 function _applyHashNavigation() {
-    const m = (location.hash || '').match(/^#([a-z_]+)(?:\/([a-z0-9-]+))?$/);
+    // Optional third segment = a page action ("#my_stuff/my-collections/upload"
+    // from the participation wizard). Stashed for the page's own JS to consume
+    // once its content has loaded (see loadMyCollections).
+    const m = (location.hash || '').match(/^#([a-z_]+)(?:\/([a-z0-9-]+))?(?:\/([a-z]+))?$/);
     if (!m) return;
     const tabId = m[1];
     let slug = m[2];
+    window.PENDING_SUBPAGE_ACTION = m[3] || null;
     if (slug) slug = _HASH_SLUG_ALIASES[`${tabId}/${slug}`] || slug;
     const pane = document.getElementById(tabId);
     // Only navigate to real tab panes the current user can see.

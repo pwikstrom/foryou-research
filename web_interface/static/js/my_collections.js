@@ -91,6 +91,17 @@
                 syncMyCollectionsMenuLabel();
                 renderTable();
                 renderProcessButton();
+                // Deep link from the participation wizard
+                // (#my_stuff/my-collections/upload): open the upload modal for
+                // the platform the visitor picked on /participate/start.
+                if (window.PENDING_SUBPAGE_ACTION === 'upload') {
+                    window.PENDING_SUBPAGE_ACTION = null;
+                    let wizPlatform = null;
+                    try { wizPlatform = localStorage.getItem('fyp_funnel_platform'); } catch (e) { /* private mode */ }
+                    let idx = (mycSources || []).findIndex(s => s.source_platform === wizPlatform);
+                    if (idx === -1 && (mycSources || []).length) idx = 0;
+                    if (idx !== -1) mycOpenUploadModal(idx);
+                }
                 // The persona is always visible below the table whenever any
                 // data exists: combined when several collections are in the
                 // Hub, the single one otherwise, the pending preview when only
