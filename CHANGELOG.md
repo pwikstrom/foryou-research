@@ -8,7 +8,11 @@ Development began in November 2025 and ran privately through August 2026, so
 `0.1.0` is the first tagged release rather than a step on from an earlier
 public version. Entries below describe the Hub as it stands at that release.
 
-## [Unreleased]
+## [0.2.0] — 2026-08-27
+
+The participant release: donors get a first-class surface of their own —
+self-serve upload with in-browser review, their own persona and studies, and
+self-service withdrawal — alongside operational and public-visibility work.
 
 ### Added
 
@@ -221,4 +225,5 @@ integration, and a `scripts/verify.sh` gate combining lint, unit tests, the
 import-cycle and schema-hash guards, the golden suite, and an app import smoke
 test.
 
+[0.2.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.2.0
 [0.1.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.1.0
