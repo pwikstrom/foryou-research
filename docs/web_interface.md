@@ -6,17 +6,20 @@ background worker scripts. The full endpoint list is in
 
 ## App structure
 
-`fyp_data_hub.py` is an app factory (`create_app`). It registers 12
-blueprints from `web_interface/routes/`:
+`fyp_data_hub.py` is an app factory (`create_app`). It registers 13
+blueprints from `web_interface/routes/` — 12 unconditionally, plus the
+CSRF-exempt `internal_bp` only on the task-runner service or outside Cloud
+Run (`fyp_data_hub.py:298`):
 
 | Blueprint file | Serves |
 |---|---|
 | `auth_routes.py` | login, signup, settings, admin user management |
+| `public_routes.py` | the public (unauthenticated) mini-site: landing, about, participate + the `/participate/start` wizard, data-donation, thehub, terms, ethics, faq, `robots.txt`, `sitemap.xml`, and legacy-URL 301s (`/guide` → `/thehub`, old Wix paths) |
+| `my_collections_routes.py` | `my_collections_bp` — the participant self-service API under `/api/my/collections/*`: list, upload sources, upload, pending personality/delete, withdraw, restore, process, per-collection and combined personality |
 | `api_explorer_routes.py` | studies + Explore tab API, system info |
 | `api_viewer_routes.py` | Video Analysis tab + media streaming |
 | `api_timelines_routes.py` | Timelines tab |
 | `api_correlations_routes.py` | Correlations tab |
-| `api_collections_routes.py` | collection stats + annotation API |
 | `api_semantic_space_routes.py` | Semantic Space tab (embedding map) |
 | `api_sessions_routes.py` | Sessions tab (session index + binge episodes + low-entropy sequences) |
 | `management/` (package; `management_routes.py` is a compatibility shim) | Data Pipeline + admin: studies, collections, enrichment queues, contracts, schema, ingestion — split into per-domain submodules all registering on the same blueprint |
@@ -25,12 +28,17 @@ blueprints from `web_interface/routes/`:
 
 Shared backend helpers live next to the app: the `services/` package
 (study data + cache — note the double-checked locking in `StudyCache` —
-timelines, analysis data, per-user variables, worker status, preview
-cache, and the per-study methods/provenance note builder `methods_note.py`;
+timelines, analysis data, correlations, stats, per-user variables, worker
+status, preview cache, system health, the per-study methods/provenance
+note builder `methods_note.py`, and the participant surface:
+`my_collections_service.py`, `participant_studies.py`,
+`participant_enrichment.py`, plus `collection_coverage.py` — the shared
+scraped/annotated-coverage arithmetic, so the participant and admin
+coverage figures cannot drift — and the daily `ops_report.py`;
 `data_service.py` remains as a re-exporting facade),
 `explorer_backend.py`, `process_manager.py`, `task_status.py`,
 `worker_runner.py` (shared CLI entrypoint for the `run_*.py` workers —
-currently 22),
+currently 21; `run_logs.py` is not a worker),
 `admin_settings.py`, `activity_log.py`.
 
 ## Auth & permissions
@@ -61,9 +69,14 @@ materialised). The pair is created/updated by
 `collections_tags.json`. Provisioning is lazy: an owner's pair is first
 created on login (`ensure_on_login`, run on every successful login), so
 donation-linked accounts that never log in get no studies; existing pairs
-are reconciled by every sync path regardless. Defs carry
-`SYSTEM`/`OWNER`/`DISPLAY_NAME` markers and
-`USER_ACCESS = [username]`, is skipped by the boot migration and the
+are reconciled by every sync path regardless — the other lifecycle callers
+are `run_ingest_refresh` after a donation registers, the admin collection
+re-link route (after `collection_accounts.set_collection_owner`),
+`run_collection_delete`, and account deletion in the auth routes. Defs
+carry `SYSTEM`/`OWNER`/`DISPLAY_NAME` markers and
+`USER_ACCESS = [username]` (`__me_plus__` defs additionally carry a
+`COMPOSE` marker — `services/study_data.py` assembles the composed frame
+at read time). The pair is skipped by the boot migration and the
 all-studies refresh sweeps, is excluded from the default-study picker, and is
 refused by the study save/rename endpoints (delete is admin-only cleanup).
 `POST /api/user/settings` accepts only the whitelisted
@@ -75,8 +88,9 @@ validated by `auth.validate_profile`), an `account_kind` (`member` —
 signed up or admin-created — or `participant` — created from donation
 data, initially with no password and so unable to log in until an admin
 sets one), a `placeholder` flag for the fake `p-N@<domain>` addresses
-minted for participants who left demographics but no email, and an
-`origin`. Signing up with the email of a passwordless participant account
+minted for participants who left demographics but no email, an
+`origin`, and a `terms_accepted_at` timestamp set at signup when the
+terms checkbox is ticked. Signing up with the email of a passwordless participant account
 *claims* it (`UserManager.claim_participant_account`).
 
 **Collections ↔ accounts.** A collection belongs to at most one account.
@@ -112,6 +126,11 @@ which processes may run as Cloud Tasks. Long-running queue workers
 `{"chain": True, "next_task_args": ...}`. A task whose GCS heartbeat is
 older than 600 s is treated as dead.
 
+One deliberate exception to the retry model: `ops_report`
+(`run_ops_report.py`, the daily ops report) is NOT queue-retry-safe — a
+queue retry would re-send the report email — so a failed run goes straight
+to the task-failures ledger instead of being retried.
+
 The reported `last_run_duration` spans the **whole** run of a self-chaining
 task, not just its final link: `process_routes._chain_run_start()` measures
 from the first link's start (carried through the chain), and `api_status`
@@ -132,6 +151,14 @@ holds per-tab content, `static/main.js` is the tab-navigation controller and
 each tab has its own JS file. Everything is vanilla JS + `fetch()`; scripts
 are plain `<script>` tags with manual `?v=N` cache busting — bump the
 version when you change a file.
+
+Notable non-tab scripts in `static/js/`: `donation_review.js` (browser-side
+donation-export parsing and pruning — hard invariant: it makes **no**
+network requests, and the pruned file is rebuilt from kept rows only),
+`hub_tour.js` (the guided tour), `admin_ops_report.js` (Admin → System ops
+report pane), and `my_collections.js`, which exports
+`window.mycRenderPersonality()`; `data_management.js` reuses it in the Edit
+Collections modal so the participant and admin persona views cannot drift.
 
 Styling is entirely token-driven (`static/style.css`): semantic CSS custom
 properties, a 7-step type scale, utility classes, and both dark
@@ -186,7 +213,8 @@ composed client-side by `static/js/variable_prefs.js` as
 same free-form settings merge (`POST /api/user/settings`) backs other
 per-user UI state, e.g. the Home tab's dismissible "Getting started" panel
 (`getting_started_dismissed`) — the permission-keyed first-run surface for
-newly invited users, which also links into the public `/guide` pages.
+newly invited users, which also links into the public `/thehub` page
+(`/guide` is now a 301 to it).
 
 ## Conventions & known warts
 

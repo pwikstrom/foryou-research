@@ -12,12 +12,14 @@ internals of the data pipeline (see [pipeline.md](pipeline.md)).
 
 ### Logging in
 
-You log in with your email address at `/login`. Depending on the site's
-settings, new accounts may need admin approval before they become active
-(Admin → Site Settings → "Require approval for new user signups"). Before
-login you see the public mini-site — a landing page, an About page, a Guide
-and an FAQ; after login the same landing content appears on the **Home** tab,
-inside the app shell.
+You log in with your email address at `/login`. Signing up requires accepting
+the terms of use (`/terms`), and by default new accounts also wait for admin
+approval before they become active (Admin → Site Settings → "Require approval
+for new user signups" — on by default on a fresh install). Before login you
+see the public mini-site — the landing page plus About, Participate (with its
+step-by-step start wizard), The Hub, FAQ and the terms, ethics and
+data-donation pages; after login the same landing content appears on the
+**Home** tab, inside the app shell.
 
 The header shows the app name (click it to return Home), the **active study
 dropdown**, a spinner badge when background tasks are running, and your
@@ -28,19 +30,28 @@ username, role and a Logout link.
 Everything on the analysis tabs revolves around a **study** — a named dataset
 a researcher defines from a set of participant collections, a date window and
 sampling rules. Pick your active study from the dropdown in the header; every
-analysis tab works against it. One useful fact for new users: an empty
-picker is normal for a new account, because studies are shared explicitly
-(per role or per user) — ask the researcher who invited you to share one.
+analysis tab works against it. Two useful facts for new users: an empty
+picker can be normal for a fresh account, because studies are shared
+explicitly (per role or per user, or site-wide via the default study) — ask
+the researcher who invited you to share one. And if you have donated your own
+data, two auto-managed studies appear the first time you log in after the
+donation is registered: **Just Me** (your own collections only) and
+**Everyone & Me** (the site's default study plus your own data).
 
 ### The tab bar
 
-The tabs you see depend on your role. The full set is: **Explore**,
-**Timelines**, **Video Analysis**, **Correlations**, **Semantic Space**,
-**Sessions**, **My stuff**, **Data Pipeline** and **Admin**. The last three
-open a sidebar of sub-pages. The **?** button at the right end of the tab bar
-always opens a help text for the tab you are currently on, and the Home tab's
-dismissible "Getting started" panel gives a first-run overview (restore it any
-time under My stuff → Preferences → Onboarding).
+The tabs you see depend on your role. The full set, in order, is: **Semantic
+Space**, **Explore**, **Correlations**, **Video Analysis**, **Sessions**,
+**Timelines**, **My stuff**, **Data Pipeline** and **Admin**. The last three
+open a sidebar of sub-pages; on narrow screens the tab bar collapses into a
+hamburger drawer that mirrors the sub-pages too. The **?** button at the right
+end of the tab bar always opens a help text for the tab you are currently on,
+and the Home tab's dismissible "Getting started" panel gives a first-run
+overview (restore it any time under My stuff → My Preferences → Onboarding).
+A **guided tour** walks new users through the analysis tabs using the site's
+demo collection; it is offered from the help panel and the getting-started
+panel, and offered again on your own data once your first annotated batch is
+ready.
 
 ### Roles
 
@@ -50,16 +61,20 @@ User Roles):
 - **admin** — everything, including the Data Pipeline and Admin tabs.
 - **viewer** — the analysis tabs plus the personal My stuff pages. This is
   the typical researcher/collaborator role.
-- **student** — like viewer but read-only: no Semantic Space tab and no
-  annotation voting.
+- **student** — like viewer but read-only: no Semantic Space tab, no Sessions
+  tab (chronological session sequences are the Hub's most re-identifying view
+  of a donor) and no annotation voting.
 
 Each section below notes who typically sees it. Because the permission matrix
 is editable per role, your installation may differ.
 
 ### Where the data comes from
 
-Participants donate their platform data exports (TikTok, Instagram, YouTube);
-the Hub ingests these into *collections*, scrapes each watched video's
+Participants donate their platform data exports (TikTok, Instagram, YouTube) —
+either handed to the research team and uploaded on the Data Pipeline tab, or
+self-served through My stuff → My Collections (section 2.8), which feeds the
+same processing pipeline. The Hub ingests these into *collections*, scrapes
+each watched video's
 metadata and media, annotates the videos with an AI model against a declared
 annotation contract, embeds the annotations into a semantic space, and
 assembles study datasets from the results. The analysis tabs read those
@@ -112,7 +127,7 @@ Analysis tab with the matching videos pre-filtered.
 
 Which variables appear as filters and charts is configurable — global
 defaults live in Admin → Variable Visibility, and your personal overrides in
-My stuff → Preferences → Variable customizations.
+My stuff → My Preferences → Variable customizations.
 
 ### 2.2 Timelines
 
@@ -145,7 +160,7 @@ that day's numbers, a **View videos** button that drills into Video Analysis,
 and (for users with the annotation-votes permission — not students) a **Vote
 to annotate** button.
 
-Two per-user toggles under My stuff → Preferences → Timelines control whether
+Two per-user toggles under My stuff → My Preferences → Timelines control whether
 empty dates and pre-first-play activity are included in the charts.
 
 ### 2.3 Video Analysis
@@ -183,7 +198,7 @@ pre-applied. A notice appears when a drill-down names a video the active
 study does not contain (possible from Semantic Space, which spans the whole
 corpus, not just your study).
 
-Video autostart is a per-user preference (My stuff → Preferences).
+Video autostart is a per-user preference (My stuff → My Preferences).
 
 ### 2.4 Timelines vs Sessions vs Explore — which tab answers what?
 
@@ -295,7 +310,11 @@ earnest.
 
 *Visible to all seeded roles (individual sub-pages are permission-gated).*
 
-Your personal pages, grouped behind one tab with a sidebar:
+Your personal pages, grouped behind one tab with a sidebar. The sidebar order
+is **My Studies, My Collections, My Video Tags, My Tasks, My Profile, My
+Preferences**, followed by an **Information** group of links (Data donation,
+Consent & ethics, About the project, FAQ, How to cite the Hub — all opening
+the public pages in a new tab).
 
 **My Studies.** The study datasets you have access to, with their headline
 counts (date window, sampling, collections, activities, videos, scraped,
@@ -305,13 +324,45 @@ opens the study's **Methods** panel: an auto-generated plain-language
 provenance note describing how the dataset was built (with a JSON download).
 This panel lives here, on the study row — not on the Explore tab.
 
+**My Collections.** Your own donated data (the sidebar item reads **"Share
+your data"** until you own a collection). It has four parts:
+
+- *Your collections table* — one row per donation, with the collection's
+  activity period, activity count, scraped/annotated coverage (the same
+  figures admins see in Edit Collections), date added and status.
+- *Adding data* — the **Add your data** flow covers TikTok, Instagram and
+  YouTube exports, with a per-platform "how do I get my data" walkthrough.
+  Before anything is uploaded, the export is parsed **entirely in your
+  browser** and shown in a review step where you can prune whole sections or
+  individual rows; only what you keep is uploaded, after you confirm the
+  consent statement. A freshly uploaded donation gets an instant
+  short-video-persona preview before it is processed into the corpus.
+- *Withdrawing data* — deleting a collection here withdraws it from the
+  research dataset. The original donation file stays in the archive for
+  **30 days**, during which the row stays visible (greyed out) with a
+  **Restore** button; after that it is gone for good. See
+  [ethics_and_data_handling.md](ethics_and_data_handling.md).
+- *Your short-video persona* — a playful profile computed **only from your
+  own donated activity data** (no scraping, no AI annotation, nobody else's
+  data). Tick the Persona checkbox on several collections to compose a
+  combined persona across platforms.
+
+**My Video Tags.** Every custom tag you have created, with usage counts.
+Deleting a tag removes it from all videos where it is applied.
+
 **My Tasks.** Appears only when you have been invited to annotation testing
 (Admin → Reliability Control). In a **coding** task you watch each video and
 fill in the variables blind — no machine answers shown; in a **preference
 vote** task you compare anonymous annotation options per video and pick the
 best (or a tie). Work saves automatically; submit when done.
 
-**Preferences.** Your personal settings, grouped as:
+**My Profile.** Your login email (fixed), your display username (3–15
+characters, shown instead of your email across the app), and an **About you**
+block — full name, age, postcode, country, occupation and an
+"OK to contact me about this research?" consent — plus a line listing the
+collections linked to your account.
+
+**My Preferences.** Your personal settings, grouped as:
 
 - *Appearance* — Dark theme.
 - *Video Analysis* — Video autostart; Share my annotations (share your video
@@ -324,12 +375,6 @@ best (or a tie). Work saves automatically; submit when done.
   Explore and Video Analysis; visualized variables cover Explore's charts and
   Correlations.
 - *Onboarding* — restore the Home tab's "Getting started" panel.
-
-**My Video Tags.** Every custom tag you have created, with usage counts.
-Deleting a tag removes it from all videos where it is applied.
-
-**Profile.** Your login email (fixed) and your display username (3–15
-characters, shown instead of your email across the app).
 
 ---
 
@@ -358,10 +403,15 @@ to every file (rows read, rows kept, why rows were dropped — uploaded files
 are never modified).
 
 **Edit Collections.** Search and multi-select already-ingested collections,
-then edit them: change the display ID, add or remove tags, hide a collection
-from the primary study interface, or (admins) delete it. Deletion removes
-the participant-linked rows and archives (not destroys) the raw uploads —
-see the deletion section of
+then edit them: change the display ID, link the collection to a user account,
+add or remove tags, hide a collection from the primary study interface, or
+(admins) delete it. The table shows each collection's first event, date
+added, activity count, active days and **scraped/annotated coverage** (the
+same figures a participant sees on My Collections; the last event date lives
+in the edit modal). Deletion removes the participant-linked rows and archives
+(not destroys) the raw uploads — participants can also withdraw their own
+collections from My Collections, with a 30-day restore window; see the
+deletion section of
 [ethics_and_data_handling.md](ethics_and_data_handling.md) for what a full
 withdrawal involves. "Refresh Collections Metadata" recomputes the
 collection stats.
@@ -450,7 +500,7 @@ grouped into Users, Annotation Pipeline, Data & Variables and System.*
 
 - **Variable Visibility** — the global defaults for which variables appear
   on each surface (Filters, Timelines, Explore, Video Analysis); users
-  override these personally under My stuff → Preferences.
+  override these personally under My stuff → My Preferences.
 - **Data Contracts** — a read-only view of the scrape, activity and derived
   contracts and their version history; these change only with deployed code.
   See [contracts.md](contracts.md).
@@ -463,10 +513,18 @@ grouped into Users, Annotation Pipeline, Data & Variables and System.*
 **System**
 
 - **Site Settings** — signup approval gating, the default role for new
-  users, the default study, and cost guardrails (per-request queue caps for
-  non-admin users).
+  users, the default study, the **demo collection** (the collection the
+  guided tour walks through; it must belong to the default study, and with
+  none chosen the tour skips those steps), the Sessions tab's list floors
+  (minimum plays / minutes / coverage), and cost guardrails (per-request
+  queue caps for non-admin users).
 - **System Information** — runtime environment, revision, storage locations
   and a system-health panel.
+- **Daily Ops Report** — a colour-coded status board over accounts, worker
+  runs, task failures, queues, collections, scraper health and the public
+  site, with an AI-written assessment. It is generated automatically once a
+  day and emailed to the site contact address; the pane shows the latest
+  report and a **Generate now** button.
 
 The **default study** is worth spelling out. Picking one under Site Settings
 does two things: that study becomes readable by *every* role, whatever its own
@@ -477,4 +535,7 @@ study's own Access list is never edited, so nothing else changes. With no
 default study set, users see only the studies explicitly shared with them and
 the Hub opens on the first of those. If the chosen study is later deleted the
 setting simply stops matching anything and that same behaviour returns;
-renaming it carries the setting across.
+renaming it carries the setting across. The auto-managed participant studies
+("Just Me" / "Everyone & Me") are excluded from the picker, and the demo
+collection can only be chosen once a default study is set. The default study
+is also what "Everyone & Me" composes with.

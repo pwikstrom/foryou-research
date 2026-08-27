@@ -484,13 +484,23 @@ approval, and on an instance holding donated feeds that is participant data.
 Granting studies to a *named user* rather than to the default role keeps the
 two decisions separate.
 
+A broader grant still: setting a **default study** under Admin → Site
+Settings makes that study readable by *every* logged-in user, bypassing its
+`USER_ACCESS` list entirely — a wider reach than anything the default role
+grants. The same page also holds the **demo collection** the guided tour
+uses (it must belong to the default study) and the **non-admin queue caps**
+(the most items a single queue-build request from a non-admin may add to the
+annotation / scrape queues).
+
 ## First data
 
 With a fresh install every tab is empty. To load data:
 
 1. Log in as admin → **Data Pipeline** → **Ingest Collections**, and upload
-   a data-donation zip (TikTok/Instagram DDP export, or a Google Takeout for
-   YouTube watch history), then run an ingest refresh. The results table
+   a data-donation export — for TikTok that is the extracted `.json` file
+   from the export (a `.zip` is rejected with guidance to unzip it first);
+   Instagram DDP exports and Google Takeout YouTube watch histories upload
+   as the `.zip` — then run an ingest refresh. The results table
    shows, per file, how many rows were read and kept and — in plain
    language — why any rows were left out; the same report persists in the
    "Ingestion history" panel on that page.
@@ -568,6 +578,13 @@ If the connection fails (no ADC, no access), the app logs the error and
 falls back to local storage rather than crashing. Nothing else in GCP is
 required for local use — Cloud Run/Cloud Tasks only matter for the
 production deployment described in `DEVELOPING.md`.
+
+**Daily ops report.** `python web_interface/run_ops_report.py` builds an
+operational health report (supports `--hours-back` and `--no-email`); the
+written assessment uses Gemini with a deterministic fallback when Gemini is
+not configured. Emailing the report needs `[site] ops_report_email` (falls
+back to `mail_sender`) plus the outbound-email setup below (`MAIL_PASSWORD`
+and the sender).
 
 **AIO donation fetch (AWS).** The "AIO fetch" action on Data Pipeline →
 Ingest Collections pulls

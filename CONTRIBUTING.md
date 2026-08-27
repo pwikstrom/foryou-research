@@ -37,7 +37,9 @@ working days for a reply.
 1. Branch off `main`; keep branches short-lived and focused.
 2. Install dev tools (`pip install -r requirements-dev.txt`) and the
    pre-commit hook once: `pre-commit install`.
-   It currently gates only pyflakes-level errors (`ruff --select=F`) while
+   It currently gates only pyflakes-level errors
+   (`ruff --fix --select=F --ignore=F841,F403,F601` — three F codes excluded
+   for pre-existing debt; the same bar as `scripts/verify.sh` and CI) while
    pre-existing style debt is worked down; the full ruff rule set in
    `pyproject.toml` is the target bar for new code.
 3. Before opening a PR, run the verification gate:
@@ -56,8 +58,8 @@ working days for a reply.
   - `requires_data` — needs local/production data files not in a fresh checkout
   - `requires_gcs` — needs live GCS/GCP credentials
   - `slow` — long-running
-  - `stale` — known-broken against current contracts/data shapes (a to-fix
-    list, not a regression signal)
+  - `stale` — the designated bucket for tests known-broken against current
+    contracts/data shapes (currently empty; not a regression signal)
   The checkout-only gate is `pytest -m "not requires_data and not requires_gcs and not slow and not stale"`.
 - Nine legacy test files cannot currently be collected at all and are listed
   (with reasons) in `tests/unit/conftest.py::collect_ignore` — converting one

@@ -17,7 +17,7 @@ quite different?
 The For You Data Hub helps researchers answer questions like these by examining
 feeds just as the people using them are experiencing them — on TikTok, Instagram
 Reels, and YouTube Shorts. The data used in the Hub are donated by real platform
-users. Participants have requested their own data export from the platform, reviewed it, and decided what they want to share with the research team. Read more about ethical considerations in [docs/ethics_and_data_handling.md](docs/ethics_and_data_handling.md).
+users. Participants request their own data export from the platform, then review and prune it in the browser before anything is uploaded — nothing leaves their machine during that review. On donating they get an instant preview of their own "short-video persona", and they can later withdraw their donation themselves, with a 30-day restore window. Read more about ethical considerations in [docs/ethics_and_data_handling.md](docs/ethics_and_data_handling.md).
 
 From there, the Hub carries a donation through the whole pipeline. It reads
 datasets from different platforms into a single activity table, enriches every watched item
@@ -26,6 +26,13 @@ opens the result to analysis — both cross-sectional, comparing participants an
 groups, and temporal, following how one person's feed shifts day by day or video by video. Read more about the pipeline in [docs/pipeline.md](docs/pipeline.md).
 
 The For You Data Hub's User Guide is available here [docs/user-guide.md](docs/user-guide.md), where you can read about the different analyses the Hub allows.
+
+The Hub also serves the participants themselves. Recruitment runs through a
+guided /participate funnel, donations are uploaded self-serve with the
+browser-side review step above (My Collections), a donation can be withdrawn
+by its owner with a 30-day restore window, and every donor gets a pair of
+auto-managed personal studies — "Just Me" and "Everyone & Me" — so they can
+explore their own feed alongside the wider corpus.
 
 The For You Data Hub is built for academic researchers with high expectations for transparency. Ingestion produces a per-file intake report
 (rows read, rows kept, plain-language drop reasons), and every study carries
@@ -40,7 +47,7 @@ The Hub currently supports the three largest short-video platforms, but it is es
 | Path | What it is |
 |---|---|
 | `fyp/` | Core Python package: ingestion, scraping, annotation, recoding, analysis |
-| `web_interface/` | Flask app (dashboard + API) and background worker scripts (`run_*.py`) |
+| `web_interface/` | Flask app (dashboard + API, plus the public mini-site with its SEO plumbing) and background worker scripts (`run_*.py`) |
 | `config/` | `config.toml` plus four declarative TOML contracts that own the variable schemas |
 | `tests/` | `unit/` (pytest suite) and `golden/` (cost-free annotation regression suite) — both run by CI |
 | `scripts/` | Setup, verification (`verify.sh`), and doc generators |
@@ -51,7 +58,7 @@ layout, key patterns, and deployment. It is the most detailed single
 reference in the repository and the best starting point for contributors.
 
 ## Quickstart
-You can take the Hub for a spin straight away by requesting a user account at <https://www.tinyurl.com/foryoudatahub>. If you prefer to have you own installation, you can run the server both on your local computer and on Google Cloud. This quickstart explains how to make a local installation.
+You can take the Hub for a spin straight away by requesting a user account at <https://www.tinyurl.com/foryoudatahub>. If you prefer to have your own installation, you can run the server both on your local computer and on Google Cloud. This quickstart explains how to make a local installation.
 
 Make sure you have Python 3.12 (matches the production runtime), plus `ffmpeg` and
 `node` or `deno` if you run the scrapers.

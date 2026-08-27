@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**The For You Data Hub** is a short-video research data toolbox for academics, focused on TikTok with a platform-agnostic core. The object of study is short-form vertical video — the TikTok feed, Instagram Reels and YouTube Shorts; long-form YouTube watches are ingested and keep their metadata but stay below the media duration cap threshold, so they are never annotated. It ingests feed activity from TikTok data captures and from zipped data-donation exports (TikTok, plus Instagram and YouTube/Takeout watch history), enriches them via web scraping and LLM annotation (pluggable backends: Google Gemini by default, hosted Qwen, or local Qwen/MiniCPM — all platforms), performs statistical analysis (PCA, ANOVA, PERMANOVA), and presents findings through an interactive Flask-based web dashboard with role-based access control.
+**The For You Data Hub** is a short-video research data toolbox for academics, covering the three major short-video platforms — TikTok, Instagram and YouTube — on a platform-agnostic core. The object of study is short-form vertical video — the TikTok feed, Instagram Reels and YouTube Shorts; long-form YouTube watches are ingested and keep their metadata but stay below the media duration cap threshold, so they are never annotated. It ingests feed activity from TikTok data captures and from zipped data-donation exports (TikTok, plus Instagram and YouTube/Takeout watch history), enriches them via web scraping and LLM annotation (pluggable backends: Google Gemini by default, hosted Qwen, or local Qwen/MiniCPM — all platforms), performs statistical analysis (PCA, ANOVA, PERMANOVA), and presents findings through an interactive Flask-based web dashboard with role-based access control.
 
 ---
 
@@ -154,6 +154,9 @@ foryou-research/
 │   ├── auth.py                  # Authentication, @admin_required decorator
 │   ├── security.py              # Login manager, user manager
 │   ├── permissions.py           # Tab + sub-page permission catalog and Flask decorator
+│   ├── seo.py                   # Canonical host/link, robots.txt, sitemap.xml, JSON-LD for the public pages
+│   ├── citation.py              # Copy-ready citation built from CITATION.cff (shown on every page)
+│   ├── collection_accounts.py   # Collection ↔ user-account links (user_id in collections_tags.json): set/unlink/orphan + AIO auto-link
 │   ├── admin_settings.py        # Persisted admin-controlled site settings (e.g. signup gating)
 │   ├── activity_log.py          # Per-user activity log for Data/User Management mutations
 │   ├── process_manager.py       # Background job management (subprocess + Cloud Tasks)
@@ -187,8 +190,13 @@ foryou-research/
 │   ├── run_queue_annotator_batch.py   # Batch-mode Gemini annotation (Cloud Task)
 │   ├── run_ab_eval.py           # Prompt A/B eval run (Cloud Task)
 │   ├── run_retokenise_hashtags.py     # Retroactive hashtag-stoplist cleanup (Cloud Task)
+│   ├── run_ops_report.py        # Daily ops report: assemble + email (Cloud Task; deliberately NOT queue-retry-safe — a retry would re-send the email)
 │   ├── services/                # Backend logic extracted from routes: study_data, timeline_service,
-│   │                            #   analysis_data, user_variables, stats_service, preview_cache, worker_status,
+│   │                            #   analysis_data, user_variables, stats_service, correlations_service,
+│   │                            #   preview_cache, worker_status, system_health,
+│   │                            #   my_collections_service, participant_studies, participant_enrichment,
+│   │                            #   collection_coverage (shared scraped/annotated coverage arithmetic),
+│   │                            #   ops_report (daily ops report content),
 │   │                            #   methods_note (per-study methods/provenance note — {study}_methods.json in
 │   │                            #   "cache", written by BOTH study-refresh workers on every refresh incl.
 │   │                            #   short-circuit; uses the active-vs-preferred vocabulary)
@@ -198,21 +206,26 @@ foryou-research/
 │   │   ├── api_viewer_routes.py         #   Video Analysis + media streaming API
 │   │   ├── api_timelines_routes.py      #   Timelines API
 │   │   ├── api_correlations_routes.py   #   Correlations API
-│   │   ├── api_collections_routes.py    #   Collection stats + annotation API
 │   │   ├── api_semantic_space_routes.py #   Semantic Space tab API (video embedding map)
 │   │   ├── api_sessions_routes.py       #   Sessions tab API (session index + binge episodes + low-entropy sequences)
+│   │   ├── my_collections_routes.py     #   Participant self-service API (/api/my/collections/*)
+│   │   ├── _access.py           #   Shared route-level access helpers
 │   │   ├── management/          #   Admin/management endpoints — per-domain submodules (studies, collections,
-│   │   │                        #     enrichment, contracts, ab_eval, schema, ingestion) on ONE shared blueprint
+│   │   │                        #     enrichment, contracts, data_contracts, ab_eval, schema, ingestion) on ONE shared blueprint
 │   │   ├── management_routes.py #   Compatibility shim re-exporting the management package
 │   │   ├── human_eval_routes.py #   Human annotation input (coding, votes, invitations)
-│   │   ├── public_routes.py     #   Public (unauthenticated) mini-site pages: /about, /guide, /faq
+│   │   ├── public_routes.py     #   Public (unauthenticated) mini-site: about, participate (+ start wizard and go-* redirects),
+│   │   │                        #     data-donation, thehub, terms, ethics, faq, robots.txt, sitemap.xml; /guide is a 301 to /thehub
 │   │   └── process_routes.py    #   Background process endpoints
 │   ├── templates/
 │   │   ├── base.html            # Base layout
 │   │   ├── index.html           # Main SPA shell
 │   │   ├── login.html / signup.html  # Form-only pages on the public layout
-│   │   ├── public/              # Public mini-site: base_public.html + _header/_footer partials,
-│   │   │                        #   landing.html (anonymous /), about.html, guide.html, faq.html
+│   │   ├── public/              # Public mini-site: base_public.html + partials (_header/_footer/...),
+│   │   │                        #   landing.html (anonymous /), about.html, thehub.html, faq.html,
+│   │   │                        #   data_donation.html, participate.html, participate_start.html,
+│   │   │                        #   terms.html, ethics.html
+│   │   ├── partials/            # Shared partials (consent statement, per-platform how-to)
 │   │   └── tabs/                # Tab content templates
 │   │       ├── home.html
 │   │       ├── video_analysis.html
@@ -235,14 +248,13 @@ foryou-research/
 │       ├── sessions.js          # Sessions tab (session explorer + episode inspector)
 │       ├── study_state.js       # Shared study-state helper
 │       ├── style.css            # Main stylesheet
-│       ├── js/
+│       └── js/
 │       │   ├── data_management.js
 │       │   ├── variable_prefs.js     # Per-user "Customize variables" panels (gear buttons; deltas in user.settings.variable_prefs)
 │       │   ├── admin_var_schema.js   # Var-schema admin viewer (metadata read-only; prio checkboxes save to /api/manage/presentation)
 │       │   ├── admin_tab.js / my_stuff_tab.js  # Former inline template scripts (extracted verbatim)
 │       │   └── admin_ab_eval.js / admin_contract_editor.js / admin_annotation_versions.js / admin_human_eval.js / human_coding.js
-│       └── css/                 # (empty — styles in style.css)
-├── tests/                       # pytest suite: unit/ + golden/ (annotation safety net) + bench/ + debug/ + conftest.py
+├── tests/                       # pytest suite: unit/ + golden/ (annotation safety net) + conftest.py + _storage_guard.py (debug/ is gitignored)
 ├── tmp/                         # Temporary test/debug data
 ├── scripts/                     # verify.sh gate, gen_route_inventory.py, make_video_grid_hero.py, migrations, adhoc/ one-offs
 ├── docs/                        # Human-oriented docs (architecture, configuration, pipeline, web layer, routes)

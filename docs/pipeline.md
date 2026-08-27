@@ -42,6 +42,17 @@ Notable behaviors:
   uploader can always see why rows didn't land.
 - **Donor timezone**: uploads can carry an authoritative IANA zone / fixed
   offset per file, validated at upload time.
+- **Browser-side review** (participant uploads): the export is parsed
+  entirely client-side (`static/js/donation_review.js` — no network requests
+  happen during review), sections and individual rows can be pruned, and the
+  pruned file is rebuilt from the kept rows before upload. For TikTok,
+  non-whitelisted sections (DMs, settings, ads data, profile) are stripped in
+  the browser by default via the review manifest's `unmapped_policy: "strip"`
+  (`fyp/ingest/tiktok.py`), and login-history/IP rows are surfaced as a
+  reviewable section. Reviewed uploads are flagged `client_reviewed`, and the
+  structure sentinel evaluates them against a separate `__reviewed` baseline
+  instead of quarantining them as drift from the verbatim-export baseline
+  (`fyp/core/structure_sentinel.py`).
 
 ## 2. Scraping (`fyp/scrape/`)
 
@@ -94,9 +105,27 @@ studies auto-refresh). `organize_datasets.new_merge` joins activity with
 enrichment on `(source_platform, item_id)`; `recode_variables.py` derives
 analysis variables per the var_schema (type-driven generic recoder).
 
+**Scrape → annotate handoff for participant first batches.** A
+participant's prioritised first batch is queued to the *scrape* queue only,
+at ingest; the items reach the annotate queue at **consolidation** — the
+moment scrape results become visible — once they show as
+scraped-but-unannotated, exactly once per ledger entry
+(`web_interface/services/participant_enrichment.py`, invoked from
+`run_consolidate_enrichment.py`). The correctness rule behind the ordering:
+an unscraped item in the annotate queue fails ("DNF - file not found") and
+is pruned as failed — never annotate-queue unscraped items. Note that
+first-batch auto-enqueueing ships **disabled**
+(`AUTO_ENQUEUE_ENABLED = False` in `participant_enrichment.py`): the
+ledger/handoff/notification machinery stays wired but is a no-op until an
+operator enables it.
+
 ## 5. Analysis & studies
 
 Study definitions (`studies.py`) filter the recoded corpus into datasets.
+Composed system studies (the participant "Everyone & Me" study) are the
+exception: they store no artifacts of their own and are assembled at read
+time from the default study plus the user's data, and SYSTEM study
+definitions are excluded from all-studies sweeps.
 On top of them: PCA + distance metrics (`pca.py`), ANOVA/PERMANOVA
 (`stats.py`), timeline metrics (`timeline_analysis.py`), within-session
 profiling (`session_profile.py`), sequence windowing/modelling

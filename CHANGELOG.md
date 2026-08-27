@@ -70,6 +70,29 @@ public version. Entries below describe the Hub as it stands at that release.
   of existing collections (dry run by default; refuses to apply unless the
   configured storage is GCS, snapshots first, writes a report).
 
+- **My Collections (My stuff).** A participant-facing page over the user's own
+  donated collections only, including "Your short-video persona" — a profile
+  computed exclusively from their own donated data, with per-collection
+  checkboxes to combine platforms into one cross-platform persona.
+- **Self-serve donation upload with browser-side review.** Participants parse
+  their platform export in the browser, review and prune it *before* anything
+  is uploaded, and get an instant persona preview of what they are about to
+  share. Per-platform how-to guides walk through requesting the export from
+  TikTok, Instagram and YouTube.
+- **Participant-initiated withdrawal.** A participant can withdraw a processed
+  donation themselves; withdrawn donations are restorable for 30 days before
+  they are gone for good.
+- **Participant recruitment funnel.** A /participate/start wizard leads from
+  interest to a working account, signup gains a terms-of-use checkbox, and a
+  guided tour of a demo collection greets new participants; the participate
+  copy now speaks to all three platforms rather than TikTok alone.
+- **Daily ops report.** A background worker compiles a daily operational
+  report with an AI-written assessment, emails a copy, and surfaces it under
+  Admin → System.
+- **SEO for the public pages.** Canonical host handling, `robots.txt`,
+  `sitemap.xml` and structured data so the public mini-site is actually
+  indexable.
+
 ### Changed
 
 - **Edit Collections shows scraped/annotated coverage.** The share of each
@@ -83,6 +106,22 @@ public version. Entries below describe the Hub as it stands at that release.
   next to First Event) and renders its two remaining date columns with a
   two-digit year, with the full date on hover and still searchable by the
   four-digit one.
+- **FAQ and menus reworked.** The FAQ is restructured around its four
+  audiences (participants, researchers, students, operators), My stuff gains
+  an Information menu section, and the menu ordering plus the My Studies,
+  profile and Active Users pages were tidied along the way.
+- Participant first-batch auto-queueing shipped disabled pending a scheduling
+  decision, and an annotate-queue ordering hazard is fixed: unscraped items
+  are never annotate-queued any more (they only burned as failed) — the
+  scrape→annotate handoff now happens at consolidation.
+
+### Removed
+
+- **The synthetic demo-dataset feature.** The generator, its admin worker,
+  the `TikTokDemoCollection` ingestion class, the `demo_raw` upload location
+  and the study `SYNTHETIC` flag are gone; the 0.1.0 notes below describe it
+  as it was. The guided tour's demo collection is a real collection picked
+  under Admin → Site Settings instead.
 
 ### Security
 
@@ -105,6 +144,8 @@ public version. Entries below describe the Hub as it stands at that release.
 
 - The Admin → New Users page pointed at a "General" sub-page that no longer
   exists under that name; it now names **Site Settings**.
+- Three unit-test files that had drifted from the code they cover were
+  repaired; the `stale` test marker bucket is now empty.
 
 ### Internal
 

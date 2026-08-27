@@ -20,6 +20,8 @@ python scripts/gen_route_inventory.py
 | auth_bp | `/api/admin/settings` | GET,PUT | `auth_bp.api_admin_settings` |
 | auth_bp | `/api/admin/users` | DELETE,GET,POST,PUT | `auth_bp.api_admin_users` |
 | auth_bp | `/api/admin/users/<path:username>/log` | GET | `auth_bp.api_admin_user_log` |
+| auth_bp | `/api/admin/users/orphan_participants` | GET,POST | `auth_bp.api_admin_orphan_participants` |
+| auth_bp | `/api/signup/email-check` | GET | `auth_bp.api_signup_email_check` |
 | auth_bp | `/api/user/profile` | GET,POST | `auth_bp.api_user_profile` |
 | auth_bp | `/api/user/settings` | GET,POST | `auth_bp.api_user_settings` |
 | auth_bp | `/api/user/variable-catalog` | GET | `auth_bp.api_user_variable_catalog` |
@@ -32,6 +34,9 @@ python scripts/gen_route_inventory.py
 | correlations_bp | `/api/correlations/interpret` | POST | `correlations_bp.api_correlations_interpret` |
 | correlations_bp | `/api/correlations/metadata` | POST | `correlations_bp.api_pca_metadata` |
 | correlations_bp | `/api/correlations/status` | GET | `correlations_bp.api_correlations_status` |
+| explorer_bp | `/api/admin/ops-report` | GET | `explorer_bp.ops_report_meta` |
+| explorer_bp | `/api/admin/ops-report/html` | GET | `explorer_bp.ops_report_html` |
+| explorer_bp | `/api/admin/ops-report/run` | POST | `explorer_bp.ops_report_run` |
 | explorer_bp | `/api/explore/filter` | POST | `explorer_bp.api_explorer_filter` |
 | explorer_bp | `/api/explore/metadata` | GET | `explorer_bp.api_explorer_metadata` |
 | explorer_bp | `/api/explore/metadata/base` | GET | `explorer_bp.api_explorer_metadata_base` |
@@ -77,6 +82,7 @@ python scripts/gen_route_inventory.py
 | management_bp | `/api/manage/ab-eval/runs/<run_id>` | DELETE | `management_bp.delete_ab_eval_run` |
 | management_bp | `/api/manage/ab-eval/runs/<run_id>` | GET | `management_bp.get_ab_eval_run` |
 | management_bp | `/api/manage/ab-eval/runs/<run_id>/rows` | GET | `management_bp.get_ab_eval_run_rows` |
+| management_bp | `/api/manage/accounts` | GET | `management_bp.list_accounts` |
 | management_bp | `/api/manage/annotation-contract` | GET | `management_bp.get_annotation_contract` |
 | management_bp | `/api/manage/annotation-contract` | POST | `management_bp.upload_annotation_contract` |
 | management_bp | `/api/manage/annotation-contract/download` | GET | `management_bp.download_annotation_contract` |
@@ -91,6 +97,7 @@ python scripts/gen_route_inventory.py
 | management_bp | `/api/manage/collection/save_annotation` | POST | `management_bp.save_collection_annotation` |
 | management_bp | `/api/manage/collections` | GET | `management_bp.list_collections` |
 | management_bp | `/api/manage/collections/affected_studies` | GET | `management_bp.affected_studies_for_collection` |
+| management_bp | `/api/manage/collections/coverage` | GET | `management_bp.collections_coverage` |
 | management_bp | `/api/manage/collections/delete` | POST | `management_bp.delete_collection` |
 | management_bp | `/api/manage/data-contracts/<kind>` | GET | `management_bp.get_data_contract` |
 | management_bp | `/api/manage/data-contracts/<kind>/download` | GET | `management_bp.download_data_contract` |
@@ -127,12 +134,23 @@ python scripts/gen_route_inventory.py
 | management_bp | `/api/manage/schema/validate` | POST | `management_bp.validate_schema_endpoint` |
 | management_bp | `/api/manage/studies` | GET | `management_bp.list_studies` |
 | management_bp | `/api/manage/studies/<study>/annotation-version` | POST | `management_bp.set_study_annotation_version` |
+| management_bp | `/api/manage/studies/<study>/set_viz` | GET | `management_bp.study_set_viz` |
 | management_bp | `/api/manage/studies/calculate_stats` | POST | `management_bp.calculate_study_stats` |
 | management_bp | `/api/manage/studies/daily_activities` | POST | `management_bp.daily_activities` |
 | management_bp | `/api/manage/studies/delete` | POST | `management_bp.delete_study` |
 | management_bp | `/api/manage/studies/prewarm_check` | POST | `management_bp.prewarm_study_check` |
 | management_bp | `/api/manage/studies/rename` | POST | `management_bp.rename_study` |
 | management_bp | `/api/manage/studies/save` | POST | `management_bp.save_study` |
+| my_collections_bp | `/api/my/collections` | GET | `my_collections_bp.api_my_collections` |
+| my_collections_bp | `/api/my/collections/<collection_id>/personality` | GET | `my_collections_bp.api_my_collection_personality` |
+| my_collections_bp | `/api/my/collections/<collection_id>/restore` | POST | `my_collections_bp.api_my_restore` |
+| my_collections_bp | `/api/my/collections/<collection_id>/withdraw` | POST | `my_collections_bp.api_my_withdraw` |
+| my_collections_bp | `/api/my/collections/combined/personality` | GET | `my_collections_bp.api_my_combined_personality` |
+| my_collections_bp | `/api/my/collections/pending/delete` | POST | `my_collections_bp.api_my_pending_delete` |
+| my_collections_bp | `/api/my/collections/pending/personality` | GET | `my_collections_bp.api_my_pending_personality` |
+| my_collections_bp | `/api/my/collections/process` | POST | `my_collections_bp.api_my_process` |
+| my_collections_bp | `/api/my/collections/upload` | POST | `my_collections_bp.api_my_upload` |
+| my_collections_bp | `/api/my/collections/upload/sources` | GET | `my_collections_bp.api_my_upload_sources` |
 | process_bp | `/api/logs/<name>` | GET | `process_bp.api_logs` |
 | process_bp | `/api/logs/clear/<name>` | POST | `process_bp.api_clear_logs` |
 | process_bp | `/api/start/<name>` | POST | `process_bp.api_start` |
@@ -141,9 +159,20 @@ python scripts/gen_route_inventory.py
 | process_bp | `/api/stop/<name>` | POST | `process_bp.api_stop` |
 | process_bp | `/api/stop_graceful/<name>` | POST | `process_bp.api_stop_graceful` |
 | public_bp | `/about` | GET | `public_bp.about` |
+| public_bp | `/be-a-citizen-scientist` | GET | `public_bp.be_a_citizen_scientist` |
 | public_bp | `/data-donation` | GET | `public_bp.data_donation` |
+| public_bp | `/ethics` | GET | `public_bp.ethics` |
 | public_bp | `/faq` | GET | `public_bp.faq` |
 | public_bp | `/guide` | GET | `public_bp.guide` |
+| public_bp | `/our-team` | GET | `public_bp.our_team` |
+| public_bp | `/participate` | GET | `public_bp.participate` |
+| public_bp | `/participate/go-tour` | GET | `public_bp.participate_go_tour` |
+| public_bp | `/participate/go-upload` | GET | `public_bp.participate_go_upload` |
+| public_bp | `/participate/start` | GET | `public_bp.participate_start` |
+| public_bp | `/robots.txt` | GET | `public_bp.robots` |
+| public_bp | `/sitemap.xml` | GET | `public_bp.sitemap` |
+| public_bp | `/terms` | GET | `public_bp.terms` |
+| public_bp | `/thehub` | GET | `public_bp.thehub` |
 | semantic_space_bp | `/api/semantic_space/collections` | GET | `semantic_space_bp.api_semantic_space_collections` |
 | semantic_space_bp | `/api/semantic_space/map` | GET | `semantic_space_bp.api_semantic_space_map` |
 | semantic_space_bp | `/api/semantic_space/status` | GET | `semantic_space_bp.api_semantic_space_status` |
@@ -163,4 +192,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-152 routes total.
+181 routes total.

@@ -7,7 +7,10 @@ first time. The exhaustive reference (every module, every convention) is
 ## The system in one paragraph
 
 Researchers upload participants' data-donation exports (zips) or feed
-captures. The **ingestion layer** parses them into a platform-agnostic
+captures — and participants can also upload their own donations self-serve
+(My stuff → My Collections), with a browser-side review/prune step before
+anything is transmitted and a self-service withdrawal path afterwards. The
+**ingestion layer** parses them into a platform-agnostic
 *activity* table (one row per play/like/comment/...). The **scraper** then
 fetches metadata + media for each watched item, and the **annotator** sends
 downloaded media to a pluggable LLM backend (Google Gemini by default;
@@ -70,6 +73,12 @@ Hard-won robustness around that job framework, all mode-agnostic:
   (the run start rides through `task_args`), not just the final link, and
   the UI's status lights use one unified green/blue/amber/red vocabulary
   fed by the GCS status files (queued/failed states included).
+- **The `ops_report` worker** — a daily operational health report
+  (`web_interface/run_ops_report.py` + `services/ops_report.py`): checks
+  across the whole system, an AI-written assessment, and an emailed copy;
+  artifacts land under `cache/ops_report/`. It is the one worker that is
+  deliberately **not** queue-retry-safe — a retry would re-send the email,
+  so a failed run goes straight to the task-failures ledger instead.
 
 **Packaging / reuse.** `fyp` is an installable package (`pip install -e .` is
 the recommended dev setup; see `pyproject.toml`), but installation is never
@@ -174,12 +183,30 @@ Two additions keep the heavy analysis paths O(batch) rather than O(corpus):
   `routes/api_sessions_routes.py`, `templates/tabs/sessions.html`,
   `static/sessions.js`.
 
+## Auto-managed participant studies
+
+Every participant gets two system-managed studies: `__me__{username}`
+("Just Me"), a materialised study over their own collections, and
+`__me_plus__{username}` ("Everyone & Me"), which is **never materialised** —
+its definition carries a COMPOSE marker and its frame is assembled at load
+time (`web_interface/services/study_data.py`) from the site-wide default
+study plus the user's own data. Both carry SYSTEM markers and are skipped by
+all-studies sweeps and boot migrations, and they are provisioned lazily on
+first login / donation registration, so dormant donors get nothing. The
+architectural consequence: the study count now scales with the participant
+count, not just with the researcher-defined studies.
+
 ## The web layer
 
-`web_interface/fyp_data_hub.py` is an app factory registering ~10
-blueprints (`web_interface/routes/`). Auth is Flask-Login with a JSON-file
-user store, role-based permissions (`permissions.py`,
-`@permission_required`), and global CSRF. The frontend is a no-build-step
+`web_interface/fyp_data_hub.py` is an app factory registering 13
+blueprints (`web_interface/routes/` — including the participant-facing
+`my_collections` blueprint and, conditionally on the task-runner/local
+services, the CSRF-exempt `internal` blueprint). Auth is Flask-Login with a
+JSON-file user store, role-based permissions (`permissions.py`,
+`@permission_required`), and global CSRF. The public/SEO surface lives in
+`web_interface/seo.py`: the canonical `<link>`, `robots.txt`, the sitemap,
+JSON-LD, and the `www.`→apex redirect, all derived from the configured
+`[site] app_url`. The frontend is a no-build-step
 SPA: Jinja templates + vanilla JS per tab, all styling through the CSS
 token system in `static/style.css`. See
 [web_interface.md](web_interface.md).

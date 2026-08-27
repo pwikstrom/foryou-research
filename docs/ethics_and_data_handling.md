@@ -20,7 +20,7 @@ participant data).
 
 ## Consent-gated intake
 
-Donations arrive in two ways, both consent-first:
+Donations arrive in three ways, all consent-first:
 
 - **External donation store**: where a study operates its own donation-intake
   service, the automated fetch (`fyp/analysis/donations.py`) retrieves only
@@ -31,6 +31,10 @@ Donations arrive in two ways, both consent-first:
 - **Researcher upload**: zipped "Download Your Data" exports are uploaded
   manually by an authenticated researcher through the Data Pipeline tab,
   after whatever consent procedure the study's ethics protocol requires.
+- **Participant self-serve upload**: a participant with an account uploads
+  their own export through My stuff → My Collections. The route is
+  authenticated, and available only after the participant has accepted the
+  terms of use at signup (`terms_accepted_at` is stamped on the account).
 
 Participants obtain their exports themselves through each platform's own
 data-access mechanism (GDPR/CCPA-mandated "Download Your Data" flows), so
@@ -54,12 +58,28 @@ Free-text fields that may contain participant-authored content (e.g. a
 donated comment's text carried in `extra_data`) stay within the Hub's
 access-controlled storage and are not exported by any built-in report.
 
+For participant self-serve uploads, minimisation starts **before** the data
+reaches the Hub: the participant reviews and prunes their export in the
+browser prior to upload, and nothing leaves their machine during review —
+the parsing and rebuilding run entirely client-side. TikTok DMs, settings,
+ads data and profile sections are stripped in the browser by default, and
+login-history (IP address) rows are shown as a reviewable section the
+participant can delete.
+
 ## Access control and storage
 
 - The web dashboard sits behind authentication (Flask-Login) with
   role-based permissions per tab and sub-page; destructive and
   data-management operations additionally require an admin role. Signup
-  can be gated by an admin setting.
+  approval is **on by default**: new accounts land inactive until an admin
+  approves them (an admin setting can open registration deliberately).
+- One deliberate broadening of access: an admin can name a site-wide
+  **default study** (Admin → Site Settings), which is then readable by
+  *every* logged-in user regardless of the study's own `USER_ACCESS` list —
+  and each participant's auto-managed "Everyone & Me" study composes that
+  default study with their own data. Operators should choose the default
+  study knowing it widens who can read the participant-derived data inside
+  it.
 - All storage goes through a single I/O abstraction
   (`fyp/core/data_io.py`): a local filesystem in local mode, or a private
   Google Cloud Storage bucket in cloud mode. Nothing is served publicly;
@@ -105,7 +125,12 @@ are never silently pooled.
 The deletable unit is the **collection** — one donor's ingested data.
 Deleting a collection (Data Pipeline interface, admin-only, runs as a
 background task) is precise about participant-linked data but is **not a
-full purge on its own**. Operators handling a withdrawal request should
+full purge on its own**. Participants also have a self-service path: a
+participant can withdraw their own processed collection from My stuff → My
+Collections (behind a typed collection-id confirmation), which runs the
+same collection-delete worker described below and emails the oldest admin;
+the participant can restore the withdrawal themselves within the restore
+window. Operators handling a withdrawal request should
 know exactly what each step does:
 
 **Removed immediately** (participant-linked rows):
@@ -117,8 +142,15 @@ know exactly what each step does:
 
 **Retained by design — the original donation.** The raw upload files are
 *moved to an archive location*, not destroyed, so an accidental deletion
-is recoverable; the deletion dialog says so explicitly. The archive has
-no automatic expiry. **For a genuine withdrawal, the operator must also
+is recoverable; the deletion dialog says so explicitly. The archive's
+expiry depends on who initiated the deletion: an **admin-initiated**
+delete leaves the archived files indefinitely, while a
+**participant-initiated withdrawal self-purges** — the archived raw file
+is deleted for good 30 days after the withdrawal
+(`WITHDRAWAL_RETENTION_DAYS` in
+`web_interface/services/my_collections_service.py`), with restore
+possible within that window. **For a genuine withdrawal handled by an
+operator, the operator must also
 delete the archived files** (and, where Google Cloud Storage object
 versioning or soft-delete is enabled on the bucket, purge noncurrent
 object generations — the application neither enables nor manages bucket
