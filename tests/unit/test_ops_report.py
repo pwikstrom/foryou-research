@@ -66,6 +66,20 @@ def test_render_html_escapes_content():
     assert page.lstrip().startswith("<!doctype html>")
 
 
+def test_render_email_html_is_gmail_safe():
+    from web_interface.services.ops_report import render_email_html
+
+    page = render_email_html(_minimal_doc(), "## Action needed\n- Fix `it`")
+    # Gmail drops CSS custom properties and class-based rules entirely.
+    assert "var(--" not in page
+    assert "<style" not in page
+    assert 'class="' not in page
+    assert "<script>alert(1)</script>" not in page
+    assert "&lt;script&gt;" in page
+    assert "#9679;" in page  # the coloured status dots
+    assert "Scrape queue · tiktok" in page
+
+
 def test_fallback_narrative_lists_reds():
     from web_interface.services.ops_report import _fallback_narrative
 

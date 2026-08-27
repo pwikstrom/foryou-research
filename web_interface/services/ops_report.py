@@ -889,6 +889,178 @@ def render_html(doc: dict, narrative_md: str) -> str:
 """
 
 
+# ---------------------------------------------------------- email variant
+
+# Gmail drops any CSS rule using custom properties and ignores <style> rules
+# it does not understand, so the emailed report inlines hardcoded colours on
+# every element and uses no classes at all. Light theme only.
+_EMAIL_COLORS = {
+    "ink": "#1c2427", "dim": "#5b6a70", "line": "#dde4e6",
+    "bg": "#f2f5f6", "surface": "#ffffff",
+    "green": "#2f9e63", "yellow": "#b97d0a", "red": "#d64550",
+    "blue": "#3f7fd6",
+    "green_soft": "#e2f2e9", "yellow_soft": "#f7edd6",
+    "red_soft": "#f9e3e5", "blue_soft": "#e3edf9",
+}
+_EMAIL_DETAIL_CAP = 6
+
+
+def render_email_html(doc: dict, narrative_md: str) -> str:
+    """Render the report for email clients: inline styles only, no CSS
+    variables, no classes, table-free flowing layout capped at 720px."""
+    c = _EMAIL_COLORS
+    mono = "font-family:'SF Mono',Menlo,Consolas,monospace;"
+
+    def dot(status, size=12):
+        return (f'<span style="color:{c[status]};font-size:{size}px;'
+                f'line-height:1;">&#9679;</span>')
+
+    def tag(status):
+        return (f'<span style="background:{c[status + "_soft"]};'
+                f'color:{c[status]};font-size:10px;font-weight:bold;'
+                f'letter-spacing:0.08em;text-transform:uppercase;'
+                f'padding:1px 7px;border-radius:999px;">'
+                f'{STATUS_LABEL[status]}</span>')
+
+    def styled_md(md):
+        frag = _md_to_html(md)
+        frag = frag.replace(
+            "<h3>", f'<h3 style="font-size:14px;color:{c["ink"]};'
+                    'margin:14px 0 6px;">')
+        frag = frag.replace(
+            "<h4>", f'<h4 style="font-size:13px;color:{c["ink"]};'
+                    'margin:12px 0 4px;">')
+        frag = frag.replace(
+            "<p>", f'<p style="margin:6px 0;color:{c["ink"]};">')
+        frag = frag.replace(
+            "<ul>", '<ul style="margin:6px 0;padding-left:20px;">')
+        frag = frag.replace(
+            "<li>", f'<li style="margin:4px 0;color:{c["ink"]};">')
+        frag = frag.replace(
+            "<code>", f'<code style="{mono}font-size:0.88em;'
+                      f'background:#eaeff1;padding:1px 4px;'
+                      'border-radius:4px;">')
+        return frag
+
+    counts = doc.get("counts", {})
+    overall = doc.get("overall", "blue")
+    overall_word = {"green": "All clear", "blue": "Normal activity",
+                    "yellow": "Needs a look", "red": "Action needed"}[overall]
+
+    tally = " &nbsp; ".join(
+        f'{dot(k, 11)} <span style="{mono}font-size:13px;'
+        f'color:{c["dim"]};">{counts.get(k, 0)}</span>'
+        for k in ("red", "yellow", "blue", "green"))
+
+    stats_cells = ""
+    for t in doc.get("stats", []):
+        sub = (f'<div style="font-size:11px;color:{c["dim"]};'
+               f'margin-top:2px;">{_inline_md(t["sub"])}</div>'
+               if t.get("sub") else "")
+        stats_cells += (
+            f'<td style="background:{c["surface"]};border:1px solid '
+            f'{c["line"]};border-radius:8px;padding:10px 12px;'
+            'vertical-align:top;">'
+            f'<div style="font-size:10.5px;font-weight:bold;'
+            f'text-transform:uppercase;letter-spacing:0.06em;'
+            f'color:{c["dim"]};">{dot(t["status"], 10)} '
+            f'{_esc(t["label"])}</div>'
+            f'<div style="{mono}font-size:24px;color:{c["ink"]};'
+            f'margin-top:2px;">{_esc(t["value"])}</div>{sub}</td>'
+            '<td style="width:8px;"></td>')
+
+    sections_html = ""
+    for s in doc.get("sections", []):
+        worst = "green"
+        for chk in s["checks"]:
+            if STATUS_RANK[chk["status"]] > STATUS_RANK[worst]:
+                worst = chk["status"]
+        rows = ""
+        for chk in s["checks"]:
+            details = ""
+            if chk.get("details"):
+                shown = chk["details"][:_EMAIL_DETAIL_CAP]
+                extra = len(chk["details"]) - len(shown)
+                items = "".join(
+                    f'<li style="{mono}font-size:11px;color:{c["dim"]};'
+                    f'margin:2px 0;">{_inline_md(d)}</li>' for d in shown)
+                if extra > 0:
+                    items += (f'<li style="font-size:11px;color:{c["dim"]};">'
+                              f'&#8230; and {extra} more (see the Hub)</li>')
+                details = (f'<ul style="margin:4px 0 2px;'
+                           f'padding-left:18px;">{items}</ul>')
+            rows += (
+                f'<div style="padding:8px 0;border-bottom:1px solid '
+                f'{c["line"]};">'
+                f'<div style="font-size:13.5px;color:{c["ink"]};">'
+                f'{dot(chk["status"])} <strong>{_esc(chk["title"])}</strong> '
+                f'{tag(chk["status"])}</div>'
+                f'<div style="font-size:13px;color:{c["ink"]};'
+                f'margin:2px 0 0 18px;">{_inline_md(chk["summary"])}</div>'
+                f'<div style="margin-left:18px;">{details}</div></div>')
+        sections_html += (
+            f'<div style="background:{c["surface"]};border:1px solid '
+            f'{c["line"]};border-radius:10px;padding:14px 16px;'
+            'margin:0 0 14px;">'
+            f'<div style="font-size:15px;font-weight:bold;'
+            f'color:{c["ink"]};padding-bottom:8px;border-bottom:1px solid '
+            f'{c["line"]};">{dot(worst)} {_esc(s["title"])}</div>'
+            f'{rows}</div>')
+
+    narrative_html = ""
+    if narrative_md.strip():
+        narrative_html = (
+            f'<div style="background:{c["surface"]};border:1px solid '
+            f'{c["line"]};border-radius:10px;padding:14px 16px;'
+            'margin:0 0 14px;">'
+            f'<div style="font-size:15px;font-weight:bold;color:{c["ink"]};'
+            f'padding-bottom:8px;border-bottom:1px solid {c["line"]};">'
+            'Morning assessment</div>'
+            f'{styled_md(narrative_md)}</div>')
+
+    prev = doc.get("previous_run_at")
+    prev_html = (f'<div style="{mono}font-size:12px;color:{c["dim"]};">'
+                 f'diffs vs {_esc(prev)}</div>' if prev else "")
+
+    legend = " &nbsp;&nbsp; ".join(
+        f'{dot(k, 10)} <span style="font-size:11.5px;color:{c["dim"]};">'
+        f"{label}</span>"
+        for k, label in (("red", "Action needed"), ("yellow", "Watch"),
+                         ("blue", "Informational"), ("green", "Healthy")))
+
+    return f"""<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Hub Ops Report</title></head>
+<body style="margin:0;padding:0;background:{c['bg']};">
+<div style="max-width:720px;margin:0 auto;padding:20px 16px 40px;
+font-family:Arial,'Helvetica Neue',sans-serif;color:{c['ink']};">
+  <div style="padding-bottom:14px;border-bottom:2px solid {c['line']};
+  margin-bottom:16px;">
+    <div style="font-size:20px;font-weight:bold;">{dot(overall, 14)}
+    Hub Ops Report &nbsp;
+    <span style="background:{c[overall + '_soft']};color:{c[overall]};
+    font-size:13px;padding:3px 10px;border-radius:999px;">{overall_word}</span>
+    </div>
+    <div style="margin-top:6px;">{tally}</div>
+    <div style="{mono}font-size:12px;color:{c['dim']};margin-top:6px;">
+    {_esc(doc.get('generated_at_local', ''))}</div>
+    {prev_html}
+  </div>
+  <table role="presentation" cellpadding="0" cellspacing="0"
+  style="border-collapse:separate;margin-bottom:16px;"><tr>
+  {stats_cells}</tr></table>
+  {narrative_html}
+  {sections_html}
+  <div style="margin-top:16px;">{legend}</div>
+  <div style="font-size:11.5px;color:{c['dim']};margin-top:10px;">
+  The interactive version lives in the Hub under
+  Admin &#8594; System &#8594; Daily Ops Report.</div>
+</div>
+</body>
+</html>
+"""
+
+
 # ------------------------------------------------------------- orchestrate
 
 def generate_ops_report(reporter=None, hours_back: int = 24,
@@ -934,7 +1106,7 @@ def generate_ops_report(reporter=None, hours_back: int = 24,
     email_sent = False
     if send_email:
         progress(92, "Emailing the report...")
-        email_sent = _email_report(page, doc)
+        email_sent = _email_report(render_email_html(doc, narrative_md), doc)
 
     progress(100, f"Ops report done — overall {doc['overall']}, "
                   f"email {'sent' if email_sent else 'not sent'}.")
