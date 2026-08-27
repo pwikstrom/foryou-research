@@ -241,3 +241,26 @@ def test_upload_records_account_link(env):
         "files": (io.BytesIO(b"{}"), "donor_b.json"), "raw_path": raw_path, "user_id": "ghost@example.test"},
         content_type="multipart/form-data")
     assert r.status_code == 400
+
+
+def test_coverage_endpoint_is_separate_from_the_listing(env):
+    """The Edit Collections coverage column has its own round trip.
+
+    The listing reads the small metadata table; coverage needs a scan of the
+    whole activity parquet, so it must not be able to slow the listing down.
+    """
+    store, client, um = env
+    with patch("web_interface.services.collection_coverage.corpus_coverage",
+               return_value={"c1": {"pct_scraped": 0.5, "pct_annotated": 0.25}}) as scan:
+        r = client.get("/api/manage/collections/coverage")
+        assert r.status_code == 200
+        assert r.get_json()["c1"]["pct_annotated"] == 0.25
+        assert scan.call_args.kwargs["force"] is False
+
+        client.get("/api/manage/collections/coverage?fresh=1")
+        assert scan.call_args.kwargs["force"] is True
+
+        # The listing itself never triggers the scan.
+        scan.reset_mock()
+        assert client.get("/api/manage/collections").status_code == 200
+        scan.assert_not_called()

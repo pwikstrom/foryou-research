@@ -70,6 +70,20 @@ public version. Entries below describe the Hub as it stands at that release.
   of existing collections (dry run by default; refuses to apply unless the
   configured storage is GCS, snapshots first, writes a report).
 
+### Changed
+
+- **Edit Collections shows scraped/annotated coverage.** The share of each
+  collection's viewing activities whose video is scraped and annotated — the
+  same figure a participant reads on their own My Collections page — is now a
+  column in the admin table. It arrives on its own request (the listing reads
+  the small metadata table; coverage needs a scan of the activity parquet), so
+  the table still renders at metadata speed and the column fills a moment
+  later. Both tables now compute it from one shared implementation. To make
+  room, the table drops **Last Event** (still in the collection's edit modal,
+  next to First Event) and renders its two remaining date columns with a
+  two-digit year, with the full date on hover and still searchable by the
+  four-digit one.
+
 ### Security
 
 - **New user signups now require admin approval by default.** A fresh install

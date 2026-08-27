@@ -192,6 +192,28 @@ def delete_collection():
 
 
 
+@management_bp.route('/api/manage/collections/coverage', methods=['GET'])
+@permission_required('tab.data_management.edit_collections')
+@login_required
+def collections_coverage():
+    """Scraped/annotated coverage for every collection, for the table's column.
+
+    Deliberately NOT part of ``/api/manage/collections``: coverage needs a scan
+    of the whole recoded parquet, while the listing reads only the (small)
+    metadata table. Keeping them apart lets the Edit Collections table render
+    at metadata speed and fill this column when it arrives.
+
+    ``?fresh=1`` re-scans instead of reading the TTL cache — for checking on an
+    enrichment run that has just finished.
+    """
+    from ...services import collection_coverage
+
+    fresh = bool(request.args.get('fresh'))
+    return jsonify(collection_coverage.corpus_coverage(force=fresh))
+
+
+
+
 @management_bp.route('/api/manage/collections', methods=['GET'])
 @permission_required('tab.data_management.edit_collections')
 @login_required

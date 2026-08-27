@@ -136,6 +136,18 @@
 
 
     /**
+     * "28-Jul-26" in the viewer's timezone — the two-digit-year form, for wide
+     * tables where a date column has to give ground. Only for a column whose
+     * century is never in doubt; pair it with a full-form title attribute.
+     */
+    function fypFmtDateShort(value, fallback) {
+        const d = fypParseInstant(value);
+        if (!d) return fallback === undefined ? '' : fallback;
+        return `${pad2(d.getDate())}-${MONTHS[d.getMonth()]}-${pad2(d.getFullYear() % 100)}`;
+    }
+
+
+    /**
      * "28-Jul-2026 14:32:07 AEST" — the unabbreviated form, with seconds and an
      * explicit zone. Use it in tooltips and title attributes so the exact
      * instant is always recoverable from a screen that shows the short form.
@@ -202,6 +214,14 @@
     }
 
 
+    /** "28-Jul-26" exactly as stored — the two-digit-year form of fypWallDate. */
+    function fypWallDateShort(value, fallback) {
+        const p = _wallParts(value);
+        if (!p) return fallback === undefined ? '' : fallback;
+        return `${pad2(p.day)}-${MONTHS[p.month - 1]}-${pad2(p.year % 100)}`;
+    }
+
+
     /**
      * "2026-07-28" exactly as stored — no timezone conversion. For values that
      * feed date inputs and API filters rather than prose.
@@ -254,12 +274,14 @@
     global.fypFmtDateTime = fypFmtDateTime;
     global.fypFmtDateTimeShort = fypFmtDateTimeShort;
     global.fypFmtDate = fypFmtDate;
+    global.fypFmtDateShort = fypFmtDateShort;
     global.fypFmtDateTimeFull = fypFmtDateTimeFull;
     global.fypFmtRelative = fypFmtRelative;
     global.fypFmtAuto = fypFmtAuto;
     global.fypTimeZoneLabel = fypTimeZoneLabel;
     global.fypWallDateTime = fypWallDateTime;
     global.fypWallDate = fypWallDate;
+    global.fypWallDateShort = fypWallDateShort;
     global.fypWallIsoDate = fypWallIsoDate;
     global.fypUpgradeInstantElements = fypUpgradeInstantElements;
 })(window);

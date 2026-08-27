@@ -105,7 +105,7 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
     table.style.cssText = 'width: 100% !important; max-width: 100%; border-collapse: collapse; color: var(--color-text-secondary);';
     table.classList.add('text-sm');
 
-    // Create Header (column order matches Edit Collections table)
+    // Create Header (a subset of the Edit Collections columns, same order)
     const thead = document.createElement('thead');
     const sThStyle = 'padding: 8px 5px; position: sticky; top: 0; background: var(--color-border); z-index: 10; cursor: pointer; user-select: none; border-bottom: 2px solid var(--color-border-strong);';
     thead.innerHTML = `
@@ -5219,20 +5219,28 @@ function pollIngestRefreshStatus(btn, originalText, originalClass) {
 
 // --- Edit Activity Data Modal Logic ---
 
+const _COVERAGE_COLUMN_LABEL = 'Scraped / annotated';
+
 // Columns shown in the Edit Collections table. Everything else the collections
-// metadata carries (timezone, demographics, contact details) lives in the edit
-// modal instead: the table is for finding a collection, the modal is for
-// reading and changing one. `sortType` drives sortCollectionTable — dates
-// render as human strings and would otherwise sort by day-of-month.
+// metadata carries (timezone, last event, demographics, contact details) lives
+// in the edit modal instead: the table is for finding a collection, the modal
+// is for reading and changing one. `sortType` drives sortCollectionTable —
+// dates render as human strings and would otherwise sort by day-of-month.
+// Every column but the last comes from the collections listing; coverage
+// arrives separately (see _dmFillCoverageCells).
 const _EDIT_COLLECTION_COLUMNS = [
     { label: 'Collection / Display ID', sortType: 'text' },
     { label: 'Account', sortType: 'text' },
     { label: 'Tags', sortType: 'text' },
     { label: 'First Event', sortType: 'date' },
-    { label: 'Last Event', sortType: 'date' },
     { label: 'Added', sortType: 'date' },
     { label: 'Activities', sortType: 'number' },
     { label: 'Active Days', sortType: 'number' },
+    {
+        label: _COVERAGE_COLUMN_LABEL, sortType: 'number',
+        title: 'Share of the collection\u2019s viewing activities whose video is '
+            + 'scraped / annotated \u2014 the same figure a participant sees in My Collections',
+    },
 ];
 
 
@@ -5277,6 +5285,75 @@ function _dmSortTs(value) {
 }
 
 
+// The Edit Collections coverage column: the share of each collection's viewing
+// activities whose video is scraped / annotated. It needs a scan of the whole
+// activity parquet, so it has its own endpoint and its own (server-cached)
+// round trip — the table renders at metadata speed and these cells fill in
+// when the answer lands. `null` here means "not fetched yet", which the cells
+// show as an ellipsis rather than an em-dash: not-known-yet and known-to-be-
+// nothing are different facts.
+let collectionCoverage = null;
+let _coverageInFlight = null;
+
+function loadCollectionCoverage() {
+    if (_coverageInFlight) return _coverageInFlight;
+    _coverageInFlight = fetch('/api/manage/collections/coverage')
+        .then(res => (res.ok ? res.json() : {}))
+        .catch(err => {
+            console.error("Error loading collection coverage:", err);
+            return {};
+        })
+        .then(data => {
+            collectionCoverage = (data && typeof data === 'object') ? data : {};
+            _coverageInFlight = null;
+            return collectionCoverage;
+        });
+    return _coverageInFlight;
+}
+
+
+function _dmSetCoverageCell(td, cov) {
+    const muted = (text) => {
+        td.textContent = text;
+        td.style.color = 'var(--color-text-tertiary)';
+        td.dataset.sortValue = '';
+    };
+    if (!collectionCoverage) return muted('\u2026');
+    // Loaded, but this collection has no entry: no view activities at all, or
+    // no enrichment status table to check them against. Not the same as 0%.
+    if (!cov || cov.pct_scraped == null || cov.pct_annotated == null) return muted('\u2014');
+    td.textContent = `${Math.round(cov.pct_scraped * 100)}% / ${Math.round(cov.pct_annotated * 100)}%`;
+    td.style.color = '';
+    td.dataset.sortValue = String(cov.pct_scraped);
+}
+
+
+function _dmCoverageCell(collectionId) {
+    const td = document.createElement('td');
+    td.className = 'coverage-cell';
+    td.style.padding = '5px';
+    td.style.whiteSpace = 'nowrap';
+    td.dataset.collectionId = collectionId;
+    _dmSetCoverageCell(td, collectionCoverage ? collectionCoverage[collectionId] : null);
+    return td;
+}
+
+
+function _dmFillCoverageCells(container) {
+    loadCollectionCoverage().then(cov => {
+        container.querySelectorAll('td.coverage-cell').forEach(td => {
+            _dmSetCoverageCell(td, cov[td.dataset.collectionId]);
+        });
+        // If the table is already sorted by this column it was sorting blanks;
+        // settle it again now the values exist.
+        const active = container.querySelector('th[data-sort-dir]:not([data-sort-dir=""])');
+        if (active && active.textContent.replace(/ [\u25bc\u25b2]$/, '') === _COVERAGE_COLUMN_LABEL) {
+            window.sortCollectionTable(active, active.dataset.sortDir);
+        }
+    });
+}
+
+
 function renderEditActivityTable(container) {
     if (!container) return;
     container.innerHTML = '';
@@ -5293,7 +5370,8 @@ function renderEditActivityTable(container) {
     const thead = document.createElement('thead');
     const headerCells = _EDIT_COLLECTION_COLUMNS.map((col, i) => {
         const extra = i === 0 ? ' max-width: 160px;' : '';
-        return `<th style="${thStyle}${extra}" data-sort-type="${col.sortType}"`
+        const title = col.title ? ` title="${_escapeHtml(col.title)}"` : '';
+        return `<th style="${thStyle}${extra}" data-sort-type="${col.sortType}"${title}`
             + ` onclick="sortCollectionTable(this)">${col.label}</th>`;
     }).join('');
     thead.innerHTML = `
@@ -5311,9 +5389,9 @@ function renderEditActivityTable(container) {
     availableCollections.forEach(itemInfo => {
         const item = typeof itemInfo === 'string' ? itemInfo : itemInfo.id;
         let pAccount = '', pAccountId = '', pAdded = '', pDisplayId = '', pTags = '';
-        let pActiveDays = '', pTotalEvents = '', pLastEvent = '';
+        let pActiveDays = '', pTotalEvents = '';
         let pTimezone = '', pFirstEvent = '';
-        let rawAdded = null, rawFirstEvent = null, rawLastEvent = null;
+        let rawAdded = null, rawFirstEvent = null;
         let searchString = item;
 
         if (typeof itemInfo === 'object') {
@@ -5324,19 +5402,21 @@ function renderEditActivityTable(container) {
             if (itemInfo.personas) {
                 pActiveDays = itemInfo.personas.active_days ?? '';
                 pTotalEvents = itemInfo.personas.total_events ?? '';
-                rawLastEvent = itemInfo.personas.last_event_ts || null;
                 rawFirstEvent = itemInfo.personas.first_event_ts || null;
-                if (rawLastEvent) pLastEvent = fypWallDate(rawLastEvent);
-                if (rawFirstEvent) pFirstEvent = fypWallDate(rawFirstEvent);
+                if (rawFirstEvent) pFirstEvent = fypWallDateShort(rawFirstEvent);
                 pTimezone = _dmTimezoneLabel(itemInfo);
             }
             if (itemInfo.other && itemInfo.other.ts_added_to_dataset) {
                 rawAdded = itemInfo.other.ts_added_to_dataset;
-                pAdded = fypFmtDate(rawAdded);
+                pAdded = fypFmtDateShort(rawAdded);
             }
             // The account (display name + id) is searchable — the search box
-            // is how you find "that participant's" collections.
-            searchString = `${item} ${pDisplayId} ${pTags} ${pAccount} ${pAccountId} ${pTimezone} ${pActiveDays} ${pTotalEvents} ${pFirstEvent} ${pLastEvent} ${pAdded}`;
+            // is how you find "that participant's" collections. The date
+            // columns render a two-digit year but stay searchable by the
+            // four-digit one, which is what a person types.
+            searchString = `${item} ${pDisplayId} ${pTags} ${pAccount} ${pAccountId} ${pTimezone} `
+                + `${pActiveDays} ${pTotalEvents} ${pFirstEvent} ${fypWallDate(rawFirstEvent, '')} `
+                + `${pAdded} ${fypFmtDate(rawAdded, '')}`;
         }
 
         const tr = document.createElement('tr');
@@ -5402,17 +5482,19 @@ function renderEditActivityTable(container) {
         accountCell.style.whiteSpace = 'nowrap';
         tr.appendChild(accountCell);
         tr.appendChild(createCell(pTags));
-        tr.appendChild(createCell(pFirstEvent, false, null, _dmSortTs(rawFirstEvent)));
-        tr.appendChild(createCell(pLastEvent, false, null, _dmSortTs(rawLastEvent)));
-        tr.appendChild(createCell(pAdded, false, null, _dmSortTs(rawAdded)));
+        // Two-digit years, with the full date on hover so nothing is lost.
+        tr.appendChild(createCell(pFirstEvent, false, fypWallDate(rawFirstEvent, null), _dmSortTs(rawFirstEvent)));
+        tr.appendChild(createCell(pAdded, false, fypFmtDate(rawAdded, null), _dmSortTs(rawAdded)));
         tr.appendChild(createCell(pTotalEvents));
         tr.appendChild(createCell(pActiveDays));
+        tr.appendChild(_dmCoverageCell(item));
 
         tbody.appendChild(tr);
     });
 
     table.appendChild(tbody);
     container.appendChild(table);
+    _dmFillCoverageCells(container);
 
     // Apply saved sort state, or default to Added descending
     const savedState = tableSortStates.get('edit-activity');

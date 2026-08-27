@@ -470,6 +470,13 @@
   ]
  ],
  [
+  "/api/manage/collections/coverage",
+  "management_bp.collections_coverage",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/manage/collections/delete",
   "management_bp.delete_collection",
   [

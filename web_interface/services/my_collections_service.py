@@ -22,6 +22,7 @@ import fyp.data_io as data_io
 from fyp.organize_datasets import COLLECTIONS_LABEL
 
 from ..collection_accounts import collections_for_user
+from . import collection_coverage
 from .study_data import get_collection_tags
 
 RECODED_FILENAME = f"{COLLECTIONS_LABEL}_recoded.parquet"
@@ -599,11 +600,10 @@ def _platforms_and_coverage(username: str, cids: list[str]) -> tuple[dict, dict]
     """Per-collection platform/source plus scraped/annotated coverage, TTL-cached.
 
     One selective scan of the recoded parquet over the user's collections.
-    Coverage is the share of a collection's VIEW activities (play/observe —
-    never ``total_events``, which counts likes/searches/follows that have no
-    scrapeable item) whose item is scraped / annotated in
-    ``enrichment_status.parquet``. Missing status table or no view rows →
-    the collection simply has no coverage entry (UI shows an em-dash).
+    The coverage arithmetic itself lives in ``collection_coverage`` — the admin
+    Edit Collections table reports the same figure corpus-wide and the two must
+    not drift. Missing status table or no view rows → the collection simply has
+    no coverage entry (UI shows an em-dash).
     """
     now = time.time()
     hit = _coverage_cache.get(username)
@@ -626,22 +626,7 @@ def _platforms_and_coverage(username: str, cids: list[str]) -> tuple[dict, dict]
                     "source_platform": str(grp["source_platform"].mode().iloc[0]),
                     "data_source": str(grp["data_source"].mode().iloc[0]),
                 }
-            from . import preview_cache
-            status = preview_cache.get_enrichment_status_cached()
-            views = df[df["activity_type"].astype(str).isin(_VIEW_TYPES)]
-            if status is not None and len(views):
-                iid_keys = views["item_id"].astype(str).to_numpy()
-                scraped, annotated = preview_cache.status_flags(iid_keys, status)
-                flags = pd.DataFrame({
-                    "collection_id": views["collection_id"].astype(str).to_numpy(),
-                    "scraped": scraped,
-                    "annotated": annotated,
-                })
-                for cid, grp in flags.groupby("collection_id", observed=True):
-                    coverage[str(cid)] = {
-                        "pct_scraped": round(float(grp["scraped"].mean()), 4),
-                        "pct_annotated": round(float(grp["annotated"].mean()), 4),
-                    }
+            coverage = collection_coverage.coverage_from_activities(df)
     except Exception as e:
         print(f"[my_collections] platform/coverage lookup failed: {e}")
         # Fall through with whatever was collected; do not cache a failure
