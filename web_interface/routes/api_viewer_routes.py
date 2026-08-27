@@ -639,6 +639,60 @@ def _eval_stream_allowed(item_id: str) -> bool:
 
 
 
+# Cloud Run drops any non-chunked HTTP/1 response over 32 MiB and logs it as a
+# 500 (the app never sees an error). Both stream paths below stay under it: a
+# ranged reply is capped at MAX_RANGE_CHUNK regardless of what the client asked
+# for, and a whole-object reply goes out chunked once it would cross the line.
+RESPONSE_SIZE_CAP = 32 * 1024 * 1024
+MAX_RANGE_CHUNK = 4096 * 16 * 16  # ~1 MiB
+
+
+def _parse_byte_range(range_header, total_size, max_chunk=MAX_RANGE_CHUNK):
+    """Resolve a Range header into the inclusive ``(start, end)`` to serve.
+
+    Handles the three legal single-range forms — ``N-M``, ``N-`` (open-ended)
+    and ``-N`` (the last N bytes, which mp4 players use to fetch a trailing
+    moov atom) — and takes the first range of a multi-range list.
+
+    ``end`` is always clamped to ``start + max_chunk - 1``: answering with less
+    than was asked for is legal (the player simply requests the rest), and it
+    is what keeps an oversized file from being buffered whole and then rejected
+    by the platform.
+
+    Args:
+        range_header: The raw ``Range`` request header.
+        total_size: Size of the object being served, in bytes.
+        max_chunk: Largest body to return for one request.
+
+    Returns:
+        ``(start, end)``, or ``None`` when the header is malformed or asks for
+        an offset at/past the end — RFC 9110 lets a server ignore those, and
+        the caller then serves the whole object.
+    """
+    spec = str(range_header or "").strip()
+    if not spec.lower().startswith("bytes="):
+        return None
+    spec = spec[len("bytes="):].split(",")[0].strip()
+    first, sep, last = spec.partition("-")
+    if not sep:
+        return None
+    try:
+        if not first:
+            # Suffix form: the final `last` bytes of the object.
+            suffix = int(last)
+            if suffix <= 0:
+                return None
+            start, end = max(0, total_size - suffix), total_size - 1
+        else:
+            start = int(first)
+            end = int(last) if last else total_size - 1
+    except ValueError:
+        return None
+    if start < 0 or start >= total_size or end < start:
+        return None
+    return start, min(end, start + max_chunk - 1, total_size - 1)
+
+
 @viewer_bp.route('/api/video/<study>/<item_id>', methods=['GET'])
 @login_required
 def api_video_stream(study, item_id):
@@ -696,12 +750,9 @@ def api_video_stream(study, item_id):
             blob.reload()
             total_size = blob.size
 
-        if range_header:
-            range_spec = range_header.replace('bytes=', '').strip()
-            parts = range_spec.split('-')
-            start = int(parts[0])
-            end = int(parts[1]) if parts[1] else min(start + chunk_size * 16 - 1, total_size - 1)
-            end = min(end, total_size - 1)
+        byte_range = _parse_byte_range(range_header, total_size) if range_header else None
+        if byte_range is not None:
+            start, end = byte_range
 
             # Read only the requested range into memory (a single GCS ranged GET) and
             # return it — no long-lived streaming generator holding the GCS connection
@@ -725,10 +776,14 @@ def api_video_stream(study, item_id):
 
         headers = {
             'Accept-Ranges': 'bytes',
-            'Content-Length': str(total_size),
             'Content-Type': 'video/mp4',
             'Cache-Control': 'private, max-age=3600',
         }
+        # Declaring Content-Length forfeits chunked transfer-encoding, and with
+        # it the exemption from the platform's response cap. Only declare it
+        # while the body is safely under that cap.
+        if total_size < RESPONSE_SIZE_CAP:
+            headers['Content-Length'] = str(total_size)
         return Response(stream_with_context(generate()), headers=headers)
 
     # Local filesystem path. send_file(conditional=True) serves HTTP Range requests

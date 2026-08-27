@@ -34,6 +34,10 @@ SESSION_COOKIE = {"tiktok": "sessionid", "instagram": "sessionid",
                   "youtube": "__Secure-3PSID"}
 REPORT_DIR = "ops_report"
 KEEP_DATED_REPORTS = 60
+# A non-empty queue whose drain worker has not succeeded in this many days
+# is treated as stalled — both platform drains have stopped on a rate limit
+# and simply never been restarted.
+STALE_QUEUE_DAYS = 3
 
 
 def _now():
@@ -57,6 +61,21 @@ def _parse_iso(s):
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except (ValueError, TypeError):
         return None
+
+
+def _log_ts(entry):
+    """Parse one Cloud Logging entry's timestamp.
+
+    ``_parse_iso`` cannot: Logging stamps are RFC3339 with nanosecond
+    precision (``...:26.603430292Z``), which ``fromisoformat`` rejects.
+    """
+    m = re.match(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?",
+                 str(entry.get("timestamp") or ""))
+    if not m:
+        return None
+    frac = (m.group(2) or "")[:6].ljust(6, "0")
+    return datetime.strptime(f"{m.group(1)}.{frac}",
+                             "%Y-%m-%dT%H:%M:%S.%f").replace(tzinfo=timezone.utc)
 
 
 def _local(dt, tz):
@@ -294,6 +313,15 @@ def collect_status(hours_back: int = 24) -> dict:
         else:
             check(sec, "Queue growth", "green", "No unusual queue growth")
 
+        stalled = _stalled_queues(queue_now, stats_doc, now)
+        if stalled:
+            check(sec, "Queue drain", "yellow",
+                  f"{len(stalled)} queue(s) waiting on a drain that has not run "
+                  f"in {STALE_QUEUE_DAYS}+ days", stalled)
+        else:
+            check(sec, "Queue drain", "green",
+                  "No queue waiting on a stopped drain")
+
         day_stamp_min = (now - timedelta(hours=hours_back)).strftime("%Y%m%d%H%M%S")
         fails = [n for n in data_io.listdir(storage_location="scrape")
                  if n.startswith("scrape_failed_items_")
@@ -437,7 +465,7 @@ def collect_status(hours_back: int = 24) -> dict:
     # ---- platform & infrastructure -------------------------------------
     sec = section("Platform & infrastructure")
     try:
-        errors_by_service, fivexx = _cloud_run_log_summary(hours_back)
+        errors_by_service, fivexx, platform_notes = _cloud_run_log_summary(hours_back)
         for svc, lines in errors_by_service.items():
             if lines:
                 check(sec, f"ERROR logs (24h) · {svc}", "yellow",
@@ -447,8 +475,16 @@ def collect_status(hours_back: int = 24) -> dict:
                 check(sec, f"ERROR logs (24h) · {svc}", "green",
                       "Zero ERROR-severity entries")
         if fivexx:
+            # The platform notes lead the detail lines, ahead of the failed
+            # URLs (which repeat one another anyway). Cloud Run drops an
+            # oversized or over-limit response itself, so its own warning is
+            # the only record of *why* — there is no app traceback to find —
+            # and both the email and the narrative's copy of the doc truncate
+            # details from the front.
             check(sec, "HTTP 5xx responses (24h)", "red",
-                  f"{len(fivexx)} failed request(s)", [ln[:220] for ln in fivexx[:8]])
+                  f"{len(fivexx)} failed request(s)",
+                  [ln[:220] for ln in platform_notes[:4]]
+                  + [ln[:220] for ln in fivexx[:8]])
         else:
             check(sec, "HTTP 5xx responses (24h)", "green",
                   "Zero 5xx responses, both services")
@@ -514,10 +550,71 @@ def collect_status(hours_back: int = 24) -> dict:
     return doc
 
 
+def _stalled_queues(queue_now, stats_doc, now, max_age_days=STALE_QUEUE_DAYS):
+    """Name every non-empty queue whose drain worker has gone quiet.
+
+    Growth is only half the question — a queue that never shrinks is the other
+    half, and to a day-over-day diff it looks exactly like "unchanged". Each
+    queue is aged by its own drain worker's last success, not by the queue
+    file, which a stalled drain never rewrites.
+
+    Args:
+        queue_now: ``{queue key: length}`` as collected this run.
+        stats_doc: The process-stats document, keyed by worker name.
+        now: Current time.
+        max_age_days: How long a drain may be silent before it counts as stopped.
+
+    Returns:
+        One human-readable line per stalled queue, empty when all are moving.
+    """
+    stalled = []
+    for key, length in sorted(queue_now.items()):
+        if not length:
+            continue
+        worker = ("queue_annotator" if key == "annotate"
+                  else f"queue_scraper_{key[len('scrape_'):]}")
+        last = _parse_iso((stats_doc.get(worker) or {}).get("last_success"))
+        if last is None or last < now - timedelta(days=max_age_days):
+            stalled.append(f"{key}: {length} item(s) waiting, {worker} "
+                           f"last succeeded {_ago(last, now)}")
+    return stalled
+
+
+def _is_instance_drain(entry, drain_times) -> bool:
+    """True when this ERROR entry is a container being torn down, not a fault.
+
+    Cloud Run SIGTERMs an instance on a deploy rollout *and* on idle
+    scale-down; gunicorn tears down while a background thread still holds the
+    GIL, and interpreter finalization aborts. The tell is a
+    ``Handling signal: term`` line a second or two earlier — verified against
+    prod on 2026-08-27, where two such aborts had no deploy behind them.
+    """
+    text = str(entry.get("textPayload") or "")
+    if "Uncaught signal: 6" not in text and "SIGABRT" not in text:
+        return False
+    ts = _log_ts(entry)
+    if ts is None:
+        return False
+    return any(0 <= (ts - d).total_seconds() <= 10 for d in drain_times)
+
+
 def _cloud_run_log_summary(hours_back: int):
-    """Query Cloud Logging for ERROR-severity entries per service and 5xx
-    requests, using the runtime service account. Raises on failure (the caller
-    turns that into a yellow check)."""
+    """Query Cloud Logging for ERROR-severity entries per service, 5xx
+    requests, and the platform warnings behind them, using the runtime service
+    account. Raises on failure (the caller turns that into a yellow check).
+
+    Two classes of entry are deliberately kept out of the per-service ERROR
+    lists. Request logs, because a 5xx already has its own check and counting
+    its request entry a second time made one incident read as two problems.
+    And instance-drain aborts, because they are how every Cloud Run container
+    ends its life (see ``_is_instance_drain``).
+
+    Returns:
+        ``(errors_by_service, fivexx, platform_notes)`` — the last being the
+        Cloud Run system warnings from the window, which is where the actual
+        explanation of a 5xx usually lives (an oversized response, a memory
+        limit) since the app itself never sees those.
+    """
     import os
 
     import google.auth
@@ -525,11 +622,13 @@ def _cloud_run_log_summary(hours_back: int):
 
     project = os.environ.get("GCP_PROJECT_ID")
     if not project or not os.environ.get("K_SERVICE"):
-        return {}, []
+        return {}, [], []
     creds, _ = google.auth.default(
         scopes=["https://www.googleapis.com/auth/logging.read"])
     session = AuthorizedSession(creds)
     cutoff = (_now() - timedelta(hours=hours_back)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    requests_log = f'projects/{project}/logs/run.googleapis.com%2Frequests'
+    system_log = f'projects/{project}/logs/run.googleapis.com%2Fvarlog%2Fsystem'
 
     def query(filter_str, limit=50):
         resp = session.post(
@@ -546,17 +645,40 @@ def _cloud_run_log_summary(hours_back: int):
         entries = query(
             f'resource.type="cloud_run_revision" '
             f'AND resource.labels.service_name="{svc}" '
+            f'AND logName!="{requests_log}" '
             f'AND severity>=ERROR AND timestamp>="{cutoff}"')
+        maybe_drain = any("Uncaught signal" in str(e.get("textPayload") or "")
+                          or "SIGABRT" in str(e.get("textPayload") or "")
+                          for e in entries)
+        drain_times = [t for t in (
+            _log_ts(e) for e in query(
+                f'resource.type="cloud_run_revision" '
+                f'AND resource.labels.service_name="{svc}" '
+                f'AND textPayload:"Handling signal: term" '
+                f'AND timestamp>="{cutoff}"', limit=25)) if t is not None
+        ] if maybe_drain else []
         errors_by_service[svc] = [
             f"{e.get('timestamp', '')} {e.get('textPayload') or json.dumps(e.get('jsonPayload', {}))[:160]}"
-            for e in entries]
+            for e in entries if not _is_instance_drain(e, drain_times)]
     fivexx_entries = query(
         f'resource.type="cloud_run_revision" AND httpRequest.status>=500 '
         f'AND timestamp>="{cutoff}"')
     fivexx = [f"{e.get('timestamp', '')} {e.get('httpRequest', {}).get('status')} "
               f"{e.get('httpRequest', {}).get('requestUrl', '')}"
               for e in fivexx_entries]
-    return errors_by_service, fivexx
+    platform_notes = []
+    if fivexx_entries:
+        notes = query(
+            f'resource.type="cloud_run_revision" AND logName="{system_log}" '
+            f'AND severity>=WARNING AND timestamp>="{cutoff}"', limit=25)
+        seen = {}
+        for e in notes:
+            text = str(e.get("textPayload") or "").strip()
+            if text:
+                seen[text] = seen.get(text, 0) + 1
+        platform_notes = [f"platform: {text}" + (f" (x{n})" if n > 1 else "")
+                          for text, n in seen.items()]
+    return errors_by_service, fivexx, platform_notes
 
 
 # --------------------------------------------------------------- narrative
@@ -578,10 +700,11 @@ sentence.
 One bullet per yellow or red check, explaining in plain language what it
 means and whether it matters. Known context: a run marked "running" for days
 in the process logs is usually an orphaned status from a dead container, not
-live work; a lone "Uncaught signal: 6" Cloud Run entry with zero 5xx
-responses around it is an instance being drained during a deploy, not a
-crash under load. Omit this whole section if there are no yellow or red
-checks.
+live work; container-teardown aborts are already filtered out of the ERROR
+counts before you see them, so treat whatever remains as real. Never assert
+that two checks share a cause because both are non-green — say so only when
+the detail lines themselves support it (same timestamps, same URL). Omit this
+whole section if there are no yellow or red checks.
 
 ## What's fine
 A compact prose readout of the healthy side: users/logins/activity, worker
