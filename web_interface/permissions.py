@@ -55,6 +55,7 @@ PERMISSION_CATALOG: list[dict] = [
     {"key": "tab.admin.scrapers",                   "label": "Admin — Scrapers"},
     {"key": "tab.admin.general",                    "label": "Admin — Site Settings"},
     {"key": "tab.admin.system_info",                "label": "Admin — System Information"},
+    {"key": "tab.admin.ops_report",                 "label": "Admin — Daily Ops Report"},
     {"key": "feature.annotation_votes",             "label": "Voting — annotation demand signals"},
 ]
 
@@ -148,6 +149,9 @@ PERMISSION_KEYS_GRANT_ALL: list[str] = [
 # functionality, granted explicitly or via the admin role.)
 PERMISSION_KEY_IMPLIED_GRANTS: dict[str, list[str]] = {
     "tab.admin.general": ["tab.admin.backends", "tab.admin.stoplist"],
+    # 2026-08 Daily Ops Report page: a read view over the same operational
+    # state System Information exposes, so it rides with that key.
+    "tab.admin.system_info": ["tab.admin.ops_report"],
     "tab.admin.schema": ["tab.admin.versions", "tab.admin.ab_eval"],
     # 2026-07 read-only Data Contracts page: version history for the scrape /
     # activity contracts, so it rides with the annotation Versions key.

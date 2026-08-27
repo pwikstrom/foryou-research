@@ -12,6 +12,7 @@
         'admin-page-scrapers':     'tab.admin.scrapers',
         'admin-page-general':      'tab.admin.general',
         'admin-page-system-info':  'tab.admin.system_info',
+        'admin-page-ops-report':   'tab.admin.ops_report',
     };
 
     function openAdminPage(pageId, clickedItem) {
@@ -25,6 +26,9 @@
         if (pageId === 'admin-page-system-info' && typeof loadSystemInfo === 'function') {
             loadSystemInfo();
             if (typeof loadSystemHealth === 'function') loadSystemHealth();
+        }
+        if (pageId === 'admin-page-ops-report' && typeof loadOpsReport === 'function') {
+            loadOpsReport();
         }
 
         document.querySelectorAll('#admin .dm-page').forEach(page => {

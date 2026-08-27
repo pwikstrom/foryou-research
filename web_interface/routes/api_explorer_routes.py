@@ -1187,3 +1187,42 @@ def run_system_health():
     if not system_health.start_health_check(trigger="manual"):
         return jsonify({"started": False, "reason": "already_running"}), 409
     return jsonify({"started": True})
+
+
+@explorer_bp.route('/api/admin/ops-report')
+@permission_required('tab.admin.ops_report')
+def ops_report_meta():
+    """Metadata for the latest daily ops report (Admin → System pane)."""
+    meta = data_io.load_json(storage_location="cache",
+                             filename="ops_report/latest.json")
+    if not meta:
+        return jsonify({"available": False})
+    meta.pop("narrative", None)  # the pane iframes the full HTML instead
+    meta["available"] = True
+    return jsonify(meta)
+
+
+@explorer_bp.route('/api/admin/ops-report/html')
+@permission_required('tab.admin.ops_report')
+def ops_report_html():
+    """Serve the latest rendered ops report for the pane's iframe."""
+    from flask import Response
+    page = data_io.load_text(storage_location="cache",
+                             filename="ops_report/latest.html")
+    if not page:
+        return "No ops report has been generated yet.", 404
+    return Response(page, mimetype="text/html")
+
+
+@explorer_bp.route('/api/admin/ops-report/run', methods=['POST'])
+@permission_required('tab.admin.ops_report')
+def ops_report_run():
+    """Generate a fresh ops report now (runs on the task-runner via the
+    normal background-task dispatch)."""
+    from fyp.fyp_config import OPS_REPORT_SCRIPT
+    from web_interface.process_manager import start_process
+    success, msg = start_process(
+        "ops_report", OPS_REPORT_SCRIPT, [],
+        started_by=getattr(current_user, "username", ""))
+    return jsonify({"started": bool(success), "message": msg}), \
+        (200 if success else 409)

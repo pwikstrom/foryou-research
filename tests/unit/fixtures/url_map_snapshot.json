@@ -36,6 +36,27 @@
   ]
  ],
  [
+  "/api/admin/ops-report",
+  "explorer_bp.ops_report_meta",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/admin/ops-report/html",
+  "explorer_bp.ops_report_html",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/admin/ops-report/run",
+  "explorer_bp.ops_report_run",
+  [
+   "POST"
+  ]
+ ],
+ [
   "/api/admin/permissions/catalog",
   "auth_bp.api_admin_permissions_catalog",
   [

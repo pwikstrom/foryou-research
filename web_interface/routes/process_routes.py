@@ -634,6 +634,7 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_embeddings_refresh import run_embeddings_refresh
     from web_interface.run_ingest_refresh import run_ingest_refresh
     from web_interface.run_meta_refresh_groups import run_meta_refresh_groups
+    from web_interface.run_ops_report import run_ops_report
     from web_interface.run_pca_refresh import run_pca_refresh
     from web_interface.run_queue_annotator import run_queue_annotator
     from web_interface.run_queue_annotator_batch import run_queue_annotator_batch
@@ -671,6 +672,9 @@ def _ensure_task_functions_loaded() -> None:
         "video_map_refresh": run_video_map_refresh,
         "retokenise_hashtags": run_retokenise_hashtags,
         "ab_eval": run_ab_eval,
+        # Deliberately NOT in QUEUE_RETRY_SAFE: a queue retry would re-send
+        # the report email. A failed run lands in the task-failures ledger.
+        "ops_report": run_ops_report,
     })
 
 

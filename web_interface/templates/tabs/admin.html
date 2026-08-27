@@ -91,6 +91,11 @@
             System Information
         </div>
         {% endif %}
+        {% if user.can_access('tab.admin.ops_report') %}
+        <div class="dm-sidebar-item" data-page="admin-page-ops-report" onclick="openAdminPage('admin-page-ops-report', this)">
+            Daily Ops Report
+        </div>
+        {% endif %}
     </nav>
 
     <!-- Content Area -->
@@ -177,6 +182,12 @@
         {% if user.can_access('tab.admin.system_info') %}
         <div id="admin-page-system-info" class="dm-page">
             {% include 'tabs/admin/system_info.html' %}
+        </div>
+        {% endif %}
+
+        {% if user.can_access('tab.admin.ops_report') %}
+        <div id="admin-page-ops-report" class="dm-page">
+            {% include 'tabs/admin/ops_report.html' %}
         </div>
         {% endif %}
 
@@ -294,4 +305,4 @@
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/admin_tab.js') }}?v=8"></script>
+<script src="{{ url_for('static', filename='js/admin_tab.js') }}?v=9"></script>
