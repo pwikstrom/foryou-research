@@ -431,12 +431,17 @@ def test_tick_settles_scrape_light_and_annotate_full(tick):
     assert tick["started"] == [("consolidate_enrichment", {"auto_refresh": True})]
 
 
-def test_tick_handoff_charges_budget_and_stops_there(tick):
+def test_tick_handoff_charges_budget_and_starts_the_annotator(tick):
+    # Queue-and-start is one logical move: a tick that hands items to the
+    # annotation queue drains it in the same tick, instead of leaving the
+    # annotator to a later trigger (in steady state the heartbeat, up to an
+    # hour away).
     tick["plans"] = {"c1": {**_entry(), "spent_items": 10}}
     tick["handoff"] = {"c1": ["x1", "x2", "x3"]}
     rep = tick["run"]()
-    assert rep.data[-1]["action"] == "handoff"
-    assert tick["started"] == []                 # annotator starts NEXT tick
+    assert rep.data[-1]["action"] == "annotate"
+    assert rep.data[-1]["handoff_queued"] == 3
+    assert [n for n, _ in tick["started"]] == ["queue_annotator"]
     entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
     assert entry["spent_items"] == 13
     assert entry["stall_count"] == 0

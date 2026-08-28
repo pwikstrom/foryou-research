@@ -208,6 +208,16 @@ def run_enrichment_supervisor(reporter: TaskStatusReporter,
                or _plan(reporter, plans)
                or {"action": "nothing_to_do"})
 
+    # A handoff fills the annotation queue but, on its own, leaves the annotator
+    # for a later tick — which in steady state is the next heartbeat, up to an
+    # hour away. Queue-and-start is one logical move, so drain immediately.
+    if outcome.get("action") == "handoff":
+        follow = _drain(reporter, plans)
+        if follow:
+            outcome = {**follow, "handoff_queued": outcome.get("queued"),
+                       "message": (f"Queued {outcome.get('queued')} item(s) for "
+                                   f"annotation and started the annotator.")}
+
     reporter.update_progress(100, outcome.get("message") or outcome["action"])
     reporter.emit_data(outcome)
     reporter.log(f"[TIMING] enrichment_supervisor total={time.perf_counter() - started:.1f}s")
