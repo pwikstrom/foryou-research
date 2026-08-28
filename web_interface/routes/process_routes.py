@@ -1147,7 +1147,7 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
     # trigger was a browser poll POST — which fails silently when the tab's CSRF
     # token has expired (queues often run >1h) or the tab is closed. Firing here,
     # on the task-runner at terminal worker completion, makes it browser-independent.
-    if name == "queue_annotator" or name.startswith("queue_scraper"):
+    if name in ("queue_annotator", "queue_annotator_batch") or name.startswith("queue_scraper"):
         # The armed consolidate keeps priority: it is an explicit operator
         # request, and the supervisor would only ask for the same consolidation
         # one tick later anyway.
