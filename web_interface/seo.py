@@ -281,6 +281,7 @@ TEAM = (
     ("Tian Wen", "PhD Candidate", "University of Sydney", ""),
     ("Michelle Gay Nidoy", "PhD Candidate", "Queensland University of Technology", ""),
     ("Billie Wilcox", "Research Assistant", "University of Sydney", ""),
+    ("Georgia Samuel", "Research Assistant", "University of Sydney", ""),
 )
 
 INSTITUTION_URLS = {
