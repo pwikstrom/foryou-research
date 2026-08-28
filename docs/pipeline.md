@@ -139,7 +139,12 @@ are worker completions, the end of each consolidation, and an hourly Cloud
 Scheduler heartbeat on `/internal/run-task/enrichment_supervisor`. The
 annotate-side eligibility predicate is shared with the manual queue builder
 (`collection_enrichment.annotation_eligible`) so the "never annotate-queue
-unscraped items" rule has exactly one implementation.
+unscraped items" rule has exactly one implementation. The handoff is scoped
+to the plan's own `in_flight` ids — the items its cycles queued for
+scraping — because scraped-but-unannotated is a legitimate steady state
+elsewhere in the corpus, not the loop's to-do list; the per-plan
+`annotate_existing` setting is the explicit opt-in for catch-up annotation
+of a collection's pre-existing scrapes.
 
 ## 5. Analysis & studies
 

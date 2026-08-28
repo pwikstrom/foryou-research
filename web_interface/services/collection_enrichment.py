@@ -37,9 +37,10 @@ So both processes buy days; they differ only in *which* days:
 THE LEDGER
 ----------
 ``cache/collection_enrichment.json``, one entry per collection, holding settings,
-the two cursors and the spend counter. Deliberately no per-item id lists: what has
-actually been scraped or annotated is already in ``enrichment_status.parquet``, and
-a second copy in the ledger would only drift. Every write goes through
+the two cursors, the spend counter, and the plan's ``in_flight`` item ids (what it
+has queued for scraping and not yet seen resolve — the handoff's scope, bounded by
+cycle size). No other per-item state: what has actually been scraped or annotated
+is already in ``enrichment_status.parquet``, and a second copy would only drift. Every write goes through
 ``data_io.update_json`` (compare-and-set) because the supervisor runs on both the
 hub and the task-runner.
 
@@ -86,6 +87,12 @@ DEFAULT_SETTINGS = {
     "a_day_cap": 50,          # A: max items enriched on one sampled day
     "min_day_items": 10,      # skip days below this (the Correlations floor)
     "earliest_date": None,    # optional floor; None = the whole history
+    # Also annotate videos that were ALREADY scraped before (or outside) this
+    # plan. Off by default: scraped-but-unannotated is a legitimate steady
+    # state (metadata-only studies, deliberately partial annotation), not a
+    # queue for the loop to drain. When off, the handoff annotates only items
+    # this plan itself queued for scraping (the in_flight set).
+    "annotate_existing": False,
 }
 
 # A collection becomes analytically alive somewhere around here: Timelines gates
@@ -231,6 +238,9 @@ def normalize_settings(raw: dict | None) -> dict:
         out["sample_share"] = max(0.0, min(1.0, float(raw.get("sample_share", 0.2))))
     except (TypeError, ValueError):
         out["sample_share"] = DEFAULT_SETTINGS["sample_share"]
+
+    out["annotate_existing"] = bool(raw.get("annotate_existing",
+                                               DEFAULT_SETTINGS["annotate_existing"]))
 
     earliest = raw.get("earliest_date") or None
     if earliest:
@@ -640,31 +650,66 @@ def plan_cycle(collection_id: str, entry: dict,
 
 def handoff_scraped(collection_id: str, entry: dict,
                     activity: pd.DataFrame | None = None,
-                    status: pd.DataFrame | None = None) -> list[str]:
-    """Ids of this collection that are now scraped and may enter annotation.
+                    status: pd.DataFrame | None = None) -> dict:
+    """What of this collection may enter annotation, and the surviving in-flight set.
 
     Called only after a consolidation, which is the moment scrape outcomes become
     visible in ``enrichment_status.parquet``. Never at plan time — see
     :func:`annotation_eligible` for why an unscraped id in the annotation queue is
     unrecoverable.
+
+    Scope: by default ONLY items this plan queued for scraping (the ledger's
+    ``in_flight`` list, written by the plan step). Scraped-but-unannotated is a
+    legitimate steady state elsewhere in the corpus — a collection may be
+    deliberately scraped without annotation — so arming a plan must not sweep
+    pre-existing scrapes into the annotation queue. The ``annotate_existing``
+    setting is the explicit opt-in for that catch-up behaviour.
+
+    Returns:
+        ``{"ready": [ids to queue now], "in_flight": [ids still awaiting a
+        scrape outcome]}``. Resolved ids (annotated, permanently failed either
+        way) leave in_flight so it cannot grow without bound.
     """
-    if activity is None:
-        activity = load_activity(collection_id)
-    if activity is None or activity.empty:
-        return []
-    ids = list(dict.fromkeys(activity["item_id"].astype(str)))
+    settings = {**DEFAULT_SETTINGS, **(entry.get("settings") or {})}
+    in_flight = [str(i) for i in (entry.get("in_flight") or [])]
+
+    if settings.get("annotate_existing"):
+        if activity is None:
+            activity = load_activity(collection_id)
+        if activity is None or activity.empty:
+            return {"ready": [], "in_flight": in_flight}
+        ids = list(dict.fromkeys(activity["item_id"].astype(str)))
+    else:
+        ids = list(dict.fromkeys(in_flight))
+        if not ids:
+            return {"ready": [], "in_flight": []}
+
     if status is None:
         status = load_status(ids)
-    settings = {**DEFAULT_SETTINGS, **(entry.get("settings") or {})}
 
     eligible = annotation_eligible(ids, status)
     budget = int(settings["item_budget"])
     if budget > 0:
         room = budget - int(entry.get("spent_items") or 0)
         if room <= 0:
-            return []
-        eligible = eligible[:room]
-    return eligible
+            eligible = []
+        else:
+            eligible = eligible[:room]
+
+    # Prune in_flight: an id leaves once its outcome is known — handed off now,
+    # already annotated (ok or fail), or its scrape permanently failed. What
+    # remains is still genuinely awaiting a scrape.
+    resolved = set(eligible)
+    if status is not None and not status.empty:
+        for iid in in_flight:
+            if iid in resolved:
+                continue
+            if iid in status.index:
+                row = status.loc[iid]
+                if bool(row.get("annotated_ok")) or bool(row.get("annotated_fail"))                         or bool(row.get("scrape_fail")):
+                    resolved.add(iid)
+    remaining = [i for i in in_flight if i not in resolved]
+    return {"ready": eligible, "in_flight": remaining}
 
 
 def queue_for_annotation(item_ids: list[str]) -> int:

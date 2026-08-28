@@ -131,6 +131,11 @@
                         <input type="date" id="dm-enrich-earliest" class="control-input"
                             style="width: 100%; padding: 6px;" title="Optional floor: enrichment never reaches further back than this.">
                     </label>
+                    <label class="text-sm" style="display: flex; align-items: center; gap: 6px; align-self: end;"
+                        title="Off: the loop only annotates videos it queued for scraping itself. On: videos of this collection that are already scraped but not annotated are also queued (a deliberate catch-up, charged to the budget).">
+                        <input type="checkbox" id="dm-enrich-annotate-existing" style="margin: 0;">
+                        Also annotate already-scraped videos
+                    </label>
                 </div>
 
                 <div style="margin-top: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">

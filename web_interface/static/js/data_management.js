@@ -5989,6 +5989,8 @@ function dmEnrichFillSettings(settings) {
     set('dm-enrich-days-per-month', settings.a_days_per_month ?? 2);
     set('dm-enrich-day-cap', settings.a_day_cap ?? 50);
     set('dm-enrich-earliest', settings.earliest_date || '');
+    const ae = document.getElementById('dm-enrich-annotate-existing');
+    if (ae) ae.checked = !!settings.annotate_existing;
     dmEnrichShareLabel();
 }
 
@@ -6001,6 +6003,7 @@ function dmEnrichReadSettings() {
         a_days_per_month: num('dm-enrich-days-per-month'),
         a_day_cap: num('dm-enrich-day-cap'),
         earliest_date: document.getElementById('dm-enrich-earliest')?.value || null,
+        annotate_existing: !!document.getElementById('dm-enrich-annotate-existing')?.checked,
     };
 }
 

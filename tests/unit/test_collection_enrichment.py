@@ -262,8 +262,45 @@ def test_handoff_respects_the_remaining_budget(monkeypatch):
     status = _status(ids, scraped=ids, downloaded=ids)
     monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
     monkeypatch.setattr(ce, "load_status", lambda i=None: status)
-    entry = {**_entry(item_budget=6), "spent_items": 2}
-    assert len(ce.handoff_scraped("c1", entry)) == 4
+    entry = {**_entry(item_budget=6), "spent_items": 2, "in_flight": ids}
+    assert len(ce.handoff_scraped("c1", entry)["ready"]) == 4
+
+
+def test_handoff_is_scoped_to_the_plans_own_in_flight_items(monkeypatch):
+    # Scraped-but-unannotated is a legitimate steady state: arming a plan must
+    # not sweep pre-existing scrapes into the annotation queue. Only what the
+    # plan itself queued (in_flight) is eligible — unless annotate_existing
+    # explicitly opts into the catch-up.
+    activity = _activity({"2026-08-27": 10})
+    ids = list(activity["item_id"])
+    status = _status(ids, scraped=ids, downloaded=ids)
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status", lambda i=None: status)
+
+    entry = _entry()                                # no in_flight recorded
+    assert ce.handoff_scraped("c1", entry) == {"ready": [], "in_flight": []}
+
+    entry = {**_entry(), "in_flight": ids[:3]}      # only the plan's own items
+    assert ce.handoff_scraped("c1", entry)["ready"] == ids[:3]
+
+    entry = {**_entry(), "settings": {**_entry()["settings"],
+                                      "annotate_existing": True}}
+    assert ce.handoff_scraped("c1", entry)["ready"] == ids  # explicit opt-in
+
+
+def test_handoff_prunes_resolved_ids_from_in_flight(monkeypatch):
+    activity = _activity({"2026-08-27": 6})
+    ids = list(activity["item_id"])
+    # a0: annotatable now; a1: already annotated; a2: scrape permanently
+    # failed; a3: still awaiting a scrape outcome.
+    status = _status(ids, scraped=ids[:2], downloaded=ids[:2],
+                     annotated=[ids[1]], scrape_fail=[ids[2]])
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status", lambda i=None: status)
+    entry = {**_entry(), "in_flight": ids[:4]}
+    result = ce.handoff_scraped("c1", entry)
+    assert result["ready"] == [ids[0]]
+    assert result["in_flight"] == [ids[3]]
 
 
 # --------------------------------------------------------------------------- #
@@ -322,7 +359,9 @@ def tick(monkeypatch, store):
     monkeypatch.setattr(ce, "armed_plans", lambda: dict(world["plans"]))
     monkeypatch.setattr(ce, "get_plan", lambda cid: world["plans"].get(cid))
     monkeypatch.setattr(ce, "handoff_scraped",
-                        lambda cid, entry, **kw: world["handoff"].get(cid, []))
+                        lambda cid, entry, **kw: {
+                            "ready": world["handoff"].get(cid, []),
+                            "in_flight": list(entry.get("in_flight") or [])})
     monkeypatch.setattr(ce, "load_activity",
                         lambda cid: _activity({"2026-08-27": 30}, cid=cid))
     if world["cycle"] is None:

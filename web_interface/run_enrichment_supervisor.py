@@ -348,24 +348,32 @@ def _settle(reporter) -> dict | None:
 def _handoff(reporter, plans: dict) -> dict | None:
     """Queue every armed collection's newly scraped items for annotation.
 
-    This is the only place items enter the annotation queue, and it reads
-    enrichment status rather than what a cycle intended to scrape. An unscraped id
-    in that queue resolves no media, is refined as ``annotated_fail`` and is then
-    pruned as permanently failed — the item is burnt for good.
+    This is the only place items enter the annotation queue. It reads enrichment
+    status (never a cycle's intent — an unscraped id in that queue is refined as
+    ``annotated_fail`` and burnt for good), and it is scoped to each plan's own
+    ``in_flight`` ids unless the plan opts into ``annotate_existing``: videos an
+    operator scraped without annotating are a deliberate state, not this loop's
+    to-do list.
     """
     total = 0
     served = []
     for cid, entry in plans.items():
         try:
-            ready = ce.handoff_scraped(cid, entry)
+            result = ce.handoff_scraped(cid, entry)
         except Exception as exc:
             reporter.log(f"Handoff check for {cid} failed: {exc}")
             continue
+        ready = result["ready"]
         if not ready:
+            # Still persist the pruned in-flight set: resolved ids (annotated
+            # or permanently failed) must leave it even on a no-op handoff.
+            if result["in_flight"] != list(entry.get("in_flight") or []):
+                ce.save_plan(cid, {"in_flight": result["in_flight"]})
             continue
         n = ce.queue_for_annotation(ready)
         ce.save_plan(cid, {
             "spent_items": int(entry.get("spent_items") or 0) + n,
+            "in_flight": result["in_flight"],
             "stall_count": 0,
             "last_error": None,
         })
@@ -435,6 +443,10 @@ def _plan(reporter, plans: dict) -> dict | None:
 
             scrape_queues.append_to_scrape_queue(platform, items)
             ce.save_plan(cid, {
+                # The handoff's scope: only these ids may enter annotation for
+                # this plan (unless annotate_existing opts into more).
+                "in_flight": sorted(set(str(i) for i in (entry.get("in_flight") or []))
+                                    | set(items)),
                 "platform": platform,
                 "a_cursor": result["a_cursor"],
                 "b_cursor": result["b_cursor"],
