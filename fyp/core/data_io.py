@@ -782,23 +782,32 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
     _t_io = _time.perf_counter()
     try:
         if mode == 'gcs':
+            from google.api_core import exceptions as gcs_exceptions
+
             bucket = _get_bucket()
             if bucket:
                 blob = bucket.blob(blob_name)
-                # Check existence to avoid generic 404 error masked as something else
-                if blob.exists():
-                     content = blob.download_as_text()
-                     _io_log(
-                         op="load_json",
-                         loc=storage_location,
-                         filename=filename,
-                         mode=mode,
-                         bytes_=len(content),
-                         t_ms=(_time.perf_counter() - _t_io) * 1000.0,
-                     )
-                     return json.loads(content)
-                else:
-                     if verbose: logger.warning(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
+                # Download straight away and treat NotFound as "absent". The old
+                # blob.exists() guard cost a second round-trip on every read; on
+                # GCS that doubled the latency of every JSON load, which is a
+                # large share of container cold start (the boot path alone reads
+                # seven of them). Catching NotFound explicitly preserves the
+                # reason the guard existed: a genuine 404 is distinguished from
+                # an unrelated error rather than masked by it.
+                try:
+                    content = blob.download_as_text()
+                except gcs_exceptions.NotFound:
+                    if verbose: logger.warning(f"    [DATA_IO] WARN: GCS Blob not found: {blob_name}.")
+                    return None
+                _io_log(
+                    op="load_json",
+                    loc=storage_location,
+                    filename=filename,
+                    mode=mode,
+                    bytes_=len(content),
+                    t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+                )
+                return json.loads(content)
             else:
                  if verbose: logger.warning("    [DATA_IO] WARN: GCS bucket not initialized.")
         else:
@@ -815,6 +824,12 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
                 )
                 return json.loads(content)
 
+    except FileNotFoundError:
+        # An absent file is the normal first-run state for many callers, so it
+        # is not an error worth logging — mirrors the GCS NotFound branch above
+        # and lets callers drop their own pre-flight exists() probe.
+        if verbose: logger.warning(f"    [DATA_IO] WARN: file not found: '{filename}' in '{storage_location}'.")
+        return None
     except Exception as e:
         if verbose: logger.warning(f"    [DATA_IO] Loading json failed ({mode}): {e}")
         # If we are in local mode, primary failed, no secondary. Raise/Return None.
@@ -825,6 +840,64 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
     # If we are here, things haven't gone very well have they
     return None
 
+
+
+
+
+def load_json_optional(storage_location: str = "cache", filename: str = "", verbose: bool = False):
+    """Load a JSON that is legitimately allowed to be absent.
+
+    Returns None **only** when the file does not exist. Every other problem — a
+    network error, a permissions error, a malformed document, an uninitialized
+    bucket — is raised, unlike :func:`load_json`, which flattens all of them
+    into None.
+
+    That distinction matters wherever "absent" has a benign default. Callers
+    like the version registries answer an absent file with an empty registry;
+    if a transient outage were also reported as absent they would silently
+    serve an empty registry instead of failing loudly, which is exactly the
+    class of fault that once caused per-instance var_schema hash drift. Use
+    this rather than a pre-flight ``exists()`` probe: it is one round-trip on
+    GCS where ``exists()`` + ``load_json()`` was three.
+    """
+    if filename == "":
+        raise ValueError("Filename cannot be empty")
+
+    if storage_location == "":
+        raise ValueError("Storage location cannot be empty")
+
+    primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+
+    _t_io = _time.perf_counter()
+    if mode == 'gcs':
+        from google.api_core import exceptions as gcs_exceptions
+
+        bucket = _get_bucket()
+        if not bucket:
+            raise ValueError("GCS bucket not initialized")
+        blob = bucket.blob(blob_name)
+        try:
+            content = blob.download_as_text()
+        except gcs_exceptions.NotFound:
+            if verbose: logger.warning(f"    [DATA_IO] GCS Blob absent: {blob_name}.")
+            return None
+    else:
+        try:
+            with open(primary, encoding='utf-8') as file:
+                content = file.read()
+        except FileNotFoundError:
+            if verbose: logger.warning(f"    [DATA_IO] File absent: '{filename}' in '{storage_location}'.")
+            return None
+
+    _io_log(
+        op="load_json_optional",
+        loc=storage_location,
+        filename=filename,
+        mode=mode,
+        bytes_=len(content),
+        t_ms=(_time.perf_counter() - _t_io) * 1000.0,
+    )
+    return json.loads(content)
 
 
 

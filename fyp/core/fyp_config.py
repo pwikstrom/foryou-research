@@ -577,7 +577,7 @@ def _connect_to_google(cf, verbose=False):
 
 
 
-def _var_schema_source_fingerprint(cf) -> str | None:
+def _var_schema_source_fingerprint(cf, presentation: dict | None = None) -> str | None:
     """Cheap fingerprint of the synthesized schema's RUNTIME inputs.
 
     The schema is synthesized from the contract TOMLs, the presentation store,
@@ -589,13 +589,23 @@ def _var_schema_source_fingerprint(cf) -> str | None:
     runtime (registrations, the versions-in-data snapshot, admin edits).
     ``reload_var_schema_if_changed`` compares this at every Cloud Task entry so
     long-lived containers pick those changes up. Returns None on failure.
+
+    Args:
+        cf: The config dict.
+        presentation: The already-loaded presentation payload, when the caller
+            has one in hand, to save re-reading the store. Pass None (the
+            default) to read it fresh — which is what change detection needs.
     """
     try:
         from fyp import var_presentation as vp
         from fyp import annotation_contract as ac
         import fyp.data_io as data_io
 
-        parts = [f"presentation:{vp.compute_presentation_etag()}"]
+        # ``presentation`` is passed in by load_var_schema, which has just read
+        # the store — recomputing the etag from the in-hand payload saves a
+        # second full read of var_presentation.json. reload_var_schema_if_changed
+        # passes nothing, so it still re-reads: detecting a change is its job.
+        parts = [f"presentation:{vp.compute_presentation_etag(presentation)}"]
         for fname in (
             "annotation_versions.json",
             "scrape_versions.json",
@@ -603,21 +613,25 @@ def _var_schema_source_fingerprint(cf) -> str | None:
             "annotation_versions_in_data.json",
         ):
             try:
-                if data_io.exists(storage_location="recoded", filename=fname):
-                    mtime = data_io.getmtime(storage_location="recoded", filename=fname)
-                    parts.append(f"{fname}:{mtime}")
-                else:
-                    parts.append(f"{fname}:absent")
+                # stat() is one round-trip; exists()+getmtime() was two, and on
+                # GCS this fingerprint is pure network latency. It returns the
+                # same float getmtime() did (blob.updated.timestamp() /
+                # os.path.getmtime), so the fingerprint STRING is unchanged —
+                # this must stay true or every container would see a changed
+                # fingerprint and rebuild the schema once for nothing.
+                st = data_io.stat(storage_location="recoded", filename=fname)
+                parts.append(f"{fname}:{st['mtime']}" if st else f"{fname}:absent")
             except Exception:
                 parts.append(f"{fname}:unknown")
-        # Runtime annotation contract (one getmtime; absent → baked default).
+        # Runtime annotation contract (one stat; absent → baked default).
         try:
-            mtime = data_io.getmtime(
+            st = data_io.stat(
                 storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME
             )
-            parts.append(f"{ac.RUNTIME_FILENAME}:{mtime}")
-        except FileNotFoundError:
-            parts.append(f"{ac.RUNTIME_FILENAME}:absent")
+            parts.append(
+                f"{ac.RUNTIME_FILENAME}:{st['mtime']}" if st
+                else f"{ac.RUNTIME_FILENAME}:absent"
+            )
         except Exception:
             parts.append(f"{ac.RUNTIME_FILENAME}:unknown")
         return "|".join(parts)
@@ -988,6 +1002,11 @@ def load_var_schema(cf, verbose=False):
 
     # 1. Presentation store (a fresh install starts with empty prio surfaces).
     presentation = vp.load_presentation()
+    # Keep the RAW result for the fingerprint below: an unreadable store
+    # fingerprints as "missing", which is not the same string as the empty
+    # fallback's etag. Handing the fallback to the fingerprint instead would
+    # silently change what a degraded install fingerprints as.
+    _presentation_raw = presentation
     if presentation is None:
         print("WARNING: no presentation store — all prio surfaces start empty.")
         presentation = vp.empty_presentation()
@@ -1045,7 +1064,7 @@ def load_var_schema(cf, verbose=False):
             dtype="string[pyarrow]", index=vs.index,
         )
 
-    cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf)
+    cf["_var_schema_fingerprint"] = _var_schema_source_fingerprint(cf, _presentation_raw)
     if verbose:
         print(f"Synthesized variable schema from contracts + presentation store. Shape: {cf['var_schema'].shape}")
     return cf

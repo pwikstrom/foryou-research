@@ -23,11 +23,11 @@ ANNOTATION_BACKEND_KEY = "annotation_backend"
 def _load_settings() -> dict:
     """Load the admin settings JSON; empty dict on any failure."""
     try:
-        # A missing file is the normal first-run state — check exists() first
-        # so a fresh boot doesn't log a data_io error for it.
-        if not data_io.exists(storage_location="users", filename=SETTINGS_FILENAME):
-            return {}
-        data = data_io.load_json(storage_location="users", filename=SETTINGS_FILENAME)
+        # A missing file is the normal first-run state, which load_json_optional
+        # reports as None in a single round-trip — so the exists() pre-flight this
+        # used to need (purely to keep a fresh boot quiet) is gone. This sits on
+        # the container cold-start path.
+        data = data_io.load_json_optional(storage_location="users", filename=SETTINGS_FILENAME)
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}

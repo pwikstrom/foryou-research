@@ -188,16 +188,19 @@ def _promote_into(registry: dict, version: str) -> dict:
 
 def load_registry() -> dict:
     """Load the version registry from storage, or an empty one if absent."""
-    if _data_io().exists(storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME):
-        registry = _data_io().load_json(
-            storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
-        )
-        if isinstance(registry, dict) and "versions" in registry:
-            # The promoted pointer was called "active" before the 2026-07
-            # terminology change (active now means "used for new rows").
-            if "preferred" not in registry and "active" in registry:
-                registry["preferred"] = registry.pop("active")
-            return registry
+    # No exists() pre-flight: load_json_optional returns None for an absent
+    # registry in one round-trip. It RAISES on a real read failure, so the
+    # "registry unreadable" warning in union_field_metadata still fires instead
+    # of an outage masquerading as an empty registry.
+    registry = _data_io().load_json_optional(
+        storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
+    )
+    if isinstance(registry, dict) and "versions" in registry:
+        # The promoted pointer was called "active" before the 2026-07
+        # terminology change (active now means "used for new rows").
+        if "preferred" not in registry and "active" in registry:
+            registry["preferred"] = registry.pop("active")
+        return registry
     return empty_registry()
 
 

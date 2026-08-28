@@ -168,8 +168,10 @@ def test_presentation_store_seeds_from_packaged_defaults(monkeypatch):
 
     class _FakeIO:
         @staticmethod
-        def exists(storage_location, filename):
-            return False
+        def load_json_optional(storage_location, filename):
+            # None means "absent" — the contract load_presentation relies on to
+            # tell a fresh install apart from a read failure (which raises).
+            return None
 
         @staticmethod
         def save_json(data, storage_location, filename):
@@ -186,6 +188,36 @@ def test_presentation_store_seeds_from_packaged_defaults(monkeypatch):
     # The seed is persisted as the install's initial store.
     assert saved.get("filename") == vp.FILENAME
     assert saved["payload"] is payload
+
+
+
+
+def test_presentation_read_failure_does_not_overwrite_the_store(monkeypatch):
+    """A read FAILURE must not be mistaken for a fresh install.
+
+    Seeding writes, so treating a transient storage outage as "no store yet"
+    would overwrite an admin's saved surface selections with the packaged
+    defaults. load_json_optional raises on a real failure (and returns None only
+    when the file is genuinely absent) precisely so this path stays distinct.
+    """
+    from fyp.annotation import var_presentation as vp
+
+    saved = {}
+
+    class _FailingIO:
+        @staticmethod
+        def load_json_optional(storage_location, filename):
+            raise OSError("transient GCS failure")
+
+        @staticmethod
+        def save_json(data, storage_location, filename):
+            saved["payload"] = data
+
+    monkeypatch.setattr(vp, "_data_io", lambda: _FailingIO)
+    payload = vp.load_presentation()
+
+    assert payload is None, "a read failure must degrade to None, not to defaults"
+    assert not saved, "a read failure must never write over the stored surfaces"
 
 
 

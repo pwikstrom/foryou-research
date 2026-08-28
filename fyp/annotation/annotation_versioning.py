@@ -419,14 +419,17 @@ def load_registry() -> dict:
     version under ``active``; it is migrated to ``preferred`` on read (the file
     itself is rewritten on the next save).
     """
-    if _data_io().exists(storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME):
-        registry = _data_io().load_json(
-            storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
-        )
-        if isinstance(registry, dict) and "versions" in registry:
-            if "preferred" not in registry and "active" in registry:
-                registry["preferred"] = registry.pop("active")
-            return registry
+    # No exists() pre-flight: load_json_optional returns None for an absent
+    # registry in one round-trip. It RAISES on a real read failure, so the
+    # "registry unreadable" warning in union_field_metadata still fires instead
+    # of an outage masquerading as an empty registry.
+    registry = _data_io().load_json_optional(
+        storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
+    )
+    if isinstance(registry, dict) and "versions" in registry:
+        if "preferred" not in registry and "active" in registry:
+            registry["preferred"] = registry.pop("active")
+        return registry
     return empty_registry()
 
 
@@ -543,10 +546,14 @@ def versions_in_data() -> set | None:
     callers fall back to the unpruned all-versions behaviour. Never raises.
     """
     try:
-        if _data_io().exists(storage_location=REGISTRY_LOCATION, filename=VERSIONS_IN_DATA_FILENAME):
-            payload = _data_io().load_json(
-                storage_location=REGISTRY_LOCATION, filename=VERSIONS_IN_DATA_FILENAME
-            )
+        # No exists() pre-flight: load_json_optional returns None when the
+        # snapshot is absent, which is the same "no snapshot yet" answer, in one
+        # round-trip. Explicit isinstance check rather than letting None.get()
+        # raise into the catch-all.
+        payload = _data_io().load_json_optional(
+            storage_location=REGISTRY_LOCATION, filename=VERSIONS_IN_DATA_FILENAME
+        )
+        if isinstance(payload, dict):
             values = payload.get("versions")
             if isinstance(values, list):
                 return {str(v) for v in values}

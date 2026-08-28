@@ -88,10 +88,15 @@ def load_presentation() -> dict | None:
     would render blank until an admin hand-picks variables.
     """
     try:
-        if _data_io().exists(storage_location=LOCATION, filename=FILENAME):
-            payload = _data_io().load_json(storage_location=LOCATION, filename=FILENAME)
-            if isinstance(payload, dict) and isinstance(payload.get("surfaces"), dict):
-                return _migrate_retired_names(payload)
+        # No exists() pre-flight: load_json_optional returns None for an absent
+        # store in one round-trip, and RAISES on a real read failure. The
+        # distinction matters here: _seed_from_defaults() WRITES, so treating a
+        # transient outage as "absent" would overwrite the admin's saved
+        # surfaces with the packaged defaults. A raise lands in the except below,
+        # which returns None without seeding.
+        payload = _data_io().load_json_optional(storage_location=LOCATION, filename=FILENAME)
+        if isinstance(payload, dict) and isinstance(payload.get("surfaces"), dict):
+            return _migrate_retired_names(payload)
     except Exception as e:
         logger.warning(f"WARNING: var_presentation store unreadable ({e}).")
         return None
