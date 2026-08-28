@@ -60,6 +60,11 @@ DEFAULTS: dict = {
     # get_session_floors), so an instance that never opens the admin page keeps
     # its committed config values. Deliberately the structurally safe pair plus
     # no coverage floor: nothing findable is hidden at these values.
+    # Site-wide switch for the automatic per-collection enrichment loop
+    # (run_enrichment_supervisor). Default OFF: the loop spends money
+    # unattended, so it must be turned on deliberately. Individual collections
+    # are armed separately, in the Edit Collections modal.
+    "auto_enrichment_enabled": False,
     "sessions_min_plays": 4,
     "sessions_min_minutes": 0.0,
     "sessions_min_coverage_pct": 0.0,

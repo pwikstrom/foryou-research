@@ -92,6 +92,10 @@ QUEUE_RETRY_SAFE: set[str] = {
     "retokenise_hashtags",
     "benchmark_parquet_read",
     "aio_fetch",
+    # Fully idempotent: every tick re-reads the queues/status from scratch and
+    # dispatches at most one worker, which start_process refuses if already
+    # running. A retried tick is at worst a no-op.
+    "enrichment_supervisor",
 }
 
 # Total attempts the app is willing to see for a retry-safe task. Must not
@@ -634,6 +638,7 @@ def _ensure_task_functions_loaded() -> None:
     from web_interface.run_embeddings_refresh import run_embeddings_refresh
     from web_interface.run_ingest_refresh import run_ingest_refresh
     from web_interface.run_meta_refresh_groups import run_meta_refresh_groups
+    from web_interface.run_enrichment_supervisor import run_enrichment_supervisor
     from web_interface.run_ops_report import run_ops_report
     from web_interface.run_pca_refresh import run_pca_refresh
     from web_interface.run_queue_annotator import run_queue_annotator
@@ -675,6 +680,7 @@ def _ensure_task_functions_loaded() -> None:
         # Deliberately NOT in QUEUE_RETRY_SAFE: a queue retry would re-send
         # the report email. A failed run lands in the task-failures ledger.
         "ops_report": run_ops_report,
+        "enrichment_supervisor": run_enrichment_supervisor,
     })
 
 
@@ -1142,12 +1148,16 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
     # token has expired (queues often run >1h) or the tab is closed. Firing here,
     # on the task-runner at terminal worker completion, makes it browser-independent.
     if name == "queue_annotator" or name.startswith("queue_scraper"):
-        _maybe_autofire_armed_consolidate(name)
+        # The armed consolidate keeps priority: it is an explicit operator
+        # request, and the supervisor would only ask for the same consolidation
+        # one tick later anyway.
+        if not _maybe_autofire_armed_consolidate(name):
+            _tick_enrichment_supervisor(name)
 
     return outcome == "Success"
 
 
-def _maybe_autofire_armed_consolidate(just_finished: str) -> None:
+def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
     """Dispatch an armed Consolidate & Refresh once the enrichment queues idle.
 
     Called from a terminal ``queue_scraper`` / ``queue_annotator`` completion on
@@ -1159,13 +1169,18 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> None:
 
     Args:
         just_finished: The worker whose completion triggered this check.
+
+    Returns:
+        True when a consolidate was actually dispatched, so the caller can skip
+        the enrichment-supervisor tick rather than dispatch a redundant task off
+        the same worker completion.
     """
     from ..process_manager import _dispatch_cloud_task
 
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
     if not entry.get("auto_armed"):
-        return
+        return False
 
     # The other enrichment workers may still be running on separate task-runner
     # instances — read their GCS status (single source of truth across instances).
@@ -1177,14 +1192,14 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> None:
             try:
                 age = (datetime.now(UTC) - datetime.fromisoformat(updated)).total_seconds()
                 if age <= 600:
-                    return
+                    return False
             except (ValueError, TypeError):
                 return  # Malformed heartbeat — treat as running, be safe.
 
     # Don't double-fire onto an already-running consolidate.
     cs = read_task_status("consolidate_enrichment") or {}
     if (cs.get("state") or "").lower() == "running":
-        return
+        return False
 
     # Defer while a local scrape-queue drain holds a lease on the shared
     # storage (its queue prunes would race the consolidation). The arm stays
@@ -1193,7 +1208,7 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> None:
         from web_interface import drain_lease
         if drain_lease.active_drain_leases():
             print(f"[{just_finished}] Armed consolidate deferred: local drain lease active.")
-            return
+            return False
     except Exception:
         pass
 
@@ -1219,6 +1234,7 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> None:
     if success:
         print(f"[{just_finished}] Armed Consolidate & Refresh fired: {msg}")
         _set_pipeline_in_flight(True)
+        return True
     else:
         print(f"[{just_finished}] Armed consolidate dispatch failed: {msg}")
         # Re-arm so the other finisher or a manual trigger can retry.
@@ -1229,6 +1245,32 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> None:
         entry["auto_armed_auto_refresh"] = auto_refresh
         process_stats["consolidate_enrichment"] = entry
         save_process_stats()
+    return False
+
+
+def _tick_enrichment_supervisor(just_finished: str) -> None:
+    """Advance the automatic enrichment loop after a worker finishes.
+
+    Fire-and-forget: the loop must never be able to fail somebody else's task
+    completion. The tick is a no-op unless the site switch is on and some
+    collection is armed, and it re-checks every precondition itself, so a
+    spurious call costs one cheap Cloud Task and nothing else.
+
+    Args:
+        just_finished: The worker whose completion triggered this.
+    """
+    try:
+        from web_interface.services import collection_enrichment as ce
+        if not ce.armed_plans():
+            return
+        from ..process_manager import _dispatch_cloud_task, dispatch_deadline_for
+        success, msg = _dispatch_cloud_task(
+            "enrichment_supervisor", {},
+            dispatch_deadline_seconds=dispatch_deadline_for("enrichment_supervisor", {}))
+        print(f"[{just_finished}] Enrichment supervisor tick: {msg}" if success else
+              f"[{just_finished}] Enrichment supervisor tick failed to dispatch: {msg}")
+    except Exception as exc:
+        print(f"[{just_finished}] Enrichment supervisor tick skipped: {exc}")
 
 
 def _record_pipeline_fork(leaves: list[str], fork_ts: str) -> None:

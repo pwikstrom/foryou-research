@@ -5600,6 +5600,7 @@ function openEditCollectionModal(collectionObj) {
     _dmRenderCollectionDetails([collectionObj]);
     dm_renderTags();
     _dmFillAccountSelect(collectionObj.user_id || '', false);
+    dmEnrichLoad(currentEditCollectionId);
     document.getElementById('editCollectionModal').style.display = 'block';
 }
 
@@ -5952,6 +5953,203 @@ function dm_saveAnnotation() {
 
 // Delete whatever the modal currently has open: one collection, or the whole
 // multi-select. Both go through a single worker run — deleting N collections
+// --- Automatic enrichment (Edit Collection modal, single-collection only) ---
+// The A+B loop's knobs and status. Settings live in the server-side
+// collection_enrichment.json ledger and are saved by their own endpoint —
+// the modal's main Save button never touches them.
+
+let dmEnrichCollectionId = null;   // collection the panel is showing
+let dmEnrichArmed = false;         // plan exists (any state)
+let dmEnrichState = null;          // running | paused | done | blocked | null
+
+function dmEnrichHide() {
+    const group = document.getElementById('edit-collection-enrichment-group');
+    if (group) group.style.display = 'none';
+    dmEnrichCollectionId = null;
+}
+
+function dmEnrichShareLabel() {
+    const slider = document.getElementById('dm-enrich-sample-share');
+    const label = document.getElementById('dm-enrich-share-label');
+    if (slider && label) label.textContent = `(${slider.value}% spread / ${100 - slider.value}% deep dive)`;
+}
+
+function dmEnrichMsg(text, isError = false) {
+    const el = document.getElementById('dm-enrich-msg');
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.color = isError ? 'var(--color-danger, #c0392b)' : 'var(--color-text-tertiary)';
+}
+
+function dmEnrichFillSettings(settings) {
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    set('dm-enrich-item-budget', settings.item_budget ?? 2000);
+    set('dm-enrich-cycle-items', settings.cycle_items ?? 400);
+    set('dm-enrich-sample-share', Math.round((settings.sample_share ?? 0.2) * 100));
+    set('dm-enrich-days-per-month', settings.a_days_per_month ?? 2);
+    set('dm-enrich-day-cap', settings.a_day_cap ?? 50);
+    set('dm-enrich-earliest', settings.earliest_date || '');
+    dmEnrichShareLabel();
+}
+
+function dmEnrichReadSettings() {
+    const num = (id) => Number(document.getElementById(id)?.value);
+    return {
+        item_budget: num('dm-enrich-item-budget'),
+        cycle_items: num('dm-enrich-cycle-items'),
+        sample_share: num('dm-enrich-sample-share') / 100,
+        a_days_per_month: num('dm-enrich-days-per-month'),
+        a_day_cap: num('dm-enrich-day-cap'),
+        earliest_date: document.getElementById('dm-enrich-earliest')?.value || null,
+    };
+}
+
+function dmEnrichRender(data) {
+    dmEnrichArmed = !!data.armed;
+    const progress = data.progress || {};
+    dmEnrichState = progress.state || null;
+
+    const statusEl = document.getElementById('dm-enrich-status-line');
+    if (statusEl) {
+        let line;
+        if (!dmEnrichArmed) {
+            line = 'Not armed. Save settings and arm to enrich this collection automatically.';
+        } else {
+            const stateLabel = {
+                running: 'Running', paused: 'Paused', done: 'Complete',
+                blocked: 'Blocked (needs attention)',
+            }[dmEnrichState] || dmEnrichState;
+            const spent = progress.spent_items ?? 0;
+            const budget = progress.item_budget ?? 0;
+            line = `${stateLabel} — ${spent}${budget ? ` / ${budget}` : ''} items spent, `
+                 + `${progress.cycles ?? 0} cycle(s).`;
+            if (progress.last_error) line += ` Last error: ${progress.last_error}`;
+        }
+        if (!data.enabled_site_wide) {
+            line += ' Site-wide automatic enrichment is OFF (Admin settings) — '
+                  + 'only "Run a cycle now" works until it is enabled.';
+        }
+        statusEl.textContent = line;
+    }
+
+    const progEl = document.getElementById('dm-enrich-progress');
+    if (progEl) {
+        if (progress.total_items) {
+            const pctS = progress.total_items ? Math.round(100 * progress.scraped_items / progress.total_items) : 0;
+            const pctA = progress.total_items ? Math.round(100 * progress.annotated_items / progress.total_items) : 0;
+            const parts = [
+                `${progress.total_items.toLocaleString()} view items over ${progress.total_days} day(s)`,
+                `${pctS}% scraped / ${pctA}% annotated`,
+                `${progress.qualifying_days} of ~${progress.milestone_days} analysis-ready days (${progress.milestone_pct}%)`,
+            ];
+            if (progress.b_cursor || progress.a_cursor) {
+                parts.push(`deep dive back to ${progress.b_cursor || '—'}, spread back to ${progress.a_cursor || '—'}`);
+            }
+            progEl.textContent = parts.join(' · ');
+        } else {
+            progEl.textContent = '';
+        }
+    }
+
+    dmEnrichFillSettings(data.settings || {});
+
+    const armBtn = document.getElementById('dm-enrich-arm-btn');
+    if (armBtn) {
+        armBtn.disabled = false;
+        armBtn.textContent = (dmEnrichArmed && dmEnrichState === 'running') ? 'Pause' : 'Arm';
+    }
+    const tickBtn = document.getElementById('dm-enrich-tick-btn');
+    if (tickBtn) tickBtn.disabled = !dmEnrichArmed;
+}
+
+function dmEnrichLoad(collectionId) {
+    const group = document.getElementById('edit-collection-enrichment-group');
+    if (!group) return;
+    if (!_dmCan('tab.data_management.edit_collections')) { dmEnrichHide(); return; }
+    group.style.display = '';
+    dmEnrichCollectionId = collectionId;
+    dmEnrichMsg('');
+    fetch(`/api/manage/collections/${encodeURIComponent(collectionId)}/enrichment`)
+        .then(r => r.json())
+        .then(data => {
+            if (dmEnrichCollectionId !== collectionId) return; // modal moved on
+            if (data.error) { dmEnrichMsg(data.error, true); return; }
+            dmEnrichRender(data);
+        })
+        .catch(err => dmEnrichMsg(`Could not load the enrichment plan: ${err}`, true));
+}
+
+function dmEnrichPost(payload, busyMsg) {
+    const cid = dmEnrichCollectionId;
+    if (!cid) return Promise.resolve(null);
+    dmEnrichMsg(busyMsg || 'Saving...');
+    return fetch(`/api/manage/collections/${encodeURIComponent(cid)}/enrichment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify(payload),
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (dmEnrichCollectionId !== cid) return null;
+            if (data.error) { dmEnrichMsg(data.error, true); return null; }
+            dmEnrichRender({ ...data, enabled_site_wide: true });
+            // Re-fetch for the authoritative enabled_site_wide + progress.
+            dmEnrichLoad(cid);
+            return data;
+        })
+        .catch(err => { dmEnrichMsg(`Save failed: ${err}`, true); return null; });
+}
+
+function dmEnrichSave() {
+    dmEnrichPost({ settings: dmEnrichReadSettings() }).then(d => {
+        if (d) dmEnrichMsg('Settings saved.');
+    });
+}
+
+function dmEnrichToggleArmed() {
+    const next = (dmEnrichArmed && dmEnrichState === 'running') ? 'paused' : 'running';
+    dmEnrichPost({ state: next, settings: dmEnrichReadSettings() },
+                 next === 'running' ? 'Arming...' : 'Pausing...')
+        .then(d => { if (d) dmEnrichMsg(next === 'running' ? 'Armed.' : 'Paused.'); });
+}
+
+function dmEnrichTick() {
+    const cid = dmEnrichCollectionId;
+    if (!cid) return;
+    const btn = document.getElementById('dm-enrich-tick-btn');
+    if (btn) btn.disabled = true;
+    dmEnrichMsg('Starting a cycle...');
+    fetch(`/api/manage/collections/${encodeURIComponent(cid)}/enrichment/tick`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({}),
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (btn) btn.disabled = false;
+            if (data.error || data.status === 'error') {
+                dmEnrichMsg(data.error || data.message || 'Could not start.', true);
+                return;
+            }
+            if (data.status === 'completed') {
+                // Local mode runs the tick inline and reports what it did.
+                const labels = {
+                    scrape: 'started the scraper', annotate: 'started the annotator',
+                    consolidate: 'started a consolidation', handoff: 'queued scraped items for annotation',
+                    plan: 'queued the next slice to scrape', busy: 'workers still running — try again later',
+                    idle: 'nothing armed', nothing_to_do: 'nothing to do right now',
+                    disabled: 'automatic enrichment is disabled',
+                };
+                dmEnrichMsg(`Tick: ${labels[data.action] || data.action || 'done'}.`);
+                dmEnrichLoad(cid);
+                return;
+            }
+            dmEnrichMsg('Cycle started — watch the workers on the Scrape/Annotation pages.');
+        })
+        .catch(err => { if (btn) btn.disabled = false; dmEnrichMsg(`Failed: ${err}`, true); });
+}
+
+
 // as N tasks would reload and rewrite the multi-GB activity parquet N times.
 function dm_deleteCollection() {
     const ids = bulkEditMode
@@ -6140,6 +6338,7 @@ function openEditSelectedCollections() {
     bulkEditMode = true;
     currentEditCollectionId = null;
     hiddenUserTouched = false;
+    dmEnrichHide();
 
     // Collect objects for selected collections
     const selectedObjs = selectedIds.map(id =>

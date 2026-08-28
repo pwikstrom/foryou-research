@@ -85,6 +85,66 @@
             </div>
         </div>
 
+        <!-- Automatic enrichment: the per-collection A+B loop (deep-dive recent
+             days + spread sample of whole days back through history). Single
+             collection only — hidden in bulk mode. Settings live in the
+             cache/collection_enrichment.json ledger, not collections_tags.json,
+             and are saved by their own endpoint (the Save button below does not
+             touch them). -->
+        <div class="form-group" id="edit-collection-enrichment-group" style="margin-top: 20px; display: none;">
+            <label style="display: block; margin-bottom: 5px;">Automatic enrichment:</label>
+            <div style="border: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 10px 12px;">
+                <div id="dm-enrich-status-line" class="text-sm" style="margin-bottom: 8px; color: var(--color-text-secondary);">
+                    Loading enrichment plan...
+                </div>
+                <div id="dm-enrich-progress" class="text-sm" style="margin-bottom: 10px;"></div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 14px;">
+                    <label class="text-sm" style="display: block;">
+                        Item budget
+                        <input type="number" id="dm-enrich-item-budget" class="control-input" min="0" step="50"
+                            style="width: 100%; padding: 6px;" title="Most items this collection may spend in total (0 = unlimited).">
+                    </label>
+                    <label class="text-sm" style="display: block;">
+                        Items per cycle
+                        <input type="number" id="dm-enrich-cycle-items" class="control-input" min="1" step="50"
+                            style="width: 100%; padding: 6px;" title="How many items each scrape-annotate cycle enqueues.">
+                    </label>
+                    <label class="text-sm" style="display: block;">
+                        Spread share <span id="dm-enrich-share-label"></span>
+                        <input type="range" id="dm-enrich-sample-share" min="0" max="100" step="5"
+                            style="width: 100%;" oninput="dmEnrichShareLabel()"
+                            title="Share of each cycle for the history-wide spread (Process A); the rest deep-dives recent days (Process B).">
+                    </label>
+                    <label class="text-sm" style="display: block;">
+                        Spread days / month
+                        <input type="number" id="dm-enrich-days-per-month" class="control-input" min="0" max="31"
+                            style="width: 100%; padding: 6px;" title="Whole days the spread samples per calendar month, walking backwards.">
+                    </label>
+                    <label class="text-sm" style="display: block;">
+                        Spread items / day
+                        <input type="number" id="dm-enrich-day-cap" class="control-input" min="1"
+                            style="width: 100%; padding: 6px;" title="Cap on items enriched per sampled day (deep-dive days are uncapped).">
+                    </label>
+                    <label class="text-sm" style="display: block;">
+                        Earliest date
+                        <input type="date" id="dm-enrich-earliest" class="control-input"
+                            style="width: 100%; padding: 6px;" title="Optional floor: enrichment never reaches further back than this.">
+                    </label>
+                </div>
+
+                <div style="margin-top: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <button type="button" class="action-btn text-sm" id="dm-enrich-arm-btn"
+                        onclick="dmEnrichToggleArmed()">Arm</button>
+                    <button type="button" class="action-btn btn-secondary text-sm" id="dm-enrich-save-btn"
+                        onclick="dmEnrichSave()">Save settings</button>
+                    <button type="button" class="btn-discreet text-xs" id="dm-enrich-tick-btn"
+                        onclick="dmEnrichTick()">Run a cycle now</button>
+                    <span id="dm-enrich-msg" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+                </div>
+            </div>
+        </div>
+
         <div style="margin-top: 25px; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
             {% if current_user.is_admin() %}
             <button type="button" class="action-btn btn-danger" id="delete-collection-btn"

@@ -58,6 +58,7 @@ CLOUD_TASK_ELIGIBLE = {
     "retokenise_hashtags",
     "ab_eval",
     "ops_report",
+    "enrichment_supervisor",
 }
 CLOUD_TASK_ELIGIBLE |= set(SCRAPER_PROCESS_NAMES)
 
@@ -139,7 +140,8 @@ processes = {
     "video_map_refresh": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "retokenise_hashtags": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
     "ab_eval": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
-    "ops_report": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None}
+    "ops_report": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None},
+    "enrichment_supervisor": {"proc": None, "logs": deque(maxlen=1000), "status": "stopped", "progress": {}, "data": {}, "start_time": None, "last_message": "", "study_name": None}
 }
 
 process_stats = {}

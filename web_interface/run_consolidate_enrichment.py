@@ -241,6 +241,31 @@ def _build_downstream_pipeline(impact: dict | None) -> list[dict]:
     return [by_name[name] for name in _PIPELINE_STEPS_ORDER if name in by_name]
 
 
+def _tick_enrichment_supervisor(reporter) -> None:
+    """Nudge the automatic enrichment loop forward. Never raises.
+
+    A no-op when nothing is armed. Dispatched as its own task rather than run
+    inline: the tick may start a scraper or annotator, and this consolidation
+    has not finished writing its own status yet.
+    """
+    try:
+        from web_interface.services import collection_enrichment as ce
+        if not ce.armed_plans():
+            return
+        from web_interface.process_manager import (
+            _dispatch_cloud_task, dispatch_deadline_for, is_cloud_run,
+        )
+        if not is_cloud_run():
+            return  # Local runs are operator-driven; the button does this.
+        success, msg = _dispatch_cloud_task(
+            "enrichment_supervisor", {},
+            dispatch_deadline_seconds=dispatch_deadline_for("enrichment_supervisor", {}))
+        reporter.log(f"Enrichment supervisor tick: {msg}" if success else
+                     f"Enrichment supervisor tick failed to dispatch: {msg}")
+    except Exception as exc:
+        reporter.log(f"Enrichment supervisor tick skipped (consolidation unaffected): {exc}")
+
+
 def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
     """Consolidate enrichment data (scrapes + machine annotations).
 
@@ -372,6 +397,13 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
                 reporter.log(f"Participant first batches completed: {', '.join(done)}")
         except Exception as exc:
             reporter.log(f"First-batch completion check failed (consolidation unaffected): {exc}")
+
+    # Automatic enrichment: this consolidation is what makes the last batch's
+    # scrape/annotation outcomes visible, so it is also the moment the loop can
+    # take its next step (hand scraped items to annotation, or cut a new slice).
+    # Fired unconditionally — a cycle whose whole batch failed to scrape still
+    # needs the tick, so that its stall counter can advance and park the plan.
+    _tick_enrichment_supervisor(reporter)
 
     # ---- Pipeline dispatch: chain into stale downstream refreshes ----
     # Always write a last_pipeline_summary so the UI has a definitive

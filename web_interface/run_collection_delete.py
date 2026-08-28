@@ -116,6 +116,16 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
                 ]
             save_study_defs()
 
+        # Drop any automatic-enrichment plans: both the admin delete and a
+        # participant withdrawal come through this worker, so this is the one
+        # place that guarantees the supervisor never serves a gone collection.
+        try:
+            from web_interface.services import collection_enrichment
+            for cid in id_set:
+                collection_enrichment.drop_plan(cid)
+        except Exception as exc:
+            reporter.log(f"Enrichment-plan cleanup skipped: {exc}")
+
         # 4. Update collections_tags.json: drop the keys.
         if tags_snapshot is not None and (id_set & set(tags_snapshot)):
             reporter.update_progress(25, "Updating collection tags...")

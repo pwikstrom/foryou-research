@@ -25,7 +25,7 @@ from ...process_manager import (
     start_process,
 )
 from ...permissions import permission_required
-from ...services import system_health
+from ...services import collection_enrichment, system_health
 from ...task_status import is_cloud_run
 
 
@@ -1003,54 +1003,22 @@ def calculate_to_annotate():
                 data, selection_mode, df_study, df_status
             )
 
-        unannotated_videos = []
-        if df_status is not None and not df_status.empty:
-            if 'item_id' not in df_status.columns:
-                df_status = df_status.reset_index()
-                if 'index' in df_status.columns and 'item_id' not in df_status.columns:
-                    df_status = df_status.rename(columns={'index': 'item_id'})
-
-            if 'duration' in df_study.columns:
-                study_videos = df_study[['item_id', 'duration']].copy()
-            else:
-                study_videos = df_study[['item_id']].copy()
-                
-            study_status = study_videos.merge(df_status, on='item_id', how='left')
-            
-            is_scraped_ok = study_status['scraped_ok'].fillna(False) == True
-            
-            if 'annotated_ok' in study_status.columns:
-                not_annotated_ok = pd.isna(study_status['annotated_ok']) | (study_status['annotated_ok'] == False)
-            else:
-                not_annotated_ok = True
-
-            # When retry_failed is set, ignore the annotated_fail column so
-            # items that previously failed annotation are re-queued.
-            if retry_failed:
-                not_annotated_fail = True
-            elif 'annotated_fail' in study_status.columns:
-                not_annotated_fail = pd.isna(study_status['annotated_fail']) | (study_status['annotated_fail'] == False)
-            else:
-                not_annotated_fail = True
-
-            unannotated_mask = is_scraped_ok & not_annotated_ok & not_annotated_fail
-
-            # Annotation needs an mp4: metadata-only items (e.g. YouTube
-            # long-form past the media duration cap) are not annotatable.
-            if 'video_downloaded' in study_status.columns:
-                unannotated_mask = unannotated_mask & (study_status['video_downloaded'].fillna(False) == True)
-
-            if 'duration' in study_status.columns:
-                max_dur = fyp_cf.get("machine", {}).get("max_duration_for_annotation", 600)
-                duration_ok = (study_status['duration'] < max_dur) | pd.isna(study_status['duration'])
-                unannotated_mask = unannotated_mask & duration_ok
-
-            unannotated_videos = study_status.loc[unannotated_mask, 'item_id'].dropna().tolist()
-        else:
-            unannotated_videos = []
-
-        # Ensure all values are plain Python strings (not PyArrow scalars)
-        unannotated_videos = list({str(v) for v in unannotated_videos})
+        # The scraped-and-annotatable predicate lives in one place only — see
+        # collection_enrichment.annotation_eligible for why a second copy is
+        # dangerous (an unscraped id in this queue is burnt permanently).
+        durations = None
+        if 'duration' in df_study.columns:
+            dur = df_study[['item_id', 'duration']].dropna(subset=['item_id']).copy()
+            dur['item_id'] = dur['item_id'].astype(str)
+            dur = dur.drop_duplicates(subset=['item_id'])
+            durations = dict(zip(dur['item_id'], dur['duration']))
+        unannotated_videos = collection_enrichment.annotation_eligible(
+            df_study['item_id'].dropna().tolist(),
+            df_status,
+            durations=durations,
+            retry_failed=retry_failed,
+            max_duration=fyp_cf.get("machine", {}).get("max_duration_for_annotation", 600),
+        )
 
         unannotated_videos, cap_info = _apply_queue_cap(unannotated_videos, "annotation")
         cost = _annotation_cost_estimate(len(unannotated_videos))

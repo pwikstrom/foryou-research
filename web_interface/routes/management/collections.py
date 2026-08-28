@@ -403,3 +403,150 @@ def list_accounts():
     return jsonify(rows)
 
 
+
+
+@management_bp.route('/api/manage/collections/<collection_id>/enrichment', methods=['GET'])
+@permission_required('tab.data_management.edit_collections')
+@login_required
+def get_collection_enrichment(collection_id):
+    """The collection's automatic-enrichment plan + live progress, for the modal."""
+    from ...services import collection_enrichment as ce
+    from ... import admin_settings
+
+    entry = ce.get_plan(collection_id)
+    payload = {
+        "enabled_site_wide": bool(admin_settings.get_setting("auto_enrichment_enabled")),
+        "armed": entry is not None,
+        "settings": (entry or {}).get("settings") or dict(ce.DEFAULT_SETTINGS),
+        "progress": ce.progress(collection_id, entry),
+    }
+    return jsonify(payload)
+
+
+@management_bp.route('/api/manage/collections/<collection_id>/enrichment', methods=['POST'])
+@permission_required('tab.data_management.edit_collections')
+@login_required
+def save_collection_enrichment(collection_id):
+    """Arm, pause, resume or reconfigure a collection's enrichment plan.
+
+    Payload: ``{"state": "running"|"paused", "settings": {...}}`` — both
+    optional; settings are normalized/clamped server-side. Arming a collection
+    that has never been armed seeds the ledger entry (cursors start unset, so
+    the first cycle begins at the newest day/month). Pausing keeps every
+    cursor, so resuming continues where it stopped.
+    """
+    from ...services import collection_enrichment as ce
+    from ...collection_accounts import load_owner_map
+
+    data = request.json or {}
+    cid = str(collection_id)
+
+    patch = {}
+    state = data.get("state")
+    if state is not None:
+        if state not in (ce.STATE_RUNNING, ce.STATE_PAUSED):
+            return jsonify({"error": f"Unknown state '{state}'"}), 400
+        patch["state"] = state
+        if state == ce.STATE_RUNNING:
+            # (Re)arming clears the fault fields so a blocked/stalled plan can
+            # be revived deliberately from the modal.
+            patch["stall_count"] = 0
+            patch["last_error"] = None
+    if isinstance(data.get("settings"), dict):
+        patch["settings"] = ce.normalize_settings(data["settings"])
+
+    existing = ce.get_plan(cid)
+    if existing is None:
+        try:
+            owner = (load_owner_map() or {}).get(cid)
+        except Exception:
+            owner = None
+        patch.setdefault("state", ce.STATE_PAUSED)
+        patch.setdefault("settings", ce.normalize_settings(data.get("settings")))
+        patch.update({"owner": owner, "spent_items": 0, "cycles": 0,
+                      "stall_count": 0, "created_at": ce.now_iso(),
+                      "created_by": _actor()})
+    ce.save_plan(cid, patch)
+
+    activity_log.record(
+        actor=_actor(),
+        category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action="collection.enrichment.save",
+        target=cid,
+        details={k: v for k, v in patch.items() if k != "settings"} |
+                ({"settings": patch["settings"]} if "settings" in patch else {}),
+    )
+    entry = ce.get_plan(cid)
+    return jsonify({"status": "success", "armed": entry is not None,
+                    "settings": (entry or {}).get("settings"),
+                    "progress": ce.progress(cid, entry)})
+
+
+@management_bp.route('/api/manage/collections/<collection_id>/enrichment/tick', methods=['POST'])
+@permission_required('tab.data_management.edit_collections')
+@login_required
+def tick_collection_enrichment(collection_id):
+    """Run one supervisor cycle now, serving only this collection.
+
+    The manual escape hatch: works even while the site-wide switch is off (the
+    explicit click is the authorization), so a plan can be tested end to end
+    before automatic ticks are enabled.
+    """
+    from fyp.fyp_config import ENRICHMENT_SUPERVISOR_SCRIPT
+    from ...services import collection_enrichment as ce
+    from ...task_status import is_cloud_run
+
+    cid = str(collection_id)
+    if ce.get_plan(cid) is None:
+        return jsonify({"error": "This collection has no enrichment plan. Save one first."}), 400
+
+    activity_log.record(
+        actor=_actor(), category=activity_log.CATEGORY_DATA_MANAGEMENT,
+        action="collection.enrichment.tick", target=cid)
+
+    if is_cloud_run():
+        success, msg = start_process(
+            "enrichment_supervisor",
+            ENRICHMENT_SUPERVISOR_SCRIPT,
+            args=["--collection-id", cid],
+            task_args={"collection_id": cid},
+            started_by=_actor(),
+        )
+        if success:
+            return jsonify({"status": "started", "message": msg})
+        return jsonify({"status": "error", "message": msg}), 409
+
+    # Local mode: run the tick INLINE rather than as a subprocess. A worker the
+    # tick starts must be spawned (and monitored) by this server process — a
+    # short-lived supervisor subprocess would orphan it, killing its log/monitor
+    # threads (same reason _run_local_downstream_pipeline runs in a server
+    # thread). The tick itself is a couple of parquet reads, so synchronous is
+    # fine, and the response can say what the tick actually did.
+    from ...run_enrichment_supervisor import run_enrichment_supervisor
+
+    class _InlineReporter:
+        def __init__(self):
+            self.lines: list[str] = []
+            self.outcome: dict = {}
+
+        def log(self, msg):
+            self.lines.append(str(msg))
+            print(f"[enrichment_supervisor] {msg}")
+
+        def update_progress(self, pct, msg=""):
+            pass
+
+        def emit_data(self, data):
+            if isinstance(data, dict):
+                self.outcome.update(data)
+
+    rep = _InlineReporter()
+    try:
+        run_enrichment_supervisor(rep, {"collection_id": cid})
+    except Exception as exc:
+        return jsonify({"status": "error", "message": str(exc),
+                        "log": rep.lines}), 500
+    return jsonify({"status": "completed",
+                    "action": rep.outcome.get("action"),
+                    "outcome": rep.outcome,
+                    "log": rep.lines})

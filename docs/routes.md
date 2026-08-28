@@ -96,6 +96,9 @@ python scripts/gen_route_inventory.py
 | management_bp | `/api/manage/annotation/backends` | GET | `management_bp.get_annotation_backends` |
 | management_bp | `/api/manage/collection/save_annotation` | POST | `management_bp.save_collection_annotation` |
 | management_bp | `/api/manage/collections` | GET | `management_bp.list_collections` |
+| management_bp | `/api/manage/collections/<collection_id>/enrichment` | GET | `management_bp.get_collection_enrichment` |
+| management_bp | `/api/manage/collections/<collection_id>/enrichment` | POST | `management_bp.save_collection_enrichment` |
+| management_bp | `/api/manage/collections/<collection_id>/enrichment/tick` | POST | `management_bp.tick_collection_enrichment` |
 | management_bp | `/api/manage/collections/affected_studies` | GET | `management_bp.affected_studies_for_collection` |
 | management_bp | `/api/manage/collections/coverage` | GET | `management_bp.collections_coverage` |
 | management_bp | `/api/manage/collections/delete` | POST | `management_bp.delete_collection` |
@@ -192,4 +195,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-181 routes total.
+184 routes total.

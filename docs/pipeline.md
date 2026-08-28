@@ -119,6 +119,28 @@ first-batch auto-enqueueing ships **disabled**
 ledger/handoff/notification machinery stays wired but is a no-op until an
 operator enables it.
 
+**Automatic per-collection enrichment (Process A + B).** An armed
+collection is enriched unattended by a *supervisor* loop
+(`web_interface/run_enrichment_supervisor.py` +
+`web_interface/services/collection_enrichment.py`): each short tick either
+starts a queue worker, consolidates, hands newly scraped items to the
+annotation queue, or cuts the next slice into the scrape queue — one action
+per tick, so the loop unrolls to
+`plan → scrape → consolidate(light) → annotate → consolidate(full refresh)`.
+Slices interleave two processes that both buy **whole collection-days**
+(the unit every analysis floors on): Process B takes consecutive recent days
+uncapped (what Sessions needs), Process A samples a few whole days per
+month backwards through history (the Timelines/Correlations long arc), with
+`sample_share` splitting each cycle's items between them. Plans, cursors and
+per-collection item budgets live in `cache/collection_enrichment.json`;
+they are armed from the Edit Collections modal, the site-wide switch is the
+`auto_enrichment_enabled` admin setting (ships **off**), and the triggers
+are worker completions, the end of each consolidation, and an hourly Cloud
+Scheduler heartbeat on `/internal/run-task/enrichment_supervisor`. The
+annotate-side eligibility predicate is shared with the manual queue builder
+(`collection_enrichment.annotation_eligible`) so the "never annotate-queue
+unscraped items" rule has exactly one implementation.
+
 ## 5. Analysis & studies
 
 Study definitions (`studies.py`) filter the recoded corpus into datasets.

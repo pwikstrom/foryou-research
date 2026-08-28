@@ -81,6 +81,29 @@
     </div>
 </section>
 
+<!-- Automatic enrichment -->
+<section style="margin-bottom: 28px;">
+    <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Automatic enrichment</h3>
+    <p class="text-xs" style="margin: 0 0 12px 0; color: var(--color-text-muted);">
+        The unattended per-collection scrape-and-annotate loop. Individual
+        collections are armed in Data Pipeline &rarr; Edit Collections; nothing
+        runs automatically while this switch is off ("Run a cycle now" still
+        works). It spends annotation budget on its own — watch one collection
+        run before enabling it.
+    </p>
+    <div style="margin-bottom: 12px;">
+        <label class="meta-tooltip"
+            data-tooltip="When on, armed collections are enriched automatically: worker completions, consolidations and the hourly heartbeat each advance the loop."
+            style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="setting-auto-enrichment"
+                onchange="saveAutoEnrichmentSetting(this)" disabled />
+            <span class="text-sm">Enable automatic collection enrichment</span>
+            <span id="setting-auto-enrichment-status" class="text-xs"
+                style="color: var(--color-text-muted); margin-left: 8px;"></span>
+        </label>
+    </div>
+</section>
+
 <!-- Cost guardrails -->
 <section style="margin-bottom: 28px;">
     <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Cost guardrails</h3>

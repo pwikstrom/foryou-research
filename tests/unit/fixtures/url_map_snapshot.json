@@ -463,6 +463,27 @@
   ]
  ],
  [
+  "/api/manage/collections/<collection_id>/enrichment",
+  "management_bp.get_collection_enrichment",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/api/manage/collections/<collection_id>/enrichment",
+  "management_bp.save_collection_enrichment",
+  [
+   "POST"
+  ]
+ ],
+ [
+  "/api/manage/collections/<collection_id>/enrichment/tick",
+  "management_bp.tick_collection_enrichment",
+  [
+   "POST"
+  ]
+ ],
+ [
   "/api/manage/collections/affected_studies",
   "management_bp.affected_studies_for_collection",
   [
