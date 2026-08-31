@@ -5272,7 +5272,9 @@ const _EDIT_COLLECTION_DETAILS = [
 const _ENRICHMENT_STATE_LABELS = {
     running: 'Running',
     paused: 'Paused',
-    done: 'Complete',
+    // "Idle", not "Complete": done means the current target is met, and a
+    // higher target can always put it back to work (2026-08-31 feedback).
+    done: 'Idle',
     blocked: 'Needs attention',
 };
 
@@ -6045,21 +6047,24 @@ function dmEnrichMsg(text, tone = '') {
 }
 
 // Live figures the target widgets need between renders: the latest progress
-// payload and the per-1000-items annotation cost estimate (null when the
-// active backend has no pricing).
+// payload, the per-1000-items annotation cost estimate (null when the active
+// backend has no pricing), and the target itself — the box that shows it is
+// read-only (it renders "16,000", which no number input can hold), so this
+// variable, driven by the slider, is the value that gets saved.
 let dmEnrichProgressCache = {};
 let dmEnrichCostPer1000 = null;
+let dmEnrichTargetValue = 0;
 
 function dmEnrichFillSettings(settings, progress = {}) {
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     set('dm-enrich-cycle-items', settings.cycle_items ?? 400);
-    set('dm-enrich-sample-share', Math.round((settings.sample_share ?? 0.2) * 100));
+    set('dm-enrich-sample-share', Math.round((settings.sample_share ?? 0.5) * 100));
     set('dm-enrich-days-per-month', settings.a_days_per_month ?? 2);
     set('dm-enrich-day-cap', settings.a_day_cap ?? 50);
     set('dm-enrich-earliest', settings.earliest_date || '');
     // The target: the stored goal, or — for a plan that has never had one — a
     // suggested starter (current annotated + 2,000, inside the reachable
-    // window). A suggestion only prefills the field; nothing is saved until
+    // window). A suggestion only prefills the display; nothing is saved until
     // the operator presses Save or Arm.
     const floor = progress.target_floor ?? 0;
     const ceiling = progress.target_ceiling ?? 0;
@@ -6067,7 +6072,7 @@ function dmEnrichFillSettings(settings, progress = {}) {
     if (!target && ceiling > 0) {
         target = Math.min(ceiling, floor + 2000);
     }
-    set('dm-enrich-target', target || '');
+    dmEnrichTargetValue = target;
     dmEnrichTargetBounds(progress);
     dmEnrichTargetSync(target);
     dmEnrichShareLabel();
@@ -6088,14 +6093,7 @@ function _dmEnrichSliderWindow() {
 
 function dmEnrichTargetBounds(progress = {}) {
     dmEnrichProgressCache = progress || {};
-    const el = document.getElementById('dm-enrich-target');
     const slider = document.getElementById('dm-enrich-target-slider');
-    const floor = progress.target_floor ?? 0;
-    const ceiling = progress.target_ceiling ?? 0;
-    if (el) {
-        el.min = String(floor || 0);
-        if (ceiling > 0) el.max = String(ceiling); else el.removeAttribute('max');
-    }
     if (slider) {
         const win = _dmEnrichSliderWindow();
         slider.disabled = !win;
@@ -6131,25 +6129,55 @@ function dmEnrichDrawMarker(target) {
     marker.style.left = `${(frac * 100).toFixed(2)}%`;
 }
 
-function dmEnrichTargetReadout(target) {
-    const el = document.getElementById('dm-enrich-target-readout');
-    if (!el) return;
-    const total = dmEnrichProgressCache.unique_items || 0;
-    const annotated = dmEnrichProgressCache.target_floor ?? 0;
-    if (!target || !total) { el.textContent = ''; return; }
-    const parts = [`${Math.round(100 * target / total)}% of the collection`];
-    const more = Math.max(0, target - annotated);
-    parts.push(more > 0 ? `${more.toLocaleString()} more annotations`
-                        : 'already met');
-    if (more > 0 && dmEnrichCostPer1000 && dmEnrichCostPer1000.est_cost_usd) {
-        const usd = more * dmEnrichCostPer1000.est_cost_usd / 1000;
-        parts.push(`\u2248 $${usd < 10 ? usd.toFixed(2) : Math.round(usd).toLocaleString()}`);
+// "roughly 3 hours" / "roughly 1\u20132 days" from a cycle count. A cycle is
+// dominated by the annotation batch plus worker turnaround; observed prod
+// cycles run about one to three hours, so the range is honest, not precise.
+function dmEnrichCyclesDuration(cycles) {
+    const loH = cycles * 1, hiH = cycles * 3;
+    if (hiH < 48) {
+        return loH === hiH ? `roughly ${loH} h` : `roughly ${loH}\u2013${hiH} h`;
     }
-    el.textContent = `= ${parts.join(' \u00b7 ')}`;
+    const loD = Math.max(1, Math.round(loH / 24)), hiD = Math.max(1, Math.round(hiH / 24));
+    return loD === hiD ? `roughly ${loD} day(s)` : `roughly ${loD}\u2013${hiD} days`;
 }
 
-// One value, three widgets: keep the field, the slider and the marker agreed.
+function dmEnrichTargetReadout(target) {
+    const el = document.getElementById('dm-enrich-target-readout');
+    const pctEl = document.getElementById('dm-enrich-target-pct');
+    const total = dmEnrichProgressCache.unique_items || 0;
+    if (pctEl) {
+        pctEl.textContent = (target && total)
+            ? `(${Math.round(100 * target / total)}%)` : '';
+    }
+    if (!el) return;
+    const annotated = dmEnrichProgressCache.target_floor ?? 0;
+    if (!target || !total) { el.textContent = ''; return; }
+    const more = Math.max(0, target - annotated);
+    if (!more) { el.textContent = 'already met'; return; }
+    const parts = [`${more.toLocaleString()} items will be annotated`];
+    if (dmEnrichCostPer1000 && dmEnrichCostPer1000.est_cost_usd) {
+        const usd = more * dmEnrichCostPer1000.est_cost_usd / 1000;
+        const model = dmEnrichCostPer1000.model || dmEnrichCostPer1000.backend;
+        parts.push(`\u2248 $${usd < 10 ? usd.toFixed(2) : Math.round(usd).toLocaleString()}`
+                   + (model ? ` (${model})` : ''));
+    }
+    const cycleItems = Number(document.getElementById('dm-enrich-cycle-items')?.value) || 400;
+    const cycles = Math.ceil(more / cycleItems);
+    parts.push(`\u2248 ${cycles.toLocaleString()} cycle(s), ${dmEnrichCyclesDuration(cycles)}`);
+    el.textContent = parts.join(' \u00b7 ');
+}
+
+// The readout depends on Items per cycle too; its input calls this.
+function dmEnrichReadoutRefresh() {
+    dmEnrichTargetReadout(dmEnrichTargetValue);
+}
+
+// One value, four widgets: keep the display box, the slider, the marker and
+// the readout agreed on dmEnrichTargetValue.
 function dmEnrichTargetSync(target) {
+    dmEnrichTargetValue = target;
+    const el = document.getElementById('dm-enrich-target');
+    if (el) el.value = target ? Number(target).toLocaleString() : '';
     const slider = document.getElementById('dm-enrich-target-slider');
     if (slider && !slider.disabled) slider.value = String(_dmEnrichTargetToSlider(target));
     dmEnrichDrawMarker(target);
@@ -6158,18 +6186,13 @@ function dmEnrichTargetSync(target) {
 
 function dmEnrichSliderInput() {
     const slider = document.getElementById('dm-enrich-target-slider');
-    const el = document.getElementById('dm-enrich-target');
     if (!slider) return;
     const target = _dmEnrichSliderToTarget(Number(slider.value));
-    if (el) el.value = String(target);
+    dmEnrichTargetValue = target;
+    const el = document.getElementById('dm-enrich-target');
+    if (el) el.value = target ? Number(target).toLocaleString() : '';
     dmEnrichDrawMarker(target);
     dmEnrichTargetReadout(target);
-}
-
-function dmEnrichTargetInput() {
-    const el = document.getElementById('dm-enrich-target');
-    const target = Number(el?.value);
-    if (Number.isFinite(target)) dmEnrichTargetSync(target);
 }
 
 function dmEnrichToggleAdvanced() {
@@ -6184,7 +6207,7 @@ function dmEnrichToggleAdvanced() {
 function dmEnrichReadSettings() {
     const num = (id) => Number(document.getElementById(id)?.value);
     return {
-        annotation_target: num('dm-enrich-target'),
+        annotation_target: dmEnrichTargetValue,
         cycle_items: num('dm-enrich-cycle-items'),
         sample_share: num('dm-enrich-sample-share') / 100,
         a_days_per_month: num('dm-enrich-days-per-month'),
@@ -6196,8 +6219,7 @@ function dmEnrichReadSettings() {
 // Plain-language state names. The ledger's own words ("done", "blocked") are
 // for the code; these are what the operator reads in the panel and the table.
 function dmEnrichStateLabel(state) {
-    return { running: 'Running', paused: 'Paused', done: 'Complete',
-             blocked: 'Needs attention' }[state] || state;
+    return _ENRICHMENT_STATE_LABELS[state] || state;
 }
 
 
@@ -6238,6 +6260,78 @@ function dmEnrichTickTooltip(armed, state, progress) {
     return base;
 }
 
+
+// The panel's per-day activity chart: one stacked bar per active day, split
+// by enrichment state in the coverage bar's colours, in the style of the
+// study modal's daily chart. Completely non-interactive (staticPlot). Two
+// dashed lines track settings live: the spread's per-day cap and the
+// min_day_items analysis floor.
+function dmEnrichChartShapes() {
+    const cap = Number(document.getElementById('dm-enrich-day-cap')?.value) || 0;
+    const floor = dmEnrichProgressCache.min_day_items || 10;
+    const line = (y, color, dash) => ({
+        type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: y, y1: y,
+        line: { color, width: 1, dash },
+    });
+    const shapes = [line(floor, getCSSVar('--color-text-tertiary'), 'dot')];
+    if (cap > 0) shapes.push(line(cap, getCSSVar('--color-warning'), 'dash'));
+    return shapes;
+}
+
+// Redraw only the dashed lines (fired as the day-cap input changes).
+function dmEnrichChartLines() {
+    const div = document.getElementById('dm-enrich-daily-chart');
+    if (div && div._plotlyInited && window.Plotly) {
+        window.Plotly.relayout(div, { shapes: dmEnrichChartShapes() });
+    }
+}
+
+function dmEnrichRenderChart(daily) {
+    const div = document.getElementById('dm-enrich-daily-chart');
+    if (!div) return;
+    const dates = (daily && daily.dates) || [];
+    if (!dates.length || !window.Plotly) {
+        div.style.display = 'none';
+        if (div._plotlyInited && window.Plotly) {
+            window.Plotly.purge(div);
+            div._plotlyInited = false;
+        }
+        return;
+    }
+    div.style.display = '';
+    // Noon-anchored like the study modal's chart, so each bar sits cleanly
+    // inside its own date label.
+    const xs = dates.map(d => d + 'T12:00:00Z');
+    const rest = dates.map((_, i) => Math.max(0,
+        (daily.total[i] || 0) - (daily.annotated[i] || 0)
+        - (daily.awaiting[i] || 0) - (daily.failed[i] || 0)));
+    const trace = (ys, color, opacity) => ({
+        type: 'bar', x: xs, y: ys, marker: { color, opacity }, hoverinfo: 'skip',
+    });
+    const traces = [
+        trace(daily.annotated, getCSSVar('--color-success') || '#6A9B7E', 1),
+        trace(daily.awaiting, getCSSVar('--color-info') || '#6E93B8', 0.55),
+        trace(rest, getCSSVar('--color-text-faint') || '#888', 0.3),
+        trace(daily.failed, getCSSVar('--color-border-strong') || '#666', 0.8),
+    ];
+    const layout = {
+        barmode: 'stack',
+        bargap: 0,
+        margin: { l: 32, r: 8, t: 6, b: 26 },
+        paper_bgcolor: getCSSVar('--chart-bg'),
+        plot_bgcolor: getCSSVar('--chart-bg'),
+        font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text'), size: 10 },
+        xaxis: { type: 'date', gridcolor: getCSSVar('--chart-grid'),
+                 tickfont: { size: 9 }, tickformat: '%Y-%m-%d', fixedrange: true },
+        yaxis: { gridcolor: getCSSVar('--chart-grid'), tickfont: { size: 9 },
+                 fixedrange: true, rangemode: 'tozero' },
+        showlegend: false,
+        shapes: dmEnrichChartShapes(),
+    };
+    window.Plotly.react(div, traces, layout,
+                        { staticPlot: true, displayModeBar: false, responsive: true });
+    div._plotlyInited = true;
+}
 
 // Draw the coverage bar: four zones that sum to the collection's unique
 // videos. Deliberately linear — stacked segments only mean anything when
@@ -6320,7 +6414,9 @@ function dmEnrichRender(data) {
     }
 
     dmEnrichDrawBar(progress);
+    // Settings first: the chart's dashed cap line reads the day-cap input.
     dmEnrichFillSettings(data.settings || {}, progress);
+    dmEnrichRenderChart(progress.daily);
 
     const armBtn = document.getElementById('dm-enrich-arm-btn');
     if (armBtn) {
@@ -6375,50 +6471,20 @@ function dmEnrichPost(payload, busyMsg) {
         .catch(err => { dmEnrichMsg(`Save failed: ${err}`, true); return null; });
 }
 
-// A number input's min/max only bind its spinner — a typed value sails past
-// them. Pull the target back into the reachable window before saving and say
-// so, rather than letting an unreachable goal be stored quietly.
-function dmEnrichClampTarget() {
-    const el = document.getElementById('dm-enrich-target');
-    if (!el || !el.max) return null;
-    const floor = Number(el.min), ceiling = Number(el.max);
-    const typed = Number(el.value);
-    if (!Number.isFinite(typed)) return null;
-    const clamped = Math.max(floor, Math.min(ceiling, typed));
-    if (clamped === typed) return null;
-    el.value = String(clamped);
-    dmEnrichTargetSync(clamped);
-    return typed < floor
-        ? `${floor.toLocaleString()} videos are already annotated, so a target `
-          + `of ${typed.toLocaleString()} is already met. Raised to `
-          + `${clamped.toLocaleString()} \u2014 go higher to process more.`
-        : `Only ${ceiling.toLocaleString()} of this collection's videos can `
-          + `ever be annotated (the rest failed for good), so the target was `
-          + `capped there.`;
-}
-
 function dmEnrichSave() {
-    const note = dmEnrichClampTarget();
-    const summary = () => {
-        const t = Number(document.getElementById('dm-enrich-target')?.value);
-        return Number.isFinite(t) && t > 0
-            ? `Settings saved \u2014 target ${t.toLocaleString()}.` : 'Settings saved.';
-    };
+    const summary = dmEnrichTargetValue > 0
+        ? `Settings saved \u2014 target ${dmEnrichTargetValue.toLocaleString()}.`
+        : 'Settings saved.';
     dmEnrichPost({ settings: dmEnrichReadSettings() }).then(d => {
-        if (d) dmEnrichMsg(note ? `${summary()} ${note}` : summary(), 'ok');
+        if (d) dmEnrichMsg(summary, 'ok');
     });
 }
 
 function dmEnrichToggleArmed() {
     const next = (dmEnrichArmed && dmEnrichState === 'running') ? 'paused' : 'running';
-    const note = next === 'running' ? dmEnrichClampTarget() : null;
     dmEnrichPost({ state: next, settings: dmEnrichReadSettings() },
                  next === 'running' ? 'Arming...' : 'Pausing...')
-        .then(d => {
-            if (!d) return;
-            const base = next === 'running' ? 'Armed.' : 'Paused.';
-            dmEnrichMsg(note ? `${base} ${note}` : base, 'ok');
-        });
+        .then(d => { if (d) dmEnrichMsg(next === 'running' ? 'Armed.' : 'Paused.', 'ok'); });
 }
 
 // What one supervisor tick decided, in the operator's words. Both tick paths

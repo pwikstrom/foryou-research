@@ -126,12 +126,19 @@ A plan stops when its annotation target is met, or when nothing processable is l
                         "Not armed - no plan yet. Pick a target and press Arm.
 Running - the collection is picked up automatically, about once an hour and whenever a job finishes.
 Paused - nothing new starts; work already queued still finishes.
-Complete - the annotation target is met, or nothing processable is left.
+Idle - the annotation target is met (or nothing processable is left), so there is nothing to do. Raise the target and arm to continue.
 Needs attention - the plan queued work three times in a row without a single new scrape landing, so it stopped rather than keep spending; the reason is shown beside the status. Fix the cause, then arm it again.") }}
                 </div>
+                <!-- Per-day activity, stacked by enrichment state. Display
+                     only (staticPlot); the dashed lines track the spread
+                     day-cap and the analysis floor as those settings change. -->
+                <div id="dm-enrich-daily-chart" style="height: 140px; display: none; margin: 2px 0 4px 0;"></div>
+
                 <div class="text-sm" style="margin-bottom: 4px; display: flex; align-items: baseline; gap: 6px;">
                     <span id="dm-enrich-progress"></span>{{ card_info(
-                        "What the numbers and the bar mean.
+                        "What the chart, the numbers and the bar mean.
+
+The chart above is the person's viewing over time: one bar per active day, split by enrichment state (same colours as the bar below). The dashed lines are the spread's per-day cap and the ten-item analysis floor - they move as you change those settings.
 
 A day is analysis-ready once at least ten of the videos watched that day have been annotated. Days are the unit every analysis works in, and about fourteen ready days is the point where the tabs start to have something to say.
 
@@ -141,7 +148,7 @@ Blue - scraped, awaiting annotation: the video arrived but has not been annotate
 Empty - not yet scraped.
 Hatched - failed for good: the scrape failed permanently (deleted post, blocked video) or the annotation burned out. These can never be processed, which is why a target can never reach 100% of most collections.
 
-The red line is the annotation target - move it with the slider or the number box below. The plan is complete when the green zone reaches it.
+The red line is the annotation target - move it with the slider below. The plan goes idle when the green zone reaches it.
 
 Everything here is measured from the data itself, not from the plan, so it stays true even when videos are scraped or annotated some other way.") }}
                 </div>
@@ -169,22 +176,20 @@ Everything here is measured from the data itself, not from the plan, so it stays
 
                 <div style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin: 12px 0 0 0;">
                     <label class="text-sm" style="display: block;">
-                        <span class="meta-tooltip tooltip-wide" data-tooltip="The goal: keep enriching until this many of the collection's videos are annotated.
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="The goal: keep enriching until this many of the collection's videos are annotated. Set it with the slider - logarithmic, so small careful targets get most of the travel; the far right is everything reachable.
 
-A target is a state, not an allowance - videos annotated by any other means (a manual queue, another plan) count toward it, so nothing is ever paid for twice. When the target is met the plan completes; to continue, raise the target and arm again.
+A target is a state, not an allowance - videos annotated by any other means (a manual queue, another plan) count toward it, so nothing is ever paid for twice. When the target is met the plan goes idle; to continue, raise the target and arm again.
 
 The plan always takes the cheapest route: already-scraped but unannotated videos are annotated first, and new scraping starts only once that backlog is clear.
 
 The loop can overshoot slightly - it always scrapes whole days, so the last cycle may scrape past the target - but annotation stops at the target. And the target cannot exceed what is reachable: videos that failed for good are outside it.">Annotation target</span>
-                        <input type="number" id="dm-enrich-target" class="control-input" min="0" step="10"
-                            style="width: 130px; padding: 6px;" oninput="dmEnrichTargetInput()">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <input type="text" id="dm-enrich-target" class="control-input" readonly
+                                style="width: 90px; padding: 6px; text-align: right;" tabindex="-1">
+                            <span id="dm-enrich-target-pct" class="text-xs" style="color: var(--color-text-muted);"></span>
+                        </div>
                     </label>
-                    <!-- The slider is deliberately narrower than the bar: its
-                         axis is logarithmic, the bar's is linear, and matching
-                         their lengths would invite reading one against the
-                         other. It belongs to the number field. -->
                     <input type="range" id="dm-enrich-target-slider" min="0" max="1000" step="1"
-                        class="meta-tooltip" data-tooltip="The same target, as a slider. Logarithmic: small careful targets get most of the travel; the far right is everything reachable."
                         style="width: 200px; margin-bottom: 8px;" oninput="dmEnrichSliderInput()">
                     <label class="text-sm" style="display: block;">
                         <span class="meta-tooltip tooltip-wide" data-tooltip="How many videos each cycle queues for scraping, split between the two ways of choosing days (under Advanced).
@@ -193,7 +198,7 @@ Smaller cycles report back sooner and keep the spend visible; larger ones waste 
 
 A cycle can go a little over this number, because neither half will ever take part of a day - a partly covered day is worth almost nothing to the analyses.">Items per cycle</span>
                         <input type="number" id="dm-enrich-cycle-items" class="control-input" min="1" step="50"
-                            style="width: 110px; padding: 6px;">
+                            style="width: 110px; padding: 6px;" oninput="dmEnrichReadoutRefresh()">
                     </label>
                     <span id="dm-enrich-target-readout" class="text-xs" style="color: var(--color-text-muted); margin-bottom: 10px;"></span>
                 </div>
@@ -227,11 +232,13 @@ Random rather than the busiest days: always choosing the busiest would make the 
                             style="width: 100%; padding: 6px;">
                     </label>
                     <label class="text-sm" style="display: block;">
-                        <span class="meta-tooltip tooltip-wide" data-tooltip="The most videos the spread will process on one of its sampled days, counting the ones already scraped. A day that is already at this number is skipped.
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="The most videos the spread will process on one of its sampled days, counting the ones already scraped. A day that is already at this number is skipped. Shown as a dashed line on the chart above.
+
+At least 10 - below the analysis floor, a spread day could never qualify. At most 1,000: this caps one day, it is not a budget.
 
 Deep-dive days are not capped - they take the whole day, however busy it was.">Spread items / day</span>
-                        <input type="number" id="dm-enrich-day-cap" class="control-input" min="1"
-                            style="width: 100%; padding: 6px;">
+                        <input type="number" id="dm-enrich-day-cap" class="control-input" min="10" max="1000"
+                            style="width: 100%; padding: 6px;" oninput="dmEnrichChartLines()">
                     </label>
                     <label class="text-sm" style="display: block;">
                         <span class="meta-tooltip tooltip-wide" data-tooltip="Optional. Nothing before this date is ever processed, by either half of the cycle. Leave it empty to work back through the person's whole history.">Earliest date</span>

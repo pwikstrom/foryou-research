@@ -166,8 +166,19 @@ def _annotation_cost_estimate(n_items: int) -> dict | None:
     est_out = float(machine_cf.get("est_output_tokens_per_annotation", 1500))
     cost = n_items * (est_in * float(pricing.get("input", 0))
                       + est_out * float(pricing.get("output", 0))) / 1e6
+
+    # The concrete model behind the selection, for cost lines in the UI —
+    # a variant's override wins over its backend's configured model.
+    try:
+        spec = variants.resolve(selection)
+        model = (spec.overrides.get("model")
+                 or fyp_cf.get("machine", {}).get(spec.backend_id, {}).get("model")
+                 or selection)
+    except Exception:
+        model = selection
     return {
         "backend": selection,
+        "model": str(model),
         "est_cost_usd": round(cost, 2),
         "est_input_tokens_per_item": est_in,
         "est_output_tokens_per_item": est_out,

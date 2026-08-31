@@ -89,7 +89,7 @@ DEFAULT_SETTINGS = {
     # toward it, and re-opening a finished plan is just raising the number.
     "annotation_target": 0,
     "cycle_items": 400,       # items enqueued per cycle
-    "sample_share": 0.2,      # fraction of the cycle given to Process A
+    "sample_share": 0.5,      # fraction of the cycle given to Process A
     "a_days_per_month": 2,    # A: whole days sampled per calendar month
     "a_day_cap": 50,          # A: max items enriched on one sampled day
     "min_day_items": 10,      # skip days below this (the Correlations floor)
@@ -232,11 +232,14 @@ def normalize_settings(raw: dict | None) -> dict:
     _int("annotation_target", 0, 10_000_000)
     _int("cycle_items", 1, 20_000)
     _int("a_days_per_month", 0, 31)
-    _int("a_day_cap", 1, 10_000)
+    # Floor 10: a cap under the min_day_items analysis floor would buy spread
+    # days that can never qualify. Ceiling 1,000: one day's cap, not a budget.
+    _int("a_day_cap", 10, 1_000)
     _int("min_day_items", 1, 10_000)
 
     try:
-        out["sample_share"] = max(0.0, min(1.0, float(raw.get("sample_share", 0.2))))
+        out["sample_share"] = max(0.0, min(1.0, float(
+            raw.get("sample_share", DEFAULT_SETTINGS["sample_share"]))))
     except (TypeError, ValueError):
         out["sample_share"] = DEFAULT_SETTINGS["sample_share"]
 
@@ -815,12 +818,40 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
             u_annotated = np.zeros(len(unique_ids), dtype=bool)
             u_failed = np.zeros(len(unique_ids), dtype=bool)
 
-        frame = activity.assign(_ann=annotated)
-        per_day = frame.groupby("day", observed=True)["_ann"].sum()
+        # Per-row failed mask, day-aligned like `scraped`/`annotated` above.
+        if status is not None and not status.empty:
+            def _rflag(name):
+                if name not in status.columns:
+                    return np.zeros(len(items), dtype=bool)
+                return status[name].reindex(items).fillna(False).to_numpy(dtype=bool)
+            row_failed = (~annotated
+                          & (_rflag("annotated_fail") | (_rflag("scrape_fail") & ~scraped)))
+        else:
+            row_failed = np.zeros(len(items), dtype=bool)
+
+        frame = activity.assign(_ann=annotated,
+                                _await=scraped & ~annotated,
+                                _fail=row_failed)
+        grouped = frame.groupby("day", observed=True)
+        per_day = grouped["_ann"].sum()
         min_day = int(settings["min_day_items"])
         # A "qualifying" day is one Correlations would actually keep: at least
         # min_day_items of it annotated.
         qualifying = int((per_day >= min_day).sum())
+
+        # The stacked daily series for the panel's activity chart: per active
+        # day, how the day's video-days split by enrichment state. One row per
+        # active day (~a few hundred) — small enough to ride on every load.
+        agg = grouped.agg(_n=("_ann", "size"), _a=("_ann", "sum"),
+                          _w=("_await", "sum"), _f=("_fail", "sum"))
+        agg = agg.sort_index()
+        daily = {
+            "dates": [_day_key(d) for d in agg.index],
+            "annotated": [int(v) for v in agg["_a"]],
+            "awaiting": [int(v) for v in agg["_w"]],
+            "failed": [int(v) for v in agg["_f"]],
+            "total": [int(v) for v in agg["_n"]],
+        }
 
         out.update({
             "total_items": int(len(items)),
@@ -841,6 +872,8 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
             "milestone_pct": round(min(1.0, qualifying / MILESTONE_DAYS) * 100, 1),
             "oldest_day": _day_key(frame["day"].min()),
             "newest_day": _day_key(frame["day"].max()),
+            "daily": daily,
+            "min_day_items": min_day,
         })
     except Exception as exc:
         logger.error(f"collection_enrichment.progress({collection_id}) failed: {exc}")

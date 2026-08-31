@@ -737,3 +737,30 @@ def test_progress_budget_window_is_zero_width_when_nothing_is_left(monkeypatch):
     out = ce.progress("c1", {**_entry(), "spent_items": 4000})
     assert out["unique_annotated"] == 3
     assert out["target_floor"] == out["target_ceiling"] == 3
+
+
+def test_progress_daily_series_stacks_per_active_day(monkeypatch):
+    activity = _activity({"2026-08-26": 4, "2026-08-27": 3})
+    ids = list(activity["item_id"])
+    d26 = [i for i in ids if i.startswith("2026-08-26")]
+    d27 = [i for i in ids if i.startswith("2026-08-27")]
+    # Day 26: 2 annotated, 1 awaiting, 1 unscraped. Day 27: 1 failed, 2 unscraped.
+    status = _status(ids, scraped=d26[:3], annotated=d26[:2],
+                     scrape_fail=[d27[0]])
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status", lambda i=None: status)
+
+    daily = ce.progress("c1", _entry())["daily"]
+    assert daily["dates"] == ["2026-08-26", "2026-08-27"]
+    assert daily["annotated"] == [2, 0]
+    assert daily["awaiting"] == [1, 0]
+    assert daily["failed"] == [0, 1]
+    assert daily["total"] == [4, 3]
+
+
+def test_normalize_settings_bounds_the_spread_knobs():
+    out = ce.normalize_settings({"a_day_cap": 3, "a_days_per_month": 99})
+    assert out["a_day_cap"] == 10          # never below the analysis floor
+    assert out["a_days_per_month"] == 31
+    assert ce.normalize_settings({"a_day_cap": 5000})["a_day_cap"] == 1000
+    assert ce.DEFAULT_SETTINGS["sample_share"] == 0.5
