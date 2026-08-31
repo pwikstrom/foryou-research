@@ -419,7 +419,15 @@ def annotation_eligible(item_ids, df_status, durations=None,
     if not retry_failed:
         keep &= ~_flag("annotated_fail")
     if durations:
-        dur = pd.Series([durations.get(i) for i in ids], index=idx, dtype="float64")
+        # Coerce rather than construct as float64: study frames load with the
+        # pyarrow dtype backend, so a missing duration arrives as ``pd.NA``,
+        # which a float64 Series constructor refuses outright ("float()
+        # argument must be ... not 'NAType'"). Unparseable values read as NaN
+        # and are kept, matching the unknown-duration branch below.
+        dur = pd.to_numeric(
+            pd.Series([durations.get(i) for i in ids], index=idx, dtype="object"),
+            errors="coerce",
+        )
         keep &= (dur.isna() | (dur < float(max_duration))).to_numpy()
 
     return [iid for iid, ok in zip(ids, keep) if ok]

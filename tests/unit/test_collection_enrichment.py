@@ -288,6 +288,22 @@ def test_annotation_eligible_retry_failed_and_duration_guard():
                                   retry_failed=True, max_duration=600) == ["a"]
 
 
+def test_annotation_eligible_survives_pyarrow_missing_durations():
+    # Study frames load with the pyarrow dtype backend, so a missing duration
+    # is pd.NA, not NaN. Building a float64 Series straight from those raised
+    # TypeError and failed the whole enqueue ("float() argument must be a
+    # string or a real number, not 'NAType'"). Unknown durations are kept.
+    ids = ["a", "b", "c"]
+    status = _status(ids, scraped=ids, downloaded=ids)
+    frame = pd.DataFrame(
+        {"item_id": ids, "duration": [30.0, None, 900.0]}
+    ).convert_dtypes(dtype_backend="pyarrow")
+    durations = dict(zip(frame["item_id"], frame["duration"]))
+    assert durations["b"] is pd.NA
+    assert ce.annotation_eligible(ids, status, durations=durations,
+                                  max_duration=600) == ["a", "b"]
+
+
 def test_annotation_eligible_accepts_column_and_unnamed_index_shapes():
     ids = ["a", "b"]
     status = _status(ids, scraped=["a"], downloaded=["a"])
