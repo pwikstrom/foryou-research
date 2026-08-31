@@ -1163,10 +1163,27 @@ def calculate_scaled_pca_scores(
         return None, None
     del targeted_grouping_factors
 
+    # An all-NA grouping factor makes the group key meaningless, so it still
+    # terminates. A merely CONSTANT one does not: a single-collection study
+    # (every participant "Just Me" study is one) has one collection_id and many
+    # local_dates, and grouping on the date alone is the intended unit. The
+    # constant factor stays in grouping_factors so the scores frame keeps its
+    # collection_id level for the downstream stats artifact. Only a dataset in
+    # which EVERY grouping factor is constant has too little structure; the
+    # minimum-group-count check further down catches the rest.
+    varying_factors = []
     for gf in grouping_factors:
-        if study_recoded_dataset[gf].dropna().nunique() <= 1:
-            logger.error(f"    [PCA] Grouping factor {gf} is all NA or has only 1 unique value. Terminating.")
+        n_unique = study_recoded_dataset[gf].dropna().nunique()
+        if n_unique == 0:
+            logger.error(f"    [PCA] Grouping factor {gf} is all NA. Terminating.")
             return None, None
+        if n_unique > 1:
+            varying_factors.append(gf)
+
+    if not varying_factors:
+        logger.error(f"    [PCA] Every grouping factor ({', '.join(grouping_factors)}) has a "
+                     "single value, so there are no groups to compare. Terminating.")
+        return None, None
 
 
     fyp_factors, fyp_features = get_factors_and_features_from_var_schema(some_events_df = study_recoded_dataset, verbose=verbose)
