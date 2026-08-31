@@ -34,11 +34,13 @@ note builder `methods_note.py`, and the participant surface:
 `my_collections_service.py`, `participant_studies.py`,
 `participant_enrichment.py`, plus `collection_coverage.py` — the shared
 scraped/annotated-coverage arithmetic, so the participant and admin
-coverage figures cannot drift — and the daily `ops_report.py`;
+coverage figures cannot drift — `collection_enrichment.py`, the plan ledger
+and slice cutter behind the automatic enrichment loop, and the daily
+`ops_report.py`;
 `data_service.py` remains as a re-exporting facade),
 `explorer_backend.py`, `process_manager.py`, `task_status.py`,
 `worker_runner.py` (shared CLI entrypoint for the `run_*.py` workers —
-currently 21; `run_logs.py` is not a worker),
+currently 22; `run_logs.py` is not a worker),
 `admin_settings.py`, `activity_log.py`.
 
 ## Auth & permissions
