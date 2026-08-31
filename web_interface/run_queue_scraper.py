@@ -50,7 +50,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     """
     import fyp.scrape_queues as scrape_queues
     from fyp.platform_scraper import get_scraper
-    from fyp.scrape import download_video_threads
+    from fyp.scrape import download_video_threads, record_failed_scrapes
 
     if not task_args:
         task_args = {}
@@ -199,6 +199,40 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         f"{len(transient_failed)} transient (will retry). "
         f"Queue: {queue_remaining:,} remaining."
     )
+
+    # ---- Cross-run retry budget ----
+    # A batch that prunes nothing is the queue's pathological mode: every item
+    # failed "transiently", so the queue never drains — the enrichment
+    # supervisor restarts the worker, gets the same verdict, and its no-drain
+    # guard then parks every armed plan. A misclassified permanent failure
+    # (e.g. yt-dlp's "No video formats found") stays "transient" forever.
+    # Items that produce MAX_ZERO_PROGRESS_STRIKES such batches in a row are
+    # given up on: recorded in the failed-scrapes ledger (consolidation then
+    # marks them scrape_fail like any other permanent failure) and pruned so
+    # the queue drains. Storm / circuit-breaker / memory aborts never charge
+    # strikes — those verdicts implicate the scraper, not the items.
+    batch_aborted = any(results_df.attrs.get(k) for k in (
+        'circuit_breaker_tripped', 'permanent_storm_tripped',
+        'transient_storm_tripped', 'memory_stop'))
+    if pruned_this_batch > 0:
+        scrape_queues.clear_zero_progress(platform)
+    elif transient_failed and not batch_aborted:
+        exhausted = scrape_queues.charge_zero_progress(platform, transient_failed)
+        if exhausted:
+            record_failed_scrapes(
+                [{"item_id": v, "category": "permanent:retry_exhausted"}
+                 for v in exhausted])
+            gave_up, queue_remaining = scrape_queues.prune_scrape_queue(
+                platform, set(exhausted))
+            pruned_this_batch += gave_up
+            reporter.emit_data({"scrape_queue_len": queue_remaining})
+            reporter.log(
+                f"Gave up on {len(exhausted)} item(s) after "
+                f"{scrape_queues.MAX_ZERO_PROGRESS_STRIKES} runs of transient "
+                f"failures with no queue progress — removed from the queue and "
+                f"recorded as permanently failed. Queue: {queue_remaining:,} "
+                f"remaining."
+            )
 
     # ---- Check whether to chain ----
     if results_df.attrs.get('circuit_breaker_tripped'):

@@ -255,3 +255,96 @@ def remove_scrape_queue(platform: str) -> None:
 def queue_lengths() -> dict[str, int]:
     """Return ``{platform: queue length}`` for every registered platform."""
     return {p: len(load_scrape_queue(p)) for p in registered_platforms()}
+
+
+
+
+
+
+# --------------------------------------------------------------------------- #
+# Cross-run retry budget
+# --------------------------------------------------------------------------- #
+
+# How many zero-progress runs a transiently-failing item survives before it is
+# given up on. Each run already retries the item several times with backoff, so
+# this is a second-order budget: it only counts runs in which the queue as a
+# whole made no progress — the mode where a misclassified permanent failure
+# (e.g. yt-dlp's "No video formats found") would otherwise keep the queue from
+# ever draining and the enrichment supervisor's no-drain guard would park every
+# armed plan. Two is deliberate: the supervisor's guard parks plans on the
+# third unchanged queue length it observes, so the budget must resolve the
+# stuck tail by the end of the second run.
+MAX_ZERO_PROGRESS_STRIKES = 2
+
+
+
+
+
+
+def strikes_filename(platform: str) -> str:
+    """Return the retry-strike sidecar filename for one platform."""
+    return f"scrape_retry_strikes_{platform}.json"
+
+
+
+
+
+
+def charge_zero_progress(platform: str, transient_ids: list[str]) -> list[str]:
+    """Charge one retry strike after a batch that made no queue progress.
+
+    Callers invoke this only when a batch pruned nothing (every item failed
+    transiently) AND no storm / circuit-breaker / memory abort tripped — an
+    abort implicates the scraper rather than the items, and must not burn
+    retry budget. Strikes persist in a per-platform sidecar so they count
+    whole runs, surviving the worker restarts between them.
+
+    Args:
+        platform: Platform whose sidecar to update.
+        transient_ids: The batch's transiently-failed item ids.
+
+    Returns:
+        The ids whose strike count reached ``MAX_ZERO_PROGRESS_STRIKES`` —
+        the caller should give up on these: prune them from the queue and
+        record them in the failed-scrapes ledger. They are dropped from the
+        sidecar in the same write.
+    """
+    data_io = _data_io()
+    charged: dict[str, int] = {}
+
+    def _mutate(current):
+        counts = current if isinstance(current, dict) else {}
+        charged.clear()
+        kept = {}
+        for vid in _dedup(transient_ids):
+            strikes = int(counts.get(vid) or 0) + 1
+            charged[vid] = strikes
+            if strikes < MAX_ZERO_PROGRESS_STRIKES:
+                kept[vid] = strikes
+        return kept
+
+    data_io.update_json(
+        storage_location=QUEUE_LOCATION,
+        filename=strikes_filename(platform),
+        mutate=_mutate,
+        default={},
+    )
+    return [vid for vid, n in charged.items() if n >= MAX_ZERO_PROGRESS_STRIKES]
+
+
+
+
+
+
+def clear_zero_progress(platform: str) -> None:
+    """Drop one platform's retry strikes after a batch that made progress.
+
+    A draining queue means the transient failures are riding along with
+    successes — today's semantics (retry indefinitely) are right for those,
+    and keeping stale strikes would burn them spuriously if the queue later
+    stalls for an unrelated reason.
+    """
+    data_io = _data_io()
+    target = strikes_filename(platform)
+    if data_io.exists(storage_location=QUEUE_LOCATION, filename=target):
+        data_io.remove(storage_location=QUEUE_LOCATION, filename=target)

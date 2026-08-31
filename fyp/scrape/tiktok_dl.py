@@ -110,6 +110,14 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
                                        'unable to solve')):
         return "extraction", msg
 
+    # yt-dlp raises this when the post's page parses but exposes no playable
+    # media — in practice a removed video or a photo post whose slideshow path
+    # was missed. It never recovers on retry, so treating it as transient left
+    # items stuck in the queue forever (2026-09-01: five such items stalled
+    # the enrichment supervisor's whole scrape queue).
+    if 'no video formats found' in msg_lower:
+        return "extraction", msg
+
     if any(kw in msg_lower for kw in ('timed out', 'timeout', 'connection', 'network',
                                        'ssl', 'certificate', 'dns', 'reset by peer')):
         return "network", msg

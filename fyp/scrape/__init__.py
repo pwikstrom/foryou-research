@@ -24,6 +24,7 @@ from fyp.scrape.scrape import (
     load_failed_scrapes_detail,
     make_slideshow,
     queue_scraper_loop,
+    record_failed_scrapes,
     scraper_loop_from_list,
 )
 

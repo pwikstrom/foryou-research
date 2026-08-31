@@ -1455,6 +1455,9 @@ def scraper_loop_from_list(
     good_scrapes = []
     all_permanent_failed = []
     all_transient_failed = []
+    # True when a storm / circuit-breaker abort ended the loop: those verdicts
+    # implicate the scraper, not the items, so they must not burn retry budget.
+    aborted = False
 
     if reporter is not None:
         reporter.emit_data({"threads": 8})
@@ -1494,6 +1497,7 @@ def scraper_loop_from_list(
         if results_from_scraper.attrs.get('circuit_breaker_tripped'):
             logger.warning("  Rate-limit circuit breaker tripped — stopping the batch loop. "
                   "Unfinished items stay in the queue; re-run the scraper later.")
+            aborted = True
             if reporter is not None:
                 reporter.emit_data({"rate_limit_abort": True})
             break
@@ -1503,6 +1507,7 @@ def scraper_loop_from_list(
                   f"({results_from_scraper.attrs.get('permanent_storm_category')}) — "
                   f"batch outcome suspect; stopping the batch loop. Affected items "
                   f"stay in the queue; re-run the scraper once the session is healthy.")
+            aborted = True
             if reporter is not None:
                 reporter.emit_data({"permanent_storm_abort": True})
             break
@@ -1513,6 +1518,7 @@ def scraper_loop_from_list(
                   f"every item is failing the same retryable way, so the platform or "
                   f"the scraper is likely broken; stopping the batch loop. The items "
                   f"stay in the queue for a later retry.")
+            aborted = True
             if reporter is not None:
                 reporter.emit_data({"transient_storm_abort": True})
             break
@@ -1565,6 +1571,24 @@ def scraper_loop_from_list(
                   f"({len(good_scrapes)} OK, {len(all_permanent_failed)} permanent fail). "
                   f"{len(all_transient_failed)} transient failures remain for retry. "
                   f"Queue length: {remaining}")
+        scrape_queues.clear_zero_progress(platform_resolved)
+    elif all_transient_failed and not aborted and not dry_run:
+        # Zero-progress run: every item failed "transiently" and nothing was
+        # pruned, so without intervention the queue would never drain (and the
+        # enrichment supervisor's no-drain guard would park every armed plan).
+        # Charge the cross-run retry budget; items that exhaust it are treated
+        # as permanently failed — recorded in the failed-scrapes ledger and
+        # removed from the queue.
+        exhausted = scrape_queues.charge_zero_progress(platform_resolved, all_transient_failed)
+        if exhausted:
+            record_failed_scrapes(
+                [{"item_id": v, "category": "permanent:retry_exhausted"} for v in exhausted])
+            gave_up, remaining = scrape_queues.prune_scrape_queue(platform_resolved, set(exhausted))
+            logger.warning(
+                f"  Gave up on {len(exhausted)} item(s) after "
+                f"{scrape_queues.MAX_ZERO_PROGRESS_STRIKES} zero-progress runs of "
+                f"transient failures — removed from the queue and recorded as "
+                f"permanently failed. Queue length: {remaining}")
 
 
     logger.info(f"  Loop ended: {datetime.now()}")
@@ -2167,6 +2191,27 @@ def _merge_failed_scrape_records(
             records.setdefault(str(entry), None)
 
 
+
+
+
+
+def record_failed_scrapes(failed_items: list[dict], verbose: bool = False) -> None:
+    """Write one failed-scrapes ledger file recording the given items.
+
+    Args:
+        failed_items: ``{"item_id": ..., "category": ...}`` dicts — the same
+            shape ``download_video_threads`` writes. The next
+            ``_load_failed_scrape_records`` folds the file into the
+            consolidated ledger, where the category overwrites any earlier
+            record for the same item.
+        verbose: Log the write.
+    """
+    if not failed_items:
+        return
+    fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
+    data_io.save_json(data=failed_items, storage_location="scrape",
+                      filename=f"{_failed_scrapes_label()}_{fine_ts}.json",
+                      verbose=verbose)
 
 
 

@@ -34,6 +34,15 @@ public version. Entries below describe the Hub as it stands at that release.
 - **Tick outcome reporting.** "Run a cycle now" polls the supervisor's
   status and reports what the tick actually decided, instead of only that it
   was dispatched.
+- **Cross-run retry budget for scrape queues.** An item whose failures keep
+  being classified transient is no longer retried forever: after two scraper
+  runs in which the queue as a whole made no progress, the stuck items are
+  recorded as permanently failed and pruned, so the queue always drains and
+  the enrichment supervisor's no-drain guard no longer parks armed plans
+  over a handful of unfetchable videos. Storm and circuit-breaker aborts
+  never charge the budget — those verdicts implicate the scraper, not the
+  items. TikTok's "No video formats found" (a removed video or missed photo
+  post) is also now classified permanent outright.
 
 ### Fixed
 
