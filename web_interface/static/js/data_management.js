@@ -3132,6 +3132,15 @@ function updateAnnotationModeControls() {
     // "Include previously failed attempts" only applies to the study mode —
     // the other modes select successfully-annotated videos by definition.
     if (retryLabel) retryLabel.style.display = (mode === 'study') ? 'flex' : 'none';
+
+    // The selection modes sit under Advanced, so name the active one beside the
+    // collapsed link — otherwise a re-annotation run is armed out of sight.
+    const hint = document.getElementById('annot-mode-hint');
+    if (hint) {
+        const labels = { version: 'Annotated with version', timeframe: 'Annotated between' };
+        hint.textContent = labels[mode] ? `Selecting: ${labels[mode]}` : '';
+        hint.style.display = labels[mode] ? '' : 'none';
+    }
 }
 
 // Populate the annotation-version dropdown from the enrichment-scoped version
@@ -6190,13 +6199,20 @@ function dmEnrichSliderInput() {
     dmEnrichChartRefresh();
 }
 
-function dmEnrichToggleAdvanced() {
-    const panel = document.getElementById('dm-enrich-advanced');
-    const btn = document.getElementById('dm-enrich-advanced-toggle');
+// Shared by the Data Management "Advanced" disclosures (the enrichment plan
+// modal, the annotation-queue block): flip the panel and rotate the caret.
+function dmToggleAdvanced(panelId, btnId) {
+    const panel = document.getElementById(panelId);
+    const btn = document.getElementById(btnId);
     if (!panel || !btn) return;
     const open = panel.style.display === 'none';
     panel.style.display = open ? '' : 'none';
     btn.classList.toggle('open', open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function dmEnrichToggleAdvanced() {
+    dmToggleAdvanced('dm-enrich-advanced', 'dm-enrich-advanced-toggle');
 }
 
 function dmEnrichReadSettings() {

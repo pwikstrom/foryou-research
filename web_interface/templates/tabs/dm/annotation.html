@@ -24,51 +24,66 @@
     </div>
 
     <div style="display: flex; flex-direction: column; gap: 8px;">
-        <label class="text-sm" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <input type="radio" name="annot-selection-mode" value="study" checked
-                onchange="updateAnnotationModeControls()">
-            <span style="min-width: 180px;">Not-yet-annotated</span>
-            <span class="text-xs meta-tooltip" style="color: var(--color-text-tertiary);"
-                data-tooltip="Queue every video in the target study that has been scraped (with media) but not yet annotated.">?</span>
-        </label>
-        <label class="text-sm" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <input type="radio" name="annot-selection-mode" value="version"
-                onchange="updateAnnotationModeControls()">
-            <span style="min-width: 180px;">Annotated with version</span>
-            <select id="annot-version-select" class="control-input" style="width: 320px;" disabled>
-                <option value="">-- Select annotation version --</option>
-                <!-- Populated by JS from /api/manage/enrichment/annotation_versions -->
-            </select>
-            <span class="text-xs meta-tooltip" style="color: var(--color-text-tertiary);"
-                data-tooltip="Re-queue the target study's videos that were successfully annotated with this annotation version. They will be re-annotated with the currently active version; the archive keeps both results.">?</span>
-        </label>
-        <label class="text-sm" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <input type="radio" name="annot-selection-mode" value="timeframe"
-                onchange="updateAnnotationModeControls()">
-            <span style="min-width: 180px;">Annotated between</span>
-            <input type="date" id="annot-from-date" class="control-input" style="width: 150px;" disabled>
-            <span class="text-xs" style="color: var(--color-text-tertiary);">and</span>
-            <input type="date" id="annot-to-date" class="control-input" style="width: 150px;" disabled>
-            <span class="text-xs meta-tooltip" style="color: var(--color-text-tertiary);"
-                data-tooltip="Re-queue the target study's videos that were successfully annotated in this period (from-date inclusive, to-date exclusive). They will be re-annotated with the currently active version. Older annotations without a stored timestamp are skipped and reported.">?</span>
-        </label>
-
-        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 4px;">
+        <!-- The everyday path: pick the study, queue what it still needs. The
+             re-annotation selection modes live under Advanced below. -->
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
             <label class="text-sm font-bold" style="color: var(--color-text-tertiary);">Target Study:</label>
             <select id="annotation-study-select" class="control-input" style="width: 250px;">
                 <option value="">-- Select Study --</option>
                 <!-- Populated by JS -->
             </select>
+            <button type="button" class="action-btn" id="btn-queue-annotation"
+                onclick="queueVideosForAnnotation(this)">Queue videos for annotation</button>
             <label class="text-sm" id="annot-retry-failed-label" style="display: flex; align-items: center; gap: 6px; color: var(--color-text-tertiary);">
                 <input type="checkbox" id="annot-retry-failed">
                 Include previously failed attempts
             </label>
-            <button type="button" class="action-btn" id="btn-queue-annotation"
-                onclick="queueVideosForAnnotation(this)">Queue videos for annotation</button>
             <button type="button" id="btn-queue-voted" class="action-btn" style="display: none;"
                 onclick="queueVotedVideos(this)">Queue User Voted Videos</button>
         </div>
         <div id="annot-queue-result" class="text-xs" style="display: none; color: var(--color-text-secondary);"></div>
+
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+            <button type="button" class="dm-enrich-advanced-toggle" id="annot-advanced-toggle"
+                aria-expanded="false" aria-controls="annot-advanced"
+                onclick="dmToggleAdvanced('annot-advanced', 'annot-advanced-toggle')"><span class="caret">&#9656;</span>Advanced</button>
+            <!-- Says which selection is in force while Advanced is collapsed, so a
+                 re-annotation mode is never silently armed behind the caret. -->
+            <span id="annot-mode-hint" class="text-xs" style="display: none; color: var(--color-warning-text);"></span>
+        </div>
+
+        <div id="annot-advanced" style="display: none;">
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <label class="text-sm" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <input type="radio" name="annot-selection-mode" value="study" checked
+                        onchange="updateAnnotationModeControls()">
+                    <span style="min-width: 180px;">Not-yet-annotated</span>
+                    <span class="text-xs meta-tooltip" style="color: var(--color-text-tertiary);"
+                        data-tooltip="Queue every video in the target study that has been scraped (with media) but not yet annotated.">?</span>
+                </label>
+                <label class="text-sm" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <input type="radio" name="annot-selection-mode" value="version"
+                        onchange="updateAnnotationModeControls()">
+                    <span style="min-width: 180px;">Annotated with version</span>
+                    <select id="annot-version-select" class="control-input" style="width: 320px;" disabled>
+                        <option value="">-- Select annotation version --</option>
+                        <!-- Populated by JS from /api/manage/enrichment/annotation_versions -->
+                    </select>
+                    <span class="text-xs meta-tooltip" style="color: var(--color-text-tertiary);"
+                        data-tooltip="Re-queue the target study's videos that were successfully annotated with this annotation version. They will be re-annotated with the currently active version; the archive keeps both results.">?</span>
+                </label>
+                <label class="text-sm" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <input type="radio" name="annot-selection-mode" value="timeframe"
+                        onchange="updateAnnotationModeControls()">
+                    <span style="min-width: 180px;">Annotated between</span>
+                    <input type="date" id="annot-from-date" class="control-input" style="width: 150px;" disabled>
+                    <span class="text-xs" style="color: var(--color-text-tertiary);">and</span>
+                    <input type="date" id="annot-to-date" class="control-input" style="width: 150px;" disabled>
+                    <span class="text-xs meta-tooltip" style="color: var(--color-text-tertiary);"
+                        data-tooltip="Re-queue the target study's videos that were successfully annotated in this period (from-date inclusive, to-date exclusive). They will be re-annotated with the currently active version. Older annotations without a stored timestamp are skipped and reported.">?</span>
+                </label>
+            </div>
+        </div>
     </div>
 </div>
 

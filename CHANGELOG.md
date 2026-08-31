@@ -44,8 +44,21 @@ public version. Entries below describe the Hub as it stands at that release.
   items. TikTok's "No video formats found" (a removed video or missed photo
   post) is also now classified permanent outright.
 
+### Changed
+
+- **The annotation queue block** leads with the everyday path — target study,
+  the queue button, and the failed-attempts checkbox on one row under the
+  title — with the re-annotation selection modes folded behind an *Advanced*
+  disclosure. A selection other than the default is named beside the
+  collapsed link, so a re-annotation run is never armed out of sight.
+
 ### Fixed
 
+- **Queueing videos for annotation crashed on any study with a missing video
+  duration** ("float() argument must be a string or a real number, not
+  'NAType'"): study frames load with the pyarrow dtype backend, so an absent
+  duration is `pd.NA`, which the shared annotation predicate fed straight to
+  a `float64` Series constructor. One such video failed the whole enqueue.
 - Modal close buttons kept their hover colour on the light theme (it was
   hard-coded white).
 - Study state remembered per account instead of one browser-wide key, and
