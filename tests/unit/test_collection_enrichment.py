@@ -764,3 +764,44 @@ def test_normalize_settings_bounds_the_spread_knobs():
     assert out["a_days_per_month"] == 31
     assert ce.normalize_settings({"a_day_cap": 5000})["a_day_cap"] == 1000
     assert ce.DEFAULT_SETTINGS["sample_share"] == 0.5
+
+
+# --------------------------------------------------------------------------- #
+# The panel's buttons must stay wired
+# --------------------------------------------------------------------------- #
+
+def test_enrichment_panel_buttons_keep_their_handlers():
+    """Regression pin for the 2026-08-31 prod incident: a tooltip rewrite
+    replaced each button from its data-tooltip through </button>, silently
+    deleting the onclick between them. Arm/Save/Run then did nothing at all —
+    no request, no error — and the panel looked broken with no trace anywhere.
+    """
+    import html.parser
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[2] / "web_interface" / "templates"
+           / "tabs" / "dm" / "edit_collections.html").read_text()
+
+    class Buttons(html.parser.HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.by_id = {}
+
+        def handle_starttag(self, tag, attrs):
+            d = dict(attrs)
+            if d.get("id"):
+                self.by_id[d["id"]] = d
+
+    parser = Buttons()
+    parser.feed(src)
+    expected = {
+        "dm-enrich-arm-btn": "dmEnrichToggleArmed",
+        "dm-enrich-save-btn": "dmEnrichSave",
+        "dm-enrich-tick-btn": "dmEnrichTick",
+        "dm-enrich-advanced-toggle": "dmEnrichToggleAdvanced",
+    }
+    for element_id, handler in expected.items():
+        attrs = parser.by_id.get(element_id)
+        assert attrs is not None, f"{element_id} missing from the template"
+        assert handler in (attrs.get("onclick") or ""), \
+            f"{element_id} lost its onclick ({handler})"

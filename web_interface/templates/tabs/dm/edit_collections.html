@@ -272,15 +272,18 @@ There is only ever ONE plan per collection - if a colleague armed it already, th
 
 Pause stops new work starting. Anything already queued still finishes.
 
-On a plan that has finished, the button reads Arm again - raise the annotation target first, or there is nothing for it to do.">Arm</button>
+On a plan that has finished, the button reads Arm again - raise the annotation target first, or there is nothing for it to do."
+                        onclick="dmEnrichToggleArmed()">Arm</button>
                     <button type="button" class="action-btn btn-secondary text-sm meta-tooltip tooltip-wide" id="dm-enrich-save-btn"
                         data-tooltip="Store these settings without starting anything. Separate from the modal's own Save button at the bottom, which never touches them.
 
-Changing a setting does not undo work already done - it applies from the next cycle onwards.">Save settings</button>
+Changing a setting does not undo work already done - it applies from the next cycle onwards."
+                        onclick="dmEnrichSave()">Save settings</button>
                     <button type="button" class="btn-discreet text-xs meta-tooltip tooltip-wide" id="dm-enrich-tick-btn"
                         data-tooltip="Runs one step of the loop right now instead of waiting for the next automatic tick. It does one thing per click: queue the next batch of videos to scrape, start the scraper or the annotator, or fold finished results back in.
 
-Hover again once the panel has loaded - this tip then says what a cycle would actually do for this collection.">Run a cycle now</button>
+Hover again once the panel has loaded - this tip then says what a cycle would actually do for this collection."
+                        onclick="dmEnrichTick()">Run a cycle now</button>
                     <span id="dm-enrich-msg" class="text-xs" style="color: var(--color-text-tertiary);"></span>
                 </div>
             </div>
