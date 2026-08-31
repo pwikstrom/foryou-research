@@ -6031,6 +6031,16 @@ function dmEnrichRender(data) {
             line = `${stateLabel} — ${spent}${budget ? ` / ${budget}` : ''} items spent, `
                  + `${progress.cycles ?? 0} cycle(s).`;
             if (progress.last_error) line += ` Last error: ${progress.last_error}`;
+            // The budget is a LIFETIME cap, not a per-run allowance, so once
+            // spend has reached it every tick is a no-op — including "Run a
+            // cycle now". Say so, and name the number that has to be beaten:
+            // lowering the budget below what is already spent silently kills
+            // the plan, which is indistinguishable from a broken loop.
+            if (budget && spent >= budget) {
+                line += ` The item budget is everything this plan has ever spent,`
+                      + ` so it is used up: raise it above ${spent.toLocaleString()}`
+                      + ` and arm the plan to buy more.`;
+            }
         }
         if (!data.enabled_site_wide) {
             line += ' Site-wide automatic enrichment is OFF (Admin settings) — '
@@ -6063,7 +6073,8 @@ function dmEnrichRender(data) {
     const armBtn = document.getElementById('dm-enrich-arm-btn');
     if (armBtn) {
         armBtn.disabled = false;
-        armBtn.textContent = (dmEnrichArmed && dmEnrichState === 'running') ? 'Pause' : 'Arm';
+        armBtn.textContent = (dmEnrichArmed && dmEnrichState === 'running') ? 'Pause'
+            : (dmEnrichState === 'done' ? 'Arm again' : 'Arm');
     }
     const tickBtn = document.getElementById('dm-enrich-tick-btn');
     if (tickBtn) tickBtn.disabled = !dmEnrichArmed;
@@ -6120,6 +6131,66 @@ function dmEnrichToggleArmed() {
         .then(d => { if (d) dmEnrichMsg(next === 'running' ? 'Armed.' : 'Paused.'); });
 }
 
+// What one supervisor tick decided, in the operator's words. Both tick paths
+// (inline locally, dispatched on Cloud Run) report through this map — a tick
+// that does nothing has to say so, or the panel looks dead.
+const DM_ENRICH_TICK_LABELS = {
+    scrape: 'started the scraper',
+    annotate: 'started the annotator',
+    consolidate: 'started a consolidation',
+    handoff: 'queued scraped items for annotation',
+    plan: 'queued the next slice to scrape',
+    busy: 'workers still running — try again later',
+    idle: 'nothing armed',
+    nothing_to_do: 'nothing to do right now',
+    disabled: 'automatic enrichment is disabled',
+    scrape_stalled: 'the scrape queue is not draining, so the plan was parked',
+    annotate_stalled: 'the annotation queue is not draining, so the plan was parked',
+};
+
+function dmEnrichTickLabel(action) {
+    return DM_ENRICH_TICK_LABELS[action] || action || 'done';
+}
+
+// On Cloud Run the tick is a Cloud Task, so the POST proves only that it was
+// dispatched. Poll the plan endpoint until the supervisor's status file shows a
+// run NEWER than the one that was there before the dispatch (compared by value,
+// so clock skew between the two services cannot fool it), then report what it
+// decided. Without this, "found nothing to do" and "started work" look the same.
+function dmEnrichPollTick(cid, prevStart, attempt = 0) {
+    const MAX_ATTEMPTS = 20;   // ~40s; a tick is a couple of parquet reads
+    const btn = document.getElementById('dm-enrich-tick-btn');
+    const stop = () => { if (btn) btn.disabled = false; };
+    if (dmEnrichCollectionId !== cid) { stop(); return; }
+    fetch(`/api/manage/collections/${encodeURIComponent(cid)}/enrichment`)
+        .then(r => r.json())
+        .then(data => {
+            if (dmEnrichCollectionId !== cid) { stop(); return; }
+            if (data.error) { stop(); dmEnrichMsg(data.error, true); return; }
+            const tick = data.last_tick || {};
+            const settled = tick.start_time && tick.start_time !== prevStart
+                            && tick.state !== 'running';
+            if (settled || attempt >= MAX_ATTEMPTS) {
+                stop();
+                dmEnrichRender(data);
+                if (!settled) {
+                    dmEnrichMsg('Cycle dispatched, but it has not reported back yet — '
+                              + 'watch the workers on the Scrape/Annotation pages.');
+                } else if (tick.error || tick.state === 'failed') {
+                    dmEnrichMsg(`Tick failed: ${tick.error || 'see the worker log'}.`, true);
+                } else {
+                    dmEnrichMsg(`Tick: ${dmEnrichTickLabel(tick.action)}.`);
+                }
+                return;
+            }
+            setTimeout(() => dmEnrichPollTick(cid, prevStart, attempt + 1), 2000);
+        })
+        .catch(() => {
+            if (attempt >= MAX_ATTEMPTS) { stop(); return; }
+            setTimeout(() => dmEnrichPollTick(cid, prevStart, attempt + 1), 2000);
+        });
+}
+
 function dmEnrichTick() {
     const cid = dmEnrichCollectionId;
     if (!cid) return;
@@ -6133,25 +6204,20 @@ function dmEnrichTick() {
     })
         .then(r => r.json())
         .then(data => {
-            if (btn) btn.disabled = false;
             if (data.error || data.status === 'error') {
+                if (btn) btn.disabled = false;
                 dmEnrichMsg(data.error || data.message || 'Could not start.', true);
                 return;
             }
             if (data.status === 'completed') {
                 // Local mode runs the tick inline and reports what it did.
-                const labels = {
-                    scrape: 'started the scraper', annotate: 'started the annotator',
-                    consolidate: 'started a consolidation', handoff: 'queued scraped items for annotation',
-                    plan: 'queued the next slice to scrape', busy: 'workers still running — try again later',
-                    idle: 'nothing armed', nothing_to_do: 'nothing to do right now',
-                    disabled: 'automatic enrichment is disabled',
-                };
-                dmEnrichMsg(`Tick: ${labels[data.action] || data.action || 'done'}.`);
+                if (btn) btn.disabled = false;
+                dmEnrichMsg(`Tick: ${dmEnrichTickLabel(data.action)}.`);
                 dmEnrichLoad(cid);
                 return;
             }
-            dmEnrichMsg('Cycle started — watch the workers on the Scrape/Annotation pages.');
+            dmEnrichMsg('Cycle dispatched — waiting for it to report back...');
+            dmEnrichPollTick(cid, data.prev_start_time || null);
         })
         .catch(err => { if (btn) btn.disabled = false; dmEnrichMsg(`Failed: ${err}`, true); });
 }

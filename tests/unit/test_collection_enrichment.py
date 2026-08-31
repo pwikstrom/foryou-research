@@ -210,6 +210,19 @@ def test_spent_budget_yields_exhausted_and_no_items():
     assert out["item_ids"] == [] and out["exhausted"] is True
 
 
+def test_a_budget_lowered_below_the_spend_stops_every_cycle():
+    """The 2026-08-31 report: 4,000 items spent, budget then set to 400.
+
+    ``item_budget`` is a lifetime cap, so lowering it under the spend leaves a
+    negative remainder — which must clamp to no work rather than to a negative
+    slice, and closes the plan on the next tick.
+    """
+    activity = _activity({"2026-08-27": 30})
+    entry = {**_entry(item_budget=400, cycle_items=100), "spent_items": 4000}
+    out = ce.plan_cycle("c1", entry, activity=activity, status=None)
+    assert out["item_ids"] == [] and out["exhausted"] is True
+
+
 def test_fully_enriched_history_is_exhausted():
     activity = _activity({"2026-08-26": 20, "2026-08-27": 20})
     ids = list(activity["item_id"])
@@ -568,3 +581,45 @@ def test_tick_parks_a_stalled_plan(tick):
     entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
     assert entry["state"] == ce.STATE_BLOCKED
     assert tick["scrape_queues"] == {}           # nothing enqueued
+
+
+# --------------------------------------------------------------------------- #
+# Tick reporting — a no-op tick has to be visible in the modal
+# --------------------------------------------------------------------------- #
+
+def test_last_tick_reports_the_supervisors_outcome(monkeypatch):
+    """The panel's only window onto a Cloud Run tick.
+
+    Regression pin for the 2026-08-31 report that "Run a cycle now does
+    nothing": the tick had in fact run and correctly decided nothing_to_do
+    (the plan's lifetime budget was already spent), but the dispatched-task
+    path had no way to say so, so the loop read as broken.
+    """
+    import web_interface.task_status as ts
+
+    monkeypatch.setattr(ts, "read_task_status", lambda name: {
+        "state": "completed",
+        "start_time": "2026-08-31T05:26:50+00:00",
+        "updated_at": "2026-08-31T05:26:53+00:00",
+        "progress": {"percent": 100, "message": "Completed"},
+        "data": {"action": "nothing_to_do"},
+        "error": None,
+    } if name == ce.SUPERVISOR_TASK else None)
+
+    tick = ce.last_tick()
+    assert tick["action"] == "nothing_to_do"
+    assert tick["state"] == "completed"
+    assert tick["start_time"] == "2026-08-31T05:26:50+00:00"
+
+
+def test_last_tick_is_empty_and_never_raises_without_a_status_file(monkeypatch):
+    import web_interface.task_status as ts
+
+    monkeypatch.setattr(ts, "read_task_status", lambda name: None)
+    assert ce.last_tick() == {}
+
+    def _boom(name):
+        raise RuntimeError("GCS down")
+
+    monkeypatch.setattr(ts, "read_task_status", _boom)
+    assert ce.last_tick() == {}

@@ -66,6 +66,8 @@ RECODED_FILENAME = f"{COLLECTIONS_LABEL}_recoded.parquet"
 STATUS_FILENAME = "enrichment_status.parquet"
 LEDGER_FILENAME = "collection_enrichment.json"
 ANNOTATE_QUEUE_FILENAME = "to_annotate.json"
+# The worker whose task-status file `last_tick` reads.
+SUPERVISOR_TASK = "enrichment_supervisor"
 
 _VIEW_TYPES = ("play", "observe")
 
@@ -788,6 +790,40 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
     except Exception as exc:
         logger.error(f"collection_enrichment.progress({collection_id}) failed: {exc}")
     return out
+
+
+def last_tick() -> dict:
+    """The supervisor's most recent tick, as the modal needs to report it.
+
+    On Cloud Run a tick is a dispatched Cloud Task, so the POST that starts one
+    can only say it was dispatched — it cannot say what the tick decided. Without
+    this the panel reads the same whether the loop queued a slice or found the
+    budget already spent, which is exactly how a plan that is silently complete
+    looks like a broken loop.
+
+    Returns:
+        ``{"state", "action", "message", "error", "start_time", "updated_at"}``,
+        or ``{}`` when the supervisor has never run (or the status is unreadable).
+    """
+    try:
+        from web_interface.task_status import read_task_status
+        status = read_task_status(SUPERVISOR_TASK) or {}
+    except Exception as exc:
+        logger.error(f"collection_enrichment.last_tick failed: {exc}")
+        return {}
+    if not isinstance(status, dict) or not status:
+        return {}
+    data = status.get("data") if isinstance(status.get("data"), dict) else {}
+    progress_msg = (status.get("progress") or {}).get("message") \
+        if isinstance(status.get("progress"), dict) else None
+    return {
+        "state": status.get("state"),
+        "action": data.get("action"),
+        "message": data.get("message") or progress_msg,
+        "error": status.get("error"),
+        "start_time": status.get("start_time"),
+        "updated_at": status.get("updated_at"),
+    }
 
 
 def now_iso() -> str:

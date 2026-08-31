@@ -419,6 +419,10 @@ def get_collection_enrichment(collection_id):
         "armed": entry is not None,
         "settings": (entry or {}).get("settings") or dict(ce.DEFAULT_SETTINGS),
         "progress": ce.progress(collection_id, entry),
+        # The supervisor is a global singleton, so this is the last tick of ANY
+        # collection — the panel uses it only to report the outcome of a tick it
+        # just fired (it polls until start_time changes), never as plan state.
+        "last_tick": ce.last_tick(),
     }
     return jsonify(payload)
 
@@ -505,6 +509,12 @@ def tick_collection_enrichment(collection_id):
         action="collection.enrichment.tick", target=cid)
 
     if is_cloud_run():
+        # What the supervisor's status file said BEFORE this dispatch. The tick
+        # runs on the task-runner, so the only way the panel can report what it
+        # decided is to poll until the status file's start_time is no longer
+        # this one. Comparing against the previous value rather than against a
+        # dispatch timestamp keeps that immune to clock skew between services.
+        prev_start = (ce.last_tick() or {}).get("start_time")
         success, msg = start_process(
             "enrichment_supervisor",
             ENRICHMENT_SUPERVISOR_SCRIPT,
@@ -513,7 +523,8 @@ def tick_collection_enrichment(collection_id):
             started_by=_actor(),
         )
         if success:
-            return jsonify({"status": "started", "message": msg})
+            return jsonify({"status": "started", "message": msg,
+                            "prev_start_time": prev_start})
         return jsonify({"status": "error", "message": msg}), 409
 
     # Local mode: run the tick INLINE rather than as a subprocess. A worker the

@@ -140,7 +140,9 @@ The second line reads the truth in the data rather than the ledger: how many vie
                     <label class="text-sm" style="display: block;">
                         <span class="meta-tooltip tooltip-wide" data-tooltip="The most items this collection may ever spend, across every cycle (0 = unlimited).
 
-Spend is counted at the handoff, when scraped items are passed to annotation - so it counts what was actually bought, not what was optimistically queued. When the budget runs out the plan finishes.">Item budget</span>
+Spend is counted at the handoff, when scraped items are passed to annotation - so it counts what was actually bought, not what was optimistically queued. When the budget runs out the plan finishes.
+
+It is a lifetime total, not a per-run allowance: to give a completed plan more work, raise this ABOVE the number already spent (shown in the status line) and arm it again. Setting it below what is spent finishes the plan instead, and every tick then does nothing.">Item budget</span>
                         <input type="number" id="dm-enrich-item-budget" class="control-input" min="0" step="50"
                             style="width: 100%; padding: 6px;">
                     </label>
