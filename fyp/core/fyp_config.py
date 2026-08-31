@@ -56,6 +56,14 @@ DEFAULT_REPO_URL = "https://github.com/pwikstrom/foryou-research"
 DEFAULT_PARTICIPANT_PLACEHOLDER_DOMAIN = "foryouresearch.net"
 
 
+# The config TOML ``initialize()`` actually loaded, recorded so a process can
+# hand its own effective config to a subprocess (see
+# ``web_interface.process_manager.worker_env``). Deliberately NOT stored in
+# ``cf["paths"]``: ``_create_local_dirs`` calls ``os.makedirs`` on every value
+# in that section, which would turn the config file into a directory.
+_active_config_path: str | None = None
+
+
 def _load_dotenv(project_root: str, verbose: bool = False) -> list[str]:
     """Load ``KEY=VALUE`` lines from ``<project_root>/.env`` into the environment.
 
@@ -278,6 +286,8 @@ def initialize(
     # Load essential config - let it blow up if the files aren't found
     # ------------------------------------------------------------------
     config_path = env_config_path or os.path.join(abs_project_root_path,"config","config.toml")
+    global _active_config_path
+    _active_config_path = str(Path(config_path).resolve())
     cf = toml.load(config_path)
 
     # Optional machine-local overlay: config/config.local.toml (gitignored) is
@@ -1154,6 +1164,29 @@ def get_config() -> dict:
             flush=True,
         )
     return _fyp_cf
+
+
+
+
+def active_config_path() -> str:
+    """Return the absolute path of the config TOML this process is running on.
+
+    Root discovery is implicit — ``fyp.core.paths`` and ``initialize()`` each
+    walk up from the working directory looking for ``__proj__.py`` — so a
+    child process started in a different directory, or one whose ``import
+    fyp`` resolves through a venv install to another checkout, can silently
+    load a different ``config.toml`` (and its gitignored ``config.local.toml``
+    overlay) than its parent, which means a different data store. Callers that
+    spawn subprocesses pass this value through ``FYP_CONFIG_PATH`` to make the
+    child's root explicit and inherited rather than rediscovered.
+
+    Returns:
+        The resolved path of the loaded config file.
+    """
+    get_config()
+    if _active_config_path is None:
+        return str((PROJECT_ROOT / "config" / "config.toml").resolve())
+    return _active_config_path
 
 
 

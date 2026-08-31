@@ -4,9 +4,11 @@ import subprocess
 import threading
 from collections import deque
 from datetime import UTC, datetime
+from pathlib import Path
 
+import fyp
 import fyp.data_io as data_io
-from fyp.fyp_config import PROJECT_ROOT, PYTHON_EXEC
+from fyp.fyp_config import PROJECT_ROOT, PYTHON_EXEC, active_config_path
 from web_interface import run_logs, task_failures
 from web_interface.task_status import (
     force_clear_status,
@@ -23,6 +25,52 @@ from web_interface.task_status import (
 STUCK_STATUS_THRESHOLD_S = 90
 
 GRACEFUL_STOP_DIR = PROJECT_ROOT / "tmp" / "graceful_stop"
+
+
+def worker_env() -> dict[str, str]:
+    """Build the environment for a spawned ``run_*.py`` worker subprocess.
+
+    A worker inherits none of this process's resolved identity by default: it
+    rediscovers its own project root by walking up from the working directory
+    for ``__proj__.py``, and its ``import fyp`` is served by whichever finder
+    answers first — under an editable venv install that is the checkout pip was
+    pointed at, not necessarily the one this server runs from. Either route can
+    land the child on a different ``config.toml`` (and its gitignored
+    ``config.local.toml`` overlay), which means a different data store. On
+    2026-08-28 that is exactly what happened: workers spawned during a local
+    end-to-end test read and pruned the production scrape queue while the
+    server itself was on the local store.
+
+    Two pins remove both degrees of freedom. ``FYP_CONFIG_PATH`` names the
+    config file this process actually loaded, which both root-discovery paths
+    honour ahead of the directory walk. Putting the project root on
+    ``PYTHONPATH`` puts ``fyp`` and ``web_interface`` on ``sys.path`` before
+    the interpreter reaches site-packages, so the child imports the tree its
+    worker script came from. Both are no-ops when parent and child already
+    agree, which is every deployed configuration.
+
+    Returns:
+        A copy of the current environment with the worker marker and the
+        config/import pins applied.
+    """
+    env = os.environ.copy()
+    env["WEB_INTERFACE"] = "true"
+    env["FYP_CONFIG_PATH"] = active_config_path()
+
+    project_root = Path(PROJECT_ROOT).resolve()
+    roots = [str(project_root)]
+    # A reuse install (FYP_CONFIG_PATH pointing outside a checkout) can leave
+    # the project root without a `fyp` package; fall back to wherever this
+    # process imported one from, but only when that is a checkout of its own —
+    # a site-packages directory must never be prepended ahead of the stdlib.
+    fyp_root = Path(fyp.__file__).resolve().parent.parent
+    if fyp_root != project_root and (fyp_root / "__proj__.py").exists():
+        roots.append(str(fyp_root))
+
+    inherited = [p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p]
+    env["PYTHONPATH"] = os.pathsep.join(
+        roots + [p for p in inherited if p not in roots])
+    return env
 
 
 def scrape_platforms() -> list[str]:
@@ -842,8 +890,7 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         if processes[name]["proc"].poll() is None:
             return False, "Process already running"
 
-    env_vars = os.environ.copy()
-    env_vars["WEB_INTERFACE"] = "true"
+    env_vars = worker_env()
 
     # Translate task_args → CLI args when caller supplied only task_args.
     # Only done when `args` is empty, so callers that already built their
