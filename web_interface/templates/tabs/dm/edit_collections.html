@@ -140,6 +140,8 @@ Needs attention - the plan queued work three times in a row without a single new
 
 The chart above is the person's viewing over time: one bar per active day, split by enrichment state (same colours as the bar below). The dashed lines are the spread's per-day cap and the ten-item analysis floor - they move as you change those settings.
 
+The red line is an ESTIMATE of where each day's annotated count would end up if the plan ran to its target with the current settings: whole recent days filled to the top by the deep dive, capped days scattered back through the months by the spread. Move the target or the Advanced settings and it redraws. The real spread picks its days at random, so treat the line as the shape of the outcome, not the exact days.
+
 A day is analysis-ready once at least ten of the videos watched that day have been annotated. Days are the unit every analysis works in, and about fourteen ready days is the point where the tabs start to have something to say.
 
 The bar shows the collection's videos, left to right:
@@ -183,9 +185,9 @@ A target is a state, not an allowance - videos annotated by any other means (a m
 The plan always takes the cheapest route: already-scraped but unannotated videos are annotated first, and new scraping starts only once that backlog is clear.
 
 The loop can overshoot slightly - it always scrapes whole days, so the last cycle may scrape past the target - but annotation stops at the target. And the target cannot exceed what is reachable: videos that failed for good are outside it.">Annotation target</span>
-                        <div style="display: flex; align-items: center; gap: 6px;">
-                            <input type="text" id="dm-enrich-target" class="control-input" readonly
-                                style="width: 90px; padding: 6px; text-align: right;" tabindex="-1">
+                        <div style="display: flex; align-items: baseline; gap: 6px; padding: 6px 0;">
+                            <span id="dm-enrich-target" class="text-body"
+                                style="font-weight: var(--weight-bold); min-width: 60px;"></span>
                             <span id="dm-enrich-target-pct" class="text-xs" style="color: var(--color-text-muted);"></span>
                         </div>
                     </label>
@@ -220,7 +222,7 @@ Both take WHOLE days on purpose. Every analysis here groups by the day, and a da
 
 0% is deep dive only; 100% is spread only.">Spread share</span> <span id="dm-enrich-share-label"></span>
                         <input type="range" id="dm-enrich-sample-share" min="0" max="100" step="5"
-                            style="width: 100%;" oninput="dmEnrichShareLabel()">
+                            style="width: 100%;" oninput="dmEnrichShareLabel(); dmEnrichChartRefresh()">
                     </label>
                     <label class="text-sm" style="display: block;">
                         <span class="meta-tooltip tooltip-wide" data-tooltip="How many whole days the spread takes out of each calendar month as it works backwards.
@@ -229,7 +231,7 @@ The days are drawn at random from those with enough activity that the deep dive 
 
 Random rather than the busiest days: always choosing the busiest would make the person's viewing look heavier than it was.">Spread days / month</span>
                         <input type="number" id="dm-enrich-days-per-month" class="control-input" min="0" max="31"
-                            style="width: 100%; padding: 6px;">
+                            style="width: 100%; padding: 6px;" oninput="dmEnrichChartRefresh()">
                     </label>
                     <label class="text-sm" style="display: block;">
                         <span class="meta-tooltip tooltip-wide" data-tooltip="The most videos the spread will process on one of its sampled days, counting the ones already scraped. A day that is already at this number is skipped. Shown as a dashed line on the chart above.
@@ -238,12 +240,12 @@ At least 10 - below the analysis floor, a spread day could never qualify. At mos
 
 Deep-dive days are not capped - they take the whole day, however busy it was.">Spread items / day</span>
                         <input type="number" id="dm-enrich-day-cap" class="control-input" min="10" max="1000"
-                            style="width: 100%; padding: 6px;" oninput="dmEnrichChartLines()">
+                            style="width: 100%; padding: 6px;" oninput="dmEnrichChartRefresh()">
                     </label>
                     <label class="text-sm" style="display: block;">
                         <span class="meta-tooltip tooltip-wide" data-tooltip="Optional. Nothing before this date is ever processed, by either half of the cycle. Leave it empty to work back through the person's whole history.">Earliest date</span>
                         <input type="date" id="dm-enrich-earliest" class="control-input"
-                            style="width: 100%; padding: 6px;">
+                            style="width: 100%; padding: 6px;" oninput="dmEnrichChartRefresh()">
                     </label>
                 </div>
                 </div>

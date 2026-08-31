@@ -1603,7 +1603,8 @@ button {
 .close-button:focus,
 .close:hover,
 .close:focus {
-    color: var(--white);
+    /* Not --white: on the light theme that made the X vanish on hover. */
+    color: var(--color-text-primary);
     text-decoration: none;
     cursor: pointer;
 }
@@ -7079,7 +7080,7 @@ body:has(.public-page) {
 }
 .dm-enrich-bar-seg { height: 100%; }
 .dm-enrich-bar-seg.annotated { background: var(--color-success); }
-.dm-enrich-bar-seg.scraped { background: var(--color-info); opacity: 0.55; }
+.dm-enrich-bar-seg.scraped { background: var(--color-info); }
 .dm-enrich-bar-spacer { flex: 1; }
 .dm-enrich-bar-seg.failed {
     background: repeating-linear-gradient(45deg,
@@ -7114,7 +7115,7 @@ body:has(.public-page) {
     vertical-align: -1px;
 }
 .dm-enrich-legend .sw.annotated { background: var(--color-success); }
-.dm-enrich-legend .sw.scraped { background: var(--color-info); opacity: 0.55; }
+.dm-enrich-legend .sw.scraped { background: var(--color-info); }
 .dm-enrich-legend .sw.rest {
     background: var(--color-bg-input);
     border: 1px solid var(--color-border-strong);

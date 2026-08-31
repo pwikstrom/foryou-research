@@ -6177,7 +6177,7 @@ function dmEnrichReadoutRefresh() {
 function dmEnrichTargetSync(target) {
     dmEnrichTargetValue = target;
     const el = document.getElementById('dm-enrich-target');
-    if (el) el.value = target ? Number(target).toLocaleString() : '';
+    if (el) el.textContent = target ? Number(target).toLocaleString() : '';
     const slider = document.getElementById('dm-enrich-target-slider');
     if (slider && !slider.disabled) slider.value = String(_dmEnrichTargetToSlider(target));
     dmEnrichDrawMarker(target);
@@ -6190,9 +6190,10 @@ function dmEnrichSliderInput() {
     const target = _dmEnrichSliderToTarget(Number(slider.value));
     dmEnrichTargetValue = target;
     const el = document.getElementById('dm-enrich-target');
-    if (el) el.value = target ? Number(target).toLocaleString() : '';
+    if (el) el.textContent = target ? Number(target).toLocaleString() : '';
     dmEnrichDrawMarker(target);
     dmEnrichTargetReadout(target);
+    dmEnrichChartRefresh();
 }
 
 function dmEnrichToggleAdvanced() {
@@ -6278,17 +6279,78 @@ function dmEnrichChartShapes() {
     return shapes;
 }
 
-// Redraw only the dashed lines (fired as the day-cap input changes).
-function dmEnrichChartLines() {
-    const div = document.getElementById('dm-enrich-daily-chart');
-    if (div && div._plotlyInited && window.Plotly) {
-        window.Plotly.relayout(div, { shapes: dmEnrichChartShapes() });
+// The red estimate line: where each day's annotated count would land if the
+// plan ran to the current target with the current settings. A deliberately
+// rough client-side mirror of the planner — backlog first, then whole recent
+// days for the deep dive, then capped days per month walking backwards for
+// the spread (which in reality draws its days at random; here the newest
+// eligible ones stand in). The shape of the outcome, not the exact days.
+function _dmEnrichPlanEstimate(daily) {
+    const n = daily.dates.length;
+    const planned = new Array(n).fill(0);
+    const annotatedTotal = dmEnrichProgressCache.target_floor ?? 0;
+    let remaining = Math.max(0, (dmEnrichTargetValue || 0) - annotatedTotal);
+    if (!remaining) return planned;
+
+    const num = (id, dflt) => {
+        const v = Number(document.getElementById(id)?.value);
+        return Number.isFinite(v) && v > 0 ? v : dflt;
+    };
+    const share = (Number(document.getElementById('dm-enrich-sample-share')?.value) || 0) / 100;
+    const daysPerMonth = num('dm-enrich-days-per-month', 0);
+    const dayCap = num('dm-enrich-day-cap', 50);
+    const minDay = dmEnrichProgressCache.min_day_items || 10;
+    const earliest = document.getElementById('dm-enrich-earliest')?.value || '';
+
+    const awaiting = (i) => daily.awaiting[i] || 0;
+    const unscraped = (i) => Math.max(0, (daily.total[i] || 0) - (daily.annotated[i] || 0)
+        - (daily.failed[i] || 0) - awaiting(i));
+
+    // 1. The backlog sweep: already-scraped videos are annotated first.
+    for (let i = n - 1; i >= 0 && remaining > 0; i--) {
+        const take = Math.min(awaiting(i), remaining);
+        planned[i] += take; remaining -= take;
     }
+    // 2. What is left splits between the processes by the spread share.
+    let dd = Math.round(remaining * (1 - share));
+    let sp = remaining - dd;
+    const ddDays = new Set();
+    for (let i = n - 1; i >= 0 && dd > 0; i--) {
+        if (earliest && daily.dates[i] < earliest) break;
+        if ((daily.total[i] || 0) < minDay) continue;
+        const u = unscraped(i);
+        if (u <= 0) continue;
+        const take = Math.min(u, dd);      // last day drawn partial
+        planned[i] += take; dd -= take; ddDays.add(i);
+    }
+    // 3. Spread: up to daysPerMonth capped days per month, newest month first.
+    let month = '', taken = 0;
+    for (let i = n - 1; i >= 0 && sp > 0; i--) {
+        if (earliest && daily.dates[i] < earliest) break;
+        const m = daily.dates[i].slice(0, 7);
+        if (m !== month) { month = m; taken = 0; }
+        if (taken >= daysPerMonth || ddDays.has(i)) continue;
+        if ((daily.total[i] || 0) < minDay) continue;
+        const capRoom = dayCap - ((daily.annotated[i] || 0) + awaiting(i) + planned[i]);
+        const take = Math.min(unscraped(i), Math.max(0, capRoom), sp);
+        if (take <= 0) continue;
+        planned[i] += take; sp -= take; taken += 1;
+    }
+    return planned;
 }
+
+// Full re-render from the cached daily series — fired by the target slider
+// and every Advanced setting the estimate line depends on.
+function dmEnrichChartRefresh() {
+    if (dmEnrichDailyCache) dmEnrichRenderChart(dmEnrichDailyCache);
+}
+
+let dmEnrichDailyCache = null;
 
 function dmEnrichRenderChart(daily) {
     const div = document.getElementById('dm-enrich-daily-chart');
     if (!div) return;
+    dmEnrichDailyCache = daily || null;
     const dates = (daily && daily.dates) || [];
     if (!dates.length || !window.Plotly) {
         div.style.display = 'none';
@@ -6310,10 +6372,20 @@ function dmEnrichRenderChart(daily) {
     });
     const traces = [
         trace(daily.annotated, getCSSVar('--color-success') || '#6A9B7E', 1),
-        trace(daily.awaiting, getCSSVar('--color-info') || '#6E93B8', 0.55),
+        trace(daily.awaiting, getCSSVar('--color-info') || '#5B7E98', 1),
         trace(rest, getCSSVar('--color-text-faint') || '#888', 0.3),
         trace(daily.failed, getCSSVar('--color-border-strong') || '#666', 0.8),
     ];
+    const planned = _dmEnrichPlanEstimate(daily);
+    if (planned.some(v => v > 0)) {
+        traces.push({
+            type: 'scatter', mode: 'lines', x: xs,
+            y: dates.map((_, i) => (daily.annotated[i] || 0) + planned[i]),
+            line: { color: getCSSVar('--color-danger') || '#c0392b',
+                    width: 1.5, shape: 'hvh' },
+            hoverinfo: 'skip',
+        });
+    }
     const layout = {
         barmode: 'stack',
         bargap: 0,
@@ -6433,11 +6505,49 @@ function dmEnrichRender(data) {
 }
 
 
+// Blank every data-bearing element before a load: the panel is shared by all
+// collections, so without this the modal opens showing the PREVIOUS
+// collection's charts for the seconds the fetch takes (reported 2026-08-31).
+function dmEnrichResetPanel() {
+    const statusEl = document.getElementById('dm-enrich-status-line');
+    if (statusEl) statusEl.textContent = 'Loading enrichment plan\u2026';
+    const progEl = document.getElementById('dm-enrich-progress');
+    if (progEl) progEl.textContent = '';
+    for (const id of ['dm-enrich-target', 'dm-enrich-target-pct',
+                      'dm-enrich-target-readout']) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '';
+    }
+    dmEnrichProgressCache = {};
+    dmEnrichDailyCache = null;
+    dmEnrichTargetValue = 0;
+    const chart = document.getElementById('dm-enrich-daily-chart');
+    if (chart) {
+        chart.style.display = 'none';
+        if (chart._plotlyInited && window.Plotly) {
+            window.Plotly.purge(chart);
+            chart._plotlyInited = false;
+        }
+    }
+    for (const id of ['dm-enrich-bar', 'dm-enrich-legend']) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    }
+    const slider = document.getElementById('dm-enrich-target-slider');
+    if (slider) slider.disabled = true;
+    const armBtn = document.getElementById('dm-enrich-arm-btn');
+    if (armBtn) armBtn.classList.toggle('dm-enrich-armed-pulse', false);
+}
+
 function dmEnrichLoad(collectionId) {
     const group = document.getElementById('edit-collection-enrichment-group');
     if (!group) return;
     if (!_dmCan('tab.data_management.edit_collections')) { dmEnrichHide(); return; }
     group.style.display = '';
+    // Only wipe when the panel moves to a DIFFERENT collection — same-id
+    // reloads (after a save or a tick) keep the current render until fresh
+    // data lands, avoiding a flicker on every save.
+    if (dmEnrichCollectionId !== collectionId) dmEnrichResetPanel();
     dmEnrichCollectionId = collectionId;
     dmEnrichMsg('');
     fetch(`/api/manage/collections/${encodeURIComponent(collectionId)}/enrichment`)
