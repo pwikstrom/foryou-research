@@ -60,12 +60,20 @@ def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None)
         _t_study_start = time.perf_counter()
 
         try:
-            stats = config.get('stats', {})
-            annotated = stats.get('annotated_videos', 0)
+            stats = config.get('stats') or {}
+            annotated = stats.get('annotated_videos')
 
+            # A cached count of zero is a real answer: nothing to correlate, so
+            # skip without loading the study's parquet. A MISSING stats dict is
+            # not the same answer — an auto-provisioned participant study whose
+            # first build never completed carries no stats at all, and treating
+            # that as zero would strand it here forever. Fall through instead
+            # and let calculate_scaled_pca_scores decide from the data.
             if annotated == 0:
                 reporter.log(f"  Skipping {study_name}: no annotated videos.")
                 continue
+            if annotated is None:
+                reporter.log(f"  {study_name} has no cached stats — refreshing from its dataset.")
 
             result = calculate_scaled_pca_scores(
                 study_name=study_name,
