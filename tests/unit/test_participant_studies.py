@@ -331,3 +331,101 @@ def test_save_rename_delete_refuse_system_studies(participant_defs, monkeypatch)
                           json={"STUDY_NAME": f"__me__{_OWNER}"})
         assert res.status_code == 403
         assert f"__me__{_OWNER}" in studies_mod.fyp_cf["study_defs"]
+
+
+# ---------------------------------------------------------------------------
+# Presentation keys stay out of the persisted definitions
+# ---------------------------------------------------------------------------
+
+
+def test_list_studies_keeps_presentation_keys_off_the_shared_defs(
+        participant_defs, monkeypatch):
+    """``GET /api/manage/studies`` must ship STUDY_NAME/DISPLAY_LABEL in the
+    payload without writing them onto ``fyp_cf['study_defs']``.
+
+    ``DISPLAY_LABEL`` is viewer-dependent, so mutating the process-global
+    definition leaked whichever viewer was bound at request time into the
+    next ``save_study_defs()`` write of studies.json.
+    """
+    from web_interface import security
+    from web_interface.auth import User
+    from web_interface.fyp_data_hub import app
+    import web_interface.auth as auth_mod
+    import web_interface.routes.management.studies as studies_mod
+
+    defs, _cache_files = participant_defs
+    manager = "__ps_manager__"
+    orig_get_user = security.user_manager.get_user
+
+    def _fake_get(uid):
+        if uid == manager:
+            return User(username=manager, role="team", password_hash="", approved=True)
+        return orig_get_user(uid)
+
+    monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
+    monkeypatch.setattr(auth_mod.role_manager, "get_role_permissions",
+                        lambda role: ["tab.data_management.studies"])
+    monkeypatch.setattr(studies_mod, "init_study_defs", lambda: None)
+
+    app.testing = True
+    app.config["WTF_CSRF_ENABLED"] = False
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess["_user_id"] = manager
+            sess["_fresh"] = True
+        res = client.get("/api/manage/studies")
+        assert res.status_code == 200
+        payload = res.get_json()
+
+    # The payload still carries both keys — data_management.js renders them.
+    by_name = {s["STUDY_NAME"]: s for s in payload}
+    assert set(by_name) == set(defs)
+    assert by_name[f"__me__{_OWNER}"]["DISPLAY_LABEL"] == f"Just Me — {_OWNER}"
+    assert by_name[f"__me_plus__{_OWNER}"]["DISPLAY_LABEL"] == f"Everyone & Me — {_OWNER}"
+    assert "DISPLAY_LABEL" not in by_name["main_study"]  # not a system study
+
+    # ...but the shared, persisted definitions are untouched.
+    for name, config in defs.items():
+        assert "STUDY_NAME" not in config, name
+        assert "DISPLAY_LABEL" not in config, name
+
+
+def test_save_study_defs_drops_derived_presentation_keys(monkeypatch):
+    """studies.json must never carry STUDY_NAME or DISPLAY_LABEL.
+
+    Stripping on write also self-heals definitions polluted before
+    ``list_studies`` stopped mutating the shared store. Only the serialised
+    copy is cleaned: ``run_study_refresh`` sets ``STUDY_NAME`` on the shared
+    definition and keeps using it after the save.
+    """
+    from fyp.fyp_config import fyp_cf
+    import fyp.analysis.studies as studies
+
+    defs = {
+        "main_study": {"USER_ACCESS": ["all"], "STUDY_NAME": "main_study"},
+        f"__me__{_OWNER}": {"SYSTEM": "participant", "OWNER": _OWNER,
+                            "DISPLAY_NAME": "Just Me",
+                            "USER_ACCESS": [_OWNER],
+                            "STUDY_NAME": f"__me__{_OWNER}",
+                            "DISPLAY_LABEL": f"Just Me — {_OTHER}"},
+    }
+    monkeypatch.setitem(fyp_cf, "study_defs", defs)
+
+    written: dict = {}
+    monkeypatch.setattr(
+        studies.data_io, "save_json",
+        lambda data, storage_location, filename: written.update(
+            data=data, storage_location=storage_location, filename=filename))
+
+    studies.save_study_defs()
+
+    assert written["filename"] == "studies.json"
+    assert set(written["data"]) == set(defs)
+    for name, config in written["data"].items():
+        assert "STUDY_NAME" not in config, name
+        assert "DISPLAY_LABEL" not in config, name
+    # DISPLAY_NAME is a genuine persisted key — only the derived ones go.
+    assert written["data"][f"__me__{_OWNER}"]["DISPLAY_NAME"] == "Just Me"
+    assert written["data"][f"__me__{_OWNER}"]["USER_ACCESS"] == [_OWNER]
+    # The in-memory definitions keep their working copy of STUDY_NAME.
+    assert defs["main_study"]["STUDY_NAME"] == "main_study"

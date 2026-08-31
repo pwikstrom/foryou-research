@@ -102,12 +102,41 @@ def init_study_defs():
 
 
 
+# Keys that request/worker paths set on a definition in memory but that must
+# never reach studies.json:
+#   STUDY_NAME    — duplicates the dict key, and goes stale on rename.
+#   DISPLAY_LABEL — viewer-dependent (list_studies appends the owner for
+#                   anyone but the owner), so a persisted value would be
+#                   whichever user's request happened to be bound at save time.
+# Both are recomputed per request, so stripping them here also self-heals
+# definitions polluted before list_studies stopped mutating the shared store.
+DERIVED_STUDY_KEYS = ("STUDY_NAME", "DISPLAY_LABEL")
+
+
+def _without_derived_keys(study_defs: dict) -> dict:
+    """Return a copy of ``study_defs`` with :data:`DERIVED_STUDY_KEYS` removed.
+
+    Only the serialised copy is cleaned — the in-memory definitions are left
+    alone, because callers such as ``run_study_refresh`` set ``STUDY_NAME`` on
+    the shared definition and keep using it after the save.
+    """
+    cleaned = {}
+    for name, config in (study_defs or {}).items():
+        if isinstance(config, dict):
+            cleaned[name] = {k: v for k, v in config.items()
+                             if k not in DERIVED_STUDY_KEYS}
+        else:
+            cleaned[name] = config
+    return cleaned
+
+
 def save_study_defs():
 
     if "study_defs" not in _cf():
         init_study_defs()
 
-    data_io.save_json(data = _cf()["study_defs"], storage_location="recoded", filename="studies.json")
+    data_io.save_json(data = _without_derived_keys(_cf()["study_defs"]),
+                      storage_location="recoded", filename="studies.json")
 
 
 

@@ -21,6 +21,10 @@
 <script>
     window.USER_PERMS = {{ user_perms|tojson }};
     window.USER_IS_ADMIN = {{ user.is_admin()|tojson }};
+    // Logged-in username. study_state.js scopes the remembered active
+    // study to it so two accounts sharing a browser profile don't inherit
+    // each other's pick.
+    window.CURRENT_USERNAME = {{ user.username|tojson }};
     // Site-wide default study (Admin → Site Settings), or "" when unset. Used
     // by study_state.js as the initial study for anyone without a stored pick.
     window.DEFAULT_STUDY = {{ default_study|tojson }};
@@ -249,7 +253,7 @@
 </script>
 <script src="{{ url_for('static', filename='main.js') }}?v=20"></script>
 <script src="{{ url_for('static', filename='js/variable_prefs.js') }}"></script>
-<script src="{{ url_for('static', filename='study_state.js') }}?v=5"></script>
+<script src="{{ url_for('static', filename='study_state.js') }}?v=6"></script>
 <script src="{{ url_for('static', filename='filter_value_search.js') }}?v=1"></script>
 <script src="{{ url_for('static', filename='explore.js') }}?v=15"></script>
 <script src="{{ url_for('static', filename='video_analysis.js') }}?v=13"></script>

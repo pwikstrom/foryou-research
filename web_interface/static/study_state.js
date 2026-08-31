@@ -10,7 +10,41 @@
 //   document.addEventListener('study:changed', (e) => { e.detail.study; e.detail.previous; });
 
 const _LARGE_LOAD_THRESHOLD_STUDY_STATE = 100000;
-const _STUDY_STORAGE_KEY = 'fyp.activeStudy';
+const _STUDY_STORAGE_KEY_BASE = 'fyp.activeStudy';
+
+// The remembered pick is per-account. localStorage is shared across every
+// account used in one browser profile, so an unscoped key let the second
+// account resume the first one's study — for an admin that included another
+// participant's private "Just Me". window.CURRENT_USERNAME is set in
+// index.html; if it is ever missing we fall back to the unscoped key rather
+// than losing the feature.
+function _studyStorageKey() {
+    let user = '';
+    try { user = window.CURRENT_USERNAME || ''; } catch (e) { /* ignore */ }
+    return user ? `${_STUDY_STORAGE_KEY_BASE}:${user}` : _STUDY_STORAGE_KEY_BASE;
+}
+
+function _readStoredStudy() {
+    const key = _studyStorageKey();
+    let stored = null;
+    try {
+        stored = localStorage.getItem(key);
+        // Discard any pre-scoping value rather than migrating it: it may be a
+        // different account's pick, which is exactly the bug being fixed.
+        if (key !== _STUDY_STORAGE_KEY_BASE) {
+            localStorage.removeItem(_STUDY_STORAGE_KEY_BASE);
+        }
+    } catch (e) { /* ignore */ }
+    return stored;
+}
+
+function _writeStoredStudy(name) {
+    try { localStorage.setItem(_studyStorageKey(), name); } catch (e) { /* ignore */ }
+}
+
+function _clearStoredStudy() {
+    try { localStorage.removeItem(_studyStorageKey()); } catch (e) { /* ignore */ }
+}
 
 window.studyState = {
     current: null,
@@ -132,7 +166,7 @@ async function setActiveStudy(name, options = {}) {
     if (!name) {
         window.studyState.previous = previous;
         window.studyState.current = null;
-        try { localStorage.removeItem(_STUDY_STORAGE_KEY); } catch (e) { /* ignore */ }
+        _clearStoredStudy();
         updateTabAvailability();
         if (!silent) {
             document.dispatchEvent(new CustomEvent('study:changed', {
@@ -165,7 +199,7 @@ async function setActiveStudy(name, options = {}) {
 
     window.studyState.previous = previous;
     window.studyState.current = name;
-    try { localStorage.setItem(_STUDY_STORAGE_KEY, name); } catch (e) { /* ignore */ }
+    _writeStoredStudy(name);
 
     if (select && select.value !== name) select.value = name;
 
@@ -215,8 +249,7 @@ async function loadStudiesGlobal(options = {}) {
         if (preserveCurrent && window.studyState.current && studies.includes(window.studyState.current)) {
             chosen = window.studyState.current;
         } else {
-            let stored = null;
-            try { stored = localStorage.getItem(_STUDY_STORAGE_KEY); } catch (e) { /* ignore */ }
+            const stored = _readStoredStudy();
             // The user's own last pick wins. Failing that, the site-wide
             // default study set in Admin → Site Settings; failing that (unset,
             // deleted, or not in this user's list) the first study, which is

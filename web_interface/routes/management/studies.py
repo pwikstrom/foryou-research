@@ -130,7 +130,13 @@ def list_studies():
     is_manager = _is_study_manager()
 
     for name, config in studies.items():
-        config['STUDY_NAME'] = name
+        # Build the response entry on a COPY. `config` is the process-global
+        # definition, so setting presentation keys on it in place leaks them
+        # into whatever the next save_study_defs() writes to studies.json —
+        # and DISPLAY_LABEL is viewer-dependent, so the persisted value would
+        # be whichever user's request happened to be bound at save time.
+        entry = dict(config)
+        entry['STUDY_NAME'] = name
 
         # System-managed studies show a fixed display name ("Just Me" /
         # "Everyone & Me"); anyone but the owner gets the owner appended so N
@@ -140,15 +146,15 @@ def list_studies():
             owner = config.get('OWNER')
             if owner and owner != current_user.username:
                 label = f"{label} — {owner}"
-            config['DISPLAY_LABEL'] = label
+            entry['DISPLAY_LABEL'] = label
 
         if is_manager:
-            studies_list.append(config)
+            studies_list.append(entry)
         elif _user_can_see_study(config, name):
             # The My Studies read-only view renders from this payload, so it
             # ships the whole definition. USER_ACCESS is the one key that
             # says something about other users rather than about the study.
-            shared = {k: v for k, v in config.items() if k != "USER_ACCESS"}
+            shared = {k: v for k, v in entry.items() if k != "USER_ACCESS"}
             studies_list.append(shared)
 
     return jsonify(studies_list)
@@ -263,7 +269,10 @@ def save_study():
                 target=study_name,
                 details={"changed": ["USER_ACCESS"]},
             )
-            return jsonify({"status": "success", "study": studies[study_name]})
+            # STUDY_NAME is not persisted (see save_study_defs), but the
+            # client's cached row renders it — name the study in the echo.
+            return jsonify({"status": "success",
+                            "study": {**studies[study_name], "STUDY_NAME": study_name}})
 
     # A study must explicitly enumerate its collections: an empty list would
     # silently select EVERY collection at recode time (organize_datasets only
