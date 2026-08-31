@@ -94,12 +94,6 @@ DEFAULT_SETTINGS = {
     "a_day_cap": 50,          # A: max items enriched on one sampled day
     "min_day_items": 10,      # skip days below this (the Correlations floor)
     "earliest_date": None,    # optional floor; None = the whole history
-    # Also annotate videos that were ALREADY scraped before (or outside) this
-    # plan. Off by default: scraped-but-unannotated is a legitimate steady
-    # state (metadata-only studies, deliberately partial annotation), not a
-    # queue for the loop to drain. When off, the handoff annotates only items
-    # this plan itself queued for scraping (the in_flight set).
-    "annotate_existing": False,
 }
 
 # A collection becomes analytically alive somewhere around here: Timelines gates
@@ -245,9 +239,6 @@ def normalize_settings(raw: dict | None) -> dict:
         out["sample_share"] = max(0.0, min(1.0, float(raw.get("sample_share", 0.2))))
     except (TypeError, ValueError):
         out["sample_share"] = DEFAULT_SETTINGS["sample_share"]
-
-    out["annotate_existing"] = bool(raw.get("annotate_existing",
-                                               DEFAULT_SETTINGS["annotate_existing"]))
 
     earliest = raw.get("earliest_date") or None
     if earliest:
@@ -681,12 +672,16 @@ def handoff_scraped(collection_id: str, entry: dict,
     :func:`annotation_eligible` for why an unscraped id in the annotation queue is
     unrecoverable.
 
-    Scope: by default ONLY items this plan queued for scraping (the ledger's
-    ``in_flight`` list, written by the plan step). Scraped-but-unannotated is a
-    legitimate steady state elsewhere in the corpus — a collection may be
-    deliberately scraped without annotation — so arming a plan must not sweep
-    pre-existing scrapes into the annotation queue. The ``annotate_existing``
-    setting is the explicit opt-in for that catch-up behaviour.
+    Scope: every scraped-but-unannotated video in the collection, bounded by
+    the plan's annotation target. Annotating an already-scraped video is the
+    cheapest step toward the target, so the loop always clears that backlog
+    before any new scraping — and because the handoff outranks the plan step
+    in the tick, that ordering needs no extra machinery. (Until 2026-08-31
+    this sweep was the ``annotate_existing`` opt-in; the target now bounds it,
+    which is the protection the opt-in existed to provide. Stored plans may
+    still carry that key — nothing reads it.) The ``in_flight`` set no longer
+    scopes the handoff; it remains the plan's record of queued scrapes, which
+    is what stall detection reads.
 
     Returns:
         ``{"ready": [ids to queue now], "in_flight": [ids still awaiting a
@@ -697,31 +692,20 @@ def handoff_scraped(collection_id: str, entry: dict,
     in_flight = [str(i) for i in (entry.get("in_flight") or [])]
     target = int(settings.get("annotation_target") or 0)
 
-    # The target is measured collection-wide, so enforcing it here needs the
-    # whole collection's activity and status, not just the candidates'.
-    if activity is None and (target > 0 or settings.get("annotate_existing")):
+    if activity is None:
         activity = load_activity(collection_id)
-
-    if settings.get("annotate_existing"):
-        if activity is None or activity.empty:
-            return {"ready": [], "in_flight": in_flight}
-        ids = list(dict.fromkeys(activity["item_id"].astype(str)))
-    else:
-        ids = list(dict.fromkeys(in_flight))
-        if not ids:
-            return {"ready": [], "in_flight": []}
+    if activity is None or activity.empty:
+        return {"ready": [], "in_flight": in_flight}
+    ids = list(dict.fromkeys(activity["item_id"].astype(str)))
 
     if status is None:
-        status = load_status(ids if activity is None or activity.empty
-                             else activity["item_id"].unique())
+        status = load_status(activity["item_id"].unique())
 
     eligible = annotation_eligible(ids, status)
     # Clamp to what the target still needs. No target = nothing may be handed
     # off: the plan's goal has been unset, so it must not keep spending on the
     # strength of items queued under an earlier goal.
-    annotated = (_annotated_unique(activity, status)
-                 if activity is not None and not activity.empty else 0)
-    room = max(0, target - annotated)
+    room = max(0, target - _annotated_unique(activity, status))
     eligible = eligible[:room]
 
     # Prune in_flight: an id leaves once its outcome is known — handed off now,

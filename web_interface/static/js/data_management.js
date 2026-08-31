@@ -6057,9 +6057,6 @@ function dmEnrichFillSettings(settings, progress = {}) {
     set('dm-enrich-days-per-month', settings.a_days_per_month ?? 2);
     set('dm-enrich-day-cap', settings.a_day_cap ?? 50);
     set('dm-enrich-earliest', settings.earliest_date || '');
-    const ae = document.getElementById('dm-enrich-annotate-existing');
-    if (ae) ae.checked = !!settings.annotate_existing;
-
     // The target: the stored goal, or — for a plan that has never had one — a
     // suggested starter (current annotated + 2,000, inside the reachable
     // window). A suggestion only prefills the field; nothing is saved until
@@ -6197,7 +6194,6 @@ function dmEnrichReadSettings() {
         a_days_per_month: num('dm-enrich-days-per-month'),
         a_day_cap: num('dm-enrich-day-cap'),
         earliest_date: document.getElementById('dm-enrich-earliest')?.value || null,
-        annotate_existing: !!document.getElementById('dm-enrich-annotate-existing')?.checked,
     };
 }
 

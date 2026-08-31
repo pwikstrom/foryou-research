@@ -350,10 +350,10 @@ def _handoff(reporter, plans: dict) -> dict | None:
 
     This is the only place items enter the annotation queue. It reads enrichment
     status (never a cycle's intent — an unscraped id in that queue is refined as
-    ``annotated_fail`` and burnt for good), and it is scoped to each plan's own
-    ``in_flight`` ids unless the plan opts into ``annotate_existing``: videos an
-    operator scraped without annotating are a deliberate state, not this loop's
-    to-do list.
+    ``annotated_fail`` and burnt for good). It sweeps every scraped-but-
+    unannotated video of the collection, bounded by the plan's annotation
+    target — the cheapest step toward the target, always taken before any new
+    scraping (this step outranks the plan step, so the ordering is free).
     """
     total = 0
     served = []
@@ -443,8 +443,9 @@ def _plan(reporter, plans: dict) -> dict | None:
 
             scrape_queues.append_to_scrape_queue(platform, items)
             ce.save_plan(cid, {
-                # The handoff's scope: only these ids may enter annotation for
-                # this plan (unless annotate_existing opts into more).
+                # The plan's record of queued scrapes — what stall detection
+                # reads. (It no longer scopes the handoff, which sweeps the
+                # whole collection's scraped-but-unannotated set.)
                 "in_flight": sorted(set(str(i) for i in (entry.get("in_flight") or []))
                                     | set(items)),
                 "platform": platform,

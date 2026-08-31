@@ -321,11 +321,12 @@ def test_handoff_refuses_when_the_target_is_unset(monkeypatch):
     assert ce.handoff_scraped("c1", entry)["ready"] == []
 
 
-def test_handoff_is_scoped_to_the_plans_own_in_flight_items(monkeypatch):
-    # Scraped-but-unannotated is a legitimate steady state: arming a plan must
-    # not sweep pre-existing scrapes into the annotation queue. Only what the
-    # plan itself queued (in_flight) is eligible — unless annotate_existing
-    # explicitly opts into the catch-up.
+def test_handoff_always_sweeps_the_scraped_backlog(monkeypatch):
+    # 2026-08-31 semantics change (user decision, reversing the 2026-08-28
+    # in_flight scoping): annotating an already-scraped video is the cheapest
+    # step toward the target, so the handoff always sweeps the collection's
+    # scraped-but-unannotated set — bounded by the target, which is the
+    # protection the old annotate_existing opt-in existed to provide.
     activity = _activity({"2026-08-27": 10})
     ids = list(activity["item_id"])
     status = _status(ids, scraped=ids, downloaded=ids)
@@ -333,14 +334,16 @@ def test_handoff_is_scoped_to_the_plans_own_in_flight_items(monkeypatch):
     monkeypatch.setattr(ce, "load_status", lambda i=None: status)
 
     entry = _entry()                                # no in_flight recorded
-    assert ce.handoff_scraped("c1", entry) == {"ready": [], "in_flight": []}
+    assert ce.handoff_scraped("c1", entry)["ready"] == ids
 
-    entry = {**_entry(), "in_flight": ids[:3]}      # only the plan's own items
-    assert ce.handoff_scraped("c1", entry)["ready"] == ids[:3]
+    # The target still bounds the sweep.
+    entry = _entry(annotation_target=4)
+    assert ce.handoff_scraped("c1", entry)["ready"] == ids[:4]
 
+    # A stored annotate_existing key (pre-change ledger) changes nothing.
     entry = {**_entry(), "settings": {**_entry()["settings"],
-                                      "annotate_existing": True}}
-    assert ce.handoff_scraped("c1", entry)["ready"] == ids  # explicit opt-in
+                                      "annotate_existing": False}}
+    assert ce.handoff_scraped("c1", entry)["ready"] == ids
 
 
 def test_handoff_prunes_resolved_ids_from_in_flight(monkeypatch):

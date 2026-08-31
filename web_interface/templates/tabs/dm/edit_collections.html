@@ -108,7 +108,7 @@
             <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Automatic enrichment{{ card_info(
                 "A donated collection starts as a bare list of videos someone watched. Before any of it can be analysed, the Hub has to scrape each video (download it and its details) and then annotate it (record what it shows and is about). Both steps cost money.
 
-Armed, this collection gets that done by itself, a batch at a time: pick the next videos, scrape them, check what actually arrived, annotate those, repeat. It never tries to annotate a video that was not scraped.
+Armed, this collection gets that done by itself, a batch at a time. It always takes the cheapest step first: videos that are already scraped but not yet annotated are annotated before any new scraping starts. Then it cycles - pick the next videos, scrape them, check what actually arrived, annotate those, repeat. It never tries to annotate a video that was not scraped.
 
 The loop moves on its own about once an hour, and again whenever a scrape or annotation job finishes. Any number of collections can be armed at once - they take turns, one batch per turn, through the same shared scraper and annotator, so plans never collide. Work done outside a plan is seen too: a video that is already scraped or annotated is skipped, never paid for twice.
 
@@ -138,8 +138,11 @@ A day is analysis-ready once at least ten of the videos watched that day have be
 
                 <!-- Coverage bar: display only. Zones sum to the collection's
                      unique videos; the marker is the annotation target. The
-                     slider under it is the log-scaled target input; the number
-                     field below stays the authoritative value. -->
+                     target's log-scaled slider sits beside the number field
+                     below, deliberately NOT bar-width: the bar's axis is
+                     linear coverage, the slider's is logarithmic, and giving
+                     them the same length would invite reading one against the
+                     other. -->
                 <div class="dm-enrich-bar" id="dm-enrich-bar">
                     <div class="dm-enrich-bar-seg annotated" id="dm-enrich-bar-annotated"></div>
                     <div class="dm-enrich-bar-seg scraped" id="dm-enrich-bar-scraped"></div>
@@ -149,8 +152,6 @@ A day is analysis-ready once at least ten of the videos watched that day have be
                         <span class="lbl" id="dm-enrich-bar-marker-label"></span>
                     </div>
                 </div>
-                <input type="range" id="dm-enrich-target-slider" min="0" max="1000" step="1"
-                    style="width: 100%; margin: 2px 0 0 0;" oninput="dmEnrichSliderInput()">
                 <div class="dm-enrich-legend text-xs" id="dm-enrich-legend">
                     <span><span class="sw annotated"></span><span id="dm-enrich-leg-annotated">annotated</span></span>
                     <span><span class="sw scraped"></span><span id="dm-enrich-leg-scraped">scraped, awaiting annotation</span></span>
@@ -163,32 +164,39 @@ Blue - scraped, awaiting annotation: the video arrived but has not been annotate
 Empty - not yet scraped.
 Hatched - failed for good: the scrape failed permanently (deleted post, blocked video) or the annotation burned out. These can never be processed, which is why a target can never reach 100% of most collections.
 
-The orange marker is the annotation target. Drag the slider or type in the box to move it - the scale is logarithmic, so small careful targets get most of the room.") }}
+The orange marker is the annotation target - move it with the slider or the number box below.") }}
                 </div>
 
-                <div style="display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; margin: 12px 0 0 0;">
+                <div style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin: 12px 0 0 0;">
                     <label class="text-sm" style="display: block;">
                         <span class="meta-tooltip tooltip-wide" data-tooltip="The goal: keep enriching until this many of the collection's videos are annotated.
 
 A target is a state, not an allowance - videos annotated by any other means (a manual queue, another plan) count toward it, so nothing is ever paid for twice. When the target is met the plan completes; to continue, raise the target and arm again.
 
-The loop can overshoot slightly - it always scrapes whole days, so the last cycle may scrape past the target - but annotation stops at the target.
+The plan always takes the cheapest route: already-scraped but unannotated videos are annotated first, and new scraping starts only once that backlog is clear.
 
-The target cannot exceed what is reachable: videos that failed for good are outside it.">Annotation target</span>
+The loop can overshoot slightly - it always scrapes whole days, so the last cycle may scrape past the target - but annotation stops at the target. And the target cannot exceed what is reachable: videos that failed for good are outside it.">Annotation target</span>
                         <input type="number" id="dm-enrich-target" class="control-input" min="0" step="10"
                             style="width: 130px; padding: 6px;" oninput="dmEnrichTargetInput()">
                     </label>
-                    <span id="dm-enrich-target-readout" class="text-xs" style="color: var(--color-text-muted);"></span>
+                    <!-- The slider is deliberately narrower than the bar: its
+                         axis is logarithmic, the bar's is linear, and matching
+                         their lengths would invite reading one against the
+                         other. It belongs to the number field. -->
+                    <input type="range" id="dm-enrich-target-slider" min="0" max="1000" step="1"
+                        class="meta-tooltip" data-tooltip="The same target, as a slider. Logarithmic: small careful targets get most of the travel; the far right is everything reachable."
+                        style="width: 200px; margin-bottom: 8px;" oninput="dmEnrichSliderInput()">
+                    <label class="text-sm" style="display: block;">
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="How many videos each cycle queues for scraping, split between the two ways of choosing days (under Advanced).
+
+Smaller cycles report back sooner and keep the spend visible; larger ones waste less time waiting between steps.
+
+A cycle can go a little over this number, because neither half will ever take part of a day - a partly covered day is worth almost nothing to the analyses.">Items per cycle</span>
+                        <input type="number" id="dm-enrich-cycle-items" class="control-input" min="1" step="50"
+                            style="width: 110px; padding: 6px;">
+                    </label>
+                    <span id="dm-enrich-target-readout" class="text-xs" style="color: var(--color-text-muted); margin-bottom: 10px;"></span>
                 </div>
-
-                <label class="text-sm" style="display: flex; align-items: center; gap: 6px; margin-top: 10px;">
-                    <input type="checkbox" id="dm-enrich-annotate-existing" style="margin: 0;">
-                    <span class="meta-tooltip tooltip-wide" data-tooltip="Off (normal): the plan only annotates videos it scraped itself.
-
-Videos scraped at some earlier point and never annotated are usually that way deliberately - a study that only needed the metadata, say - so a fresh plan should not sweep them up.
-
-On: every already-scraped but unannotated video counts as reachable too. On a collection with a scraped backlog this is by far the cheapest way toward the target - and it can consume the whole distance to the target before a single new video is scraped.">Also annotate already-scraped videos</span>
-                </label>
 
                 <div style="margin-top: 12px;">
                     <button type="button" class="dm-enrich-advanced-toggle" id="dm-enrich-advanced-toggle"
@@ -196,15 +204,6 @@ On: every already-scraped but unannotated video counts as reachable too. On a co
                 </div>
                 <div id="dm-enrich-advanced" style="display: none; margin-top: 10px;">
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 14px;">
-                    <label class="text-sm" style="display: block;">
-                        <span class="meta-tooltip tooltip-wide" data-tooltip="How many videos each cycle queues for scraping, split between the two ways of choosing days below.
-
-Smaller cycles report back sooner and keep the spend visible; larger ones waste less time waiting between steps.
-
-A cycle can go a little over this number, because neither half will ever take part of a day - a partly covered day is worth almost nothing to the analyses.">Items per cycle</span>
-                        <input type="number" id="dm-enrich-cycle-items" class="control-input" min="1" step="50"
-                            style="width: 100%; padding: 6px;">
-                    </label>
                     <label class="text-sm" style="display: block;">
                         <span class="meta-tooltip tooltip-wide" data-tooltip="How each cycle is divided between two ways of choosing days.
 
