@@ -7075,7 +7075,7 @@ body:has(.public-page) {
     background: var(--color-bg-input);
     border: 1px solid var(--color-border-strong);
     border-radius: 3px;
-    margin-top: 16px;   /* headroom for the target marker's label */
+    margin-top: 8px;
 }
 .dm-enrich-bar-seg { height: 100%; }
 .dm-enrich-bar-seg.annotated { background: var(--color-success); }
@@ -7086,28 +7086,17 @@ body:has(.public-page) {
         var(--color-bg-input), var(--color-bg-input) 4px,
         var(--color-border-strong) 4px, var(--color-border-strong) 6px);
 }
+/* The target: a bare line, no label — the number lives in the field below.
+   Red for contrast against every zone (green, blue, empty, hatched grey). */
 .dm-enrich-bar-marker {
     position: absolute;
     top: -5px;
     bottom: -5px;
-    width: 2px;
-    background: var(--color-warning);
-    transform: translateX(-1px);
+    width: 3px;
+    background: var(--color-danger);
+    transform: translateX(-1.5px);
     pointer-events: none;
 }
-.dm-enrich-bar-marker .lbl {
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    padding-bottom: 1px;
-    font-size: var(--text-xs);
-    color: var(--color-warning-text);
-    white-space: nowrap;
-}
-/* Keep the label on-canvas when the marker sits near either edge. */
-.dm-enrich-bar-marker.edge-left .lbl { left: 0; transform: none; }
-.dm-enrich-bar-marker.edge-right .lbl { left: auto; right: 0; transform: none; }
 
 .dm-enrich-legend {
     display: flex;
@@ -7150,4 +7139,17 @@ body:has(.public-page) {
     transition: transform 0.15s ease;
 }
 .dm-enrich-advanced-toggle.open .caret { transform: rotate(90deg); }
+
+/* A running plan's Arm button (then reading "Pause") pulses gently, so an
+   armed collection is unmissable in the modal. */
+@keyframes dm-enrich-armed-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(106, 155, 126, 0.7); }
+    50% { box-shadow: 0 0 0 6px rgba(106, 155, 126, 0); }
+}
+.dm-enrich-armed-pulse {
+    animation: dm-enrich-armed-pulse 1.8s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+    .dm-enrich-armed-pulse { animation: none; outline: 2px solid var(--color-success); }
+}
 

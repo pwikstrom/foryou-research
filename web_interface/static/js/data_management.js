@@ -6123,16 +6123,12 @@ function _dmEnrichSliderToTarget(pos) {
 
 function dmEnrichDrawMarker(target) {
     const marker = document.getElementById('dm-enrich-bar-marker');
-    const label = document.getElementById('dm-enrich-bar-marker-label');
     const total = dmEnrichProgressCache.unique_items || 0;
     if (!marker) return;
     if (!total || !target) { marker.style.display = 'none'; return; }
     const frac = Math.max(0, Math.min(1, target / total));
     marker.style.display = '';
     marker.style.left = `${(frac * 100).toFixed(2)}%`;
-    marker.classList.toggle('edge-left', frac < 0.08);
-    marker.classList.toggle('edge-right', frac > 0.92);
-    if (label) label.textContent = `target ${Number(target).toLocaleString()}`;
 }
 
 function dmEnrichTargetReadout(target) {
@@ -6286,34 +6282,19 @@ function dmEnrichRender(data) {
     dmEnrichSyncTableRow(dmEnrichCollectionId, dmEnrichArmed ? dmEnrichState : null);
 
     if (data.cost_per_1000 !== undefined) dmEnrichCostPer1000 = data.cost_per_1000;
-    const target = progress.annotation_target ?? 0;
-    const annotated = progress.target_floor ?? 0;
 
+    // Deliberately terse (2026-08-31 feedback): the state alone — everything
+    // it used to narrate is visible on the bar or lives in the tooltips. The
+    // two exceptions carry facts nothing else shows: a blocked plan's reason,
+    // and the site-wide switch being off.
     const statusEl = document.getElementById('dm-enrich-status-line');
     if (statusEl) {
-        let line;
-        if (!dmEnrichArmed) {
-            line = 'Not set up yet. Pick an annotation target below, then press '
-                 + 'Arm to let this collection enrich itself.';
-        } else {
-            line = `${dmEnrichStateLabel(dmEnrichState)} — `
-                 + `${annotated.toLocaleString()}${target ? ` of ${target.toLocaleString()}` : ''}`
-                 + ` videos annotated \u00b7 this plan has processed `
-                 + `${(progress.spent_items ?? 0).toLocaleString()} over `
-                 + `${progress.cycles ?? 0} cycle(s).`;
-            if (progress.last_error) line += ` Last problem: ${progress.last_error}`;
-            // A target is a state, so "why is nothing happening" has exactly
-            // two honest answers: the goal is met, or there is no goal.
-            if (target && annotated >= target) {
-                line += ' Target reached — raise it and arm again to continue.';
-            } else if (!target) {
-                line += ' No target set — the plan will not process anything.';
-            }
+        let line = `Status: ${dmEnrichArmed ? dmEnrichStateLabel(dmEnrichState) : 'Not armed'}`;
+        if (dmEnrichState === 'blocked' && progress.last_error) {
+            line += ` \u2014 ${progress.last_error}`;
         }
         if (!data.enabled_site_wide) {
-            line += ' Automatic enrichment is switched off for the whole site '
-                  + '(Admin \u2192 Site Settings), so nothing runs on its own — '
-                  + '"Run a cycle now" still works.';
+            line += ' \u00b7 site-wide auto-enrichment is OFF';
         }
         statusEl.textContent = line;
     }
@@ -6343,9 +6324,11 @@ function dmEnrichRender(data) {
 
     const armBtn = document.getElementById('dm-enrich-arm-btn');
     if (armBtn) {
+        const running = dmEnrichArmed && dmEnrichState === 'running';
         armBtn.disabled = false;
-        armBtn.textContent = (dmEnrichArmed && dmEnrichState === 'running') ? 'Pause'
+        armBtn.textContent = running ? 'Pause'
             : (dmEnrichState === 'done' ? 'Arm again' : 'Arm');
+        armBtn.classList.toggle('dm-enrich-armed-pulse', running);
     }
     const tickBtn = document.getElementById('dm-enrich-tick-btn');
     if (tickBtn) {

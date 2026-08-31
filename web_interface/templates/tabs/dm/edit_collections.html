@@ -123,18 +123,28 @@ A plan stops when its annotation target is met, or when nothing processable is l
                     <div id="dm-enrich-status-line" class="text-sm" style="color: var(--color-text-secondary);">
                         Loading enrichment plan...
                     </div>{{ card_info(
-                        "The plan's state and its goal.
-
-Running - the collection is picked up automatically.
+                        "Not armed - no plan yet. Pick a target and press Arm.
+Running - the collection is picked up automatically, about once an hour and whenever a job finishes.
 Paused - nothing new starts; work already queued still finishes.
 Complete - the annotation target is met, or nothing processable is left.
-Needs attention - it queued work three times in a row without a single new scrape landing, so it stopped rather than keep spending. Fix the cause, then arm it again.
-
-The line and the bar below are measured from the data itself, not from the plan, so they stay true even when videos are scraped or annotated some other way.
-
-A day is analysis-ready once at least ten of the videos watched that day have been annotated. Days are the unit every analysis works in, and about fourteen ready days is the point where the tabs start to have something to say.") }}
+Needs attention - the plan queued work three times in a row without a single new scrape landing, so it stopped rather than keep spending; the reason is shown beside the status. Fix the cause, then arm it again.") }}
                 </div>
-                <div id="dm-enrich-progress" class="text-sm" style="margin-bottom: 4px;"></div>
+                <div class="text-sm" style="margin-bottom: 4px; display: flex; align-items: baseline; gap: 6px;">
+                    <span id="dm-enrich-progress"></span>{{ card_info(
+                        "What the numbers and the bar mean.
+
+A day is analysis-ready once at least ten of the videos watched that day have been annotated. Days are the unit every analysis works in, and about fourteen ready days is the point where the tabs start to have something to say.
+
+The bar shows the collection's videos, left to right:
+Green - annotated: scraped AND annotated, ready for every analysis.
+Blue - scraped, awaiting annotation: the video arrived but has not been annotated yet.
+Empty - not yet scraped.
+Hatched - failed for good: the scrape failed permanently (deleted post, blocked video) or the annotation burned out. These can never be processed, which is why a target can never reach 100% of most collections.
+
+The red line is the annotation target - move it with the slider or the number box below. The plan is complete when the green zone reaches it.
+
+Everything here is measured from the data itself, not from the plan, so it stays true even when videos are scraped or annotated some other way.") }}
+                </div>
 
                 <!-- Coverage bar: display only. Zones sum to the collection's
                      unique videos; the marker is the annotation target. The
@@ -148,23 +158,13 @@ A day is analysis-ready once at least ten of the videos watched that day have be
                     <div class="dm-enrich-bar-seg scraped" id="dm-enrich-bar-scraped"></div>
                     <div class="dm-enrich-bar-spacer"></div>
                     <div class="dm-enrich-bar-seg failed" id="dm-enrich-bar-failed"></div>
-                    <div class="dm-enrich-bar-marker" id="dm-enrich-bar-marker" style="display: none;">
-                        <span class="lbl" id="dm-enrich-bar-marker-label"></span>
-                    </div>
+                    <div class="dm-enrich-bar-marker" id="dm-enrich-bar-marker" style="display: none;"></div>
                 </div>
                 <div class="dm-enrich-legend text-xs" id="dm-enrich-legend">
                     <span><span class="sw annotated"></span><span id="dm-enrich-leg-annotated">annotated</span></span>
                     <span><span class="sw scraped"></span><span id="dm-enrich-leg-scraped">scraped, awaiting annotation</span></span>
                     <span><span class="sw rest"></span><span id="dm-enrich-leg-rest">not yet scraped</span></span>
                     <span><span class="sw failed"></span><span id="dm-enrich-leg-failed">failed for good</span></span>
-                    {{ card_info("How enriched this collection is, video by video.
-
-Green - annotated: scraped AND annotated, ready for every analysis.
-Blue - scraped, awaiting annotation: the video arrived but has not been annotated yet.
-Empty - not yet scraped.
-Hatched - failed for good: the scrape failed permanently (deleted post, blocked video) or the annotation burned out. These can never be processed, which is why a target can never reach 100% of most collections.
-
-The orange marker is the annotation target - move it with the slider or the number box below.") }}
                 </div>
 
                 <div style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin: 12px 0 0 0;">
