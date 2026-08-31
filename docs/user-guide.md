@@ -406,9 +406,26 @@ are never modified).
 then edit them: change the display ID, link the collection to a user account,
 add or remove tags, hide a collection from the primary study interface, or
 (admins) delete it. The table shows each collection's first event, date
-added, activity count, active days and **scraped/annotated coverage** (the
-same figures a participant sees on My Collections; the last event date lives
-in the edit modal). Deletion removes the participant-linked rows and archives
+added, activity count, active days, its **automatic-enrichment state**
+(Running/Paused/Idle/Needs attention; blank when no plan exists) and
+**scraped/annotated coverage** (the same figures a participant sees on
+My Collections; the last event date lives in the edit modal).
+
+The edit modal's **Automatic enrichment** panel arms a collection to scrape
+and annotate itself toward an **annotation target** — a number of unique
+videos to have annotated, set with a log-scaled slider. The panel shows a
+per-day activity chart (stacked by enrichment state, with a red line
+estimating where each day would land under the current settings), a linear
+coverage bar with the target marked on it, and a live readout translating
+the target into items, estimated cost (with the active model) and cycles.
+The loop always annotates the already-scraped backlog first, then splits
+new scraping between a recent-days **deep dive** and a capped **spread**
+across the history (the balance slider and the spread's month/day limits
+live under *Advanced*); an amber warning appears when the settings cannot
+reach the chosen target. The target is a running total: to continue a
+finished (Idle) plan, raise the target and press *Arm again*. Automatic
+ticking also requires the site-wide switch in Admin → Site Settings;
+*Run a cycle now* works regardless. Deletion removes the participant-linked rows and archives
 (not destroys) the raw uploads — participants can also withdraw their own
 collections from My Collections, with a 30-day restore window; see the
 deletion section of

@@ -127,24 +127,35 @@ starts a queue worker, consolidates, hands newly scraped items to the
 annotation queue, or cuts the next slice into the scrape queue — one action
 per tick, so the loop unrolls to
 `plan → scrape → consolidate(light) → annotate → consolidate(full refresh)`.
-Slices interleave two processes that both buy **whole collection-days**
-(the unit every analysis floors on): Process B takes consecutive recent days
-uncapped (what Sessions needs), Process A samples a few whole days per
-month backwards through history (the Timelines/Correlations long arc), with
-`sample_share` splitting each cycle's items between them. Plans, cursors and
-per-collection item budgets live in `cache/collection_enrichment.json`;
-they are armed from the Edit Collections modal, the site-wide switch is the
+A plan's goal is an **annotation target** — keep going until this many of
+the collection's unique videos are annotated. The target is a *state*, not
+a spend meter: annotation done by any other means counts toward it, nothing
+is ever paid for twice, and reopening a finished plan is just raising the
+number. `plan_cycle` clamps every cycle to `target − annotated`, the
+handoff clamps what may enter annotation the same way, and a target of 0
+means no goal — the plan does nothing rather than run to 100%. The handoff
+always sweeps the collection's **scraped-but-unannotated backlog first**,
+bounded by the target — the cheapest step toward it — and because the
+handoff outranks the plan step in the tick, new scraping starts only once
+that backlog is clear. Slices then interleave two processes that both buy
+**whole collection-days** (the unit every analysis floors on): Process B
+("deep dive") takes consecutive recent days uncapped (what Sessions needs),
+Process A ("spread") samples up to `a_days_per_month` whole days per month
+backwards through history, capped at `a_day_cap` per day (the
+Timelines/Correlations long arc), with `sample_share` splitting each
+cycle's items between them. With any deep-dive share above zero the plan
+can eventually reach everything processable; only at 100% spread (or under
+an `earliest_date` floor) do the spread limits cap the final coverage — the
+panel warns when the chosen target sits above that line. Plans, cursors and
+targets live in `cache/collection_enrichment.json`; they are armed from the
+Edit Collections modal, the site-wide switch is the
 `auto_enrichment_enabled` admin setting (ships **off**), and the triggers
 are worker completions, the end of each consolidation, and an hourly Cloud
 Scheduler heartbeat on `/internal/run-task/enrichment_supervisor`. The
 annotate-side eligibility predicate is shared with the manual queue builder
 (`collection_enrichment.annotation_eligible`) so the "never annotate-queue
-unscraped items" rule has exactly one implementation. The handoff is scoped
-to the plan's own `in_flight` ids — the items its cycles queued for
-scraping — because scraped-but-unannotated is a legitimate steady state
-elsewhere in the corpus, not the loop's to-do list; the per-plan
-`annotate_existing` setting is the explicit opt-in for catch-up annotation
-of a collection's pre-existing scrapes.
+unscraped items" rule has exactly one implementation; the plan's
+`in_flight` ledger list records queued scrapes for stall detection only.
 
 ## 5. Analysis & studies
 

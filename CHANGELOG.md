@@ -8,6 +8,40 @@ Development began in November 2025 and ran privately through August 2026, so
 `0.1.0` is the first tagged release rather than a step on from an earlier
 public version. Entries below describe the Hub as it stands at that release.
 
+## [Unreleased]
+
+### Added
+
+- **Automatic per-collection enrichment (the supervisor loop).** An armed
+  collection scrapes and annotates itself unattended: a conductor worker
+  (`enrichment_supervisor`) ticks one action at a time — start a queue
+  worker, consolidate, hand newly scraped items to annotation, or cut the
+  next slice — triggered by worker completions, consolidations, and an
+  hourly heartbeat, behind a site-wide admin switch that ships off. Slices
+  combine two whole-day strategies: a recent-days *deep dive* and a capped
+  *spread* sampled backwards through the months.
+- **Annotation target.** A plan's goal is a state — "this many unique videos
+  annotated" — not a spend meter: work done outside the plan counts toward
+  it, nothing is paid for twice, and a finished plan is continued by raising
+  the target. The scraped-but-unannotated backlog is always annotated first,
+  bounded by the target.
+- **The enrichment panel** (Edit Collections modal): per-day activity chart
+  stacked by enrichment state with a live plan-estimate line, a zoned
+  coverage bar with the target marked on it, a log-scaled target slider with
+  item/cost/cycle estimates (using the active backend's pricing and model),
+  an amber warning when the settings cannot reach the chosen target, and an
+  *Auto enrichment* state column in the collections table.
+- **Tick outcome reporting.** "Run a cycle now" polls the supervisor's
+  status and reports what the tick actually decided, instead of only that it
+  was dispatched.
+
+### Fixed
+
+- Modal close buttons kept their hover colour on the light theme (it was
+  hard-coded white).
+- Study state remembered per account instead of one browser-wide key, and
+  derived study keys are no longer persisted into `studies.json`.
+
 ## [0.2.0] — 2026-08-27
 
 The participant release: donors get a first-class surface of their own —
