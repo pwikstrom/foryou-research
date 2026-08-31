@@ -6027,12 +6027,6 @@ function dmEnrichHide() {
     dmEnrichCollectionId = null;
 }
 
-function dmEnrichShareLabel() {
-    const slider = document.getElementById('dm-enrich-sample-share');
-    const label = document.getElementById('dm-enrich-share-label');
-    if (slider && label) label.textContent = `(${slider.value}% spread / ${100 - slider.value}% deep dive)`;
-}
-
 // tone: 'error' | 'ok' | anything else = neutral progress text. Confirmations
 // get the success colour — the span sits after the buttons, and in its neutral
 // grey a "Settings saved." was routinely missed (reported 2026-08-31).
@@ -6075,7 +6069,6 @@ function dmEnrichFillSettings(settings, progress = {}) {
     dmEnrichTargetValue = target;
     dmEnrichTargetBounds(progress);
     dmEnrichTargetSync(target);
-    dmEnrichShareLabel();
 }
 
 // ---- Annotation target: number field + log slider + bar marker ------------ #
@@ -6268,15 +6261,14 @@ function dmEnrichTickTooltip(armed, state, progress) {
 // dashed lines track settings live: the spread's per-day cap and the
 // min_day_items analysis floor.
 function dmEnrichChartShapes() {
-    const cap = Number(document.getElementById('dm-enrich-day-cap')?.value) || 0;
+    // Just the analysis floor. The day-cap line it once had was dropped as
+    // noise (2026-08-31 feedback) — the red estimate line already shows the
+    // cap's effect where it matters.
     const floor = dmEnrichProgressCache.min_day_items || 10;
-    const line = (y, color, dash) => ({
-        type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: y, y1: y,
-        line: { color, width: 1, dash },
-    });
-    const shapes = [line(floor, getCSSVar('--color-text-tertiary'), 'dot')];
-    if (cap > 0) shapes.push(line(cap, getCSSVar('--color-warning'), 'dash'));
-    return shapes;
+    return [{
+        type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: floor, y1: floor,
+        line: { color: getCSSVar('--color-text-tertiary'), width: 1, dash: 'dot' },
+    }];
 }
 
 // The red estimate line: where each day's annotated count would land if the
@@ -6465,23 +6457,29 @@ function dmEnrichRender(data) {
         statusEl.textContent = line;
     }
 
-    // The line above the bar carries what the bar cannot: the day-shaped
-    // figures every analysis is actually floored on, and the cursors.
+    // Right of the status: just the collection's size. The day-shaped figures
+    // and the cursors live in the (i) beside it — appended to its static
+    // tooltip text, since they are the only dynamic facts a tooltip carries.
     const progEl = document.getElementById('dm-enrich-progress');
     if (progEl) {
         const videos = progress.unique_items || 0;
-        if (videos) {
-            const parts = [
-                `${videos.toLocaleString()} videos watched over ${progress.total_days} days`,
-                `${progress.qualifying_days} analysis-ready days (${progress.milestone_days} needed)`,
-            ];
-            if (progress.b_cursor || progress.a_cursor) {
-                parts.push(`worked back to ${progress.b_cursor || '\u2014'} (deep dive)`
-                         + ` and ${progress.a_cursor || '\u2014'} (spread)`);
+        progEl.textContent = videos
+            ? `${videos.toLocaleString()} videos watched over ${progress.total_days} days`
+            : '';
+        const info = progEl.nextElementSibling;
+        if (info && info.dataset && info.dataset.tooltip !== undefined) {
+            if (!info._baseTip) info._baseTip = info.dataset.tooltip;
+            let extra = '';
+            if (videos) {
+                extra = `\n\nRight now: ${progress.qualifying_days} analysis-ready `
+                      + `day(s), of the ~${progress.milestone_days} needed.`;
+                if (progress.b_cursor || progress.a_cursor) {
+                    extra += ` The deep dive has worked back to ${progress.b_cursor || '\u2014'},`
+                           + ` the spread to ${progress.a_cursor || '\u2014'}.`;
+                }
             }
-            progEl.textContent = parts.join(' \u00b7 ');
-        } else {
-            progEl.textContent = '';
+            info.dataset.tooltip = info._baseTip + extra;
+            info.setAttribute('aria-label', info.dataset.tooltip);
         }
     }
 
