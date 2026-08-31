@@ -6031,11 +6031,17 @@ function dmEnrichShareLabel() {
     if (slider && label) label.textContent = `(${slider.value}% spread / ${100 - slider.value}% deep dive)`;
 }
 
-function dmEnrichMsg(text, isError = false) {
+// tone: 'error' | 'ok' | anything else = neutral progress text. Confirmations
+// get the success colour — the span sits after the buttons, and in its neutral
+// grey a "Settings saved." was routinely missed (reported 2026-08-31).
+function dmEnrichMsg(text, tone = '') {
     const el = document.getElementById('dm-enrich-msg');
     if (!el) return;
     el.textContent = text || '';
-    el.style.color = isError ? 'var(--color-danger, #c0392b)' : 'var(--color-text-tertiary)';
+    el.style.color = (tone === true || tone === 'error')
+        ? 'var(--color-danger, #c0392b)'
+        : (tone === 'ok' ? 'var(--color-success, #2e7d32)' : 'var(--color-text-tertiary)');
+    el.style.fontWeight = tone === 'ok' ? 'var(--weight-bold)' : '';
 }
 
 function dmEnrichFillSettings(settings, progress = {}) {
@@ -6072,11 +6078,14 @@ function dmEnrichBudgetBounds(progress = {}) {
     }
     el.min = String(floor);
     el.max = String(ceiling);
+    // Show the sum, not just its result: the budget counts past AND future
+    // work, and "92,083 would finish" reads as "92,083 remain" without it.
     if (hint) {
+        const todo = ceiling - floor;
         hint.textContent = floor > 0
-            ? `${floor.toLocaleString()} spent so far; `
-              + `${ceiling.toLocaleString()} would finish the collection`
-            : `up to ${ceiling.toLocaleString()} \u2014 the whole collection`;
+            ? `${floor.toLocaleString()} processed + up to ${todo.toLocaleString()}`
+              + ` still processable = ${ceiling.toLocaleString()} for the whole collection`
+            : `up to ${ceiling.toLocaleString()} \u2014 every processable video in the collection`;
     }
 }
 
@@ -6109,8 +6118,8 @@ function dmEnrichStateLabel(state) {
 function dmEnrichTickTooltip(armed, state, progress) {
     const base = 'Runs one step of the loop right now instead of waiting for '
                + 'the next automatic tick. It does one thing per click: queue '
-               + 'the next batch of videos to fetch, start a fetch or a describe '
-               + 'job, or fold finished work back in.';
+               + 'the next batch of videos to scrape, start the scraper or the '
+               + 'annotator, or fold finished results back in.';
     if (!armed) {
         return 'This collection has no plan yet, so a cycle has nothing to run. '
              + 'Press "Save settings" (or "Arm") first, then try again.';
@@ -6152,7 +6161,7 @@ function dmEnrichRender(data) {
                  + 'to let this collection enrich itself.';
         } else {
             line = `${dmEnrichStateLabel(dmEnrichState)} — ${spent.toLocaleString()}`
-                 + `${budget ? ` of ${budget.toLocaleString()}` : ''} videos bought so far, `
+                 + `${budget ? ` of ${budget.toLocaleString()}` : ''} videos processed, `
                  + `over ${progress.cycles ?? 0} cycle(s).`;
             if (progress.last_error) line += ` Last problem: ${progress.last_error}`;
             // The budget is a LIFETIME cap, not a per-run allowance, so once
@@ -6163,7 +6172,7 @@ function dmEnrichRender(data) {
             if (budget && spent >= budget) {
                 line += ` The budget is a running total, so it is used up:`
                       + ` raise it above ${spent.toLocaleString()} and arm the plan`
-                      + ` to buy more.`;
+                      + ` to process more.`;
             }
         }
         if (!data.enabled_site_wide) {
@@ -6188,7 +6197,7 @@ function dmEnrichRender(data) {
                 `${progress.qualifying_days} analysis-ready days (${progress.milestone_days} needed)`,
             ];
             if (progress.b_cursor || progress.a_cursor) {
-                parts.push(`bought back to ${progress.b_cursor || '\u2014'} (deep dive)`
+                parts.push(`worked back to ${progress.b_cursor || '\u2014'} (deep dive)`
                          + ` and ${progress.a_cursor || '\u2014'} (spread)`);
             }
             progEl.textContent = parts.join(' \u00b7 ');
@@ -6263,16 +6272,22 @@ function dmEnrichClampBudget() {
     if (clamped === typed) return null;
     el.value = String(clamped);
     return typed < floor
-        ? `The budget counts everything already spent, so ${typed.toLocaleString()} `
-          + `would stop the plan. Raised to ${clamped.toLocaleString()}.`
-        : `Only ${clamped.toLocaleString()} videos are left to buy in this `
-          + `collection, so the budget was capped there.`;
+        ? `The budget counts the ${floor.toLocaleString()} videos already processed, `
+          + `so ${typed.toLocaleString()} would just stop the plan. Raised to `
+          + `${clamped.toLocaleString()} \u2014 go higher to process more.`
+        : `${clamped.toLocaleString()} already covers every processable video `
+          + `in this collection, so the budget was capped there.`;
 }
 
 function dmEnrichSave() {
     const note = dmEnrichClampBudget();
+    const summary = () => {
+        const b = Number(document.getElementById('dm-enrich-item-budget')?.value);
+        return Number.isFinite(b) && b > 0
+            ? `Settings saved \u2014 budget ${b.toLocaleString()}.` : 'Settings saved.';
+    };
     dmEnrichPost({ settings: dmEnrichReadSettings() }).then(d => {
-        if (d) dmEnrichMsg(note ? `Settings saved. ${note}` : 'Settings saved.');
+        if (d) dmEnrichMsg(note ? `${summary()} ${note}` : summary(), 'ok');
     });
 }
 
@@ -6284,7 +6299,7 @@ function dmEnrichToggleArmed() {
         .then(d => {
             if (!d) return;
             const base = next === 'running' ? 'Armed.' : 'Paused.';
-            dmEnrichMsg(note ? `${base} ${note}` : base);
+            dmEnrichMsg(note ? `${base} ${note}` : base, 'ok');
         });
 }
 

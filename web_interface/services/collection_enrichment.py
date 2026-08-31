@@ -767,6 +767,7 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         "milestone_days": MILESTONE_DAYS,
         "total_items": 0, "scraped_items": 0, "annotated_items": 0,
         "unique_items": 0, "unique_scraped": 0, "unique_annotated": 0,
+        "unique_failed": 0,
         "total_days": 0, "qualifying_days": 0, "milestone_pct": 0.0,
         "oldest_day": None, "newest_day": None,
         "budget_floor": int(entry.get("spent_items") or 0), "budget_ceiling": 0,
@@ -784,14 +785,24 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
             scraped = np.zeros(len(items), dtype=bool)
             annotated = np.zeros(len(items), dtype=bool)
 
-        # Per-video (not per video-day) coverage: what the budget actually buys.
+        # Per-video (not per video-day) coverage: what the budget actually pays
+        # for. `u_failed` is the permanently unprocessable tail — annotation
+        # failed for good, or the scrape failed and will never be retried — so
+        # it belongs in neither the "done" nor the "still to do" figure.
         unique_ids = pd.Index(pd.unique(items))
         if status is not None and not status.empty:
-            u_scraped = status["scraped_ok"].reindex(unique_ids).fillna(False).to_numpy(dtype=bool)
-            u_annotated = status["annotated_ok"].reindex(unique_ids).fillna(False).to_numpy(dtype=bool)
+            def _uflag(name):
+                if name not in status.columns:
+                    return np.zeros(len(unique_ids), dtype=bool)
+                return status[name].reindex(unique_ids).fillna(False).to_numpy(dtype=bool)
+            u_scraped = _uflag("scraped_ok")
+            u_annotated = _uflag("annotated_ok")
+            u_failed = (~u_annotated
+                        & (_uflag("annotated_fail") | (_uflag("scrape_fail") & ~u_scraped)))
         else:
             u_scraped = np.zeros(len(unique_ids), dtype=bool)
             u_annotated = np.zeros(len(unique_ids), dtype=bool)
+            u_failed = np.zeros(len(unique_ids), dtype=bool)
 
         frame = activity.assign(_ann=annotated)
         per_day = frame.groupby("day", observed=True)["_ann"].sum()
@@ -807,12 +818,14 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
             "unique_items": int(len(unique_ids)),
             "unique_scraped": int(u_scraped.sum()),
             "unique_annotated": int(u_annotated.sum()),
-            # Everything still buyable, on top of what this plan already spent.
-            # An already-annotated video is never bought again, so it is not in
-            # the headroom; permanently failed scrapes make this a ceiling
-            # rather than a target.
+            "unique_failed": int(u_failed.sum()),
+            # The budget that would finish the collection: what this plan has
+            # already spent, plus every video that is neither annotated nor
+            # permanently failed. Still a ceiling, not a target — videos can
+            # keep failing on the way there.
             "budget_ceiling": int(out["spent_items"]
-                                  + (len(unique_ids) - int(u_annotated.sum()))),
+                                  + (len(unique_ids) - int(u_annotated.sum())
+                                     - int(u_failed.sum()))),
             "total_days": int(frame["day"].nunique()),
             "qualifying_days": qualifying,
             "milestone_pct": round(min(1.0, qualifying / MILESTONE_DAYS) * 100, 1),

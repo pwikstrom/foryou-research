@@ -657,6 +657,30 @@ def test_progress_counts_videos_and_video_days_separately(monkeypatch):
     assert out["budget_ceiling"] == 10 + (2 - 1)
 
 
+def test_progress_ceiling_excludes_the_permanently_failed(monkeypatch):
+    """A video that failed for good is neither done nor still-to-do.
+
+    Answers the operator's "how can that many remain?" — the ceiling counts
+    only videos that can actually still be processed, so burnt annotation
+    failures and permanently failed scrapes are out of the arithmetic.
+    """
+    activity = _activity({"2026-08-27": 5})
+    ids = list(activity["item_id"])          # v0..v4
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    # v0 annotated; v1 burnt (annotated_fail); v2 permanently unscrapeable;
+    # v3, v4 still processable.
+    monkeypatch.setattr(ce, "load_status",
+                        lambda i=None: _status(ids, scraped=ids[:2],
+                                               scrape_fail=[ids[2]],
+                                               annotated=[ids[0]],
+                                               annotated_fail=[ids[1]]))
+
+    out = ce.progress("c1", {**_entry(item_budget=100), "spent_items": 7})
+    assert out["unique_annotated"] == 1
+    assert out["unique_failed"] == 2
+    assert out["budget_ceiling"] == 7 + 2    # spent + the two live videos
+
+
 def test_progress_budget_window_is_zero_width_when_nothing_is_left(monkeypatch):
     activity = _activity({"2026-08-27": 3})
     ids = list(activity["item_id"])
