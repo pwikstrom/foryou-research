@@ -74,8 +74,11 @@ def _status(item_ids, scraped=(), scrape_fail=(), downloaded=None,
 
 
 def _entry(**settings) -> dict:
+    # A far-away annotation target by default, so tests exercising the slice
+    # cutter aren't clamped by it; target-specific tests override it.
     return {"state": ce.STATE_RUNNING,
-            "settings": {**ce.DEFAULT_SETTINGS, **settings},
+            "settings": {**ce.DEFAULT_SETTINGS,
+                         "annotation_target": 1_000_000, **settings},
             "spent_items": 0}
 
 
@@ -200,26 +203,52 @@ def test_replan_from_same_cursor_is_deterministic_and_order_independent():
 
 
 # --------------------------------------------------------------------------- #
-# Budget and exhaustion
+# Target and exhaustion
 # --------------------------------------------------------------------------- #
 
-def test_spent_budget_yields_exhausted_and_no_items():
+def test_met_target_yields_exhausted_and_no_items():
     activity = _activity({"2026-08-27": 30})
-    entry = {**_entry(item_budget=100), "spent_items": 100}
-    out = ce.plan_cycle("c1", entry, activity=activity, status=None)
+    ids = list(activity["item_id"])
+    status = _status(ids, scraped=ids[:10], annotated=ids[:10])
+    entry = _entry(annotation_target=10)          # already at the target
+    out = ce.plan_cycle("c1", entry, activity=activity, status=status)
     assert out["item_ids"] == [] and out["exhausted"] is True
 
 
-def test_a_budget_lowered_below_the_spend_stops_every_cycle():
-    """The 2026-08-31 report: 4,000 items spent, budget then set to 400.
-
-    ``item_budget`` is a lifetime cap, so lowering it under the spend leaves a
-    negative remainder — which must clamp to no work rather than to a negative
-    slice, and closes the plan on the next tick.
-    """
+def test_a_target_below_current_annotation_stops_every_cycle():
+    """Successor of the 2026-08-31 budget incident: a goal set below the
+    current state must clamp to no work, not to a negative slice."""
     activity = _activity({"2026-08-27": 30})
-    entry = {**_entry(item_budget=400, cycle_items=100), "spent_items": 4000}
-    out = ce.plan_cycle("c1", entry, activity=activity, status=None)
+    ids = list(activity["item_id"])
+    status = _status(ids, scraped=ids[:20], annotated=ids[:20])
+    entry = _entry(annotation_target=5, cycle_items=100)
+    out = ce.plan_cycle("c1", entry, activity=activity, status=status)
+    assert out["item_ids"] == [] and out["exhausted"] is True
+
+
+def test_no_target_means_nothing_to_do():
+    # 0 = unset. An armed plan must state its goal, or it would run to 100%.
+    activity = _activity({"2026-08-27": 30})
+    out = ce.plan_cycle("c1", _entry(annotation_target=0),
+                        activity=activity, status=None)
+    assert out["item_ids"] == [] and out["exhausted"] is True
+
+
+def test_remaining_target_clamps_the_cycle_but_never_splits_a_day():
+    activity = _activity({"2026-08-27": 30})
+    ids = list(activity["item_id"])
+    status = _status(ids, scraped=ids[:4], annotated=ids[:4])
+    # 4 annotated, target 10 → 6 of headroom. The whole-day rule outranks the
+    # clamp for the FIRST day (a split day is worthless to Sessions), so the
+    # 26 unscraped items are planned in full; the handoff's room clamp is what
+    # holds annotation spend to the target.
+    entry = _entry(annotation_target=10, cycle_items=100, sample_share=0.0)
+    out = ce.plan_cycle("c1", entry, activity=activity, status=status)
+    assert len(out["item_ids"]) == 26
+
+    # And a met target plans nothing at all, whole days or not.
+    met = _entry(annotation_target=4, cycle_items=100, sample_share=0.0)
+    out = ce.plan_cycle("c1", met, activity=activity, status=status)
     assert out["item_ids"] == [] and out["exhausted"] is True
 
 
@@ -269,14 +298,27 @@ def test_annotation_eligible_accepts_column_and_unnamed_index_shapes():
     assert ce.annotation_eligible(ids, unnamed) == ["a"]
 
 
-def test_handoff_respects_the_remaining_budget(monkeypatch):
+def test_handoff_respects_the_remaining_target(monkeypatch):
     activity = _activity({"2026-08-27": 10})
+    ids = list(activity["item_id"])
+    # 2 of the 10 already annotated; a target of 6 leaves room for 4 more.
+    status = _status(ids, scraped=ids, downloaded=ids, annotated=ids[:2])
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status", lambda i=None: status)
+    entry = {**_entry(annotation_target=6), "in_flight": ids}
+    assert len(ce.handoff_scraped("c1", entry)["ready"]) == 4
+
+
+def test_handoff_refuses_when_the_target_is_unset(monkeypatch):
+    # A zeroed target mid-plan must not keep spending on the strength of items
+    # queued under the earlier goal.
+    activity = _activity({"2026-08-27": 5})
     ids = list(activity["item_id"])
     status = _status(ids, scraped=ids, downloaded=ids)
     monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
     monkeypatch.setattr(ce, "load_status", lambda i=None: status)
-    entry = {**_entry(item_budget=6), "spent_items": 2, "in_flight": ids}
-    assert len(ce.handoff_scraped("c1", entry)["ready"]) == 4
+    entry = {**_entry(annotation_target=0), "in_flight": ids}
+    assert ce.handoff_scraped("c1", entry)["ready"] == []
 
 
 def test_handoff_is_scoped_to_the_plans_own_in_flight_items(monkeypatch):
@@ -322,10 +364,10 @@ def test_handoff_prunes_resolved_ids_from_in_flight(monkeypatch):
 
 def test_save_plan_merges_settings_and_delete_drops(store):
     ce.save_plan("c1", {"state": ce.STATE_RUNNING,
-                        "settings": {"item_budget": 500}})
+                        "settings": {"annotation_target": 500}})
     ce.save_plan("c1", {"settings": {"cycle_items": 100}})
     entry = store[ce.LEDGER_FILENAME]["c1"]
-    assert entry["settings"]["item_budget"] == 500      # survived the 2nd patch
+    assert entry["settings"]["annotation_target"] == 500  # survived the 2nd patch
     assert entry["settings"]["cycle_items"] == 100
     assert entry["settings"]["a_day_cap"] == 50         # defaults filled in
 
@@ -334,9 +376,9 @@ def test_save_plan_merges_settings_and_delete_drops(store):
 
 
 def test_normalize_settings_clamps_nonsense():
-    out = ce.normalize_settings({"item_budget": -5, "cycle_items": "junk",
+    out = ce.normalize_settings({"annotation_target": -5, "cycle_items": "junk",
                                  "sample_share": 7, "earliest_date": "not-a-date"})
-    assert out["item_budget"] == 0
+    assert out["annotation_target"] == 0
     assert out["cycle_items"] == ce.DEFAULT_SETTINGS["cycle_items"]
     assert out["sample_share"] == 1.0
     assert out["earliest_date"] is None
@@ -645,16 +687,17 @@ def test_progress_counts_videos_and_video_days_separately(monkeypatch):
                         lambda ids=None: _status(["v1", "v2"], scraped=["v1", "v2"],
                                                  annotated=["v1"]))
 
-    out = ce.progress("c1", {**_entry(item_budget=100), "spent_items": 10})
+    out = ce.progress("c1", {**_entry(annotation_target=100), "spent_items": 10})
     assert out["total_items"] == 4        # video-days
     assert out["unique_items"] == 2       # videos
     assert out["scraped_items"] == 4 and out["unique_scraped"] == 2
     assert out["annotated_items"] == 3 and out["unique_annotated"] == 1
 
-    # Budget window: never below what is spent, never above spend + what is
-    # left to buy (v2 is scraped but undescribed, so it still counts).
-    assert out["budget_floor"] == 10
-    assert out["budget_ceiling"] == 10 + (2 - 1)
+    # Target window: below the annotated count a target is already met, above
+    # everything not permanently failed it can never be reached.
+    assert out["annotation_target"] == 100
+    assert out["target_floor"] == 1
+    assert out["target_ceiling"] == 2
 
 
 def test_progress_ceiling_excludes_the_permanently_failed(monkeypatch):
@@ -675,10 +718,10 @@ def test_progress_ceiling_excludes_the_permanently_failed(monkeypatch):
                                                annotated=[ids[0]],
                                                annotated_fail=[ids[1]]))
 
-    out = ce.progress("c1", {**_entry(item_budget=100), "spent_items": 7})
+    out = ce.progress("c1", {**_entry(annotation_target=100), "spent_items": 7})
     assert out["unique_annotated"] == 1
     assert out["unique_failed"] == 2
-    assert out["budget_ceiling"] == 7 + 2    # spent + the two live videos
+    assert out["target_ceiling"] == 5 - 2    # everything that can still exist annotated
 
 
 def test_progress_budget_window_is_zero_width_when_nothing_is_left(monkeypatch):
@@ -690,4 +733,4 @@ def test_progress_budget_window_is_zero_width_when_nothing_is_left(monkeypatch):
 
     out = ce.progress("c1", {**_entry(), "spent_items": 4000})
     assert out["unique_annotated"] == 3
-    assert out["budget_floor"] == out["budget_ceiling"] == 4000
+    assert out["target_floor"] == out["target_ceiling"] == 3

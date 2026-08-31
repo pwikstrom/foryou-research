@@ -6044,9 +6044,14 @@ function dmEnrichMsg(text, tone = '') {
     el.style.fontWeight = tone === 'ok' ? 'var(--weight-bold)' : '';
 }
 
+// Live figures the target widgets need between renders: the latest progress
+// payload and the per-1000-items annotation cost estimate (null when the
+// active backend has no pricing).
+let dmEnrichProgressCache = {};
+let dmEnrichCostPer1000 = null;
+
 function dmEnrichFillSettings(settings, progress = {}) {
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-    set('dm-enrich-item-budget', settings.item_budget ?? 2000);
     set('dm-enrich-cycle-items', settings.cycle_items ?? 400);
     set('dm-enrich-sample-share', Math.round((settings.sample_share ?? 0.2) * 100));
     set('dm-enrich-days-per-month', settings.a_days_per_month ?? 2);
@@ -6054,45 +6059,139 @@ function dmEnrichFillSettings(settings, progress = {}) {
     set('dm-enrich-earliest', settings.earliest_date || '');
     const ae = document.getElementById('dm-enrich-annotate-existing');
     if (ae) ae.checked = !!settings.annotate_existing;
-    dmEnrichBudgetBounds(progress);
+
+    // The target: the stored goal, or — for a plan that has never had one — a
+    // suggested starter (current annotated + 2,000, inside the reachable
+    // window). A suggestion only prefills the field; nothing is saved until
+    // the operator presses Save or Arm.
+    const floor = progress.target_floor ?? 0;
+    const ceiling = progress.target_ceiling ?? 0;
+    let target = Number(settings.annotation_target) || 0;
+    if (!target && ceiling > 0) {
+        target = Math.min(ceiling, floor + 2000);
+    }
+    set('dm-enrich-target', target || '');
+    dmEnrichTargetBounds(progress);
+    dmEnrichTargetSync(target);
     dmEnrichShareLabel();
 }
 
-// The item budget is a running total, so only one window of values does
-// anything: at or below what the plan has already spent it stops the plan, and
-// above what is left in the collection it cannot be reached. Bound the input to
-// that window and say what the two ends mean, so the number can't be typed into
-// a dead zone. Cleared (the collection has no coverage figures yet) the field
-// is left unbounded rather than guessed at.
-function dmEnrichBudgetBounds(progress = {}) {
-    const el = document.getElementById('dm-enrich-item-budget');
-    const hint = document.getElementById('dm-enrich-budget-hint');
-    const floor = progress.budget_floor ?? 0;
-    const ceiling = progress.budget_ceiling ?? 0;
+// ---- Annotation target: number field + log slider + bar marker ------------ #
+// The slider is log-scaled: the analytically useful targets sit in the first
+// few percent of a big collection, so a linear scale would put every sensible
+// value in its first pixels. The number field stays authoritative; both drive
+// the same value and the marker on the (linear) bar.
+
+function _dmEnrichSliderWindow() {
+    const floor = dmEnrichProgressCache.target_floor ?? 0;
+    const ceiling = dmEnrichProgressCache.target_ceiling ?? 0;
+    const lo = Math.max(50, floor || 1);
+    return (ceiling > lo) ? { lo, hi: ceiling } : null;
+}
+
+function dmEnrichTargetBounds(progress = {}) {
+    dmEnrichProgressCache = progress || {};
+    const el = document.getElementById('dm-enrich-target');
+    const slider = document.getElementById('dm-enrich-target-slider');
+    const floor = progress.target_floor ?? 0;
+    const ceiling = progress.target_ceiling ?? 0;
+    if (el) {
+        el.min = String(floor || 0);
+        if (ceiling > 0) el.max = String(ceiling); else el.removeAttribute('max');
+    }
+    if (slider) {
+        const win = _dmEnrichSliderWindow();
+        slider.disabled = !win;
+        slider.style.opacity = win ? '' : '0.4';
+    }
+}
+
+// value → slider position and back, on the log scale.
+function _dmEnrichTargetToSlider(target) {
+    const win = _dmEnrichSliderWindow();
+    if (!win || target <= win.lo) return 0;
+    if (target >= win.hi) return 1000;
+    return Math.round(1000 * Math.log(target / win.lo) / Math.log(win.hi / win.lo));
+}
+
+function _dmEnrichSliderToTarget(pos) {
+    const win = _dmEnrichSliderWindow();
+    if (!win) return 0;
+    const raw = win.lo * Math.pow(win.hi / win.lo, pos / 1000);
+    // Snap to tens so dragging reads as clean numbers, but keep the endpoints
+    // exact — the top of the slider must be the ceiling itself.
+    if (pos >= 1000) return win.hi;
+    return Math.min(win.hi, Math.max(win.lo, Math.round(raw / 10) * 10));
+}
+
+function dmEnrichDrawMarker(target) {
+    const marker = document.getElementById('dm-enrich-bar-marker');
+    const label = document.getElementById('dm-enrich-bar-marker-label');
+    const total = dmEnrichProgressCache.unique_items || 0;
+    if (!marker) return;
+    if (!total || !target) { marker.style.display = 'none'; return; }
+    const frac = Math.max(0, Math.min(1, target / total));
+    marker.style.display = '';
+    marker.style.left = `${(frac * 100).toFixed(2)}%`;
+    marker.classList.toggle('edge-left', frac < 0.08);
+    marker.classList.toggle('edge-right', frac > 0.92);
+    if (label) label.textContent = `target ${Number(target).toLocaleString()}`;
+}
+
+function dmEnrichTargetReadout(target) {
+    const el = document.getElementById('dm-enrich-target-readout');
     if (!el) return;
-    if (!ceiling || ceiling <= floor) {
-        el.removeAttribute('max');
-        el.min = '0';
-        if (hint) hint.textContent = '';
-        return;
+    const total = dmEnrichProgressCache.unique_items || 0;
+    const annotated = dmEnrichProgressCache.target_floor ?? 0;
+    if (!target || !total) { el.textContent = ''; return; }
+    const parts = [`${Math.round(100 * target / total)}% of the collection`];
+    const more = Math.max(0, target - annotated);
+    parts.push(more > 0 ? `${more.toLocaleString()} more annotations`
+                        : 'already met');
+    if (more > 0 && dmEnrichCostPer1000 && dmEnrichCostPer1000.est_cost_usd) {
+        const usd = more * dmEnrichCostPer1000.est_cost_usd / 1000;
+        parts.push(`\u2248 $${usd < 10 ? usd.toFixed(2) : Math.round(usd).toLocaleString()}`);
     }
-    el.min = String(floor);
-    el.max = String(ceiling);
-    // Show the sum, not just its result: the budget counts past AND future
-    // work, and "92,083 would finish" reads as "92,083 remain" without it.
-    if (hint) {
-        const todo = ceiling - floor;
-        hint.textContent = floor > 0
-            ? `${floor.toLocaleString()} processed + up to ${todo.toLocaleString()}`
-              + ` still processable = ${ceiling.toLocaleString()} for the whole collection`
-            : `up to ${ceiling.toLocaleString()} \u2014 every processable video in the collection`;
-    }
+    el.textContent = `= ${parts.join(' \u00b7 ')}`;
+}
+
+// One value, three widgets: keep the field, the slider and the marker agreed.
+function dmEnrichTargetSync(target) {
+    const slider = document.getElementById('dm-enrich-target-slider');
+    if (slider && !slider.disabled) slider.value = String(_dmEnrichTargetToSlider(target));
+    dmEnrichDrawMarker(target);
+    dmEnrichTargetReadout(target);
+}
+
+function dmEnrichSliderInput() {
+    const slider = document.getElementById('dm-enrich-target-slider');
+    const el = document.getElementById('dm-enrich-target');
+    if (!slider) return;
+    const target = _dmEnrichSliderToTarget(Number(slider.value));
+    if (el) el.value = String(target);
+    dmEnrichDrawMarker(target);
+    dmEnrichTargetReadout(target);
+}
+
+function dmEnrichTargetInput() {
+    const el = document.getElementById('dm-enrich-target');
+    const target = Number(el?.value);
+    if (Number.isFinite(target)) dmEnrichTargetSync(target);
+}
+
+function dmEnrichToggleAdvanced() {
+    const panel = document.getElementById('dm-enrich-advanced');
+    const btn = document.getElementById('dm-enrich-advanced-toggle');
+    if (!panel || !btn) return;
+    const open = panel.style.display === 'none';
+    panel.style.display = open ? '' : 'none';
+    btn.classList.toggle('open', open);
 }
 
 function dmEnrichReadSettings() {
     const num = (id) => Number(document.getElementById(id)?.value);
     return {
-        item_budget: num('dm-enrich-item-budget'),
+        annotation_target: num('dm-enrich-target'),
         cycle_items: num('dm-enrich-cycle-items'),
         sample_share: num('dm-enrich-sample-share') / 100,
         a_days_per_month: num('dm-enrich-days-per-month'),
@@ -6124,12 +6223,16 @@ function dmEnrichTickTooltip(armed, state, progress) {
         return 'This collection has no plan yet, so a cycle has nothing to run. '
              + 'Press "Save settings" (or "Arm") first, then try again.';
     }
-    const spent = progress.spent_items ?? 0;
-    const budget = progress.item_budget ?? 0;
-    if (budget && spent >= budget) {
-        return `The item budget (${budget.toLocaleString()}) is already fully `
-             + `spent, so a cycle will find nothing to do. Raise the budget `
-             + `above ${spent.toLocaleString()} and arm the plan first. ` + base;
+    const target = progress.annotation_target ?? 0;
+    const annotated = progress.target_floor ?? 0;
+    if (!target) {
+        return 'No annotation target is set, so a cycle will find nothing to '
+             + 'do. Pick a target below and save it first. ' + base;
+    }
+    if (annotated >= target) {
+        return `The annotation target (${target.toLocaleString()}) is already `
+             + `met — ${annotated.toLocaleString()} videos are annotated. `
+             + `Raise the target and arm the plan to continue. ` + base;
     }
     if (state === 'blocked') {
         return 'This plan stopped itself because the work it queued was not '
@@ -6144,35 +6247,71 @@ function dmEnrichTickTooltip(armed, state, progress) {
 }
 
 
+// Draw the coverage bar: four zones that sum to the collection's unique
+// videos. Deliberately linear — stacked segments only mean anything when
+// lengths add up, which a log axis destroys; the log scale lives in the
+// slider, where it belongs.
+function dmEnrichDrawBar(progress) {
+    const total = progress.unique_items || 0;
+    const seg = (id, n) => {
+        const el = document.getElementById(id);
+        if (el) el.style.width = total ? `${(100 * (n || 0) / total).toFixed(2)}%` : '0%';
+        return n || 0;
+    };
+    const bar = document.getElementById('dm-enrich-bar');
+    const slider = document.getElementById('dm-enrich-target-slider');
+    const legend = document.getElementById('dm-enrich-legend');
+    const show = total > 0;
+    if (bar) bar.style.display = show ? '' : 'none';
+    if (slider) slider.style.display = show ? '' : 'none';
+    if (legend) legend.style.display = show ? '' : 'none';
+    if (!show) return;
+
+    const annotated = seg('dm-enrich-bar-annotated', progress.unique_annotated);
+    const awaiting = seg('dm-enrich-bar-scraped',
+                         Math.max(0, (progress.unique_scraped || 0) - annotated));
+    const failed = seg('dm-enrich-bar-failed', progress.unique_failed);
+    const rest = Math.max(0, total - annotated - awaiting - failed);
+
+    const put = (id, label, n) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = `${label} ${n.toLocaleString()}`;
+    };
+    put('dm-enrich-leg-annotated', 'annotated', annotated);
+    put('dm-enrich-leg-scraped', 'awaiting annotation', awaiting);
+    put('dm-enrich-leg-rest', 'not yet scraped', rest);
+    put('dm-enrich-leg-failed', 'failed for good', failed);
+}
+
 function dmEnrichRender(data) {
     dmEnrichArmed = !!data.armed;
     const progress = data.progress || {};
     dmEnrichState = progress.state || null;
     dmEnrichSyncTableRow(dmEnrichCollectionId, dmEnrichArmed ? dmEnrichState : null);
 
-    const spent = progress.spent_items ?? 0;
-    const budget = progress.item_budget ?? 0;
+    if (data.cost_per_1000 !== undefined) dmEnrichCostPer1000 = data.cost_per_1000;
+    const target = progress.annotation_target ?? 0;
+    const annotated = progress.target_floor ?? 0;
 
     const statusEl = document.getElementById('dm-enrich-status-line');
     if (statusEl) {
         let line;
         if (!dmEnrichArmed) {
-            line = 'Not set up yet. Choose how much to spend below, then press Arm '
-                 + 'to let this collection enrich itself.';
+            line = 'Not set up yet. Pick an annotation target below, then press '
+                 + 'Arm to let this collection enrich itself.';
         } else {
-            line = `${dmEnrichStateLabel(dmEnrichState)} — ${spent.toLocaleString()}`
-                 + `${budget ? ` of ${budget.toLocaleString()}` : ''} videos processed, `
-                 + `over ${progress.cycles ?? 0} cycle(s).`;
+            line = `${dmEnrichStateLabel(dmEnrichState)} — `
+                 + `${annotated.toLocaleString()}${target ? ` of ${target.toLocaleString()}` : ''}`
+                 + ` videos annotated \u00b7 this plan has processed `
+                 + `${(progress.spent_items ?? 0).toLocaleString()} over `
+                 + `${progress.cycles ?? 0} cycle(s).`;
             if (progress.last_error) line += ` Last problem: ${progress.last_error}`;
-            // The budget is a LIFETIME cap, not a per-run allowance, so once
-            // spend has reached it every tick is a no-op — including "Run a
-            // cycle now". Say so, and name the number that has to be beaten:
-            // lowering the budget below what is already spent silently kills
-            // the plan, which is indistinguishable from a broken loop.
-            if (budget && spent >= budget) {
-                line += ` The budget is a running total, so it is used up:`
-                      + ` raise it above ${spent.toLocaleString()} and arm the plan`
-                      + ` to process more.`;
+            // A target is a state, so "why is nothing happening" has exactly
+            // two honest answers: the goal is met, or there is no goal.
+            if (target && annotated >= target) {
+                line += ' Target reached — raise it and arm again to continue.';
+            } else if (!target) {
+                line += ' No target set — the plan will not process anything.';
             }
         }
         if (!data.enabled_site_wide) {
@@ -6183,17 +6322,14 @@ function dmEnrichRender(data) {
         statusEl.textContent = line;
     }
 
-    // Coverage is reported per VIDEO, because that is what a budget buys: a
-    // video is scraped and annotated once, however many days it was watched on.
+    // The line above the bar carries what the bar cannot: the day-shaped
+    // figures every analysis is actually floored on, and the cursors.
     const progEl = document.getElementById('dm-enrich-progress');
     if (progEl) {
         const videos = progress.unique_items || 0;
         if (videos) {
-            const pct = (n) => Math.round(100 * (n || 0) / videos);
             const parts = [
                 `${videos.toLocaleString()} videos watched over ${progress.total_days} days`,
-                `scraped ${(progress.unique_scraped || 0).toLocaleString()} (${pct(progress.unique_scraped)}%)`,
-                `annotated ${(progress.unique_annotated || 0).toLocaleString()} (${pct(progress.unique_annotated)}%)`,
                 `${progress.qualifying_days} analysis-ready days (${progress.milestone_days} needed)`,
             ];
             if (progress.b_cursor || progress.a_cursor) {
@@ -6206,6 +6342,7 @@ function dmEnrichRender(data) {
         }
     }
 
+    dmEnrichDrawBar(progress);
     dmEnrichFillSettings(data.settings || {}, progress);
 
     const armBtn = document.getElementById('dm-enrich-arm-btn');
@@ -6260,10 +6397,10 @@ function dmEnrichPost(payload, busyMsg) {
 }
 
 // A number input's min/max only bind its spinner — a typed value sails past
-// them. Pull the budget back into the window before saving and say so, rather
-// than letting a below-the-spend number quietly finish the plan.
-function dmEnrichClampBudget() {
-    const el = document.getElementById('dm-enrich-item-budget');
+// them. Pull the target back into the reachable window before saving and say
+// so, rather than letting an unreachable goal be stored quietly.
+function dmEnrichClampTarget() {
+    const el = document.getElementById('dm-enrich-target');
     if (!el || !el.max) return null;
     const floor = Number(el.min), ceiling = Number(el.max);
     const typed = Number(el.value);
@@ -6271,20 +6408,22 @@ function dmEnrichClampBudget() {
     const clamped = Math.max(floor, Math.min(ceiling, typed));
     if (clamped === typed) return null;
     el.value = String(clamped);
+    dmEnrichTargetSync(clamped);
     return typed < floor
-        ? `The budget counts the ${floor.toLocaleString()} videos already processed, `
-          + `so ${typed.toLocaleString()} would just stop the plan. Raised to `
+        ? `${floor.toLocaleString()} videos are already annotated, so a target `
+          + `of ${typed.toLocaleString()} is already met. Raised to `
           + `${clamped.toLocaleString()} \u2014 go higher to process more.`
-        : `${clamped.toLocaleString()} already covers every processable video `
-          + `in this collection, so the budget was capped there.`;
+        : `Only ${ceiling.toLocaleString()} of this collection's videos can `
+          + `ever be annotated (the rest failed for good), so the target was `
+          + `capped there.`;
 }
 
 function dmEnrichSave() {
-    const note = dmEnrichClampBudget();
+    const note = dmEnrichClampTarget();
     const summary = () => {
-        const b = Number(document.getElementById('dm-enrich-item-budget')?.value);
-        return Number.isFinite(b) && b > 0
-            ? `Settings saved \u2014 budget ${b.toLocaleString()}.` : 'Settings saved.';
+        const t = Number(document.getElementById('dm-enrich-target')?.value);
+        return Number.isFinite(t) && t > 0
+            ? `Settings saved \u2014 target ${t.toLocaleString()}.` : 'Settings saved.';
     };
     dmEnrichPost({ settings: dmEnrichReadSettings() }).then(d => {
         if (d) dmEnrichMsg(note ? `${summary()} ${note}` : summary(), 'ok');
@@ -6293,7 +6432,7 @@ function dmEnrichSave() {
 
 function dmEnrichToggleArmed() {
     const next = (dmEnrichArmed && dmEnrichState === 'running') ? 'paused' : 'running';
-    const note = next === 'running' ? dmEnrichClampBudget() : null;
+    const note = next === 'running' ? dmEnrichClampTarget() : null;
     dmEnrichPost({ state: next, settings: dmEnrichReadSettings() },
                  next === 'running' ? 'Arming...' : 'Pausing...')
         .then(d => {

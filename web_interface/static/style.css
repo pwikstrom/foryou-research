@@ -7063,3 +7063,91 @@ body:has(.public-page) {
 }
 
 .hub-tour-sketch svg { display: block; width: 100%; height: auto; }
+
+/* --- Automatic enrichment: coverage bar + annotation target ---------------
+   (Edit Collection modal). The bar is display-only: four zones that sum to
+   the collection's unique videos, with the target as a marker. The slider
+   under it is the log-scaled input; the number field stays authoritative. */
+.dm-enrich-bar {
+    position: relative;
+    display: flex;
+    height: 18px;
+    background: var(--color-bg-input);
+    border: 1px solid var(--color-border-strong);
+    border-radius: 3px;
+    margin-top: 16px;   /* headroom for the target marker's label */
+}
+.dm-enrich-bar-seg { height: 100%; }
+.dm-enrich-bar-seg.annotated { background: var(--color-success); }
+.dm-enrich-bar-seg.scraped { background: var(--color-info); opacity: 0.55; }
+.dm-enrich-bar-spacer { flex: 1; }
+.dm-enrich-bar-seg.failed {
+    background: repeating-linear-gradient(45deg,
+        var(--color-bg-input), var(--color-bg-input) 4px,
+        var(--color-border-strong) 4px, var(--color-border-strong) 6px);
+}
+.dm-enrich-bar-marker {
+    position: absolute;
+    top: -5px;
+    bottom: -5px;
+    width: 2px;
+    background: var(--color-warning);
+    transform: translateX(-1px);
+    pointer-events: none;
+}
+.dm-enrich-bar-marker .lbl {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding-bottom: 1px;
+    font-size: var(--text-xs);
+    color: var(--color-warning-text);
+    white-space: nowrap;
+}
+/* Keep the label on-canvas when the marker sits near either edge. */
+.dm-enrich-bar-marker.edge-left .lbl { left: 0; transform: none; }
+.dm-enrich-bar-marker.edge-right .lbl { left: auto; right: 0; transform: none; }
+
+.dm-enrich-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px 14px;
+    margin-top: 6px;
+    color: var(--color-text-tertiary);
+}
+.dm-enrich-legend .sw {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 5px;
+    border-radius: 2px;
+    vertical-align: -1px;
+}
+.dm-enrich-legend .sw.annotated { background: var(--color-success); }
+.dm-enrich-legend .sw.scraped { background: var(--color-info); opacity: 0.55; }
+.dm-enrich-legend .sw.rest {
+    background: var(--color-bg-input);
+    border: 1px solid var(--color-border-strong);
+}
+.dm-enrich-legend .sw.failed {
+    background: repeating-linear-gradient(45deg,
+        var(--color-bg-input), var(--color-bg-input) 3px,
+        var(--color-border-strong) 3px, var(--color-border-strong) 5px);
+}
+
+.dm-enrich-advanced-toggle {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--color-link);
+    cursor: pointer;
+    font-size: var(--text-sm);
+}
+.dm-enrich-advanced-toggle .caret {
+    display: inline-block;
+    margin-right: 4px;
+    transition: transform 0.15s ease;
+}
+.dm-enrich-advanced-toggle.open .caret { transform: rotate(90deg); }
+

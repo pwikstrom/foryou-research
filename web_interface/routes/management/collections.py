@@ -423,6 +423,8 @@ def get_collection_enrichment(collection_id):
     from ...services import collection_enrichment as ce
     from ... import admin_settings
 
+    from .enrichment import _annotation_cost_estimate
+
     entry = ce.get_plan(collection_id)
     payload = {
         "enabled_site_wide": bool(admin_settings.get_setting("auto_enrichment_enabled")),
@@ -433,6 +435,9 @@ def get_collection_enrichment(collection_id):
         # collection — the panel uses it only to report the outcome of a tick it
         # just fired (it polls until start_time changes), never as plan state.
         "last_tick": ce.last_tick(),
+        # Per-1000-items annotation estimate for the target readout (None when
+        # the active backend has no pricing, e.g. a local model).
+        "cost_per_1000": _annotation_cost_estimate(1000),
     }
     return jsonify(payload)
 

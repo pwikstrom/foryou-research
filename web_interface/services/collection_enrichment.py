@@ -82,7 +82,12 @@ _STATUS_COLUMNS = ["item_id", "scraped_ok", "scrape_fail", "video_downloaded",
 # the shipped study-sampler defaults (organize_datasets.simple_sample_collection_events),
 # which encode what a useful study looks like: 30-50 videos/day over >= 20 days.
 DEFAULT_SETTINGS = {
-    "item_budget": 2000,      # hard cap on items this collection may consume
+    # The state to reach: keep enriching until this many of the collection's
+    # unique videos are annotated. 0 = no target set, which the engine reads as
+    # "nothing to do" — an armed plan must state its goal, or it would run to
+    # 100%. A target is idempotent: annotation done by any other means counts
+    # toward it, and re-opening a finished plan is just raising the number.
+    "annotation_target": 0,
     "cycle_items": 400,       # items enqueued per cycle
     "sample_share": 0.2,      # fraction of the cycle given to Process A
     "a_days_per_month": 2,    # A: whole days sampled per calendar month
@@ -230,7 +235,7 @@ def normalize_settings(raw: dict | None) -> dict:
         except (TypeError, ValueError):
             out[key] = DEFAULT_SETTINGS[key]
 
-    _int("item_budget", 0, 1_000_000)
+    _int("annotation_target", 0, 10_000_000)
     _int("cycle_items", 1, 20_000)
     _int("a_days_per_month", 0, 31)
     _int("a_day_cap", 1, 10_000)
@@ -439,6 +444,15 @@ def _scrapeable_mask(item_ids: np.ndarray, status: pd.DataFrame | None) -> np.nd
     return ~(scraped | failed)
 
 
+def _annotated_unique(activity: pd.DataFrame, status: pd.DataFrame | None) -> int:
+    """How many of the collection's unique videos are annotated — the number an
+    annotation target is measured against."""
+    if status is None or status.empty or "annotated_ok" not in status.columns:
+        return 0
+    unique_ids = pd.Index(pd.unique(activity["item_id"].to_numpy()))
+    return int(status["annotated_ok"].reindex(unique_ids).fillna(False).sum())
+
+
 # --------------------------------------------------------------------------- #
 # Deterministic sampling
 # --------------------------------------------------------------------------- #
@@ -517,10 +531,17 @@ def plan_cycle(collection_id: str, entry: dict,
 
     platform = collection_platform(activity)
 
+    # The cycle is clamped by how far the collection still is from its
+    # annotation target. Measured against the truth (unique annotated videos in
+    # enrichment status), not a spend meter, so annotation done by any other
+    # means moves the plan closer to done rather than being paid for twice.
+    # Ticks run one at a time and PLAN only fires with the queues drained and
+    # results consolidated, so the count is current to within one cycle — the
+    # documented worst-case overshoot.
     budget = int(settings["cycle_items"])
-    remaining_budget = int(settings["item_budget"]) - int(entry.get("spent_items") or 0)
-    if int(settings["item_budget"]) > 0:
-        budget = min(budget, max(0, remaining_budget))
+    target = int(settings.get("annotation_target") or 0)
+    remaining_target = max(0, target - _annotated_unique(activity, status))
+    budget = min(budget, remaining_target)
     if budget <= 0:
         return {**empty, "platform": platform, "exhausted": True}
 
@@ -630,7 +651,7 @@ def plan_cycle(collection_id: str, entry: dict,
     # the unit of value (a half-covered sitting is worth nothing to Sessions; a
     # thinned A-day can fall under the Correlations floor), so a cycle may
     # overshoot cycle_items by at most one B day plus one A day. The
-    # collection's item_budget still bounds the total spend at handoff time.
+    # annotation target still clamps the handoff, so overshoot is bounded.
     seen = set(picked_b)
     extra_a = [i for i in picked_a if i not in seen and not seen.add(i)]
 
@@ -674,10 +695,14 @@ def handoff_scraped(collection_id: str, entry: dict,
     """
     settings = {**DEFAULT_SETTINGS, **(entry.get("settings") or {})}
     in_flight = [str(i) for i in (entry.get("in_flight") or [])]
+    target = int(settings.get("annotation_target") or 0)
+
+    # The target is measured collection-wide, so enforcing it here needs the
+    # whole collection's activity and status, not just the candidates'.
+    if activity is None and (target > 0 or settings.get("annotate_existing")):
+        activity = load_activity(collection_id)
 
     if settings.get("annotate_existing"):
-        if activity is None:
-            activity = load_activity(collection_id)
         if activity is None or activity.empty:
             return {"ready": [], "in_flight": in_flight}
         ids = list(dict.fromkeys(activity["item_id"].astype(str)))
@@ -687,16 +712,17 @@ def handoff_scraped(collection_id: str, entry: dict,
             return {"ready": [], "in_flight": []}
 
     if status is None:
-        status = load_status(ids)
+        status = load_status(ids if activity is None or activity.empty
+                             else activity["item_id"].unique())
 
     eligible = annotation_eligible(ids, status)
-    budget = int(settings["item_budget"])
-    if budget > 0:
-        room = budget - int(entry.get("spent_items") or 0)
-        if room <= 0:
-            eligible = []
-        else:
-            eligible = eligible[:room]
+    # Clamp to what the target still needs. No target = nothing may be handed
+    # off: the plan's goal has been unset, so it must not keep spending on the
+    # strength of items queued under an earlier goal.
+    annotated = (_annotated_unique(activity, status)
+                 if activity is not None and not activity.empty else 0)
+    room = max(0, target - annotated)
+    eligible = eligible[:room]
 
     # Prune in_flight: an id leaves once its outcome is known — handed off now,
     # already annotated (ok or fail), or its scrape permanently failed. What
@@ -744,12 +770,13 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
     * ``total_items`` counts **video-days** — one row per (video, day), because a
       video replayed twice in one day is one unit of work but the same video seen
       on three days is three days' worth of viewing to explain.
-    * ``unique_items`` counts **videos**. This is what a budget buys: a video is
-      scraped and annotated once, however often it was watched.
+    * ``unique_items`` counts **videos**. This is what the target is measured
+      in: a video is scraped and annotated once, however often it was watched.
 
-    ``budget_floor`` / ``budget_ceiling`` bound the useful item budget for this
-    plan: below the floor (what it has already spent) nothing can happen, and
-    above the ceiling there is nothing left in the collection to buy.
+    ``target_floor`` / ``target_ceiling`` bound the useful annotation target:
+    at or below the floor (what is already annotated) the target is already
+    met, and above the ceiling (everything not permanently failed) it can never
+    be reached.
     """
     entry = entry if isinstance(entry, dict) else (get_plan(collection_id) or {})
     settings = {**DEFAULT_SETTINGS, **(entry.get("settings") or {})}
@@ -757,7 +784,7 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         "state": entry.get("state"),
         "cycles": int(entry.get("cycles") or 0),
         "spent_items": int(entry.get("spent_items") or 0),
-        "item_budget": int(settings["item_budget"]),
+        "annotation_target": int(settings.get("annotation_target") or 0),
         "a_cursor": entry.get("a_cursor"),
         "b_cursor": entry.get("b_cursor"),
         "stall_count": int(entry.get("stall_count") or 0),
@@ -770,7 +797,7 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         "unique_failed": 0,
         "total_days": 0, "qualifying_days": 0, "milestone_pct": 0.0,
         "oldest_day": None, "newest_day": None,
-        "budget_floor": int(entry.get("spent_items") or 0), "budget_ceiling": 0,
+        "target_floor": 0, "target_ceiling": 0,
     }
     try:
         activity = load_activity(collection_id)
@@ -819,13 +846,12 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
             "unique_scraped": int(u_scraped.sum()),
             "unique_annotated": int(u_annotated.sum()),
             "unique_failed": int(u_failed.sum()),
-            # The budget that would finish the collection: what this plan has
-            # already spent, plus every video that is neither annotated nor
-            # permanently failed. Still a ceiling, not a target — videos can
-            # keep failing on the way there.
-            "budget_ceiling": int(out["spent_items"]
-                                  + (len(unique_ids) - int(u_annotated.sum())
-                                     - int(u_failed.sum()))),
+            # The window of targets that do anything: below what is already
+            # annotated the plan is instantly complete, above everything that
+            # has not permanently failed it can never finish. Still a ceiling,
+            # not a promise — videos can keep failing on the way there.
+            "target_floor": int(u_annotated.sum()),
+            "target_ceiling": int(len(unique_ids) - int(u_failed.sum())),
             "total_days": int(frame["day"].nunique()),
             "qualifying_days": qualifying,
             "milestone_pct": round(min(1.0, qualifying / MILESTONE_DAYS) * 100, 1),
