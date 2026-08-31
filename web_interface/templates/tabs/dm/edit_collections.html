@@ -1,4 +1,13 @@
 <!-- Edit Collections sub-page -->
+
+{# The (i) affordance next to a section heading. One argument feeds both the
+   visual tooltip and the accessible name, so the two can never drift apart.
+   Same macro as Dataset Assembly (tabs/dm/refresh.html). #}
+{% macro card_info(text) -%}
+<span class="card-info meta-tooltip tooltip-wide" tabindex="0" role="note"
+    aria-label="{{ text }}" data-tooltip="{{ text }}">&#9432;</span>
+{%- endmacro %}
+
 <h2 style="margin: 0 0 16px 0; display: flex; align-items: center; gap: 15px;">
     Edit Collections
     <input type="text" id="edit-activity-search" placeholder="Search collections..."
@@ -21,6 +30,7 @@
     </div>
 </div>
 
+
 <!-- Edit Collection Modal -->
 <div id="editCollectionModal" class="modal"
     style="display:none;">
@@ -29,21 +39,30 @@
          selected collection. -->
     <!-- The whole modal scrolls (not just the details box): the personality
          view inside is taller than any viewport. -->
+    <!-- Type scale: the shared .modal-content rule pins the base font to
+         --text-h3, which left every label towering over its own input (form
+         controls do not inherit it) and the <h2> title no larger than the body
+         text around it. This modal pins the base back to --text-body so the
+         three levels read the way they do everywhere else in the app:
+         <h2> for the title, <h3 class="text-body"> for a section heading (the
+         Admin -> Site Settings convention), .text-sm for a field label. -->
     <div class="modal-content"
-        style="width: 70%; max-width: 1000px; max-height: 88vh; overflow-y: auto; margin: 4vh auto;">
+        style="width: 70%; max-width: 1000px; max-height: 88vh; overflow-y: auto; margin: 4vh auto; font-size: var(--text-body);">
         <span class="close" onclick="closeEditCollectionModal()">&times;</span>
-        <h2 style="margin-top: 0;">Edit Collection: <span id="edit-collection-id-display"></span></h2>
+        <h2 style="margin: 0 0 20px 0;">Edit Collection: <span id="edit-collection-id-display"></span></h2>
 
         <input type="hidden" id="edit-collection-id" value="">
 
         <div class="form-group" style="margin-bottom: 20px;">
-            <label style="display: block; margin-bottom: 5px;">Display ID:</label>
+            <label for="edit-collection-display-id" class="text-sm"
+                style="display: block; margin-bottom: 5px; color: var(--color-text-secondary);">Display ID:</label>
             <input type="text" id="edit-collection-display-id" class="control-input"
                 style="width: 100%; padding: 8px;">
         </div>
 
         <div class="form-group">
-            <label style="display: block; margin-bottom: 5px;">Tags:</label>
+            <label class="text-sm"
+                style="display: block; margin-bottom: 5px; color: var(--color-text-secondary);">Tags:</label>
             <div id="edit-collection-tags-container"
                 style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;">
             </div>
@@ -57,96 +76,151 @@
         </div>
 
         <div class="form-group" style="margin-top: 20px;">
-            <label style="display: block; margin-bottom: 5px;">User account:</label>
+            <label for="edit-collection-user" class="text-sm"
+                style="display: block; margin-bottom: 5px; color: var(--color-text-secondary);">User account:</label>
             <select id="edit-collection-user" class="control-input" style="width: 100%; padding: 8px;">
-                <option value="">— no account —</option>
+                <option value="">&mdash; no account &mdash;</option>
             </select>
-            <span class="text-sm" style="color: var(--color-text-tertiary); display: block; margin-top: 4px;">
+            <span class="text-xs" style="color: var(--color-text-muted); display: block; margin-top: 4px;">
                 The participant this collection belongs to. Demographic details are kept on the
-                account (Admin → Active users), never on the collection.</span>
+                account (Admin &rarr; Active users), never on the collection.</span>
         </div>
 
         <div class="form-group" style="margin-top: 20px;">
-            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <label class="text-sm" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                 <input type="checkbox" id="edit-collection-hidden" style="width: auto; cursor: pointer;">
                 Hide Collection
             </label>
-            <span class="text-sm" style="color: var(--color-text-tertiary); margin-left: 25px; display: block;">Hidden collections are
+            <span class="text-xs" style="color: var(--color-text-muted); margin-left: 25px; display: block;">Hidden collections are
                 not shown in the primary study interface.</span>
-        </div>
-
-        <!-- Read-only metadata. The Edit Collections table shows only what you
-             need to find a collection; everything else it holds is reported
-             here, for the one collection or for each of the selected ones. -->
-        <div class="form-group" style="margin-top: 20px;">
-            <label style="display: block; margin-bottom: 5px;">Collection details:</label>
-            <div id="edit-collection-details" class="text-sm"
-                style="border: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 8px 10px;">
-            </div>
         </div>
 
         <!-- Automatic enrichment: the per-collection A+B loop (deep-dive recent
              days + spread sample of whole days back through history). Single
-             collection only — hidden in bulk mode. Settings live in the
+             collection only - hidden in bulk mode. Settings live in the
              cache/collection_enrichment.json ledger, not collections_tags.json,
              and are saved by their own endpoint (the Save button below does not
-             touch them). -->
-        <div class="form-group" id="edit-collection-enrichment-group" style="margin-top: 20px; display: none;">
-            <label style="display: block; margin-bottom: 5px;">Automatic enrichment:</label>
+             touch them).
+             It sits above the collection details because the details block ends
+             in the full-height personality view: anything after that is a scroll
+             away and effectively invisible. -->
+        <div class="form-group" id="edit-collection-enrichment-group" style="margin-top: 24px; display: none;">
+            <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Automatic enrichment{{ card_info(
+                "Enrichment is what turns donated viewing history into analysable data: scraping each video, then annotating it. Armed, this collection gets that work automatically, one small step per supervisor tick:
+
+plan -> scrape -> consolidate -> hand off -> annotate -> consolidate -> plan
+
+The loop is a conductor, not a worker. It appends item ids to the global scrape queue and to to_annotate.json, starts the existing workers one at a time, and returns. Annotation is only ever queued AFTER a consolidation has proved the item really was scraped - an unscraped id in the annotation queue burns as a failure and cannot be recovered.
+
+Ticks are fired by a scraper or annotator finishing, by a consolidation finishing, and by an hourly heartbeat that restarts a loop stalled by a lost dispatch.
+
+Both steps cost money, so a plan stops at its item budget, and site-wide automatic enrichment (Admin -> Site Settings) has to be on. With that switch off, only Run a cycle now does anything.") }}</h3>
+            <p class="text-xs" style="margin: 0 0 10px 0; color: var(--color-text-muted);">
+                The unattended scrape-and-annotate loop for this collection. Hover a
+                setting or a button for exactly what it does.
+            </p>
             <div style="border: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 10px 12px;">
-                <div id="dm-enrich-status-line" class="text-sm" style="margin-bottom: 8px; color: var(--color-text-secondary);">
-                    Loading enrichment plan...
+                <div style="display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px;">
+                    <div id="dm-enrich-status-line" class="text-sm" style="color: var(--color-text-secondary);">
+                        Loading enrichment plan...
+                    </div>{{ card_info(
+                        "The plan state, then the collection itself.
+
+Not armed - no plan exists yet.
+Running - the supervisor picks this collection up on its next tick.
+Paused - no new cycles; work already queued still finishes.
+Complete - the budget is spent, or both processes have walked off the end of the history.
+Blocked - three cycles in a row queued work without a single new scrape landing, so the plan parked itself rather than spend on an unscrapeable tail (a bot wall, deleted posts). Fix the cause, then arm it again.
+
+The second line reads the truth in the data rather than the ledger: how many view items over how many days, what share of them is scraped and annotated, and how many days now clear the analysis floor (10 or more annotated rows on the day) against the 14 active days Timelines needs. The cursors say how far back each of the two processes has walked.") }}
                 </div>
                 <div id="dm-enrich-progress" class="text-sm" style="margin-bottom: 10px;"></div>
 
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 14px;">
                     <label class="text-sm" style="display: block;">
-                        Item budget
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="The most items this collection may ever spend, across every cycle (0 = unlimited).
+
+Spend is counted at the handoff, when scraped items are passed to annotation - so it counts what was actually bought, not what was optimistically queued. When the budget runs out the plan finishes.">Item budget</span>
                         <input type="number" id="dm-enrich-item-budget" class="control-input" min="0" step="50"
-                            style="width: 100%; padding: 6px;" title="Most items this collection may spend in total (0 = unlimited).">
+                            style="width: 100%; padding: 6px;">
                     </label>
                     <label class="text-sm" style="display: block;">
-                        Items per cycle
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="How many items one cycle queues for scraping, split between the two processes by the spread share.
+
+A cycle can overshoot this by up to one deep-dive day plus one spread day: neither process ever splits a day, because a half-covered day is worth nothing to the analyses. The item budget still bounds the total.">Items per cycle</span>
                         <input type="number" id="dm-enrich-cycle-items" class="control-input" min="1" step="50"
-                            style="width: 100%; padding: 6px;" title="How many items each scrape-annotate cycle enqueues.">
+                            style="width: 100%; padding: 6px;">
                     </label>
                     <label class="text-sm" style="display: block;">
-                        Spread share <span id="dm-enrich-share-label"></span>
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="How each cycle's items are split between the two processes.
+
+Deep dive (Process B) takes EVERY view item of consecutive days, most recent first, uncapped. It is the only thing that buys Sessions, and it gives Timelines and Correlations honest per-day denominators.
+
+Spread (Process A) takes a couple of whole days per calendar month, each capped, walking backwards month by month. It buys the long arc for Timelines, breadth for Semantic Space, and extra qualifying days for Correlations.
+
+Both buy WHOLE days because every analysis here is floored on the collection-day: Correlations drops a day under 10 annotated rows and refuses to run below 10 surviving days, Sessions needs contiguous plays from one sitting, Timelines needs 14 or more active days. A few videos on every day is worth almost nothing.
+
+Set to 0% for deep dive only, 100% for spread only.">Spread share</span> <span id="dm-enrich-share-label"></span>
                         <input type="range" id="dm-enrich-sample-share" min="0" max="100" step="5"
-                            style="width: 100%;" oninput="dmEnrichShareLabel()"
-                            title="Share of each cycle for the history-wide spread (Process A); the rest deep-dives recent days (Process B).">
+                            style="width: 100%;" oninput="dmEnrichShareLabel()">
                     </label>
                     <label class="text-sm" style="display: block;">
-                        Spread days / month
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="How many whole days the spread buys out of each calendar month, walking backwards.
+
+The days are drawn by a seeded random sample among those that clear the 10-item floor and that the deep dive has not already taken whole. Seeded, so re-planning from the same cursor picks the same days; random rather than busiest, because picking the busiest days would bias Timelines' trends towards heavy-usage days.">Spread days / month</span>
                         <input type="number" id="dm-enrich-days-per-month" class="control-input" min="0" max="31"
-                            style="width: 100%; padding: 6px;" title="Whole days the spread samples per calendar month, walking backwards.">
+                            style="width: 100%; padding: 6px;">
                     </label>
                     <label class="text-sm" style="display: block;">
-                        Spread items / day
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="The most items the spread enriches on one sampled day, counting what is already scraped there. A day that is already at the cap is skipped.
+
+Deep-dive days are not capped - they take the whole day.">Spread items / day</span>
                         <input type="number" id="dm-enrich-day-cap" class="control-input" min="1"
-                            style="width: 100%; padding: 6px;" title="Cap on items enriched per sampled day (deep-dive days are uncapped).">
+                            style="width: 100%; padding: 6px;">
                     </label>
                     <label class="text-sm" style="display: block;">
-                        Earliest date
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="Optional floor. Neither process ever plans a day before this date. Leave it empty to walk back through the collection's whole history.">Earliest date</span>
                         <input type="date" id="dm-enrich-earliest" class="control-input"
-                            style="width: 100%; padding: 6px;" title="Optional floor: enrichment never reaches further back than this.">
+                            style="width: 100%; padding: 6px;">
                     </label>
-                    <label class="text-sm" style="display: flex; align-items: center; gap: 6px; align-self: end;"
-                        title="Off: the loop only annotates videos it queued for scraping itself. On: videos of this collection that are already scraped but not annotated are also queued (a deliberate catch-up, charged to the budget).">
+                    <label class="text-sm" style="display: flex; align-items: center; gap: 6px; align-self: end;">
                         <input type="checkbox" id="dm-enrich-annotate-existing" style="margin: 0;">
-                        Also annotate already-scraped videos
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="Off (the default): the handoff annotates only the videos this plan queued for scraping itself.
+
+Scraped-but-unannotated is a legitimate steady state elsewhere in the corpus - a metadata-only study, a deliberately partial annotation - not a backlog for this loop to drain, so arming a plan must not sweep pre-existing scrapes into the annotation queue.
+
+On: every already-scraped but unannotated video of this collection is queued too. A deliberate catch-up, charged to the item budget.">Also annotate already-scraped videos</span>
                     </label>
                 </div>
 
                 <div style="margin-top: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                    <button type="button" class="action-btn text-sm" id="dm-enrich-arm-btn"
+                    <button type="button" class="action-btn text-sm meta-tooltip tooltip-wide" id="dm-enrich-arm-btn"
+                        data-tooltip="Arm this collection: the supervisor picks it up on its next tick and keeps cycling until the budget is spent or the history runs out. Pause stops new cycles - anything already in a queue still finishes. Arming also saves the settings above."
                         onclick="dmEnrichToggleArmed()">Arm</button>
-                    <button type="button" class="action-btn btn-secondary text-sm" id="dm-enrich-save-btn"
+                    <button type="button" class="action-btn btn-secondary text-sm meta-tooltip tooltip-wide" id="dm-enrich-save-btn"
+                        data-tooltip="Write these settings to the enrichment ledger. Separate from the modal's own Save button, which never touches them. Changing a setting mid-plan does not rewind the cursors - it applies from the next cycle."
                         onclick="dmEnrichSave()">Save settings</button>
-                    <button type="button" class="btn-discreet text-xs" id="dm-enrich-tick-btn"
+                    <button type="button" class="btn-discreet text-xs meta-tooltip tooltip-wide" id="dm-enrich-tick-btn"
+                        data-tooltip="Fire one supervisor tick for this collection right now: it drains a queue, consolidates, hands off or plans - whichever the loop is due. Works even while site-wide automatic enrichment is off, which is how you watch one collection run before enabling it."
                         onclick="dmEnrichTick()">Run a cycle now</button>
                     <span id="dm-enrich-msg" class="text-xs" style="color: var(--color-text-tertiary);"></span>
                 </div>
+            </div>
+        </div>
+
+        <!-- Read-only metadata. The Edit Collections table shows only what you
+             need to find a collection; everything else it holds is reported
+             here, for the one collection or for each of the selected ones.
+             Last, because a single collection also gets the full-height
+             personality view (rendered by my_collections.js). -->
+        <div class="form-group" style="margin-top: 24px;">
+            <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Collection details</h3>
+            <p class="text-xs" style="margin: 0 0 10px 0; color: var(--color-text-muted);">
+                Read-only. A single collection also gets its donated-data view; several
+                get a row each, so a bulk edit can be checked against what it will touch.
+            </p>
+            <div id="edit-collection-details" class="text-sm"
+                style="border: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 8px 10px;">
             </div>
         </div>
 

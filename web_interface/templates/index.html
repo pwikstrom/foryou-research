@@ -267,13 +267,13 @@
 {% endif %}
 {% if user.can_access('tab.my_stuff.my_collections') or user.can_access('tab.data_management.edit_collections') %}
 {# Shared personality renderer: the My Collections page and the Edit Collections modal #}
-<script src="{{ url_for('static', filename='js/my_collections.js') }}?v=13"></script>
+<script src="{{ url_for('static', filename='js/my_collections.js') }}?v=14"></script>
 {% endif %}
 {# Guided tour for new participants (auto-starts via HUB_TOUR_FLAGS / #tour).
    Ungated: it walks the analysis tabs and feature-detects what this user can
    actually see, so any role may take it. #}
 <script src="{{ url_for('static', filename='js/hub_tour.js') }}?v=3"></script>
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
-<script src="{{ url_for('static', filename='js/data_management.js') }}?v=27"></script>
+<script src="{{ url_for('static', filename='js/data_management.js') }}?v=28"></script>
 {% endif %}
 {% endblock %}

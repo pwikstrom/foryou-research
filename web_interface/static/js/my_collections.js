@@ -2,9 +2,10 @@
 // Everything rendered here comes from /api/my/* endpoints, which serve donated
 // activity data only (ownership-gated; no scrape, no annotation).
 //
-// window.mycRenderPersonality(containerEl, bundle) renders one personality
+// window.mycRenderPersonality(containerEl, bundle, opts) renders one personality
 // bundle into any container (chart ids are scoped per render), so the Edit
-// Collections modal in data_management.js reuses the exact same view.
+// Collections modal in data_management.js reuses the exact same view — it passes
+// {voice: 'neutral'} for admin-facing copy.
 (function () {
     'use strict';
 
@@ -397,22 +398,32 @@
     }
 
     function cardTitle(text) {
-        return `<h3 style="margin: 0 0 10px 0; font-size: 1rem;">${text}</h3>`;
+        return `<h3 style="margin: 0 0 10px 0; font-size: var(--text-body);">${text}</h3>`;
     }
 
     // Public: render one personality bundle into any container. Used by this
     // page and by the Edit Collections modal (data_management.js).
-    window.mycRenderPersonality = function (el, b) {
+    //
+    // opts.voice picks the copy register. The default addresses the donor whose
+    // data this is ("your golden hour", "no judgement") — the whole point of the
+    // participant-facing page. 'neutral' states the same findings flatly, for
+    // the admin who is inspecting somebody else's collection in the Edit
+    // Collections modal, where second-person nudging is both odd and wrong.
+    // Only the wording differs: same cards, same charts, same numbers.
+    window.mycRenderPersonality = function (el, b, opts) {
         const prefix = `myc-r${++mycRenderSeq}`;
-        renderBundle(el, b, prefix);
+        renderBundle(el, b, prefix, opts);
         // Keep for theme re-renders; drop entries whose container left the DOM.
         for (let i = mycMounted.length - 1; i >= 0; i--) {
             if (!document.body.contains(mycMounted[i].el) || mycMounted[i].el === el) mycMounted.splice(i, 1);
         }
-        mycMounted.push({ el, bundle: b, prefix });
+        mycMounted.push({ el, bundle: b, prefix, opts });
     };
 
-    function renderBundle(el, b, prefix) {
+    function renderBundle(el, b, prefix, opts) {
+        // True when the copy should stay descriptive: no second person, no
+        // teasing, no commentary on what the numbers say about the person.
+        const flat = !!(opts && opts.voice === 'neutral');
         const singlePlat = b.platforms && b.platforms.length === 1;
         const plat = singlePlat ? platformLabel(b.platforms[0]) : 'short-video';
         const html = [];
@@ -426,7 +437,7 @@
         // The moniker is the card's own headline, so the line it used to share
         // the card with ("The five scores behind it") drops to a caption.
         const moniker = persona.statement
-            ? `<p style="font-size: 1.15rem; font-weight: 700; line-height: 1.3; margin: 0 0 2px 0;">${escapeHtml(persona.statement)}</p>`
+            ? `<p style="font-size: var(--text-h3); font-weight: var(--weight-bold); line-height: var(--leading-tight); margin: 0 0 2px 0;">${escapeHtml(persona.statement)}</p>`
             : '';
         const monikerCaption = caption => moniker
             ? `${moniker}<p class="text-xs" style="color: var(--color-text-muted); margin: 0 0 12px 0;">${caption}</p>`
@@ -444,21 +455,28 @@
         } else if (presentAxes.length) {
             const chips = presentAxes.map(a =>
                 `<span style="border: 1px solid var(--color-border); border-radius: 16px; padding: 4px 12px; display: inline-block; margin: 0 6px 6px 0;">${AXIS_LABELS[a]}: <strong>${Math.round(axes[a].score)}</strong></span>`).join('');
-            html.push(sectionCard(monikerCaption('Your scores') + `<div>${chips}</div><p class="text-xs" style="color: var(--color-text-faint); margin: 8px 0 0 0;">This donation doesn't carry enough signal for the full radar. Here's what we could measure.</p>`, '460px'));
+            const thinNote = flat
+                ? 'Too little signal here for the full radar; these are the axes that could be measured.'
+                : "This donation doesn't carry enough signal for the full radar. Here's what we could measure.";
+            html.push(sectionCard(monikerCaption(flat ? 'Scores' : 'Your scores') + `<div>${chips}</div><p class="text-xs" style="color: var(--color-text-faint); margin: 8px 0 0 0;">${thinNote}</p>`, '460px'));
         }
 
         // --- Your data vs the rest of the Hub
         if (b.comparisons && b.comparisons.length) {
             html.push(sectionCard(
-                cardTitle('Your data compared to other collections in the Hub') + cohortRows(b.comparisons),
+                cardTitle(flat
+                    ? 'Compared with other collections in the Hub'
+                    : 'Your data compared to other collections in the Hub') + cohortRows(b.comparisons, flat),
                 '460px'));
         }
 
         // --- Hour of day (with per-platform overlay for multi-platform donors)
         if (b.hour_of_day) {
             const habitTitle = b.platform_habits
-                ? platformHabitsTitle(b.platform_habits)
-                : `Your golden hour: you were most alive around <strong>${escapeHtml(friendlyHourLabel(b.hour_of_day))}</strong>`;
+                ? platformHabitsTitle(b.platform_habits, flat)
+                : (flat
+                    ? `Most active around <strong>${escapeHtml(friendlyHourLabel(b.hour_of_day))}</strong>`
+                    : `Your golden hour: you were most alive around <strong>${escapeHtml(friendlyHourLabel(b.hour_of_day))}</strong>`);
             html.push(sectionCard(
                 cardTitle(habitTitle) +
                 `<div id="${prefix}-chart-hours" style="height: 300px;"></div>`, '460px'));
@@ -466,8 +484,9 @@
 
         // --- Weekday
         if (b.weekday) {
+            const top = `<strong>${cap(escapeHtml(b.weekday.top))}</strong>`;
             html.push(sectionCard(
-                cardTitle(`<strong>${cap(escapeHtml(b.weekday.top))}</strong> was your biggest scrolling day`) +
+                cardTitle(flat ? `${top} was the busiest weekday` : `${top} was your biggest scrolling day`) +
                 `<div id="${prefix}-chart-weekday" style="height: 260px;"></div>`, '460px'));
         }
 
@@ -476,7 +495,9 @@
             const tw = b.weekly.top_week;
             const [ty, tn] = String(tw.week).split('-');
             html.push(sectionCard(
-                cardTitle(`You never watched more than in week ${escapeHtml(tn)} of ${escapeHtml(ty)}`) +
+                cardTitle(flat
+                    ? `Busiest week: week ${escapeHtml(tn)} of ${escapeHtml(ty)}`
+                    : `You never watched more than in week ${escapeHtml(tn)} of ${escapeHtml(ty)}`) +
                 `<div id="${prefix}-chart-weekly" style="height: 260px;"></div>`, '700px'));
         }
 
@@ -484,10 +505,10 @@
         if (b.calendar && b.calendar.days && b.calendar.days.length > 6) {
             const streak = b.calendar.longest_streak;
             const streakLine = streak >= 3
-                ? `<p class="text-sm" style="margin: 8px 0 0 0; color: var(--color-text-muted);">Your longest streak: <strong>${fmtInt(streak)} days in a row</strong>.</p>`
+                ? `<p class="text-sm" style="margin: 8px 0 0 0; color: var(--color-text-muted);">${flat ? 'Longest' : 'Your longest'} streak: <strong>${fmtInt(streak)} days in a row</strong>.</p>`
                 : '';
             html.push(sectionCard(
-                cardTitle('Your time here, one square per day') +
+                cardTitle(flat ? 'Activity, one square per day' : 'Your time here, one square per day') +
                 `<div id="${prefix}-chart-calendar" style="height: 200px;"></div>` + streakLine, '700px'));
         }
 
@@ -495,10 +516,13 @@
         if (b.doomscroll) {
             const under = b.stats && b.stats.under_3s != null ? b.stats.under_3s : b.doomscroll.buckets.under_3s;
             const over = b.stats && b.stats.over_60s != null ? b.stats.over_60s : b.doomscroll.buckets.over_60s;
+            const note = flat
+                ? `<strong>${fmtInt(under)}</strong> videos were watched for under three seconds, <strong>${fmtInt(over)}</strong> for over a minute.`
+                : `You scrolled past <strong>${fmtInt(under)}</strong> videos in under three seconds, but <strong>${fmtInt(over)}</strong> kept you hooked for over a minute.`;
             html.push(sectionCard(
-                cardTitle('Your scroll finger vs. your attention span') +
+                cardTitle(flat ? 'How long each video was watched' : 'Your scroll finger vs. your attention span') +
                 `<div id="${prefix}-chart-doomscroll" style="height: 260px;"></div>` +
-                `<p class="text-sm" style="margin: 8px 0 0 0; color: var(--color-text-muted);">You scrolled past <strong>${fmtInt(under)}</strong> videos in under three seconds, but <strong>${fmtInt(over)}</strong> kept you hooked for over a minute.</p>`,
+                `<p class="text-sm" style="margin: 8px 0 0 0; color: var(--color-text-muted);">${note}</p>`,
                 '460px'));
         }
 
@@ -507,11 +531,12 @@
             const r = b.rewatch;
             const title = r.desc ? `&ldquo;${escapeHtml(r.desc.length > 90 ? r.desc.slice(0, 90) + '…' : r.desc)}&rdquo;` : `A certain ${escapeHtml(platformLabel(r.platform))} video`;
             const author = r.author_name ? ` by <strong>${escapeHtml(r.author_name)}</strong>` : '';
-            const link = r.url ? `<p class="text-sm" style="margin: 8px 0 0 0;"><a href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer" style="color: var(--color-link);">Dare to watch it one more time &rarr;</a></p>` : '';
+            const linkText = flat ? 'Open the video &rarr;' : 'Dare to watch it one more time &rarr;';
+            const link = r.url ? `<p class="text-sm" style="margin: 8px 0 0 0;"><a href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer" style="color: var(--color-link);">${linkText}</a></p>` : '';
             html.push(sectionCard(
-                cardTitle('Do you remember this one?') +
+                cardTitle(flat ? 'Most rewatched video' : 'Do you remember this one?') +
                 `<p style="margin: 0;">${title}${author}</p>` +
-                `<p class="text-sm" style="margin: 6px 0 0 0; color: var(--color-text-muted);">You came back to it <strong>${fmtInt(r.count)} times</strong>.</p>` + link,
+                `<p class="text-sm" style="margin: 6px 0 0 0; color: var(--color-text-muted);">${flat ? 'Watched' : 'You came back to it'} <strong>${fmtInt(r.count)} times</strong>.</p>` + link,
                 '460px'));
         }
 
@@ -520,9 +545,11 @@
             const rows = b.searches.top_terms.map(t =>
                 `<span style="border: 1px solid var(--color-border); border-radius: 16px; padding: 3px 10px; display: inline-block; margin: 0 6px 6px 0;" class="text-sm">${escapeHtml(t.term)} <span style="color: var(--color-text-faint);">&times;${fmtInt(t.count)}</span></span>`).join('');
             html.push(sectionCard(
-                cardTitle('Things you went looking for') +
+                cardTitle(flat ? 'Most frequent search terms' : 'Things you went looking for') +
                 `<div>${rows}</div>` +
-                `<p class="text-xs" style="color: var(--color-text-faint); margin: 8px 0 0 0;">Your ${fmtInt(b.searches.n_searches)} searches, ranked. No judgement.</p>`,
+                `<p class="text-xs" style="color: var(--color-text-faint); margin: 8px 0 0 0;">${flat
+                    ? `${fmtInt(b.searches.n_searches)} searches, ranked by frequency.`
+                    : `Your ${fmtInt(b.searches.n_searches)} searches, ranked. No judgement.`}</p>`,
                 '460px'));
         }
 
@@ -531,7 +558,9 @@
 
         // --- Stat strip
         if (b.stats) {
-            html.push(sectionCard(cardTitle("Let's look deeper into your life on the feed") + statStrip(b.stats, singlePlat ? plat : null), '700px'));
+            html.push(sectionCard(
+                cardTitle(flat ? 'Summary' : "Let's look deeper into your life on the feed") +
+                statStrip(b.stats, singlePlat ? plat : null, flat), '700px'));
         }
 
         html.push('</div>');
@@ -539,25 +568,32 @@
         renderCharts(b, el, prefix);
     }
 
-    function statStrip(s, platOrNull) {
+    function statStrip(s, platOrNull, flat) {
         const lines = [];
-        const watching = platOrNull ? `watching ${escapeHtml(platOrNull)} videos` : 'watching videos';
+        const videos = platOrNull ? `${escapeHtml(platOrNull)} videos` : 'videos';
         if (s.total_watch_time_s != null && s.total_watch_time_s > 0) {
-            const pct = s.watch_time_percentile != null && s.watch_time_percentile >= 75
-                ? ` That puts you in the top ${Math.max(1, Math.round(100 - s.watch_time_percentile))}% of watchers on the Hub.` : '';
-            lines.push(`You spent <strong>${humanizeDuration(s.total_watch_time_s)}</strong> ${watching} between ${escapeHtml(s.first_date || '?')} and ${escapeHtml(s.last_date || '?')}.${pct}`);
+            const top = s.watch_time_percentile != null && s.watch_time_percentile >= 75
+                ? Math.max(1, Math.round(100 - s.watch_time_percentile)) : null;
+            const span = `${escapeHtml(s.first_date || '?')} and ${escapeHtml(s.last_date || '?')}`;
+            if (flat) {
+                lines.push(`<strong>${humanizeDuration(s.total_watch_time_s)}</strong> of ${videos} watched between ${span}.`
+                    + (top ? ` That is the top ${top}% of watchers on the Hub.` : ''));
+            } else {
+                lines.push(`You spent <strong>${humanizeDuration(s.total_watch_time_s)}</strong> watching ${videos} between ${span}.`
+                    + (top ? ` That puts you in the top ${top}% of watchers on the Hub.` : ''));
+            }
         } else if (s.first_date) {
-            lines.push(`Your data covers ${escapeHtml(s.first_date)} to ${escapeHtml(s.last_date)}: <strong>${fmtInt(s.active_days)}</strong> active days.`);
+            lines.push(`${flat ? 'The data covers' : 'Your data covers'} ${escapeHtml(s.first_date)} to ${escapeHtml(s.last_date)}: <strong>${fmtInt(s.active_days)}</strong> active days.`);
         }
-        if (s.n_videos) lines.push(`You watched <strong>${fmtInt(s.n_videos)}</strong> videos.`);
+        if (s.n_videos) lines.push(flat ? `<strong>${fmtInt(s.n_videos)}</strong> videos watched.` : `You watched <strong>${fmtInt(s.n_videos)}</strong> videos.`);
         if (s.n_sessions) {
             const longest = (s.longest_session_s || 0) >= 60
-                ? ` The longest lasted <strong>${humanizeDuration(s.longest_session_s)}</strong>.` : '';
-            lines.push(`You completed <strong>${fmtInt(s.n_sessions)}</strong> sessions.${longest}`);
+                ? ` ${flat ? 'Longest:' : 'The longest lasted'} <strong>${humanizeDuration(s.longest_session_s)}</strong>.` : '';
+            lines.push((flat ? `<strong>${fmtInt(s.n_sessions)}</strong> sessions.` : `You completed <strong>${fmtInt(s.n_sessions)}</strong> sessions.`) + longest);
         }
-        if (s.n_likes) lines.push(`You handed out <strong>${fmtInt(s.n_likes)}</strong> likes.`);
-        if (s.n_comments) lines.push(`You made <strong>${fmtInt(s.n_comments)}</strong> comments.`);
-        if (s.n_posts) lines.push(`You posted <strong>${fmtInt(s.n_posts)}</strong> videos of your own.`);
+        if (s.n_likes) lines.push(flat ? `<strong>${fmtInt(s.n_likes)}</strong> likes given.` : `You handed out <strong>${fmtInt(s.n_likes)}</strong> likes.`);
+        if (s.n_comments) lines.push(flat ? `<strong>${fmtInt(s.n_comments)}</strong> comments made.` : `You made <strong>${fmtInt(s.n_comments)}</strong> comments.`);
+        if (s.n_posts) lines.push(flat ? `<strong>${fmtInt(s.n_posts)}</strong> videos posted.` : `You posted <strong>${fmtInt(s.n_posts)}</strong> videos of your own.`);
         return lines.map(l => `<p class="text-sm" style="margin: 0 0 6px 0;">${l}</p>`).join('');
     }
 
@@ -575,7 +611,8 @@
         return 'way less than most';
     }
 
-    function cohortRows(comparisons) {
+    function cohortRows(comparisons, flat) {
+        const ownWord = flat ? 'this collection' : 'you';
         return comparisons.map(c => {
             // Value-scaled track with the median pinned to the CENTER: the
             // scale runs 0 .. 2x median, so distances are proportional and a
@@ -586,27 +623,32 @@
                 track = `
                 <div style="position: relative; height: 6px; border-radius: 3px; background: var(--color-border); margin: 6px 0 2px 0;">
                     <div style="position: absolute; left: 50%; top: -2px; width: 2px; height: 10px; background: var(--color-text-faint);" title="median"></div>
-                    <div style="position: absolute; left: ${ownPos}%; top: -3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--color-accent);" title="you"></div>
+                    <div style="position: absolute; left: ${ownPos}%; top: -3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--color-accent);" title="${ownWord}"></div>
                 </div>`;
             }
             const phrase = ratioPhrase(c.ratio);
             return `
                 <div style="margin-bottom: 12px;">
                     <div class="text-sm"><strong>${escapeHtml(c.label)}</strong>${phrase ? ': ' + escapeHtml(phrase) : ''}</div>
-                    <div class="text-xs" style="color: var(--color-text-muted);">you: <strong>${fmtInt(Math.round(c.own * 10) / 10)}</strong> &middot; median: ${fmtInt(Math.round(c.cohort_median * 10) / 10)}</div>
+                    <div class="text-xs" style="color: var(--color-text-muted);">${ownWord}: <strong>${fmtInt(Math.round(c.own * 10) / 10)}</strong> &middot; median: ${fmtInt(Math.round(c.cohort_median * 10) / 10)}</div>
                     ${track}
                 </div>`;
         }).join('');
     }
 
-    function platformHabitsTitle(habits) {
+    function platformHabitsTitle(habits, flat) {
         const segWords = { morning: 'in the morning', afternoon: 'in the afternoon',
                            evening: 'in the evening', night: 'in the middle of the night' };
         const parts = habits.map(h =>
             `<strong>${escapeHtml(platformLabel(h.platform))}</strong> ${escapeHtml(segWords[h.top_segment] || h.top_segment)}`);
         const distinct = new Set(habits.map(h => h.top_segment)).size > 1;
+        const peak = escapeHtml(segWords[habits[0].top_segment] || habits[0].top_segment);
+        if (flat) {
+            return distinct ? `Peak time of day, by platform: ${parts.join(', ')}`
+                            : `Every platform peaks ${peak}`;
+        }
         if (distinct) return `Two apps, two lives: ${parts.join(', ')}`;
-        return `All your feeds peak ${escapeHtml(segWords[habits[0].top_segment] || habits[0].top_segment)}`;
+        return `All your feeds peak ${peak}`;
     }
 
     // ------------------------------------------------------------------
@@ -1247,7 +1289,7 @@
         for (let i = mycMounted.length - 1; i >= 0; i--) {
             const m = mycMounted[i];
             if (!document.body.contains(m.el)) { mycMounted.splice(i, 1); continue; }
-            renderBundle(m.el, m.bundle, m.prefix);
+            renderBundle(m.el, m.bundle, m.prefix, m.opts);
         }
     });
 })();

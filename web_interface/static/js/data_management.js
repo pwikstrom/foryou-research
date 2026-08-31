@@ -5677,7 +5677,11 @@ function _dmRenderCollectionDetails(objs) {
                         holder.innerHTML = `<span class="text-sm" style="color: var(--color-text-tertiary);">${(data && data.error) || 'No personality view available.'}</span>`;
                         return;
                     }
-                    mycRenderPersonality(holder, data);
+                    // Neutral voice: this is an admin looking at somebody
+                    // else's collection, so the participant page's second-person
+                    // copy ("your golden hour", "no judgement") would be both
+                    // odd and misdirected. Same cards, same numbers.
+                    mycRenderPersonality(holder, data, { voice: 'neutral' });
                 })
                 .catch(() => {
                     holder.innerHTML = '<span class="text-sm" style="color: var(--color-text-tertiary);">No personality view available.</span>';
