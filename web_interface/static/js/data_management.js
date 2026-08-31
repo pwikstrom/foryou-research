@@ -6387,8 +6387,13 @@ function dmEnrichRenderChart(daily) {
         font: { family: getCSSVar('--font-sans'), color: getCSSVar('--chart-text'), size: 10 },
         xaxis: { type: 'date', gridcolor: getCSSVar('--chart-grid'),
                  tickfont: { size: 9 }, tickformat: '%Y-%m-%d', fixedrange: true },
+        // Log y: day sizes span orders of magnitude, and on a linear axis the
+        // small days (the very ones near the analysis floor) were invisible.
+        // Segment boundaries stay truthful at their values; only the visual
+        // proportions within a bar distort, which the coverage bar below
+        // reports linearly anyway.
         yaxis: { gridcolor: getCSSVar('--chart-grid'), tickfont: { size: 9 },
-                 fixedrange: true, rangemode: 'tozero' },
+                 fixedrange: true, type: 'log' },
         showlegend: false,
         shapes: dmEnrichChartShapes(),
     };
