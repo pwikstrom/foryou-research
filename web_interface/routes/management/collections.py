@@ -246,6 +246,13 @@ def list_collections():
             user_labels = {u.username: (u.display_username or u.username)
                            for u in user_manager.get_all_users().values()}
 
+            # Automatic-enrichment plan state, so the table can show at a glance
+            # which collections are enriching themselves. One small JSON read
+            # for the whole listing — cheap enough to ride along here rather
+            # than earn its own round trip the way coverage does.
+            from ...services import collection_enrichment as ce
+            enrichment_plans = ce.load_plans()
+
             # Make sure we don't have pd.NA or similar incompatible types for JSON serialization
             df = df.where(pd.notnull(df), None)
             
@@ -293,6 +300,9 @@ def list_collections():
                 item['user_id'] = uid
                 item['user_label'] = user_labels.get(uid, uid) if uid else None
                 item['user_known'] = bool(uid) and uid in user_labels
+                plan = enrichment_plans.get(row_id)
+                item['enrichment_state'] = (plan.get('state')
+                                            if isinstance(plan, dict) else None)
 
                 collections.append(item)
 

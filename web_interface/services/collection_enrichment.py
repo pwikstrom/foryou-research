@@ -738,6 +738,18 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
 
     Reads the truth (activity + enrichment status) rather than the ledger, so the
     numbers stay right even if a plan is re-armed, edited or hand-queued around.
+
+    Two different denominators come back, and mixing them up is the easy mistake:
+
+    * ``total_items`` counts **video-days** — one row per (video, day), because a
+      video replayed twice in one day is one unit of work but the same video seen
+      on three days is three days' worth of viewing to explain.
+    * ``unique_items`` counts **videos**. This is what a budget buys: a video is
+      scraped and annotated once, however often it was watched.
+
+    ``budget_floor`` / ``budget_ceiling`` bound the useful item budget for this
+    plan: below the floor (what it has already spent) nothing can happen, and
+    above the ceiling there is nothing left in the collection to buy.
     """
     entry = entry if isinstance(entry, dict) else (get_plan(collection_id) or {})
     settings = {**DEFAULT_SETTINGS, **(entry.get("settings") or {})}
@@ -754,8 +766,10 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         "last_batch": entry.get("last_batch"),
         "milestone_days": MILESTONE_DAYS,
         "total_items": 0, "scraped_items": 0, "annotated_items": 0,
+        "unique_items": 0, "unique_scraped": 0, "unique_annotated": 0,
         "total_days": 0, "qualifying_days": 0, "milestone_pct": 0.0,
         "oldest_day": None, "newest_day": None,
+        "budget_floor": int(entry.get("spent_items") or 0), "budget_ceiling": 0,
     }
     try:
         activity = load_activity(collection_id)
@@ -770,6 +784,15 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
             scraped = np.zeros(len(items), dtype=bool)
             annotated = np.zeros(len(items), dtype=bool)
 
+        # Per-video (not per video-day) coverage: what the budget actually buys.
+        unique_ids = pd.Index(pd.unique(items))
+        if status is not None and not status.empty:
+            u_scraped = status["scraped_ok"].reindex(unique_ids).fillna(False).to_numpy(dtype=bool)
+            u_annotated = status["annotated_ok"].reindex(unique_ids).fillna(False).to_numpy(dtype=bool)
+        else:
+            u_scraped = np.zeros(len(unique_ids), dtype=bool)
+            u_annotated = np.zeros(len(unique_ids), dtype=bool)
+
         frame = activity.assign(_ann=annotated)
         per_day = frame.groupby("day", observed=True)["_ann"].sum()
         min_day = int(settings["min_day_items"])
@@ -781,6 +804,15 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
             "total_items": int(len(items)),
             "scraped_items": int(scraped.sum()),
             "annotated_items": int(annotated.sum()),
+            "unique_items": int(len(unique_ids)),
+            "unique_scraped": int(u_scraped.sum()),
+            "unique_annotated": int(u_annotated.sum()),
+            # Everything still buyable, on top of what this plan already spent.
+            # An already-annotated video is never bought again, so it is not in
+            # the headroom; permanently failed scrapes make this a ceiling
+            # rather than a target.
+            "budget_ceiling": int(out["spent_items"]
+                                  + (len(unique_ids) - int(u_annotated.sum()))),
             "total_days": int(frame["day"].nunique()),
             "qualifying_days": qualifying,
             "milestone_pct": round(min(1.0, qualifying / MILESTONE_DAYS) * 100, 1),

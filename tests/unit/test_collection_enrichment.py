@@ -623,3 +623,47 @@ def test_last_tick_is_empty_and_never_raises_without_a_status_file(monkeypatch):
 
     monkeypatch.setattr(ts, "read_task_status", _boom)
     assert ce.last_tick() == {}
+
+
+# --------------------------------------------------------------------------- #
+# Progress — two denominators, and the budget window they imply
+# --------------------------------------------------------------------------- #
+
+def test_progress_counts_videos_and_video_days_separately(monkeypatch):
+    """A video watched on three days is three video-days but ONE purchase.
+
+    The panel quotes coverage per video, because that is what a budget buys;
+    the day-shaped figures still need the per-(video, day) count.
+    """
+    rows = [{"item_id": "v1", "day": pd.Timestamp(d), "source_platform": "tiktok"}
+            for d in ("2026-08-25", "2026-08-26", "2026-08-27")]
+    rows += [{"item_id": "v2", "day": pd.Timestamp("2026-08-27"),
+              "source_platform": "tiktok"}]
+    activity = pd.DataFrame(rows)
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status",
+                        lambda ids=None: _status(["v1", "v2"], scraped=["v1", "v2"],
+                                                 annotated=["v1"]))
+
+    out = ce.progress("c1", {**_entry(item_budget=100), "spent_items": 10})
+    assert out["total_items"] == 4        # video-days
+    assert out["unique_items"] == 2       # videos
+    assert out["scraped_items"] == 4 and out["unique_scraped"] == 2
+    assert out["annotated_items"] == 3 and out["unique_annotated"] == 1
+
+    # Budget window: never below what is spent, never above spend + what is
+    # left to buy (v2 is scraped but undescribed, so it still counts).
+    assert out["budget_floor"] == 10
+    assert out["budget_ceiling"] == 10 + (2 - 1)
+
+
+def test_progress_budget_window_is_zero_width_when_nothing_is_left(monkeypatch):
+    activity = _activity({"2026-08-27": 3})
+    ids = list(activity["item_id"])
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status",
+                        lambda i=None: _status(ids, scraped=ids, annotated=ids))
+
+    out = ce.progress("c1", {**_entry(), "spent_items": 4000})
+    assert out["unique_annotated"] == 3
+    assert out["budget_floor"] == out["budget_ceiling"] == 4000

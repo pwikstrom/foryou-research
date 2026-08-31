@@ -106,105 +106,116 @@
              away and effectively invisible. -->
         <div class="form-group" id="edit-collection-enrichment-group" style="margin-top: 24px; display: none;">
             <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Automatic enrichment{{ card_info(
-                "Enrichment is what turns donated viewing history into analysable data: scraping each video, then annotating it. Armed, this collection gets that work automatically, one small step per supervisor tick:
+                "A donated collection starts as a bare list of videos someone watched. Before any of it can be analysed, the Hub has to fetch each video and then describe what is in it. Both steps cost money.
 
-plan -> scrape -> consolidate -> hand off -> annotate -> consolidate -> plan
+Armed, this collection does that by itself, a little at a time: pick the next batch of videos, fetch them, check what actually arrived, describe those, repeat. It never tries to describe a video it did not manage to fetch.
 
-The loop is a conductor, not a worker. It appends item ids to the global scrape queue and to to_annotate.json, starts the existing workers one at a time, and returns. Annotation is only ever queued AFTER a consolidation has proved the item really was scraped - an unscraped id in the annotation queue burns as a failure and cannot be recovered.
+It moves on its own about once an hour, and again whenever a fetching or describing job finishes. It stops when the item budget is used up, or when there is nothing left worth buying.
 
-Ticks are fired by a scraper or annotator finishing, by a consolidation finishing, and by an hourly heartbeat that restarts a loop stalled by a lost dispatch.
-
-Both steps cost money, so a plan stops at its item budget, and site-wide automatic enrichment (Admin -> Site Settings) has to be on. With that switch off, only Run a cycle now does anything.") }}</h3>
+For any of that to happen unattended, automatic enrichment also has to be switched on for the whole site (Admin -> Site Settings). With that off, only Run a cycle now does anything.") }}</h3>
             <p class="text-xs" style="margin: 0 0 10px 0; color: var(--color-text-muted);">
-                The unattended scrape-and-annotate loop for this collection. Hover a
-                setting or a button for exactly what it does.
+                Lets this collection fetch and describe its own videos, a batch at a
+                time, without anyone driving it. Hover any setting or button to see
+                exactly what it does.
             </p>
             <div style="border: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 10px 12px;">
                 <div style="display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px;">
                     <div id="dm-enrich-status-line" class="text-sm" style="color: var(--color-text-secondary);">
                         Loading enrichment plan...
                     </div>{{ card_info(
-                        "The plan state, then the collection itself.
+                        "The first line is the plan: what it is doing, and how much of the budget it has used.
 
-Not armed - no plan exists yet.
-Running - the supervisor picks this collection up on its next tick.
-Paused - no new cycles; work already queued still finishes.
-Complete - the budget is spent, or both processes have walked off the end of the history.
-Blocked - three cycles in a row queued work without a single new scrape landing, so the plan parked itself rather than spend on an unscrapeable tail (a bot wall, deleted posts). Fix the cause, then arm it again.
+Running - the collection is picked up automatically.
+Paused - nothing new starts; work already queued still finishes.
+Complete - the budget is used up, or there is nothing left to enrich.
+Needs attention - it queued work three times in a row without a single video arriving, so it stopped rather than keep spending. Fix the cause, then arm it again.
 
-The second line reads the truth in the data rather than the ledger: how many view items over how many days, what share of them is scraped and annotated, and how many days now clear the analysis floor (10 or more annotated rows on the day) against the 14 active days Timelines needs. The cursors say how far back each of the two processes has walked.") }}
+The second line is measured from the data itself, not from the plan, so it stays true even if you queue work by hand: how many videos this person watched, how many of them are fetched and described, and how many days are ready to analyse.
+
+A day is analysis-ready once at least ten of the videos watched that day have been described. Days are the unit every analysis works in, and about fourteen ready days is the point where the tabs start to have something to say.") }}
                 </div>
                 <div id="dm-enrich-progress" class="text-sm" style="margin-bottom: 10px;"></div>
 
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 14px;">
                     <label class="text-sm" style="display: block;">
-                        <span class="meta-tooltip tooltip-wide" data-tooltip="The most items this collection may ever spend, across every cycle (0 = unlimited).
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="The total number of videos this plan may ever pay for, counted from the first time it was armed.
 
-Spend is counted at the handoff, when scraped items are passed to annotation - so it counts what was actually bought, not what was optimistically queued. When the budget runs out the plan finishes.
+It is a running total, not a fresh allowance each time you come back: to buy more, raise it ABOVE the number already spent. Setting it at or below that number ends the plan instead, and every cycle then does nothing.
 
-It is a lifetime total, not a per-run allowance: to give a completed plan more work, raise this ABOVE the number already spent (shown in the status line) and arm it again. Setting it below what is spent finishes the plan instead, and every tick then does nothing.">Item budget</span>
+A video is charged once, at the moment it has been fetched and is handed over to be described - so you pay for what actually arrived, not for what was attempted. The range under the box is what is left to buy in this collection.">Item budget</span>
                         <input type="number" id="dm-enrich-item-budget" class="control-input" min="0" step="50"
                             style="width: 100%; padding: 6px;">
+                        <div id="dm-enrich-budget-hint" class="text-xs"
+                            style="margin-top: 2px; color: var(--color-text-muted);"></div>
                     </label>
                     <label class="text-sm" style="display: block;">
-                        <span class="meta-tooltip tooltip-wide" data-tooltip="How many items one cycle queues for scraping, split between the two processes by the spread share.
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="How many videos each cycle picks up, split between the two ways of buying days below.
 
-A cycle can overshoot this by up to one deep-dive day plus one spread day: neither process ever splits a day, because a half-covered day is worth nothing to the analyses. The item budget still bounds the total.">Items per cycle</span>
+Smaller cycles report back sooner and keep the spend visible; larger ones waste less time waiting between steps.
+
+A cycle can go a little over this number, because neither half of it will ever buy half a day - a partly covered day is worth almost nothing to the analyses. The item budget still bounds the total.">Items per cycle</span>
                         <input type="number" id="dm-enrich-cycle-items" class="control-input" min="1" step="50"
                             style="width: 100%; padding: 6px;">
                     </label>
                     <label class="text-sm" style="display: block;">
-                        <span class="meta-tooltip tooltip-wide" data-tooltip="How each cycle's items are split between the two processes.
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="How each cycle is divided between two ways of buying days.
 
-Deep dive (Process B) takes EVERY view item of consecutive days, most recent first, uncapped. It is the only thing that buys Sessions, and it gives Timelines and Correlations honest per-day denominators.
+Deep dive takes every video from the most recent days, one whole day after another, working backwards. This is the only thing that makes viewing sessions analysable, and it gives the trends and correlations honest day-by-day totals.
 
-Spread (Process A) takes a couple of whole days per calendar month, each capped, walking backwards month by month. It buys the long arc for Timelines, breadth for Semantic Space, and extra qualifying days for Correlations.
+Spread takes a couple of whole days out of each month instead, walking back through the person's history. This is what buys the long arc: the year-scale trends, the breadth of topics, and extra usable days for the correlations.
 
-Both buy WHOLE days because every analysis here is floored on the collection-day: Correlations drops a day under 10 annotated rows and refuses to run below 10 surviving days, Sessions needs contiguous plays from one sitting, Timelines needs 14 or more active days. A few videos on every day is worth almost nothing.
+Both buy WHOLE days on purpose. Every analysis here groups by the day, and a day with only a handful of described videos is dropped - so a thin scattering of videos across every day buys almost nothing.
 
-Set to 0% for deep dive only, 100% for spread only.">Spread share</span> <span id="dm-enrich-share-label"></span>
+0% is deep dive only; 100% is spread only.">Spread share</span> <span id="dm-enrich-share-label"></span>
                         <input type="range" id="dm-enrich-sample-share" min="0" max="100" step="5"
                             style="width: 100%;" oninput="dmEnrichShareLabel()">
                     </label>
                     <label class="text-sm" style="display: block;">
-                        <span class="meta-tooltip tooltip-wide" data-tooltip="How many whole days the spread buys out of each calendar month, walking backwards.
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="How many whole days the spread buys out of each calendar month as it works backwards.
 
-The days are drawn by a seeded random sample among those that clear the 10-item floor and that the deep dive has not already taken whole. Seeded, so re-planning from the same cursor picks the same days; random rather than busiest, because picking the busiest days would bias Timelines' trends towards heavy-usage days.">Spread days / month</span>
+The days are drawn at random from those with enough activity that the deep dive has not already taken - but the same way every time, so re-running a plan picks the same days rather than churning.
+
+Random rather than the busiest days: always choosing the busiest would make the person's viewing look heavier than it was.">Spread days / month</span>
                         <input type="number" id="dm-enrich-days-per-month" class="control-input" min="0" max="31"
                             style="width: 100%; padding: 6px;">
                     </label>
                     <label class="text-sm" style="display: block;">
-                        <span class="meta-tooltip tooltip-wide" data-tooltip="The most items the spread enriches on one sampled day, counting what is already scraped there. A day that is already at the cap is skipped.
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="The most videos the spread will pay for on one of its sampled days, counting the ones already fetched. A day that is already at this number is skipped.
 
-Deep-dive days are not capped - they take the whole day.">Spread items / day</span>
+Deep-dive days are not capped - they take the whole day, however busy it was.">Spread items / day</span>
                         <input type="number" id="dm-enrich-day-cap" class="control-input" min="1"
                             style="width: 100%; padding: 6px;">
                     </label>
                     <label class="text-sm" style="display: block;">
-                        <span class="meta-tooltip tooltip-wide" data-tooltip="Optional floor. Neither process ever plans a day before this date. Leave it empty to walk back through the collection's whole history.">Earliest date</span>
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="Optional. Nothing before this date is ever bought, by either half of the cycle. Leave it empty to work back through the person's whole history.">Earliest date</span>
                         <input type="date" id="dm-enrich-earliest" class="control-input"
                             style="width: 100%; padding: 6px;">
                     </label>
                     <label class="text-sm" style="display: flex; align-items: center; gap: 6px; align-self: end;">
                         <input type="checkbox" id="dm-enrich-annotate-existing" style="margin: 0;">
-                        <span class="meta-tooltip tooltip-wide" data-tooltip="Off (the default): the handoff annotates only the videos this plan queued for scraping itself.
+                        <span class="meta-tooltip tooltip-wide" data-tooltip="Off (normal): the plan only describes videos it fetched itself.
 
-Scraped-but-unannotated is a legitimate steady state elsewhere in the corpus - a metadata-only study, a deliberately partial annotation - not a backlog for this loop to drain, so arming a plan must not sweep pre-existing scrapes into the annotation queue.
+Videos fetched at some earlier point and never described are usually that way deliberately - a study that only needed the metadata, say - so a fresh plan should not sweep them up and charge them to this budget.
 
-On: every already-scraped but unannotated video of this collection is queued too. A deliberate catch-up, charged to the item budget.">Also annotate already-scraped videos</span>
+On: every already-fetched but undescribed video in this collection is queued as well. That is a real catch-up job, and on a collection with a backlog it can use the whole budget before a single new video is fetched.">Also annotate already-scraped videos</span>
                     </label>
                 </div>
 
                 <div style="margin-top: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <button type="button" class="action-btn text-sm meta-tooltip tooltip-wide" id="dm-enrich-arm-btn"
-                        data-tooltip="Arm this collection: the supervisor picks it up on its next tick and keeps cycling until the budget is spent or the history runs out. Pause stops new cycles - anything already in a queue still finishes. Arming also saves the settings above."
-                        onclick="dmEnrichToggleArmed()">Arm</button>
+                        data-tooltip="Arm hands this collection to the loop: it gets picked up automatically from then on, and keeps going until the budget is spent or there is nothing left to buy. Arming also saves the settings above.
+
+Pause stops new work starting. Anything already queued still finishes.
+
+On a plan that has finished, the button reads Arm again - raise the item budget first, or there is nothing for it to do.">Arm</button>
                     <button type="button" class="action-btn btn-secondary text-sm meta-tooltip tooltip-wide" id="dm-enrich-save-btn"
-                        data-tooltip="Write these settings to the enrichment ledger. Separate from the modal's own Save button, which never touches them. Changing a setting mid-plan does not rewind the cursors - it applies from the next cycle."
-                        onclick="dmEnrichSave()">Save settings</button>
+                        data-tooltip="Store these settings without arming anything. Separate from the modal's own Save button at the bottom, which never touches them.
+
+Changing a setting does not undo what has already been bought - it applies from the next cycle onwards.">Save settings</button>
                     <button type="button" class="btn-discreet text-xs meta-tooltip tooltip-wide" id="dm-enrich-tick-btn"
-                        data-tooltip="Fire one supervisor tick for this collection right now: it drains a queue, consolidates, hands off or plans - whichever the loop is due. Works even while site-wide automatic enrichment is off, which is how you watch one collection run before enabling it."
-                        onclick="dmEnrichTick()">Run a cycle now</button>
+                        data-tooltip="Runs one step of the loop right now instead of waiting for the next automatic tick. It does one thing per click: queue the next batch of videos to fetch, start a fetch or a describe job, or fold finished work back in.
+
+Hover again once the panel has loaded - this tip then says what a cycle would actually do for this collection.">Run a cycle now</button>
                     <span id="dm-enrich-msg" class="text-xs" style="color: var(--color-text-tertiary);"></span>
                 </div>
             </div>

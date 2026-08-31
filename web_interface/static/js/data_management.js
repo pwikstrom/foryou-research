@@ -5237,6 +5237,11 @@ const _EDIT_COLLECTION_COLUMNS = [
     { label: 'Activities', sortType: 'number' },
     { label: 'Active Days', sortType: 'number' },
     {
+        label: 'Auto enrichment', sortType: 'text',
+        title: 'Whether this collection is scraping and annotating itself. '
+            + 'Blank means nobody has set it up. Open the collection to change it.',
+    },
+    {
         label: _COVERAGE_COLUMN_LABEL, sortType: 'number',
         title: 'Share of the collection\u2019s viewing activities whose video is '
             + 'scraped / annotated \u2014 the same figure a participant sees in My Collections',
@@ -5259,6 +5264,51 @@ const _EDIT_COLLECTION_DETAILS = [
     { label: 'Campaign', get: c => c.participants?.campaign ?? '' },
     { label: 'Donation type', get: c => c.participants?.donationType ?? '' },
 ];
+
+
+// How a plan's ledger state reads to a person, in the table and in the panel.
+// `null` (never set up) is deliberately blank rather than "Off": the table
+// should draw the eye to the few collections that ARE enriching themselves.
+const _ENRICHMENT_STATE_LABELS = {
+    running: 'Running',
+    paused: 'Paused',
+    done: 'Complete',
+    blocked: 'Needs attention',
+};
+
+function _dmSetEnrichmentStateCell(td, state) {
+    const label = _ENRICHMENT_STATE_LABELS[state] || '';
+    td.textContent = label;
+    td.dataset.sortValue = label;
+    td.style.fontWeight = state === 'running' ? 'var(--weight-bold)' : '';
+    td.style.color = state === 'blocked' ? 'var(--color-danger, #c0392b)'
+        : (label ? 'var(--color-text-tertiary)' : '');
+}
+
+
+function _dmEnrichmentStateCell(collectionId, state) {
+    const td = document.createElement('td');
+    td.className = 'enrichment-state-cell';
+    td.style.padding = '5px';
+    td.style.whiteSpace = 'nowrap';
+    td.dataset.collectionId = collectionId;
+    _dmSetEnrichmentStateCell(td, state);
+    return td;
+}
+
+
+// Keep the table honest after the modal changes a plan, without refetching the
+// whole listing while the operator is still working in the modal.
+function dmEnrichSyncTableRow(collectionId, state) {
+    const obj = availableCollections.find(
+        c => (typeof c === 'object' ? c.id : c) === collectionId);
+    if (obj && typeof obj === 'object') obj.enrichment_state = state;
+    document.querySelectorAll('td.enrichment-state-cell').forEach(td => {
+        if (td.dataset.collectionId === collectionId) {
+            _dmSetEnrichmentStateCell(td, state);
+        }
+    });
+}
 
 
 // Demographics no longer live on the collection — they belong to the linked
@@ -5416,7 +5466,8 @@ function renderEditActivityTable(container) {
             // four-digit one, which is what a person types.
             searchString = `${item} ${pDisplayId} ${pTags} ${pAccount} ${pAccountId} ${pTimezone} `
                 + `${pActiveDays} ${pTotalEvents} ${pFirstEvent} ${fypWallDate(rawFirstEvent, '')} `
-                + `${pAdded} ${fypFmtDate(rawAdded, '')}`;
+                + `${pAdded} ${fypFmtDate(rawAdded, '')} `
+                + `${_ENRICHMENT_STATE_LABELS[itemInfo.enrichment_state] || ''}`;
         }
 
         const tr = document.createElement('tr');
@@ -5487,6 +5538,8 @@ function renderEditActivityTable(container) {
         tr.appendChild(createCell(pAdded, false, fypFmtDate(rawAdded, null), _dmSortTs(rawAdded)));
         tr.appendChild(createCell(pTotalEvents));
         tr.appendChild(createCell(pActiveDays));
+        tr.appendChild(_dmEnrichmentStateCell(
+            item, typeof itemInfo === 'object' ? itemInfo.enrichment_state : null));
         tr.appendChild(_dmCoverageCell(item));
 
         tbody.appendChild(tr);
@@ -5985,7 +6038,7 @@ function dmEnrichMsg(text, isError = false) {
     el.style.color = isError ? 'var(--color-danger, #c0392b)' : 'var(--color-text-tertiary)';
 }
 
-function dmEnrichFillSettings(settings) {
+function dmEnrichFillSettings(settings, progress = {}) {
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     set('dm-enrich-item-budget', settings.item_budget ?? 2000);
     set('dm-enrich-cycle-items', settings.cycle_items ?? 400);
@@ -5995,7 +6048,36 @@ function dmEnrichFillSettings(settings) {
     set('dm-enrich-earliest', settings.earliest_date || '');
     const ae = document.getElementById('dm-enrich-annotate-existing');
     if (ae) ae.checked = !!settings.annotate_existing;
+    dmEnrichBudgetBounds(progress);
     dmEnrichShareLabel();
+}
+
+// The item budget is a running total, so only one window of values does
+// anything: at or below what the plan has already spent it stops the plan, and
+// above what is left in the collection it cannot be reached. Bound the input to
+// that window and say what the two ends mean, so the number can't be typed into
+// a dead zone. Cleared (the collection has no coverage figures yet) the field
+// is left unbounded rather than guessed at.
+function dmEnrichBudgetBounds(progress = {}) {
+    const el = document.getElementById('dm-enrich-item-budget');
+    const hint = document.getElementById('dm-enrich-budget-hint');
+    const floor = progress.budget_floor ?? 0;
+    const ceiling = progress.budget_ceiling ?? 0;
+    if (!el) return;
+    if (!ceiling || ceiling <= floor) {
+        el.removeAttribute('max');
+        el.min = '0';
+        if (hint) hint.textContent = '';
+        return;
+    }
+    el.min = String(floor);
+    el.max = String(ceiling);
+    if (hint) {
+        hint.textContent = floor > 0
+            ? `${floor.toLocaleString()} spent so far; `
+              + `${ceiling.toLocaleString()} would finish the collection`
+            : `up to ${ceiling.toLocaleString()} \u2014 the whole collection`;
+    }
 }
 
 function dmEnrichReadSettings() {
@@ -6011,64 +6093,111 @@ function dmEnrichReadSettings() {
     };
 }
 
+// Plain-language state names. The ledger's own words ("done", "blocked") are
+// for the code; these are what the operator reads in the panel and the table.
+function dmEnrichStateLabel(state) {
+    return { running: 'Running', paused: 'Paused', done: 'Complete',
+             blocked: 'Needs attention' }[state] || state;
+}
+
+
+// What "Run a cycle now" would do from here, and — when it would do nothing —
+// why. The button is never disabled for a plan reason (a disabled button eats
+// its own hover tooltip in most browsers, so the explanation would be
+// unreachable exactly when it is needed); it is only disabled while a cycle
+// this panel started is still reporting back.
+function dmEnrichTickTooltip(armed, state, progress) {
+    const base = 'Runs one step of the loop right now instead of waiting for '
+               + 'the next automatic tick. It does one thing per click: queue '
+               + 'the next batch of videos to fetch, start a fetch or a describe '
+               + 'job, or fold finished work back in.';
+    if (!armed) {
+        return 'This collection has no plan yet, so a cycle has nothing to run. '
+             + 'Press "Save settings" (or "Arm") first, then try again.';
+    }
+    const spent = progress.spent_items ?? 0;
+    const budget = progress.item_budget ?? 0;
+    if (budget && spent >= budget) {
+        return `The item budget (${budget.toLocaleString()}) is already fully `
+             + `spent, so a cycle will find nothing to do. Raise the budget `
+             + `above ${spent.toLocaleString()} and arm the plan first. ` + base;
+    }
+    if (state === 'blocked') {
+        return 'This plan stopped itself because the work it queued was not '
+             + 'getting done. A cycle will run, but fix the cause first or it '
+             + 'will stop again. ' + base;
+    }
+    if (state === 'paused') {
+        return 'This plan is paused, so nothing happens on its own — but this '
+             + 'button still runs one cycle by hand. ' + base;
+    }
+    return base;
+}
+
+
 function dmEnrichRender(data) {
     dmEnrichArmed = !!data.armed;
     const progress = data.progress || {};
     dmEnrichState = progress.state || null;
+    dmEnrichSyncTableRow(dmEnrichCollectionId, dmEnrichArmed ? dmEnrichState : null);
+
+    const spent = progress.spent_items ?? 0;
+    const budget = progress.item_budget ?? 0;
 
     const statusEl = document.getElementById('dm-enrich-status-line');
     if (statusEl) {
         let line;
         if (!dmEnrichArmed) {
-            line = 'Not armed. Save settings and arm to enrich this collection automatically.';
+            line = 'Not set up yet. Choose how much to spend below, then press Arm '
+                 + 'to let this collection enrich itself.';
         } else {
-            const stateLabel = {
-                running: 'Running', paused: 'Paused', done: 'Complete',
-                blocked: 'Blocked (needs attention)',
-            }[dmEnrichState] || dmEnrichState;
-            const spent = progress.spent_items ?? 0;
-            const budget = progress.item_budget ?? 0;
-            line = `${stateLabel} — ${spent}${budget ? ` / ${budget}` : ''} items spent, `
-                 + `${progress.cycles ?? 0} cycle(s).`;
-            if (progress.last_error) line += ` Last error: ${progress.last_error}`;
+            line = `${dmEnrichStateLabel(dmEnrichState)} — ${spent.toLocaleString()}`
+                 + `${budget ? ` of ${budget.toLocaleString()}` : ''} videos bought so far, `
+                 + `over ${progress.cycles ?? 0} cycle(s).`;
+            if (progress.last_error) line += ` Last problem: ${progress.last_error}`;
             // The budget is a LIFETIME cap, not a per-run allowance, so once
             // spend has reached it every tick is a no-op — including "Run a
             // cycle now". Say so, and name the number that has to be beaten:
             // lowering the budget below what is already spent silently kills
             // the plan, which is indistinguishable from a broken loop.
             if (budget && spent >= budget) {
-                line += ` The item budget is everything this plan has ever spent,`
-                      + ` so it is used up: raise it above ${spent.toLocaleString()}`
-                      + ` and arm the plan to buy more.`;
+                line += ` The budget is a running total, so it is used up:`
+                      + ` raise it above ${spent.toLocaleString()} and arm the plan`
+                      + ` to buy more.`;
             }
         }
         if (!data.enabled_site_wide) {
-            line += ' Site-wide automatic enrichment is OFF (Admin settings) — '
-                  + 'only "Run a cycle now" works until it is enabled.';
+            line += ' Automatic enrichment is switched off for the whole site '
+                  + '(Admin \u2192 Site Settings), so nothing runs on its own — '
+                  + '"Run a cycle now" still works.';
         }
         statusEl.textContent = line;
     }
 
+    // Coverage is reported per VIDEO, because that is what a budget buys: a
+    // video is scraped and annotated once, however many days it was watched on.
     const progEl = document.getElementById('dm-enrich-progress');
     if (progEl) {
-        if (progress.total_items) {
-            const pctS = progress.total_items ? Math.round(100 * progress.scraped_items / progress.total_items) : 0;
-            const pctA = progress.total_items ? Math.round(100 * progress.annotated_items / progress.total_items) : 0;
+        const videos = progress.unique_items || 0;
+        if (videos) {
+            const pct = (n) => Math.round(100 * (n || 0) / videos);
             const parts = [
-                `${progress.total_items.toLocaleString()} view items over ${progress.total_days} day(s)`,
-                `${pctS}% scraped / ${pctA}% annotated`,
-                `${progress.qualifying_days} of ~${progress.milestone_days} analysis-ready days (${progress.milestone_pct}%)`,
+                `${videos.toLocaleString()} videos watched over ${progress.total_days} days`,
+                `scraped ${(progress.unique_scraped || 0).toLocaleString()} (${pct(progress.unique_scraped)}%)`,
+                `annotated ${(progress.unique_annotated || 0).toLocaleString()} (${pct(progress.unique_annotated)}%)`,
+                `${progress.qualifying_days} analysis-ready days (${progress.milestone_days} needed)`,
             ];
             if (progress.b_cursor || progress.a_cursor) {
-                parts.push(`deep dive back to ${progress.b_cursor || '—'}, spread back to ${progress.a_cursor || '—'}`);
+                parts.push(`bought back to ${progress.b_cursor || '\u2014'} (deep dive)`
+                         + ` and ${progress.a_cursor || '\u2014'} (spread)`);
             }
-            progEl.textContent = parts.join(' · ');
+            progEl.textContent = parts.join(' \u00b7 ');
         } else {
             progEl.textContent = '';
         }
     }
 
-    dmEnrichFillSettings(data.settings || {});
+    dmEnrichFillSettings(data.settings || {}, progress);
 
     const armBtn = document.getElementById('dm-enrich-arm-btn');
     if (armBtn) {
@@ -6077,8 +6206,11 @@ function dmEnrichRender(data) {
             : (dmEnrichState === 'done' ? 'Arm again' : 'Arm');
     }
     const tickBtn = document.getElementById('dm-enrich-tick-btn');
-    if (tickBtn) tickBtn.disabled = !dmEnrichArmed;
+    if (tickBtn) {
+        tickBtn.dataset.tooltip = dmEnrichTickTooltip(dmEnrichArmed, dmEnrichState, progress);
+    }
 }
+
 
 function dmEnrichLoad(collectionId) {
     const group = document.getElementById('edit-collection-enrichment-group');
@@ -6118,17 +6250,42 @@ function dmEnrichPost(payload, busyMsg) {
         .catch(err => { dmEnrichMsg(`Save failed: ${err}`, true); return null; });
 }
 
+// A number input's min/max only bind its spinner — a typed value sails past
+// them. Pull the budget back into the window before saving and say so, rather
+// than letting a below-the-spend number quietly finish the plan.
+function dmEnrichClampBudget() {
+    const el = document.getElementById('dm-enrich-item-budget');
+    if (!el || !el.max) return null;
+    const floor = Number(el.min), ceiling = Number(el.max);
+    const typed = Number(el.value);
+    if (!Number.isFinite(typed)) return null;
+    const clamped = Math.max(floor, Math.min(ceiling, typed));
+    if (clamped === typed) return null;
+    el.value = String(clamped);
+    return typed < floor
+        ? `The budget counts everything already spent, so ${typed.toLocaleString()} `
+          + `would stop the plan. Raised to ${clamped.toLocaleString()}.`
+        : `Only ${clamped.toLocaleString()} videos are left to buy in this `
+          + `collection, so the budget was capped there.`;
+}
+
 function dmEnrichSave() {
+    const note = dmEnrichClampBudget();
     dmEnrichPost({ settings: dmEnrichReadSettings() }).then(d => {
-        if (d) dmEnrichMsg('Settings saved.');
+        if (d) dmEnrichMsg(note ? `Settings saved. ${note}` : 'Settings saved.');
     });
 }
 
 function dmEnrichToggleArmed() {
     const next = (dmEnrichArmed && dmEnrichState === 'running') ? 'paused' : 'running';
+    const note = next === 'running' ? dmEnrichClampBudget() : null;
     dmEnrichPost({ state: next, settings: dmEnrichReadSettings() },
                  next === 'running' ? 'Arming...' : 'Pausing...')
-        .then(d => { if (d) dmEnrichMsg(next === 'running' ? 'Armed.' : 'Paused.'); });
+        .then(d => {
+            if (!d) return;
+            const base = next === 'running' ? 'Armed.' : 'Paused.';
+            dmEnrichMsg(note ? `${base} ${note}` : base);
+        });
 }
 
 // What one supervisor tick decided, in the operator's words. Both tick paths
