@@ -6135,6 +6135,7 @@ function dmEnrichCyclesDuration(cycles) {
 }
 
 function dmEnrichTargetReadout(target) {
+    dmEnrichTargetWarning(target);
     const el = document.getElementById('dm-enrich-target-readout');
     const pctEl = document.getElementById('dm-enrich-target-pct');
     const total = dmEnrichProgressCache.unique_items || 0;
@@ -6277,11 +6278,13 @@ function dmEnrichChartShapes() {
 // days for the deep dive, then capped days per month walking backwards for
 // the spread (which in reality draws its days at random; here the newest
 // eligible ones stand in). The shape of the outcome, not the exact days.
-function _dmEnrichPlanEstimate(daily) {
+function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
     const n = daily.dates.length;
     const planned = new Array(n).fill(0);
     const annotatedTotal = dmEnrichProgressCache.target_floor ?? 0;
-    let remaining = Math.max(0, (dmEnrichTargetValue || 0) - annotatedTotal);
+    let remaining = remainingOverride !== null
+        ? remainingOverride
+        : Math.max(0, (dmEnrichTargetValue || 0) - annotatedTotal);
     if (!remaining) return planned;
 
     const num = (id, dflt) => {
@@ -6331,10 +6334,63 @@ function _dmEnrichPlanEstimate(daily) {
     return planned;
 }
 
+// What the CURRENT settings can ever reach: the estimate run with no target
+// bound. Only two things make this fall short of the reachable ceiling — a
+// 100%-spread balance (its month/day limits cap the total) and an
+// earliest-date floor; any deep-dive share walks the whole history
+// eventually. Same code path as the red line, so it moves with it.
+function dmEnrichSettingsReachable() {
+    if (!dmEnrichDailyCache) return null;
+    const annotated = dmEnrichProgressCache.target_floor ?? 0;
+    const total = dmEnrichProgressCache.unique_items || 0;
+    const planned = _dmEnrichPlanEstimate(dmEnrichDailyCache, total);
+    return annotated + planned.reduce((a, b) => a + b, 0);
+}
+
+// The amber warning under the target row: shown when the chosen target sits
+// above what the current settings can reach, naming the number and the
+// binding setting. A signal, not a block — the estimate is approximate, the
+// settings can be changed later, and an unreachable target wastes nothing
+// (the plan simply goes idle early).
+function dmEnrichTargetWarning(target) {
+    const el = document.getElementById('dm-enrich-target-warning');
+    if (!el) return;
+    const reachable = dmEnrichSettingsReachable();
+    // Slack absorbs the estimate's roughness so the warning doesn't flicker
+    // at the boundary.
+    const slack = reachable === null ? 0 : Math.max(25, Math.round(reachable * 0.02));
+    if (reachable === null || !target || target <= reachable + slack) {
+        el.style.display = 'none';
+        el.textContent = '';
+        return;
+    }
+    const share = (Number(document.getElementById('dm-enrich-sample-share')?.value) || 0) / 100;
+    const earliest = document.getElementById('dm-enrich-earliest')?.value || '';
+    const causes = [];
+    const fixes = [];
+    if (share >= 1) {
+        causes.push('only spread and its limits');
+        fixes.push('raise the deep-dive share or the spread limits');
+    }
+    if (earliest) {
+        causes.push('the earliest-date floor');
+        fixes.push('move or clear the earliest date');
+    }
+    const cause = causes.length ? `With ${causes.join(' and ')}, ` : '';
+    let fix = fixes.join(', or ');
+    fix = fix ? fix.charAt(0).toUpperCase() + fix.slice(1) + ' to go further.' : '';
+    el.textContent = `\u26a0 ${cause}this plan can reach only `
+        + `\u2248 ${reachable.toLocaleString()} annotated videos \u2014 it will go `
+        + `idle there, below the target. ${fix}`;
+    el.style.display = '';
+}
+
 // Full re-render from the cached daily series — fired by the target slider
-// and every Advanced setting the estimate line depends on.
+// and every Advanced setting the estimate line depends on. The readout and
+// the reachability warning depend on the same inputs, so they ride along.
 function dmEnrichChartRefresh() {
     if (dmEnrichDailyCache) dmEnrichRenderChart(dmEnrichDailyCache);
+    dmEnrichReadoutRefresh();
 }
 
 let dmEnrichDailyCache = null;
@@ -6489,9 +6545,11 @@ function dmEnrichRender(data) {
     }
 
     dmEnrichDrawBar(progress);
-    // Settings first: the chart's dashed cap line reads the day-cap input.
+    // Settings first: the chart's estimate line reads the Advanced inputs.
     dmEnrichFillSettings(data.settings || {}, progress);
     dmEnrichRenderChart(progress.daily);
+    // The reachability warning needs the daily cache the chart just set.
+    dmEnrichReadoutRefresh();
 
     const armBtn = document.getElementById('dm-enrich-arm-btn');
     if (armBtn) {
@@ -6517,10 +6575,12 @@ function dmEnrichResetPanel() {
     const progEl = document.getElementById('dm-enrich-progress');
     if (progEl) progEl.textContent = '';
     for (const id of ['dm-enrich-target', 'dm-enrich-target-pct',
-                      'dm-enrich-target-readout']) {
+                      'dm-enrich-target-readout', 'dm-enrich-target-warning']) {
         const el = document.getElementById(id);
         if (el) el.textContent = '';
     }
+    const warn = document.getElementById('dm-enrich-target-warning');
+    if (warn) warn.style.display = 'none';
     dmEnrichProgressCache = {};
     dmEnrichDailyCache = null;
     dmEnrichTargetValue = 0;
