@@ -83,6 +83,14 @@ def _ts_label() -> str:
     return "".join(c for c in str(_dt.datetime.now()) if c in "0123456789")
 
 
+def _delay_phrase(seconds: int) -> str:
+    """'2 minutes' / '90 seconds', for the "checking again in ..." chain line."""
+    if seconds >= 60 and seconds % 60 == 0:
+        mins = seconds // 60
+        return "1 minute" if mins == 1 else f"{mins} minutes"
+    return f"{seconds} seconds"
+
+
 def _log(reporter, message: str) -> None:
     """reporter.log for the in-card feed.
 
@@ -411,11 +419,22 @@ def _run_phase(reporter, task_args, batch, data_io):
     next_args["phase"] = "run"
     next_args["format"] = 2
     data_io.save_json(data=next_args, storage_location="cache", filename=JOB_STATE_FILE)
+
+    # This link ends here — the next poll is a separately dispatched task
+    # ~_POLL_DELAY_S later, on a fresh instance. Only the first link of a
+    # backlog actually starts a new batch, so the generic "Chained to next
+    # batch" read as if a batch were being submitted every two minutes.
+    wait = _delay_phrase(_POLL_DELAY_S)
+    n_jobs = len(run["jobs"])
+    chain_msg = (f"{n_jobs} job(s) still in flight — checking again in {wait}."
+                 if n_jobs else
+                 f"No job in flight — trying the queue again in {wait}.")
     return {
         "chain": True,
         "next_task_args": next_args,
         "dispatch_deadline_seconds": 1800,
         "next_dispatch_delay_seconds": _POLL_DELAY_S,
+        "chain_log_message": chain_msg,
     }
 
 

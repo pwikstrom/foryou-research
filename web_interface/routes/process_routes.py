@@ -960,7 +960,11 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
                     schedule_delay_seconds=chain_result.get("next_dispatch_delay_seconds"),
                 )
                 if success:
-                    reporter.log(f"Chained to next batch: {msg}")
+                    # A worker that chains for a reason other than "here comes
+                    # the next batch" (the batch annotator re-polling the same
+                    # Gemini job, say) can supply its own wording.
+                    reporter.log(chain_result.get("chain_log_message")
+                                 or f"Chained to next batch: {msg}")
                 else:
                     reporter.fail(f"Chain dispatch failed: {msg}")
                     # A broken hand-off used to leave no stats row at all —
