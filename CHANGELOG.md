@@ -46,6 +46,21 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **The enrichment loop overlaps its work.** The supervisor's all-workers busy
+  gate became per-lane: the next cycle's scrape now runs while the current
+  cycle's annotation batch is still in flight, and the two consolidations at a
+  cycle boundary merge into one. The batch annotator keeps up to four Gemini
+  Batch jobs in flight concurrently (turnaround is a fixed cost per job, so
+  serial jobs wasted whole turnarounds); the handoff skips any video already
+  claimed by an in-flight job, so nothing is ever annotated — or paid for —
+  twice. The expensive downstream analysis refresh is deferred while a plan
+  runs: mid-plan consolidations are core-only and accumulate their impact,
+  and the full chain runs once when the loop goes quiet (with a 24-hour
+  staleness backstop); the panel notes the deferral. A new *Auto* mode for
+  Items per cycle (default for new plans) sizes each cycle to fill one full
+  set of concurrent annotation jobs without overshooting the target. Together
+  these cut a representative 10,000-video plan from ~10 h to ~3 h at the same
+  cost.
 - **The enrichment panel narrates itself.** The status line moved down beside
   the buttons and now says what the machinery is doing right now — scraping,
   annotating, or consolidating, with the running worker's own progress note

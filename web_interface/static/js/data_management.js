@@ -6077,9 +6077,50 @@ const DM_ENRICH_ACTIVITY_LABELS = {
     consolidating: 'consolidating results now',
 };
 
+// Mirrors the supervisor's auto-cycle cap (MAX_CONCURRENT_JOBS x the
+// annotator's job slice): one cycle = at most one full set of concurrent
+// Gemini jobs, so its annotation is ~one job turnaround.
+const DM_ENRICH_AUTO_CYCLE_CAP = 8000;
+
+function dmEnrichEffectiveCycleItems() {
+    const auto = !!document.getElementById('dm-enrich-cycle-auto')?.checked;
+    if (!auto) {
+        return Number(document.getElementById('dm-enrich-cycle-items')?.value) || 400;
+    }
+    const target = dmEnrichTargetValue || 0;
+    const annotated = dmEnrichProgressCache.target_floor ?? 0;
+    const remaining = Math.max(1, target - annotated);
+    return Math.min(remaining, DM_ENRICH_AUTO_CYCLE_CAP);
+}
+
+// Auto disables the number input and shows what the supervisor resolved last
+// cycle (or the client-side estimate before the first one).
+function dmEnrichCycleAutoApply() {
+    const box = document.getElementById('dm-enrich-cycle-auto');
+    const input = document.getElementById('dm-enrich-cycle-items');
+    if (!box || !input) return;
+    input.disabled = box.checked;
+    if (box.checked) {
+        input.value = dmEnrichProgressCache.last_auto_cycle_items
+            || dmEnrichEffectiveCycleItems();
+    }
+}
+
+function dmEnrichCycleAutoToggle() {
+    dmEnrichCycleAutoApply();
+    dmEnrichReadoutRefresh();
+}
+
 function dmEnrichFillSettings(settings, progress = {}) {
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     set('dm-enrich-cycle-items', settings.cycle_items ?? 400);
+    const autoBox = document.getElementById('dm-enrich-cycle-auto');
+    if (autoBox) {
+        // Default: Auto for collections with NO plan yet; a saved plan keeps
+        // its stored choice (the server default is false, deliberately — see
+        // DEFAULT_SETTINGS).
+        autoBox.checked = settings.cycle_items_auto ?? !dmEnrichArmed;
+    }
     set('dm-enrich-sample-share', Math.round((settings.sample_share ?? 0.5) * 100));
     set('dm-enrich-days-per-month', settings.a_days_per_month ?? 2);
     set('dm-enrich-day-cap', settings.a_day_cap ?? 50);
@@ -6097,6 +6138,8 @@ function dmEnrichFillSettings(settings, progress = {}) {
     dmEnrichTargetValue = target;
     dmEnrichTargetBounds(progress);
     dmEnrichTargetSync(target);
+    // After the target is known: Auto's displayed value depends on it.
+    dmEnrichCycleAutoApply();
 }
 
 // ---- Annotation target: number field + log slider + bar marker ------------ #
@@ -6183,7 +6226,7 @@ function dmEnrichTargetReadout(target) {
         parts.push(`\u2248 $${usd < 10 ? usd.toFixed(2) : Math.round(usd).toLocaleString()}`
                    + (model ? ` (${model})` : ''));
     }
-    const cycleItems = Number(document.getElementById('dm-enrich-cycle-items')?.value) || 400;
+    const cycleItems = dmEnrichEffectiveCycleItems();
     const cycles = Math.ceil(more / cycleItems);
     parts.push(`\u2248 ${cycles.toLocaleString()} cycle(s), ${dmEnrichCyclesDuration(cycles)}`);
     el.textContent = parts.join(' \u00b7 ');
@@ -6239,6 +6282,7 @@ function dmEnrichReadSettings() {
     return {
         annotation_target: dmEnrichTargetValue,
         cycle_items: num('dm-enrich-cycle-items'),
+        cycle_items_auto: !!document.getElementById('dm-enrich-cycle-auto')?.checked,
         sample_share: num('dm-enrich-sample-share') / 100,
         a_days_per_month: num('dm-enrich-days-per-month'),
         a_day_cap: num('dm-enrich-day-cap'),
@@ -6538,6 +6582,8 @@ function dmEnrichRender(data) {
     if (panel && !panel._dmEnrichDirtyHooked) {
         panel._dmEnrichDirtyHooked = true;
         panel.addEventListener('input', dmEnrichButtonsRefresh);
+        // Checkboxes reliably fire 'change'; the refresh is idempotent.
+        panel.addEventListener('change', dmEnrichButtonsRefresh);
     }
     dmEnrichArmed = !!data.armed;
     const progress = data.progress || {};
@@ -6568,6 +6614,9 @@ function dmEnrichRender(data) {
             const next = dmEnrichNextLabel(progress);
             line += ' \u00b7 waiting for the next tick'
                   + (next ? ` \u2014 next: ${next}` : '');
+        }
+        if (dmEnrichArmed && (data.deferred_refresh || {}).pending) {
+            line += ' \u00b7 analyses refresh when the plan completes';
         }
         if (!data.enabled_site_wide) {
             line += ' \u00b7 site-wide auto-enrichment is OFF';
@@ -6663,7 +6712,7 @@ function dmEnrichNextLabel(progress) {
         Math.max(0, (progress.unique_scraped || 0) - (progress.unique_annotated || 0)),
         target - annotated);
     if (backlog) return `annotate the ${backlog.toLocaleString()}-video backlog`;
-    const cycleItems = Number(document.getElementById('dm-enrich-cycle-items')?.value) || 0;
+    const cycleItems = dmEnrichEffectiveCycleItems();
     return cycleItems
         ? `queue ~${cycleItems.toLocaleString()} videos to scrape`
         : 'queue the next videos to scrape';
@@ -6806,6 +6855,8 @@ const DM_ENRICH_TICK_LABELS = {
     disabled: 'automatic enrichment is disabled',
     scrape_stalled: 'the scrape queue is not draining, so the plan was parked',
     annotate_stalled: 'the annotation queue is not draining, so the plan was parked',
+    waiting_consolidate: 'waiting for workers to finish before consolidating',
+    finalize: 'started the deferred analysis refresh',
 };
 
 function dmEnrichTickLabel(action) {

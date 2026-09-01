@@ -1184,7 +1184,8 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
 
     # The other enrichment workers may still be running on separate task-runner
     # instances — read their GCS status (single source of truth across instances).
-    others = [w for w in SCRAPER_PROCESS_NAMES + ["queue_annotator"] if w != just_finished]
+    others = [w for w in SCRAPER_PROCESS_NAMES + ["queue_annotator", "queue_annotator_batch"]
+              if w != just_finished]
     for worker in others:
         st = read_task_status(worker) or {}
         if (st.get("state") or "").lower() == "running":
@@ -1194,7 +1195,7 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
                 if age <= 600:
                     return False
             except (ValueError, TypeError):
-                return  # Malformed heartbeat — treat as running, be safe.
+                return False  # Malformed heartbeat — treat as running, be safe.
 
     # Don't double-fire onto an already-running consolidate.
     cs = read_task_status("consolidate_enrichment") or {}

@@ -300,7 +300,14 @@ def collect_status(hours_back: int = 24) -> dict:
              if prev_queues else "")
         batch = data_io.load_json(storage_location="cache",
                                   filename="annotate_batch_job.json")
-        if batch:
+        if isinstance(batch, dict) and isinstance(batch.get("jobs"), list):
+            jobs = [j for j in batch["jobs"] if isinstance(j, dict)]
+            claimed = sum(len(j.get("submitted_ids") or []) for j in jobs)
+            check(sec, "Annotation batch job", "blue",
+                  f"{len(jobs)} job(s) in flight, {claimed:,} video(s) claimed",
+                  [", ".join(str(j.get("job_name") or "?").rsplit("/", 1)[-1]
+                             for j in jobs)[:300]])
+        elif batch:
             check(sec, "Annotation batch job", "blue", "Batch job in flight",
                   [json.dumps(batch)[:300]])
         else:
@@ -571,9 +578,14 @@ def _stalled_queues(queue_now, stats_doc, now, max_age_days=STALE_QUEUE_DAYS):
     for key, length in sorted(queue_now.items()):
         if not length:
             continue
-        worker = ("queue_annotator" if key == "annotate"
-                  else f"queue_scraper_{key[len('scrape_'):]}")
-        last = _parse_iso((stats_doc.get(worker) or {}).get("last_success"))
+        # The annotate queue has two possible drains (sync and async batch);
+        # whichever ran most recently is the one that counts.
+        workers = (["queue_annotator", "queue_annotator_batch"] if key == "annotate"
+                   else [f"queue_scraper_{key[len('scrape_'):]}"])
+        lasts = [_parse_iso((stats_doc.get(w) or {}).get("last_success")) for w in workers]
+        lasts = [t for t in lasts if t is not None]
+        last = max(lasts) if lasts else None
+        worker = "/".join(workers)
         if last is None or last < now - timedelta(days=max_age_days):
             stalled.append(f"{key}: {length} item(s) waiting, {worker} "
                            f"last succeeded {_ago(last, now)}")

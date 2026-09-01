@@ -99,24 +99,36 @@ class FakeDataIO:
 
 
 class FakeBatch:
+    """Per-job-aware batch API stand-in for the job-table state machine."""
+
     _TERMINAL_FAIL = {"JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED"}
 
-    def __init__(self, state="JOB_STATE_SUCCEEDED", ingest="ok"):
-        self.state = state
-        self.ingest = ingest
+    def __init__(self, default_state="JOB_STATE_SUCCEEDED", states=None,
+                 submit_raise=False, raise_uris=()):
+        self.default_state = default_state
+        self.states = dict(states or {})          # job_name -> state override
+        self.submit_raise = submit_raise
+        self.raise_uris = set(raise_uris)         # output uris whose ingest raises
+        self.submitted = []                       # job names in submission order
+        self.last_ingested_ids = None
 
     def build_and_upload_jsonl(self, slice_ids, ts):
-        return ("gs://b/in.jsonl", list(slice_ids))
+        if self.submit_raise:
+            raise RuntimeError("subboom")
+        return (f"gs://b/in/{ts}.jsonl", list(slice_ids))
 
     def submit_batch_job(self, uri, ts):
-        return ("job/1", "gs://b/out/")
+        name = f"job/{len(self.submitted) + 1}"
+        self.submitted.append(name)
+        return (name, f"gs://b/out/{name}/")
 
     def poll_batch_job(self, name):
-        return self.state
+        return self.states.get(name, self.default_state)
 
     def download_and_ingest(self, uri, ids):
-        if self.ingest == "raise":
+        if uri in self.raise_uris:
             raise RuntimeError("boom")
+        self.last_ingested_ids = [str(i) for i in ids]
         return "raw.json"
 
 
@@ -129,122 +141,229 @@ def notices(monkeypatch):
     return calls
 
 
-def _refine_returns(monkeypatch, df):
+def _refine_echo_ingested(monkeypatch, fake_batch, fail_ids=()):
+    """Refine returns exactly what the fake batch last ingested (ok unless listed)."""
     import fyp.machine_annotation as ma
-    monkeypatch.setattr(ma, "refine_one_raw_annotation_batch",
-                        lambda raw_json_filename, verbose=False: df)
+
+    def _refine(raw_json_filename, verbose=False):
+        ids = fake_batch.last_ingested_ids or []
+        return pd.DataFrame({
+            "item_id": ids,
+            "annotated_ok": [i not in fail_ids for i in ids],
+            "annotated_fail": [i in fail_ids for i in ids],
+        })
+
+    monkeypatch.setattr(ma, "refine_one_raw_annotation_batch", _refine)
 
 
 # --------------------------------------------------------------------------- #
-# Submit phase.
+# Run phase: submitting fills concurrent slots.
 # --------------------------------------------------------------------------- #
-def test_submit_claims_queue_and_emails_submitted(notices):
-    dio = FakeDataIO({"to_annotate.json": ["a", "b", "c"]})
+def test_run_fills_slots_claims_and_emails_submitted_once(notices):
+    ids = [f"v{i}" for i in range(5000)]
+    dio = FakeDataIO({"to_annotate.json": list(ids)})
     rep = FakeReporter()
-    ta = {"phase": "submit", "batch_size": 2000, "chunk_index": 0, "launched_by": "u@x.com"}
+    fb = FakeBatch(default_state="JOB_STATE_RUNNING")
+    ta = {"phase": "run", "batch_size": 2000, "launched_by": "u@x.com"}
 
-    result = worker._submit_phase(rep, ta, FakeBatch(), dio)
+    result = worker._run_phase(rep, ta, fb, dio)
 
-    assert dio.store["to_annotate.json"] == []            # slice claimed out
+    assert fb.submitted == ["job/1", "job/2", "job/3"]     # 2000+2000+1000
+    assert dio.store["to_annotate.json"] == []             # every slice claimed out
     js = dio.store["annotate_batch_job.json"]
-    assert js["phase"] == "poll" and js["launched_by"] == "u@x.com"
-    assert sorted(js["submitted_ids"]) == ["a", "b", "c"]
-    assert result["chain"] is True and result["next_task_args"]["phase"] == "poll"
-    assert rep.data.get("annotate_claimed_len") == 3      # live in-flight indicator
-    assert rep.data.get("annotate_queue_len") == 0        # pending drops immediately on claim
-    assert any("Starting async annotation" in m for m in rep.logs)  # start summary
-    assert any("Batch 1 of 1" in m for m in rep.logs)     # batch numbering
-    assert ("u@x.com", "submitted", {"n_items": 3}) in notices
+    assert js["format"] == 2 and len(js["jobs"]) == 3
+    assert sum(len(j["submitted_ids"]) for j in js["jobs"]) == 5000
+    assert result["chain"] is True and result["next_task_args"]["phase"] == "run"
+    assert rep.data.get("annotate_claimed_len") == 5000    # live in-flight indicator
+    assert rep.data.get("annotate_queue_len") == 0
+    assert any("Starting async annotation" in m for m in rep.logs)
+    assert [k for _, k, _ in notices].count("submitted") == 1
 
 
-def test_submit_does_not_email_after_first_chunk(notices):
-    dio = FakeDataIO({"to_annotate.json": ["a", "b"]})
-    ta = {"phase": "submit", "chunk_index": 1, "launched_by": "u@x.com"}
-    worker._submit_phase(FakeReporter(), ta, FakeBatch(), dio)
-    assert not any(kind == "submitted" for _, kind, _ in notices)
+def test_run_respects_the_concurrency_cap(notices):
+    ids = [f"v{i}" for i in range(20000)]
+    dio = FakeDataIO({"to_annotate.json": list(ids)})
+    fb = FakeBatch(default_state="JOB_STATE_RUNNING")
+    ta = {"phase": "run", "batch_size": 2000}
+
+    result = worker._run_phase(FakeReporter(), ta, fb, dio)
+
+    assert len(fb.submitted) == worker.MAX_CONCURRENT_JOBS
+    assert len(dio.store["to_annotate.json"]) == 20000 - 2000 * worker.MAX_CONCURRENT_JOBS
+    # Next link with everything still running submits nothing further.
+    fb2_count = len(fb.submitted)
+    result = worker._run_phase(FakeReporter(), result["next_task_args"], fb, dio)
+    assert len(fb.submitted) == fb2_count
+    assert result["chain"] is True
+
+
+def test_run_refills_free_slots_when_the_queue_grows(notices):
+    # One job in flight, slots free, new items appear (a handoff landed
+    # mid-run): the same chain absorbs them as additional concurrent jobs.
+    dio = FakeDataIO({"to_annotate.json": ["n1", "n2"]})
+    fb = FakeBatch(default_state="JOB_STATE_RUNNING")
+    ta = {"phase": "run", "batch_size": 2000, "chunk_index": 1,
+          "jobs": [{"job_name": "job/0", "output_uri": "gs://b/out/job/0/",
+                    "jsonl_uri": "", "submitted_ids": ["a", "b"],
+                    "ts_label": "", "batch_no": 1, "submitted_at": ""}]}
+
+    result = worker._run_phase(FakeReporter(), ta, fb, dio)
+
+    js = dio.store["annotate_batch_job.json"]
+    assert len(js["jobs"]) == 2 and fb.submitted == ["job/1"]
+    assert dio.store["to_annotate.json"] == []
+    assert result["chain"] is True
 
 
 # --------------------------------------------------------------------------- #
-# Poll phase.
+# Run phase: completion, totals, and terminal conditions.
 # --------------------------------------------------------------------------- #
-def test_poll_success_single_chunk_emails_completed_only(monkeypatch, notices):
-    _refine_returns(monkeypatch, pd.DataFrame({
-        "item_id": ["a", "b", "c"],
-        "annotated_ok": [True, True, False],
-        "annotated_fail": [False, False, True],
-    }))
-    dio = FakeDataIO({"to_annotate.json": [],
-                      "annotate_batch_job.json": {"submitted_ids": ["a", "b", "c"]}})
+def test_concurrent_jobs_complete_with_correct_totals(monkeypatch, notices):
+    ids = [f"v{i}" for i in range(3000)]
+    dio = FakeDataIO({"to_annotate.json": list(ids)})
+    fb = FakeBatch(default_state="JOB_STATE_RUNNING")
+    ta = {"phase": "run", "batch_size": 2000, "launched_by": "u@x.com"}
+    result = worker._run_phase(FakeReporter(), ta, fb, dio)   # 2 jobs submitted
+
+    fb.default_state = "JOB_STATE_SUCCEEDED"
+    _refine_echo_ingested(monkeypatch, fb, fail_ids={"v0"})
     rep = FakeReporter()
-    ta = {"phase": "poll", "job_name": "job/1", "output_uri": "gs://b/out/",
-          "submitted_ids": ["a", "b", "c"], "chunk_index": 0,
-          "launched_by": "u@x.com", "total_ok": 0, "total_fail": 0}
+    result = worker._run_phase(rep, result["next_task_args"], fb, dio)
 
-    result = worker._poll_phase(rep, ta, FakeBatch(), dio)
-
-    assert result is None                                     # terminal
-    assert "annotate_batch_job.json" not in dio.store         # job state cleared
-    kinds = [kind for _, kind, _ in notices]
-    assert "completed" in kinds and "batch_done" not in kinds  # no redundant email
+    assert result is None                                   # terminal
+    assert "annotate_batch_job.json" not in dio.store       # cleared
+    kinds = [k for _, k, _ in notices]
+    assert "completed" in kinds and "batch_done" not in kinds
     completed = next(d for _, k, d in notices if k == "completed")
-    assert completed == {"total_ok": 2, "total_fail": 1}
+    assert completed == {"total_ok": 2999, "total_fail": 1}
     assert any("All done" in m and "Consolidate & Refresh" in m for m in rep.logs)
+    assert rep.data.get("annotate_claimed_len") == 0
 
 
-def test_poll_multichunk_emails_batch_done_and_chains(monkeypatch, notices):
-    _refine_returns(monkeypatch, pd.DataFrame({
-        "item_id": ["a", "b"],
-        "annotated_ok": [True, True],
-        "annotated_fail": [False, False],
-    }))
-    dio = FakeDataIO({"to_annotate.json": ["x", "y"],   # leftover -> more chunks
-                      "annotate_batch_job.json": {"submitted_ids": ["a", "b"]}})
-    rep = FakeReporter()
-    ta = {"phase": "poll", "job_name": "job/1", "output_uri": "gs://b/out/",
-          "submitted_ids": ["a", "b"], "chunk_index": 0,
-          "launched_by": "u@x.com", "total_ok": 0, "total_fail": 0}
+def test_one_job_completing_while_another_runs_emails_batch_done(monkeypatch, notices):
+    dio = FakeDataIO({"to_annotate.json": []})
+    fb = FakeBatch(states={"job/1": "JOB_STATE_SUCCEEDED",
+                           "job/2": "JOB_STATE_RUNNING"})
+    _refine_echo_ingested(monkeypatch, fb)
+    ta = {"phase": "run", "batch_size": 2000, "chunk_index": 2, "launched_by": "u@x.com",
+          "jobs": [
+              {"job_name": "job/1", "output_uri": "gs://b/out/job/1/", "jsonl_uri": "",
+               "submitted_ids": ["a", "b"], "ts_label": "", "batch_no": 1, "submitted_at": ""},
+              {"job_name": "job/2", "output_uri": "gs://b/out/job/2/", "jsonl_uri": "",
+               "submitted_ids": ["c"], "ts_label": "", "batch_no": 2, "submitted_at": ""},
+          ]}
 
-    result = worker._poll_phase(rep, ta, FakeBatch(), dio)
+    result = worker._run_phase(FakeReporter(), ta, fb, dio)
 
+    assert result["chain"] is True
     na = result["next_task_args"]
-    assert result["chain"] is True and na["phase"] == "submit"
-    assert na["chunk_index"] == 1 and na["launched_by"] == "u@x.com"
-    assert na["total_ok"] == 2 and na["total_fail"] == 0     # running totals carried
-    kinds = [kind for _, kind, _ in notices]
+    assert [j["job_name"] for j in na["jobs"]] == ["job/2"]
+    assert na["total_ok"] == 2
+    kinds = [k for _, k, _ in notices]
     assert "batch_done" in kinds and "completed" not in kinds
-    assert "annotate_batch_job.json" in dio.store            # not cleared mid-run
-    assert rep.data.get("annotate_claimed_len") == 0         # slice ingested
 
 
-def test_poll_ingest_exception_restores_queue_and_emails_failed(notices):
-    dio = FakeDataIO({"to_annotate.json": [],
-                      "annotate_batch_job.json": {"submitted_ids": ["a", "b", "c"]}})
-    ta = {"phase": "poll", "job_name": "job/1", "output_uri": "gs://b/out/",
-          "submitted_ids": ["a", "b", "c"], "launched_by": "u@x.com"}
+def test_one_failed_job_restores_only_its_ids_and_halts_submits(monkeypatch, notices):
+    dio = FakeDataIO({"to_annotate.json": ["x1", "x2"]})   # would-be next slice
+    fb = FakeBatch(states={"job/1": "JOB_STATE_FAILED",
+                           "job/2": "JOB_STATE_SUCCEEDED"})
+    _refine_echo_ingested(monkeypatch, fb)
+    ta = {"phase": "run", "batch_size": 2000, "chunk_index": 2, "launched_by": "u@x.com",
+          "jobs": [
+              {"job_name": "job/1", "output_uri": "gs://b/out/job/1/", "jsonl_uri": "",
+               "submitted_ids": ["a", "b"], "ts_label": "", "batch_no": 1, "submitted_at": ""},
+              {"job_name": "job/2", "output_uri": "gs://b/out/job/2/", "jsonl_uri": "",
+               "submitted_ids": ["c", "d"], "ts_label": "", "batch_no": 2, "submitted_at": ""},
+          ]}
 
-    result = worker._poll_phase(FakeReporter(), ta,
-                                FakeBatch(ingest="raise"), dio)
+    result = worker._run_phase(FakeReporter(), ta, fb, dio)
+
+    assert result is None                                   # halted + drained = done
+    assert fb.submitted == []                               # no new submits after a failure
+    assert sorted(dio.store["to_annotate.json"]) == ["a", "b", "x1", "x2"]  # only job/1 restored
+    assert "annotate_batch_job.json" not in dio.store
+    kinds = [k for _, k, _ in notices]
+    assert "failed" in kinds
+    completed = next(d for _, k, d in notices if k == "completed")
+    assert completed == {"total_ok": 2, "total_fail": 0}    # job/2 still counted
+
+
+def test_ingest_exception_is_isolated_to_its_job(monkeypatch, notices):
+    dio = FakeDataIO({"to_annotate.json": []})
+    fb = FakeBatch(raise_uris={"gs://b/out/job/1/"})
+    _refine_echo_ingested(monkeypatch, fb)
+    ta = {"phase": "run", "batch_size": 2000, "chunk_index": 2, "launched_by": "u@x.com",
+          "jobs": [
+              {"job_name": "job/1", "output_uri": "gs://b/out/job/1/", "jsonl_uri": "",
+               "submitted_ids": ["a", "b"], "ts_label": "", "batch_no": 1, "submitted_at": ""},
+              {"job_name": "job/2", "output_uri": "gs://b/out/job/2/", "jsonl_uri": "",
+               "submitted_ids": ["c"], "ts_label": "", "batch_no": 2, "submitted_at": ""},
+          ]}
+
+    result = worker._run_phase(FakeReporter(), ta, fb, dio)
 
     assert result is None
-    assert sorted(dio.store["to_annotate.json"]) == ["a", "b", "c"]  # restored, not stranded
-    assert "annotate_batch_job.json" not in dio.store                # cleared
-    assert any(k == "failed" and "boom" in str(d.get("error", ""))
+    assert sorted(dio.store["to_annotate.json"]) == ["a", "b"]   # job/1 restored
+    assert any(k == "failed" and "boom" in str(d.get("error", "")) for _, k, d in notices)
+    completed = next(d for _, k, d in notices if k == "completed")
+    assert completed["total_ok"] == 1                        # job/2 ingested fine
+
+
+def test_submit_failure_with_no_jobs_in_flight_stops(notices):
+    dio = FakeDataIO({"to_annotate.json": ["a", "b"]})
+    fb = FakeBatch(submit_raise=True)
+    ta = {"phase": "run", "batch_size": 2000, "launched_by": "u@x.com"}
+
+    result = worker._run_phase(FakeReporter(), ta, fb, dio)
+
+    assert result is None
+    assert dio.store["to_annotate.json"] == ["a", "b"]      # queue untouched
+    assert "annotate_batch_job.json" not in dio.store
+    assert any(k == "failed" and "subboom" in str(d.get("error", ""))
                for _, k, d in notices)
 
 
-def test_poll_terminal_fail_restores_queue_and_emails_failed(notices):
-    dio = FakeDataIO({"to_annotate.json": [],
-                      "annotate_batch_job.json": {"submitted_ids": ["a", "b"]}})
-    ta = {"phase": "poll", "job_name": "job/1", "output_uri": "gs://b/out/",
-          "submitted_ids": ["a", "b"], "launched_by": "u@x.com"}
+def test_cancellation_leaves_jobs_and_claims_as_is(notices):
+    dio = FakeDataIO({"to_annotate.json": ["x"]})
+    rep = FakeReporter()
+    rep.cancelled = True
+    ta = {"phase": "run", "chunk_index": 1,
+          "jobs": [{"job_name": "job/1", "output_uri": "gs://b/out/job/1/",
+                    "jsonl_uri": "", "submitted_ids": ["a"], "ts_label": "",
+                    "batch_no": 1, "submitted_at": ""}]}
 
-    result = worker._poll_phase(FakeReporter(), ta,
-                                FakeBatch(state="JOB_STATE_FAILED"), dio)
+    result = worker._run_phase(rep, ta, FakeBatch(), dio)
 
     assert result is None
-    assert sorted(dio.store["to_annotate.json"]) == ["a", "b"]
-    assert "annotate_batch_job.json" not in dio.store
-    assert any(k == "failed" for _, k, _ in notices)
+    assert dio.store["to_annotate.json"] == ["x"]           # claimed ids NOT restored
+    assert "annotate_batch_job.json" not in dio.store       # file cleared
+    assert notices == []
+
+
+# --------------------------------------------------------------------------- #
+# Legacy phase adapters (a chain in flight across the deploy).
+# --------------------------------------------------------------------------- #
+def test_legacy_poll_args_wrap_into_a_one_job_table():
+    run = worker._legacy_args_to_run({
+        "phase": "poll", "job_name": "job/9", "output_uri": "gs://b/out/",
+        "jsonl_uri": "gs://b/in.jsonl", "submitted_ids": ["a", "b"],
+        "chunk_index": 1, "initial_total": 4000, "batch_size": 2000,
+        "max_batches": None, "launched_by": "u@x.com",
+        "total_ok": 5, "total_fail": 1,
+    })
+    assert run["phase"] == "run" and len(run["jobs"]) == 1
+    job = run["jobs"][0]
+    assert job["job_name"] == "job/9" and job["submitted_ids"] == ["a", "b"]
+    assert run["chunk_index"] == 2          # this job counts as submitted
+    assert run["notified_submitted"] is True
+    assert run["total_ok"] == 5 and run["total_fail"] == 1
+
+
+def test_legacy_submit_args_start_an_empty_table():
+    run = worker._legacy_args_to_run({"phase": "submit", "batch_size": 500,
+                                      "launched_by": "u@x.com"})
+    assert run["phase"] == "run" and run["jobs"] == []
+    assert run["batch_size"] == 500 and run["launched_by"] == "u@x.com"
 
 
 def test_notify_is_noop_without_launcher(notices):

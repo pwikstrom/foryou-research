@@ -191,11 +191,16 @@ The loop can overshoot slightly - it always scrapes whole days, so the last cycl
                     <label class="text-sm" style="display: block;">
                         <span class="meta-tooltip tooltip-wide" data-tooltip="How many videos each cycle queues for scraping, split between the two ways of choosing days (under Advanced).
 
-Smaller cycles report back sooner and keep the spend visible; larger ones waste less time waiting between steps.
+Auto (recommended) sizes each cycle for the shortest total time: as many videos as one full set of concurrent annotation jobs can absorb, never more than the target still needs. Untick it to set a number by hand.
 
-A cycle can go a little over this number, because neither half will ever take part of a day - a partly covered day is worth almost nothing to the analyses.">Items per cycle</span>
-                        <input type="number" id="dm-enrich-cycle-items" class="control-input" min="1" step="50"
-                            style="width: 110px; padding: 6px;" oninput="dmEnrichReadoutRefresh()">
+Smaller cycles report back sooner and keep the spend visible; larger ones waste less time waiting between steps. A cycle can go a little over the number, because neither half will ever take part of a day - a partly covered day is worth almost nothing to the analyses.">Items per cycle</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="number" id="dm-enrich-cycle-items" class="control-input" min="1" step="50"
+                                style="width: 110px; padding: 6px;" oninput="dmEnrichReadoutRefresh()">
+                            <label class="text-xs" style="display: flex; align-items: center; gap: 4px; color: var(--color-text-secondary);">
+                                <input type="checkbox" id="dm-enrich-cycle-auto"
+                                    onchange="dmEnrichCycleAutoToggle()">Auto</label>
+                        </div>
                     </label>
                     <span id="dm-enrich-target-readout" class="text-xs" style="color: var(--color-text-muted); margin-bottom: 10px;"></span>
                 </div>

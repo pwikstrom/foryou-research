@@ -415,6 +415,17 @@ def list_accounts():
 
 
 
+def _deferred_refresh_view() -> dict:
+    """The deferred-refresh debt, shaped for the panel's status strip."""
+    try:
+        from ...services import downstream_refresh
+        deferred = downstream_refresh.get_deferred_impact()
+        return {"pending": bool(deferred),
+                "since": (deferred or {}).get("deferred_since")}
+    except Exception:
+        return {"pending": False, "since": None}
+
+
 @management_bp.route('/api/manage/collections/<collection_id>/enrichment', methods=['GET'])
 @permission_required('tab.data_management.edit_collections')
 @login_required
@@ -438,6 +449,10 @@ def get_collection_enrichment(collection_id):
         # What the machinery is doing right now (scraping / annotating /
         # consolidating / waiting), for the panel's status strip.
         "activity": ce.activity((entry or {}).get("platform")),
+        # Whether the expensive analysis refresh is being deferred (it runs
+        # once, when the loop goes quiet) — the strip notes it so mid-plan
+        # staleness reads as a choice, not a fault.
+        "deferred_refresh": _deferred_refresh_view(),
         # Per-1000-items annotation estimate for the target readout (None when
         # the active backend has no pricing, e.g. a local model).
         "cost_per_1000": _annotation_cost_estimate(1000),

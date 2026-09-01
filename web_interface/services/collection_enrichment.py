@@ -88,7 +88,14 @@ DEFAULT_SETTINGS = {
     # 100%. A target is idempotent: annotation done by any other means counts
     # toward it, and re-opening a finished plan is just raising the number.
     "annotation_target": 0,
-    "cycle_items": 400,       # items enqueued per cycle
+    "cycle_items": 400,       # items enqueued per cycle (ignored when auto)
+    # Auto: the supervisor sizes each cycle itself — min(target headroom, one
+    # full set of concurrent annotation jobs) — so a cycle's annotation is
+    # ~one batch-job turnaround. False here (not True) because save_plan
+    # re-seeds these defaults into every stored entry: a True default would
+    # retroactively flip pre-existing manual plans. The PANEL pre-checks the
+    # box for collections with no plan yet, which is where the default lives.
+    "cycle_items_auto": False,
     "sample_share": 0.5,      # fraction of the cycle given to Process A
     "a_days_per_month": 2,    # A: whole days sampled per calendar month
     "a_day_cap": 50,          # A: max items enriched on one sampled day
@@ -231,6 +238,8 @@ def normalize_settings(raw: dict | None) -> dict:
 
     _int("annotation_target", 0, 10_000_000)
     _int("cycle_items", 1, 20_000)
+    out["cycle_items_auto"] = bool(raw.get("cycle_items_auto",
+                                           DEFAULT_SETTINGS["cycle_items_auto"]))
     _int("a_days_per_month", 0, 31)
     # Floor 10: a cap under the min_day_items analysis floor would buy spread
     # days that can never qualify. Ceiling 1,000: one day's cap, not a budget.
@@ -786,6 +795,9 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         "last_error": entry.get("last_error"),
         "last_cycle_at": entry.get("last_cycle_at"),
         "last_batch": entry.get("last_batch"),
+        # What Auto resolved cycle_items to last cycle (None in manual mode) —
+        # the panel's disabled input displays it.
+        "last_auto_cycle_items": entry.get("last_auto_cycle_items"),
         "milestone_days": MILESTONE_DAYS,
         "total_items": 0, "scraped_items": 0, "annotated_items": 0,
         "unique_items": 0, "unique_scraped": 0, "unique_annotated": 0,

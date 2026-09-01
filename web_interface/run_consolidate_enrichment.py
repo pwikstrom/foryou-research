@@ -410,11 +410,24 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     # statement of the outcome (persists alongside "Last consolidation
     # {date}" across page reloads and subsequent polls).
     if not auto_refresh:
-        # No downstream pipeline runs, so clear any plan/partial flags left over
-        # from a previous refresh run — the step list should not show a stale
-        # chain after an incremental/force consolidation.
+        # No downstream pipeline runs. Record the debt: the impact is folded
+        # into the deferred-refresh ledger entry so the enrichment supervisor's
+        # finalize (or the next full refresh) covers it — this is what lets
+        # mid-plan consolidations stay cheap without ever losing scope.
+        summary = "Downstream refreshes were skipped."
+        if impact:
+            try:
+                from web_interface.services import downstream_refresh
+                downstream_refresh.accumulate_deferred_impact(impact)
+                summary = ("Downstream refreshes deferred — the impact is "
+                           "queued for the next full refresh.")
+            except Exception as exc:
+                reporter.log(f"Could not record the deferred impact: {exc}")
+        # Clear any plan/partial flags left over from a previous refresh run —
+        # the step list should not show a stale chain after an incremental
+        # consolidation.
         reporter.emit_data({
-            "last_pipeline_summary": "Downstream refreshes were skipped.",
+            "last_pipeline_summary": summary,
             "last_pipeline_summary_ts": now_iso,
             "pipeline_plan": None,
             "last_pipeline_partial": False,
@@ -422,9 +435,20 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
         })
         return None
 
-    pipeline = _build_downstream_pipeline(impact)
+    # A full refresh covers any deferred debt too: widen the scope to the
+    # union, and settle the ledger entry once the chain is actually built.
+    try:
+        from web_interface.services import downstream_refresh
+        effective_impact = downstream_refresh.impact_union(
+            downstream_refresh.get_deferred_impact(), impact)
+    except Exception as exc:
+        reporter.log(f"Could not read the deferred impact: {exc}")
+        downstream_refresh = None
+        effective_impact = impact
+
+    pipeline = _build_downstream_pipeline(effective_impact)
     if not pipeline:
-        summary = build_pipeline_summary(impact, steps_ran=[])
+        summary = build_pipeline_summary(effective_impact, steps_ran=[])
         reporter.emit_data({
             "last_pipeline_summary": summary,
             "last_pipeline_summary_ts": now_iso,
@@ -454,6 +478,13 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     # concurrent leaves (meta ‖ pca ‖ timelines). See build_pipeline_chain.
     chain = build_pipeline_chain(pipeline)
     next_task_args = chain["next_task_args"]
+
+    # The chain is built and about to dispatch: the deferred debt is covered.
+    if downstream_refresh is not None:
+        try:
+            downstream_refresh.settle_deferred_impact()
+        except Exception as exc:
+            reporter.log(f"Could not settle the deferred impact: {exc}")
 
     reporter.log(
         f"Auto-refresh: dispatching {chain['next_task']} "

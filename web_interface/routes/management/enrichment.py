@@ -243,17 +243,22 @@ def get_enrichment_stats():
         q = data_io.load_json(storage_location='cache', filename='to_annotate.json')
         if isinstance(q, list): annotate_queue_len = len(q)
 
-    # Videos reserved out of the queue by an in-flight async batch job (claimed at
+    # Videos reserved out of the queue by in-flight async batch jobs (claimed at
     # submit time, so they no longer count in annotate_queue_len). Gated on the
     # batch worker actually running: a leftover job-state file from a finished run
-    # then reads 0, and for multi-chunk runs the file holds only the current slice
-    # so pending + in-batch always sum to the outstanding total.
+    # then reads 0. Format 2 holds a TABLE of concurrent jobs (sum their slices);
+    # the legacy single-job shape kept the ids at the top level.
     annotate_claimed_len = 0
     if _is_worker_running("queue_annotator_batch") and \
        data_io.exists(storage_location='cache', filename='annotate_batch_job.json'):
         job = data_io.load_json(storage_location='cache', filename='annotate_batch_job.json')
         if isinstance(job, dict):
-            annotate_claimed_len = len(job.get("submitted_ids") or [])
+            jobs = job.get("jobs")
+            if isinstance(jobs, list):
+                annotate_claimed_len = sum(
+                    len(j.get("submitted_ids") or []) for j in jobs if isinstance(j, dict))
+            else:
+                annotate_claimed_len = len(job.get("submitted_ids") or [])
         
     # Backstop: resolve a forked fan-out (meta‖pca‖timelines) whose dropped leaf
     # left it un-finalized. The event-driven barrier may miss this if every
@@ -1317,75 +1322,21 @@ def api_refresh_downstream():
     dispatches via the Cloud Tasks chain (Cloud Run) or the local sequential
     orchestrator (dev).
     """
-    from web_interface.run_consolidate_enrichment import (
-        _build_downstream_pipeline,
-        build_pipeline_chain,
-    )
+    from ...services import downstream_refresh
 
     load_process_stats()
     ps_entry = process_stats.get("consolidate_enrichment", {})
     mem = processes.get("consolidate_enrichment", {}).get("data", {}) or {}
     impact = ps_entry.get("consolidation_impact") or mem.get("consolidation_impact")
-    if not impact:
-        return jsonify({"status": "noop", "message": "No consolidation impact to refresh."})
 
-    # Don't start on top of a running pipeline.
-    if ps_entry.get("pipeline_in_flight") or any(
-        _is_worker_running(n) for n in (["consolidate_enrichment"] + PIPELINE_STEPS_ORDER)
-    ):
-        return jsonify({"status": "error", "message": "A refresh pipeline is already running."}), 409
-
-    pipeline = _build_downstream_pipeline(impact)
-    if not pipeline:
-        return jsonify({"status": "noop", "message": "Nothing to refresh."})
-
-    now_iso = datetime.now(UTC).isoformat()
-    ps_entry["pipeline_plan"] = {"steps": [p["task"] for p in pipeline], "started_ts": now_iso}
-    ps_entry["last_pipeline_partial"] = False
-    ps_entry["last_pipeline_failed_at"] = None
-    ps_entry["last_pipeline_summary"] = "Pipeline in progress — refreshing caches..."
-    ps_entry["last_pipeline_summary_ts"] = now_iso
-    ps_entry["pipeline_in_flight"] = True
-    process_stats["consolidate_enrichment"] = ps_entry
-    save_process_stats()
-
-    # In local dev the consolidate worker's last ::DATA:: emission lingers in
-    # processes["consolidate_enrichment"]["data"] and the stats / step-view
-    # endpoints overlay it on top of process_stats. After a "Consolidate Only"
-    # run that emission carries pipeline_plan=None, which would shadow the fresh
-    # plan just written and hide the step list. Mirror the new plan into the
-    # in-memory copy so both stores agree. Subprocess mode only — on Cloud Run
-    # nothing reads that dict (see consolidate_entry_view).
-    mem = processes.get("consolidate_enrichment", {}).get("data")
-    if isinstance(mem, dict) and not is_cloud_run():
-        mem["pipeline_plan"] = ps_entry["pipeline_plan"]
-        mem["last_pipeline_partial"] = False
-        mem["last_pipeline_failed_at"] = None
-
-    if is_cloud_run():
-        from ...process_manager import _dispatch_cloud_task, dispatch_deadline_for
-        chain = build_pipeline_chain(pipeline)
-        success, msg = _dispatch_cloud_task(
-            chain["next_task"], chain["next_task_args"],
-            dispatch_deadline_seconds=dispatch_deadline_for(
-                chain["next_task"], chain["next_task_args"]))
-        if not success:
-            # Roll back the in-flight flag so the UI doesn't hang.
-            load_process_stats()
-            entry = process_stats.get("consolidate_enrichment", {})
-            entry.pop("pipeline_in_flight", None)
-            process_stats["consolidate_enrichment"] = entry
-            save_process_stats()
-            return jsonify({"status": "error", "message": f"Dispatch failed: {msg}"}), 409
-    else:
-        import threading
-
-        from ...process_manager import _run_local_downstream_pipeline
-        threading.Thread(
-            target=_run_local_downstream_pipeline, args=(impact,), daemon=True
-        ).start()
-
-    return jsonify({"status": "started", "message": "Downstream refresh started."})
+    # The shared dispatcher folds in any deferred-refresh debt an enrichment
+    # plan has accumulated, so the manual button also settles it.
+    status, message = downstream_refresh.dispatch_downstream_refresh(impact)
+    if status == "busy":
+        return jsonify({"status": "error", "message": message}), 409
+    if status == "error":
+        return jsonify({"status": "error", "message": message}), 409
+    return jsonify({"status": status, "message": message})
 
 
 

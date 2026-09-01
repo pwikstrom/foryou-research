@@ -7,16 +7,18 @@ the result flows back through the SAME raw -> refine -> (separate) consolidate -
 study-refresh path as the synchronous annotator. The synchronous path remains
 the urgent fallback.
 
-Phases (carried in ``task_args['phase']``, self-chained like queue_annotator):
-  * ``submit`` — slice the queue, build + upload the JSONL, submit the batch job,
-    then CLAIM the slice out of ``to_annotate.json`` (so neither a sync run nor
-    another batch run re-annotates the same items while the async job runs),
-    persist job state, and chain to ``poll`` after a short delay.
-  * ``poll``   — check the job ONCE; if still running, re-dispatch another poll
-    task after ``_POLL_DELAY_S`` via Cloud Tasks ``schedule_time`` (no instance
-    held asleep in between); on success ingest -> refine, re-queue any
-    unprocessed items, then chain back to ``submit``; on failure restore the
-    claimed items to the queue and stop.
+One self-chained ``run`` phase drives a TABLE of concurrent jobs (the jobs run
+on Google's infrastructure, so N in flight cost this worker nothing): each
+chain link polls every job once, ingests + refines the finished ones, then
+submits new jobs from the queue while slots are free (``MAX_CONCURRENT_JOBS``),
+and re-dispatches itself after ``_POLL_DELAY_S`` via Cloud Tasks
+``schedule_time`` (no instance held asleep in between). Submitting CLAIMS the
+slice out of ``to_annotate.json`` (so neither a sync run nor another batch run
+re-annotates the same items while the async job runs — and the enrichment
+supervisor's handoff reads the job table to skip in-flight ids too). Annotation
+wall time for a multi-job backlog is therefore ~one job turnaround, not one
+per job. The legacy ``submit``/``poll`` phases are adapters for chains that
+were in flight when this shape shipped.
 
 Claim/restore safety: claimed items are removed from the queue only after a
 successful submit, and restored if the job fails or an item comes back
@@ -55,6 +57,15 @@ QUEUE_FILE = "to_annotate.json"
 # synchronous path (no 50-worker / 3600s ceiling); kept moderate to keep the
 # JSONL well under the 1 GB / 200k-request limits and turnaround reasonable.
 DEFAULT_BATCH_SIZE = 2000
+
+# Concurrent Gemini jobs the run keeps in flight. Turnaround is a fixed cost
+# per job weakly related to its size, so N serial jobs waste (N-1) turnarounds;
+# concurrent jobs cost the same money. The cap bounds the ids carried in the
+# chain's task_args (~170 KB at 4 x 2000, well under the 1 MB Cloud Tasks
+# payload limit) and the blast radius of an orphaned chain (claimed items are
+# only re-discovered by the next annotate-queue calculation). Overridable per
+# run via task_args["max_concurrent_jobs"].
+MAX_CONCURRENT_JOBS = 4
 
 # States that mean "still working" — keep polling.
 _RUNNING_STATES = {
@@ -168,145 +179,56 @@ def _notify(task_args, kind, **details) -> None:
         print(f"[queue_annotator_batch] email notify failed: {exc}")
 
 
-def _submit_phase(reporter, task_args, batch, data_io):
-    """Slice the queue, submit a batch job, claim the slice, chain to poll."""
-    batch_size = int(task_args.get("batch_size", DEFAULT_BATCH_SIZE))
-    chunk_index = int(task_args.get("chunk_index", 0))
-    max_batches = task_args.get("max_batches")
-    initial_total = int(task_args.get("initial_total", 0))
+def _poll_one_job(reporter, run, job, batch, data_io):
+    """Poll one in-flight job; ingest it if finished.
 
-    if not data_io.exists(storage_location="cache", filename=QUEUE_FILE):
-        reporter.log("No to_annotate.json found in cache. Nothing to do.")
-        return None
-    queue = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
-    if not queue:
-        reporter.log("Annotation queue is empty.")
-        return None
-    if initial_total <= 0:
-        initial_total = len(queue)
-
-    slice_ids = [str(v) for v in queue[:batch_size]]
-    if not slice_ids:
-        reporter.log("Queue empty at start of batch.")
-        return None
-
-    total_batches = _total_batches(initial_total, batch_size, max_batches)
-    batch_no = chunk_index + 1
-    if chunk_index == 0:
-        _log(reporter, f"Starting async annotation: {initial_total:,} video(s) to process "
-                       f"in up to {total_batches} batch(es) of {batch_size:,}.")
-
-    ts_label = _ts_label()
-    _log(reporter, f"Batch {batch_no} of {total_batches}: building + uploading JSONL "
-                   f"for {len(slice_ids):,} video(s)...")
-    # Build + upload + submit FIRST. If any of this throws, the queue is left
-    # untouched (the items will be retried), so we only claim after success.
-    jsonl_uri, submitted_ids = batch.build_and_upload_jsonl(slice_ids, ts_label)
-    job_name, output_uri = batch.submit_batch_job(jsonl_uri, ts_label)
-    _log(reporter, f"Batch {batch_no} of {total_batches}: submitted {len(submitted_ids):,} "
-                   f"video(s) to the Gemini batch service (job {job_name}).")
-
-    claimed = _claim_from_queue(data_io, submitted_ids)
-    remaining_after_claim = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
-    _log(reporter, f"Claimed {claimed:,} video(s) out of the queue — "
-                   f"{len(remaining_after_claim):,} still pending, {len(submitted_ids):,} now in this batch.")
-    # Reflect the claim in the card immediately: the pending count drops NOW and
-    # the "N in batch job" indicator appears, without waiting for the (hours-long)
-    # job to finish. The stats endpoint is the reload authority for both.
-    reporter.emit_data({
-        "annotate_queue_len": len(remaining_after_claim),
-        "annotate_claimed_len": len(submitted_ids),
-    })
-
-    # "Submitted" email only on the first chunk — otherwise a multi-chunk run
-    # would email once per chunk. Per-chunk progress is the "batch_done" email.
-    if chunk_index == 0:
-        _notify(task_args, "submitted", n_items=len(submitted_ids))
-
-    job_state = {
-        "phase": "poll",
-        "job_name": job_name,
-        "output_uri": output_uri,
-        "jsonl_uri": jsonl_uri,
-        "submitted_ids": submitted_ids,
-        "chunk_index": chunk_index,
-        "initial_total": initial_total,
-        "batch_size": batch_size,
-        "max_batches": max_batches,
-        "launched_by": task_args.get("launched_by"),
-        "total_ok": int(task_args.get("total_ok", 0)),
-        "total_fail": int(task_args.get("total_fail", 0)),
-    }
-    data_io.save_json(data=job_state, storage_location="cache", filename=JOB_STATE_FILE)
-    return {
-        "chain": True,
-        "next_task_args": job_state,
-        "dispatch_deadline_seconds": 600,
-        "next_dispatch_delay_seconds": _POLL_DELAY_S,
-    }
-
-
-def _poll_phase(reporter, task_args, batch, data_io):
-    """Check the job once; reschedule, or ingest + refine + re-queue + chain."""
+    Mutates ``run`` (totals, submit_halted) and returns True when the job is
+    terminal (caller drops it from the table). Every failure path restores
+    exactly THIS job's claimed ids and halts further submits — the other jobs
+    keep polling and draining, so one bad job never strands its siblings.
+    """
     from fyp.machine_annotation import refine_one_raw_annotation_batch
 
-    job_name = task_args.get("job_name")
-    output_uri = task_args.get("output_uri")
-    submitted_ids = task_args.get("submitted_ids", [])
-    batch_no = int(task_args.get("chunk_index", 0)) + 1
-    total_batches = _total_batches(task_args.get("initial_total", 0),
-                                   task_args.get("batch_size", DEFAULT_BATCH_SIZE),
-                                   task_args.get("max_batches"))
-    label = f"Batch {batch_no} of {total_batches}"
-    if not job_name:
-        reporter.log("Poll phase missing job_name; nothing to do.")
-        return None
+    label = f"Batch {int(job.get('batch_no') or 0)}"
+    submitted_ids = job.get("submitted_ids") or []
 
-    if reporter.check_cancelled():
-        _log(reporter, "Cancellation requested; leaving the job and claimed items as-is.")
-        _clear_job_state(data_io)
-        return None
-
-    state = batch.poll_batch_job(job_name)
+    state = batch.poll_batch_job(job["job_name"])
     _log(reporter, f"{label}: Gemini job state is {state}.")
 
     if state in _RUNNING_STATES:
-        # Not done — re-poll later WITHOUT holding this instance asleep.
-        return {
-            "chain": True,
-            "next_task_args": dict(task_args, phase="poll"),
-            "dispatch_deadline_seconds": 600,
-            "next_dispatch_delay_seconds": _POLL_DELAY_S,
-        }
+        return False
 
     if state in batch._TERMINAL_FAIL:
         restored = _restore_to_queue(data_io, submitted_ids)
-        _log(reporter, f"{label}: Gemini job ended in {state}; restored {restored:,} claimed video(s) to the queue. Stopping.")
-        _notify(task_args, "failed", error=f"Gemini batch job ended in {state}")
-        _clear_job_state(data_io)
-        return None
+        _log(reporter, f"{label}: Gemini job ended in {state}; restored {restored:,} "
+                       f"claimed video(s) to the queue. No further jobs will be submitted.")
+        _notify(run, "failed", error=f"Gemini batch job ended in {state}")
+        run["submit_halted"] = True
+        return True
 
     # SUCCEEDED / PARTIALLY_SUCCEEDED: ingest -> refine. Guard the whole block:
-    # if download/ingest/refine throws, restore the claimed slice to the queue
-    # (an unguarded crash here is what stranded a claimed batch in prod), notify
-    # the launcher, and stop gracefully.
+    # if download/ingest/refine throws, restore this job's claimed slice (an
+    # unguarded crash here is what stranded a claimed batch in prod), notify
+    # the launcher, and let the remaining jobs keep draining.
     _log(reporter, f"{label}: Gemini job succeeded — ingesting results...")
     try:
-        raw_filename = batch.download_and_ingest(output_uri, submitted_ids)
+        raw_filename = batch.download_and_ingest(job["output_uri"], submitted_ids)
         refined = refine_one_raw_annotation_batch(raw_json_filename=raw_filename, verbose=False)
     except Exception as exc:
         restored = _restore_to_queue(data_io, submitted_ids)
-        _log(reporter, f"{label}: ingest/refine crashed ({exc}); restored {restored:,} claimed video(s). Stopping.")
-        _notify(task_args, "failed", error=str(exc))
-        _clear_job_state(data_io)
-        return None
+        _log(reporter, f"{label}: ingest/refine crashed ({exc}); restored {restored:,} "
+                       f"claimed video(s). No further jobs will be submitted.")
+        _notify(run, "failed", error=str(exc))
+        run["submit_halted"] = True
+        return True
 
     if refined is None or refined.empty:
         restored = _restore_to_queue(data_io, submitted_ids)
-        _log(reporter, f"{label}: refinement produced nothing; restored {restored:,} video(s). Stopping to avoid a loop.")
-        _notify(task_args, "failed", error="Refinement produced no rows")
-        _clear_job_state(data_io)
-        return None
+        _log(reporter, f"{label}: refinement produced nothing; restored {restored:,} "
+                       f"video(s). No further jobs will be submitted, to avoid a loop.")
+        _notify(run, "failed", error="Refinement produced no rows")
+        run["submit_halted"] = True
+        return True
 
     ok_ids = refined.loc[refined["annotated_ok"].fillna(False).astype(bool), "item_id"].astype(str).tolist()
     fail_ids = refined.loc[refined.get("annotated_fail", False).fillna(False).astype(bool), "item_id"].astype(str).tolist() \
@@ -318,49 +240,219 @@ def _poll_phase(reporter, task_args, batch, data_io):
     unprocessed = [str(i) for i in submitted_ids if str(i) not in accounted]
     requeued = _restore_to_queue(data_io, unprocessed)
 
+    run["total_ok"] = int(run.get("total_ok", 0)) + len(ok_ids)
+    run["total_fail"] = int(run.get("total_fail", 0)) + len(fail_ids)
+    run["_completed_this_link"].append(
+        {"ok": len(ok_ids), "fail": len(fail_ids), "requeued": requeued})
     remaining = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
-    # This slice is now ingested — nothing is reserved until the next submit.
-    reporter.emit_data({"annotate_queue_len": len(remaining), "annotate_claimed_len": 0})
-    _log(
-        reporter,
-        f"{label} done: {len(ok_ids):,} annotated, {len(fail_ids):,} failed, "
-        f"{requeued:,} re-queued. {len(remaining):,} still pending in the queue."
-    )
+    _log(reporter, f"{label} done: {len(ok_ids):,} annotated, {len(fail_ids):,} failed, "
+                   f"{requeued:,} re-queued. {len(remaining):,} still pending in the queue.")
+    return True
 
-    # Running totals across chunks, for the terminal "completed" email.
-    total_ok = int(task_args.get("total_ok", 0)) + len(ok_ids)
-    total_fail = int(task_args.get("total_fail", 0)) + len(fail_ids)
 
-    next_chunk = int(task_args.get("chunk_index", 0)) + 1
-    max_batches = task_args.get("max_batches")
-    terminal_reason = None
-    if max_batches is not None and next_chunk >= int(max_batches):
-        terminal_reason = f"Reached the max-batches limit ({max_batches})."
-    elif not remaining:
-        terminal_reason = "Queue is now empty."
+def _submit_more_jobs(reporter, run, batch, data_io) -> None:
+    """Fill free job slots from the queue's head. Mutates ``run``.
 
-    if terminal_reason is not None:
-        # Whole run finished: send the terminal "completed" email (which subsumes
-        # this last chunk's per-batch email) and clear the job state.
-        _log(reporter, f"All done — {terminal_reason} Processed {total_ok:,} annotated, "
-                       f"{total_fail:,} failed across {batch_no} batch(es). "
-                       f"Run a Consolidate & Refresh to fold the new annotations in.")
-        _notify(task_args, "completed", total_ok=total_ok, total_fail=total_fail)
+    Submit-then-claim per slice: an exception before the submit succeeds leaves
+    the queue untouched. A submit exception stops submitting for THIS link only
+    (the chain retries next link) — unlike a failed JOB, which halts submits for
+    the rest of the run.
+    """
+    cap = int(run.get("max_concurrent_jobs") or MAX_CONCURRENT_JOBS)
+    batch_size = int(run.get("batch_size", DEFAULT_BATCH_SIZE))
+    max_batches = run.get("max_batches")
+
+    while len(run["jobs"]) < cap and not run.get("submit_halted"):
+        if max_batches is not None and int(run.get("chunk_index", 0)) >= int(max_batches):
+            break
+        queue = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
+        slice_ids = [str(v) for v in queue[:batch_size]]
+        if not slice_ids:
+            break
+        if int(run.get("initial_total", 0)) <= 0:
+            run["initial_total"] = len(queue)
+
+        batch_no = int(run.get("chunk_index", 0)) + 1
+        total_batches = _total_batches(run.get("initial_total", 0), batch_size, max_batches)
+        if not run.get("_announced"):
+            run["_announced"] = True
+            _log(reporter, f"Starting async annotation: {run['initial_total']:,} video(s) "
+                           f"to process in up to {total_batches} batch(es) of "
+                           f"{batch_size:,}, at most {cap} job(s) in flight.")
+
+        ts_label = _ts_label()
+        _log(reporter, f"Batch {batch_no}: building + uploading JSONL "
+                       f"for {len(slice_ids):,} video(s)...")
+        try:
+            jsonl_uri, submitted_ids = batch.build_and_upload_jsonl(slice_ids, ts_label)
+            job_name, output_uri = batch.submit_batch_job(jsonl_uri, ts_label)
+        except Exception as exc:
+            _log(reporter, f"Batch {batch_no}: submit failed ({exc}); queue untouched — "
+                           f"will retry on the next chain link.")
+            run["_submit_error"] = str(exc)
+            break
+        _log(reporter, f"Batch {batch_no}: submitted {len(submitted_ids):,} video(s) "
+                       f"to the Gemini batch service (job {job_name}).")
+
+        claimed = _claim_from_queue(data_io, submitted_ids)
+        _log(reporter, f"Claimed {claimed:,} video(s) out of the queue — "
+                       f"{len(submitted_ids):,} now in batch {batch_no}.")
+        run["jobs"].append({
+            "job_name": job_name,
+            "output_uri": output_uri,
+            "jsonl_uri": jsonl_uri,
+            "submitted_ids": submitted_ids,
+            "ts_label": ts_label,
+            "batch_no": batch_no,
+            "submitted_at": _dt.datetime.now(_dt.UTC).isoformat(),
+        })
+        run["chunk_index"] = batch_no
+
+        # "Submitted" email once per run — per-job progress is "batch_done".
+        if not run.get("notified_submitted"):
+            run["notified_submitted"] = True
+            _notify(run, "submitted", n_items=len(submitted_ids))
+
+
+def _run_phase(reporter, task_args, batch, data_io):
+    """One chain link of the job-table state machine.
+
+    Poll every in-flight job once (ingesting the finished ones), then top up
+    free slots from the queue, persist the table, and chain — or finish when
+    the table is empty and nothing is left to submit.
+    """
+    run = dict(task_args)
+    run["jobs"] = [dict(j) for j in (run.get("jobs") or [])]
+    run.setdefault("total_ok", 0)
+    run.setdefault("total_fail", 0)
+    run.setdefault("chunk_index", 0)
+    run["_completed_this_link"] = []
+    # Re-announce only on a fresh run; adapters mark continuations announced.
+    run.setdefault("_announced", bool(run["jobs"]) or int(run.get("chunk_index") or 0) > 0)
+
+    if reporter.check_cancelled():
+        _log(reporter, f"Cancellation requested; leaving {len(run['jobs'])} in-flight "
+                       f"job(s) and their claimed items as-is.")
         _clear_job_state(data_io)
         return None
 
-    # More chunks remain: notify this chunk's completion, then chain to the next
-    # submit (carrying launcher identity + running totals across the self-chain).
-    _notify(task_args, "batch_done", ok=len(ok_ids), fail=len(fail_ids),
-            requeued=requeued, remaining=len(remaining))
+    if not run["jobs"] and not data_io.exists(storage_location="cache", filename=QUEUE_FILE):
+        reporter.log("No to_annotate.json found in cache. Nothing to do.")
+        return None
 
-    return {"chain": True, "next_task_args": {
-        "phase": "submit", "batch_size": int(task_args.get("batch_size", DEFAULT_BATCH_SIZE)),
-        "chunk_index": next_chunk, "initial_total": int(task_args.get("initial_total", 0)),
-        "max_batches": max_batches,
+    # ---- Poll + ingest ----
+    still_running = []
+    for job in run["jobs"]:
+        try:
+            terminal = _poll_one_job(reporter, run, job, batch, data_io)
+        except Exception as exc:
+            # A transient poll error (network, API hiccup) keeps the job in the
+            # table — the next link re-polls it.
+            _log(reporter, f"Batch {job.get('batch_no')}: poll failed ({exc}); will retry.")
+            terminal = False
+        if not terminal:
+            still_running.append(job)
+    run["jobs"] = still_running
+
+    # ---- Top up free slots ----
+    _submit_more_jobs(reporter, run, batch, data_io)
+
+    # ---- Reflect state in the card + the job-state mirror file ----
+    remaining = data_io.load_json(storage_location="cache", filename=QUEUE_FILE) or []
+    claimed_total = sum(len(j.get("submitted_ids") or []) for j in run["jobs"])
+    reporter.emit_data({
+        "annotate_queue_len": len(remaining),
+        "annotate_claimed_len": claimed_total,
+    })
+
+    # ---- Terminal? ----
+    if not run["jobs"] and run.get("_submit_error"):
+        # Nothing in flight to wait for AND submission is failing: retrying on a
+        # 120s chain would loop on a broken backend forever. The queue was left
+        # untouched, so stopping loses nothing.
+        _log(reporter, "Stopping: no job in flight and the submit is failing "
+                       f"({run['_submit_error']}).")
+        _notify(run, "failed", error=f"Batch submit failed: {run['_submit_error']}")
+        _clear_job_state(data_io)
+        return None
+
+    if not run["jobs"]:
+        max_batches = run.get("max_batches")
+        terminal_reason = None
+        if run.get("submit_halted"):
+            terminal_reason = "A job failed, so no further jobs were submitted."
+        elif max_batches is not None and int(run.get("chunk_index", 0)) >= int(max_batches):
+            terminal_reason = f"Reached the max-batches limit ({max_batches})."
+        elif not remaining:
+            terminal_reason = "Queue is now empty." if run.get("chunk_index") else None
+
+        if not run.get("chunk_index"):
+            reporter.log("Annotation queue is empty.")
+            _clear_job_state(data_io)
+            return None
+        if terminal_reason is not None:
+            total_ok, total_fail = int(run["total_ok"]), int(run["total_fail"])
+            _log(reporter, f"All done — {terminal_reason} Processed {total_ok:,} annotated, "
+                           f"{total_fail:,} failed across {int(run['chunk_index'])} batch(es). "
+                           f"Run a Consolidate & Refresh to fold the new annotations in.")
+            # The per-job "failed" mails already covered a run with no results.
+            if total_ok or total_fail:
+                _notify(run, "completed", total_ok=total_ok, total_fail=total_fail)
+            _clear_job_state(data_io)
+            return None
+
+    # More to do (jobs in flight, or the queue refilled while slots were full):
+    # notify finished jobs, persist the table, chain to the next link.
+    for done in run["_completed_this_link"]:
+        _notify(run, "batch_done", ok=done["ok"], fail=done["fail"],
+                requeued=done["requeued"], remaining=len(remaining))
+
+    next_args = {k: v for k, v in run.items() if not k.startswith("_")}
+    next_args["phase"] = "run"
+    next_args["format"] = 2
+    data_io.save_json(data=next_args, storage_location="cache", filename=JOB_STATE_FILE)
+    return {
+        "chain": True,
+        "next_task_args": next_args,
+        "dispatch_deadline_seconds": 1800,
+        "next_dispatch_delay_seconds": _POLL_DELAY_S,
+    }
+
+
+def _legacy_args_to_run(task_args) -> dict:
+    """Map a pre-table chain link's args into the ``run`` shape.
+
+    ``submit`` (fresh run or the between-jobs link of an old chain) starts with
+    an empty table; ``poll`` (an old chain's in-flight job, live across the
+    deploy) wraps that job into a one-entry table so nothing is stranded.
+    """
+    common = {
+        "phase": "run",
+        "batch_size": int(task_args.get("batch_size", DEFAULT_BATCH_SIZE)),
+        "chunk_index": int(task_args.get("chunk_index", 0)),
+        "initial_total": int(task_args.get("initial_total", 0)),
+        "max_batches": task_args.get("max_batches"),
         "launched_by": task_args.get("launched_by"),
-        "total_ok": total_ok, "total_fail": total_fail,
-    }, "dispatch_deadline_seconds": 1800}
+        "total_ok": int(task_args.get("total_ok", 0)),
+        "total_fail": int(task_args.get("total_fail", 0)),
+    }
+    if task_args.get("phase") == "poll" and task_args.get("job_name"):
+        common["jobs"] = [{
+            "job_name": task_args.get("job_name"),
+            "output_uri": task_args.get("output_uri"),
+            "jsonl_uri": task_args.get("jsonl_uri"),
+            "submitted_ids": task_args.get("submitted_ids") or [],
+            "ts_label": "",
+            "batch_no": int(task_args.get("chunk_index", 0)) + 1,
+            "submitted_at": "",
+        }]
+        # The old poll phase's chunk_index counted COMPLETED jobs; the table
+        # counts submitted ones, and this job is submitted.
+        common["chunk_index"] = int(task_args.get("chunk_index", 0)) + 1
+        common["notified_submitted"] = True
+    else:
+        common["jobs"] = []
+    return common
 
 
 def run_queue_annotator_batch(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
@@ -368,10 +460,11 @@ def run_queue_annotator_batch(reporter: TaskStatusReporter, task_args: dict | No
 
     Args:
         reporter: Status reporter (GCS or local).
-        task_args: ``phase`` ('submit' | 'poll') plus phase-specific state.
+        task_args: ``phase`` ('run', or the legacy 'submit' | 'poll' shapes)
+            plus the run's job table and accounting.
 
     Returns:
-        A chain dict (next phase) or ``None`` when the work is done / failed.
+        A chain dict (next link) or ``None`` when the work is done / failed.
     """
     import fyp.data_io as data_io
     import fyp.machine_annotation_batch as batch
@@ -388,11 +481,12 @@ def run_queue_annotator_batch(reporter: TaskStatusReporter, task_args: dict | No
                      f"Admin → Backends or use the live annotator.")
         return None
 
-    phase = task_args.get("phase", "submit")
-    if phase == "submit":
-        return _submit_phase(reporter, task_args, batch, data_io)
-    if phase == "poll":
-        return _poll_phase(reporter, task_args, batch, data_io)
+    phase = task_args.get("phase", "run")
+    if phase in ("submit", "poll"):
+        task_args = _legacy_args_to_run(task_args)
+        phase = "run"
+    if phase == "run":
+        return _run_phase(reporter, task_args, batch, data_io)
     reporter.log(f"Unknown batch phase '{phase}'.")
     return None
 
@@ -414,7 +508,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     reporter = LocalStatusReporter("queue_annotator_batch")
-    next_args = {"phase": "submit", "batch_size": args.batch_size,
+    next_args = {"phase": "run", "batch_size": args.batch_size,
                  "max_batches": args.max_batches, "launched_by": args.launched_by}
     try:
         while next_args is not None:

@@ -417,15 +417,32 @@ def tick(monkeypatch, store):
         "scrape_queues": {}, "unconsolidated": None,
         "started": [], "plans": {},
         "handoff": {}, "cycle": None, "storm": None,
+        # Per-lane state: platforms whose scraper runs, annotator running,
+        # who blocks a consolidation, and the batch worker's claimed ids.
+        "scrape_busy": set(), "annotate_busy": False,
+        "consolidate_blockers": [], "claimed": set(),
+        "finalize": None, "backstop": None,
     }
 
     monkeypatch.setattr(sup, "_admin_kill_switch", lambda: world["enabled"])
-    monkeypatch.setattr(sup, "_busy", lambda: list(world["busy"]))
+    monkeypatch.setattr(sup, "_hard_gate", lambda: list(world["busy"]))
     monkeypatch.setattr(sup, "_pipeline_in_flight", lambda: world["in_flight"])
     monkeypatch.setattr(sup, "_unconsolidated", lambda: world["unconsolidated"])
     monkeypatch.setattr(sup, "_annotator_process", lambda: "queue_annotator")
     monkeypatch.setattr(sup, "_scraper_blocked",
                         lambda platform: world["storm"])
+    monkeypatch.setattr(sup, "_scrape_lane_busy",
+                        lambda platform: platform in world["scrape_busy"])
+    monkeypatch.setattr(sup, "_annotate_lane_busy",
+                        lambda: bool(world["annotate_busy"]))
+    monkeypatch.setattr(sup, "_in_flight_annotation_ids",
+                        lambda: set(world["claimed"]))
+    monkeypatch.setattr(sup, "_finalize",
+                        lambda reporter, require_backstop=False:
+                        world["backstop"] if require_backstop else world["finalize"])
+    import web_interface.services.worker_status as ws
+    monkeypatch.setattr(ws, "_workers_blocking_consolidate",
+                        lambda: list(world["consolidate_blockers"]))
     monkeypatch.setattr(sup, "_start",
                         lambda name, task_args=None:
                         (world["started"].append((name, task_args or {})), (True, "ok"))[1])
@@ -495,7 +512,7 @@ def test_tick_noops_when_disabled_or_busy_or_idle(tick):
 
     tick["enabled"] = True
     tick["plans"] = {"c1": _entry()}
-    tick["busy"] = ["queue_annotator"]
+    tick["busy"] = ["consolidate_enrichment"]
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "busy"
     assert tick["started"] == []
@@ -504,6 +521,42 @@ def test_tick_noops_when_disabled_or_busy_or_idle(tick):
     tick["plans"] = {}
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "idle"
+
+
+def test_tick_scrapes_while_the_annotator_is_in_flight(tick):
+    """The lane split: a running annotator no longer freezes the loop —
+    the next cycle's scrape runs inside the annotation window."""
+    tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
+    tick["scrape_queues"] = {"tiktok": 12}
+    tick["annotate_busy"] = True
+    rep = tick["run"]()
+    assert rep.data[-1]["action"] == "scrape"
+    assert tick["started"] == [("queue_scraper_tiktok", {})]
+
+
+def test_tick_skips_a_platform_whose_scraper_runs(tick):
+    tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
+    tick["scrape_queues"] = {"tiktok": 12}
+    tick["scrape_busy"] = {"tiktok"}
+    rep = tick["run"]()
+    # The queue is being drained already; the tick falls through to planning,
+    # which also skips the busy platform — nothing_to_do.
+    assert rep.data[-1]["action"] == "nothing_to_do"
+    assert tick["started"] == []
+
+
+def test_tick_waits_to_consolidate_while_a_lane_is_busy(tick):
+    """Results pending + a busy worker = waiting_consolidate, and the tick
+    STOPS — falling through to handoff/plan on stale status would hand off
+    from a world that has not seen the last batch."""
+    tick["plans"] = {"c1": _entry()}
+    tick["unconsolidated"] = "annotate"
+    tick["consolidate_blockers"] = ["queue_annotator_batch"]
+    tick["handoff"] = {"c1": ["x1"]}       # must NOT be reached
+    rep = tick["run"]()
+    assert rep.data[-1]["action"] == "waiting_consolidate"
+    assert tick["started"] == []
+    assert tick["store"].get(ce.ANNOTATE_QUEUE_FILENAME) in (None, [])
 
 
 def test_tick_drains_scrape_queue_first(tick):
@@ -532,7 +585,9 @@ def test_tick_storm_blocks_the_platform_plans(tick):
     assert ledger["c1"]["state"] == ce.STATE_BLOCKED
 
 
-def test_tick_settles_scrape_light_and_annotate_full(tick):
+def test_tick_settles_core_only_after_either_worker(tick):
+    """Every supervisor consolidation is core-only now — the downstream chain
+    is deferred to finalize (the one-full-refresh-per-plan design)."""
     tick["plans"] = {"c1": _entry()}
     tick["unconsolidated"] = "scrape"
     tick["run"]()
@@ -541,24 +596,39 @@ def test_tick_settles_scrape_light_and_annotate_full(tick):
     tick["started"].clear()
     tick["unconsolidated"] = "annotate"
     tick["run"]()
-    assert tick["started"] == [("consolidate_enrichment", {"auto_refresh": True})]
+    assert tick["started"] == [("consolidate_enrichment", {"auto_refresh": False})]
 
 
-def test_tick_handoff_charges_budget_and_starts_the_annotator(tick):
-    # Queue-and-start is one logical move: a tick that hands items to the
-    # annotation queue drains it in the same tick, instead of leaving the
-    # annotator to a later trigger (in steady state the heartbeat, up to an
-    # hour away).
+def test_tick_handoff_is_the_boundary_move(tick):
+    # Ticks fire only at terminal worker completions, so the handoff tick is
+    # the cycle boundary and performs the whole move: start the annotator on
+    # the backlog, then cut and start the next scrape slice so it runs inside
+    # the annotation window.
     tick["plans"] = {"c1": {**_entry(), "spent_items": 10}}
     tick["handoff"] = {"c1": ["x1", "x2", "x3"]}
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "annotate"
     assert rep.data[-1]["handoff_queued"] == 3
-    assert [n for n, _ in tick["started"]] == ["queue_annotator"]
+    started = [n for n, _ in tick["started"]]
+    assert started[0] == "queue_annotator"
+    assert "queue_scraper_tiktok" in started       # the next slice, same tick
     entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
     assert entry["spent_items"] == 13
-    assert entry["stall_count"] == 0
+    assert entry["cycles"] == 1                    # the next slice was cut
     assert set(tick["store"][ce.ANNOTATE_QUEUE_FILENAME]) == {"x1", "x2", "x3"}
+
+
+def test_tick_handoff_skips_ids_claimed_by_inflight_jobs(tick):
+    """The double-pay regression pin: enrichment status cannot see the batch
+    worker's claims, so the handoff must subtract them itself."""
+    tick["plans"] = {"c1": {**_entry(), "spent_items": 0}}
+    tick["handoff"] = {"c1": ["x1", "x2", "x3"]}
+    tick["claimed"] = {"x1", "x3"}
+    rep = tick["run"]()
+    assert set(tick["store"][ce.ANNOTATE_QUEUE_FILENAME]) == {"x2"}
+    assert rep.data[-1]["handoff_queued"] == 1
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["spent_items"] == 1               # only the re-queued item charged
 
 
 def test_tick_plans_one_collection_and_advances_cursors(tick):
@@ -634,6 +704,66 @@ def test_tick_scrape_stall_guard_parks_platform_plans(tick):
     tick["scrape_queues"] = {"tiktok": 40}
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "scrape"
+
+
+def test_auto_cycle_items_formula(monkeypatch, store):
+    """min(target headroom − pending, one full set of concurrent jobs)."""
+    import web_interface.run_enrichment_supervisor as sup
+    from web_interface.run_queue_annotator_batch import (
+        DEFAULT_BATCH_SIZE, MAX_CONCURRENT_JOBS,
+    )
+    cap = MAX_CONCURRENT_JOBS * DEFAULT_BATCH_SIZE
+
+    activity = _activity({"2026-08-27": 30})
+    ids = list(activity["item_id"].astype(str))
+    entry = _entry(annotation_target=10_000, cycle_items_auto=True)
+
+    # No pending, huge headroom: capped at one full job set.
+    monkeypatch.setattr(sup, "_in_flight_annotation_ids", lambda: set())
+    assert sup._auto_cycle_items(entry, activity, None) == cap
+
+    # Small headroom wins over the cap.
+    small = _entry(annotation_target=7, cycle_items_auto=True)
+    assert sup._auto_cycle_items(small, activity, None) == 7
+
+    # Pending work (queued + claimed) shrinks the headroom...
+    store[ce.ANNOTATE_QUEUE_FILENAME] = ids[:3]
+    monkeypatch.setattr(sup, "_in_flight_annotation_ids", lambda: set(ids[3:5]))
+    assert sup._auto_cycle_items(small, activity, None) == 2
+    # ...and pending items OUTSIDE the collection do not count.
+    store[ce.ANNOTATE_QUEUE_FILENAME] = ["other-1", "other-2"]
+    monkeypatch.setattr(sup, "_in_flight_annotation_ids", lambda: set())
+    assert sup._auto_cycle_items(small, activity, None) == 7
+
+    # Fully covered: 0 (the caller skips the slice, not the plan).
+    store[ce.ANNOTATE_QUEUE_FILENAME] = ids[:7]
+    assert sup._auto_cycle_items(small, activity, None) == 0
+
+
+def test_tick_auto_mode_injects_the_effective_cycle_items(tick, monkeypatch):
+    import web_interface.run_enrichment_supervisor as sup  # noqa: F401
+    seen = {}
+
+    def fake_cycle(cid, entry, **kw):
+        seen["cycle_items"] = entry["settings"]["cycle_items"]
+        return {"item_ids": ["i1"], "a_cursor": None, "b_cursor": "2026-08-27",
+                "a": 0, "b": 1, "exhausted": False, "platform": "tiktok"}
+
+    monkeypatch.setattr(ce, "plan_cycle", fake_cycle)
+    monkeypatch.setattr(ce, "load_status", lambda ids: None)
+    tick["plans"] = {"c1": _entry(annotation_target=500, cycle_items_auto=True,
+                                  cycle_items=400)}
+    tick["run"]()
+    assert seen["cycle_items"] == 500          # headroom, not the manual 400
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["last_auto_cycle_items"] == 500
+
+
+def test_normalize_settings_round_trips_cycle_items_auto():
+    assert ce.normalize_settings({"cycle_items_auto": True})["cycle_items_auto"] is True
+    assert ce.normalize_settings({"cycle_items_auto": False})["cycle_items_auto"] is False
+    assert ce.normalize_settings({})["cycle_items_auto"] is False
+    assert ce.DEFAULT_SETTINGS["cycle_items_auto"] is False
 
 
 def test_tick_parks_a_stalled_plan(tick):
