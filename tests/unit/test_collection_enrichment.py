@@ -821,3 +821,65 @@ def test_enrichment_panel_buttons_keep_their_handlers():
         assert attrs is not None, f"{element_id} missing from the template"
         assert handler in (attrs.get("onclick") or ""), \
             f"{element_id} lost its onclick ({handler})"
+
+    # The Arm/Save/Run tooltips live on WRAPPER spans, not the buttons: a
+    # disabled button eats its own hover tooltip in most browsers, and the
+    # button-state logic disables Save and Run precisely when the explanation
+    # is most needed. A tooltip moved back onto the button would go silent in
+    # exactly those states.
+    for wrap_id in ("dm-enrich-arm-wrap", "dm-enrich-save-wrap",
+                    "dm-enrich-tick-wrap"):
+        attrs = parser.by_id.get(wrap_id)
+        assert attrs is not None, f"{wrap_id} missing from the template"
+        assert attrs.get("data-tooltip"), f"{wrap_id} lost its data-tooltip"
+        assert "meta-tooltip" in (attrs.get("class") or ""), \
+            f"{wrap_id} lost the meta-tooltip class"
+    for btn_id in ("dm-enrich-arm-btn", "dm-enrich-save-btn",
+                   "dm-enrich-tick-btn"):
+        attrs = parser.by_id[btn_id]
+        assert not attrs.get("data-tooltip"), \
+            f"{btn_id} must not carry the tooltip — it sits on the wrapper span"
+
+
+# --------------------------------------------------------------------------- #
+# Live activity for the status strip
+# --------------------------------------------------------------------------- #
+
+def test_activity_reports_the_running_worker():
+    """activity() answers "what is happening now" from the worker task
+    statuses — the running worker's kind, name and own progress line — and
+    prefers the plan's scraper over the shared workers when both run."""
+    from unittest.mock import patch
+
+    statuses = {
+        "queue_annotator_batch": {
+            "state": "running", "start_time": "2026-09-01T00:00:00+00:00",
+            "progress": {"message": "Batch 1 of 2 (45%)"},
+        },
+        "queue_scraper_tiktok": {"state": "running", "progress": {}},
+    }
+    running = {"queue_annotator_batch"}
+    with patch("web_interface.services.worker_status._is_worker_running",
+               side_effect=lambda n: n in running), \
+         patch("web_interface.task_status.read_task_status",
+               side_effect=lambda n: statuses.get(n)):
+        out = ce.activity("tiktok")
+        assert out["kind"] == "annotating"
+        assert out["worker"] == "queue_annotator_batch"
+        assert out["message"] == "Batch 1 of 2 (45%)"
+
+        running = {"queue_scraper_tiktok", "queue_annotator_batch"}
+        out = ce.activity("tiktok")
+        assert out["kind"] == "scraping", \
+            "the plan's own scraper outranks the shared workers"
+        assert out["message"] is None
+
+        # Without a platform (no plan yet) only shared workers are visible.
+        running = {"queue_scraper_tiktok"}
+        assert ce.activity(None)["kind"] == "waiting"
+
+    with patch("web_interface.services.worker_status._is_worker_running",
+               return_value=False):
+        out = ce.activity("tiktok")
+    assert out == {"kind": "waiting", "worker": None, "message": None,
+                   "started_at": None}

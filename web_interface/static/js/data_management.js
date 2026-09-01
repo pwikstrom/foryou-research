@@ -6034,6 +6034,10 @@ function dmEnrichHide() {
     const group = document.getElementById('edit-collection-enrichment-group');
     if (group) group.style.display = 'none';
     dmEnrichCollectionId = null;
+    if (dmEnrichRefreshTimer) {
+        clearTimeout(dmEnrichRefreshTimer);
+        dmEnrichRefreshTimer = null;
+    }
 }
 
 // tone: 'error' | 'ok' | anything else = neutral progress text. Confirmations
@@ -6057,6 +6061,21 @@ function dmEnrichMsg(text, tone = '') {
 let dmEnrichProgressCache = {};
 let dmEnrichCostPer1000 = null;
 let dmEnrichTargetValue = 0;
+// The dirty check's baseline: the form as last filled from the saved plan
+// (serialized via dmEnrichReadSettings). null until the first render.
+let dmEnrichSavedSettings = null;
+// The status strip's self-refresh timer (armed only while a worker runs).
+let dmEnrichRefreshTimer = null;
+// True from a tick's dispatch until it reports back — keeps the input-driven
+// button refresh from re-enabling the tick button mid-poll.
+let dmEnrichTickInFlight = false;
+
+// The status strip's words for what the machinery is doing right now.
+const DM_ENRICH_ACTIVITY_LABELS = {
+    scraping: 'scraping now',
+    annotating: 'annotating now',
+    consolidating: 'consolidating results now',
+};
 
 function dmEnrichFillSettings(settings, progress = {}) {
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
@@ -6234,19 +6253,21 @@ function dmEnrichStateLabel(state) {
 }
 
 
-// What "Run a cycle now" would do from here, and — when it would do nothing —
-// why. The button is never disabled for a plan reason (a disabled button eats
-// its own hover tooltip in most browsers, so the explanation would be
-// unreachable exactly when it is needed); it is only disabled while a cycle
-// this panel started is still reporting back.
+// What "Run a cycle now" would do from here, and — when it is disabled —
+// why. The dynamic text lives on the button's WRAPPER span, not the button:
+// a disabled button eats its own hover tooltip in most browsers, and the
+// no-plan / target-met states disable the button precisely because a cycle
+// would do nothing.
 function dmEnrichTickTooltip(armed, state, progress) {
     const base = 'Runs one step of the loop right now instead of waiting for '
-               + 'the next automatic tick. It does one thing per click: queue '
-               + 'the next batch of videos to scrape, start the scraper or the '
-               + 'annotator, or fold finished results back in.';
+               + 'the next automatic tick. A manual nudge and diagnostic — it '
+               + 'does not arm anything, and one click advances the loop by '
+               + 'exactly one step: queue the next batch of videos to scrape, '
+               + 'start the scraper or the annotator, or fold finished results '
+               + 'back in.';
     if (!armed) {
-        return 'This collection has no plan yet, so a cycle has nothing to run. '
-             + 'Press "Save settings" (or "Arm") first, then try again.';
+        return 'Disabled: this collection has no plan yet, so a cycle has '
+             + 'nothing to run. Press Arm (or edit a setting and save) first.';
     }
     const target = progress.annotation_target ?? 0;
     const annotated = progress.target_floor ?? 0;
@@ -6255,9 +6276,9 @@ function dmEnrichTickTooltip(armed, state, progress) {
              + 'do. Pick a target below and save it first. ' + base;
     }
     if (annotated >= target) {
-        return `The annotation target (${target.toLocaleString()}) is already `
-             + `met — ${annotated.toLocaleString()} videos are annotated. `
-             + `Raise the target and arm the plan to continue. ` + base;
+        return `Disabled: the annotation target (${target.toLocaleString()}) `
+             + `is already met — ${annotated.toLocaleString()} videos are `
+             + `annotated. Raise the target and arm the plan to continue.`;
     }
     if (state === 'blocked') {
         return 'This plan stopped itself because the work it queued was not '
@@ -6511,6 +6532,13 @@ function dmEnrichDrawBar(progress) {
 }
 
 function dmEnrichRender(data) {
+    // One delegated listener keeps Save's dirty state honest for every input
+    // in the panel — sliders and number fields alike bubble 'input' here.
+    const panel = document.getElementById('dm-enrich-panel');
+    if (panel && !panel._dmEnrichDirtyHooked) {
+        panel._dmEnrichDirtyHooked = true;
+        panel.addEventListener('input', dmEnrichButtonsRefresh);
+    }
     dmEnrichArmed = !!data.armed;
     const progress = data.progress || {};
     dmEnrichState = progress.state || null;
@@ -6518,15 +6546,28 @@ function dmEnrichRender(data) {
 
     if (data.cost_per_1000 !== undefined) dmEnrichCostPer1000 = data.cost_per_1000;
 
-    // Deliberately terse (2026-08-31 feedback): the state alone — everything
-    // it used to narrate is visible on the bar or lives in the tooltips. The
-    // two exceptions carry facts nothing else shows: a blocked plan's reason,
-    // and the site-wide switch being off.
+    // The status strip (bottom of the panel, above the buttons): the plan's
+    // state, then the live activity. Everything else the line once narrated
+    // is visible on the bar or lives in the tooltips (2026-08-31 feedback).
     const statusEl = document.getElementById('dm-enrich-status-line');
     if (statusEl) {
+        const act = data.activity || {};
         let line = `Status: ${dmEnrichArmed ? dmEnrichStateLabel(dmEnrichState) : 'Not armed'}`;
         if (dmEnrichState === 'blocked' && progress.last_error) {
             line += ` \u2014 ${progress.last_error}`;
+        }
+        // What is happening right now, server-derived from the worker
+        // statuses (never guessed client-side) \u2014 or, when armed and between
+        // steps, what the next tick will do.
+        const actLabel = DM_ENRICH_ACTIVITY_LABELS[act.kind];
+        if (actLabel) {
+            line += ` \u00b7 ${actLabel}`;
+            const msg = (act.message || '').trim();
+            if (msg) line += ` \u2014 ${msg.length > 90 ? msg.slice(0, 87) + '\u2026' : msg}`;
+        } else if (dmEnrichArmed && dmEnrichState === 'running') {
+            const next = dmEnrichNextLabel(progress);
+            line += ' \u00b7 waiting for the next tick'
+                  + (next ? ` \u2014 next: ${next}` : '');
         }
         if (!data.enabled_site_wide) {
             line += ' \u00b7 site-wide auto-enrichment is OFF';
@@ -6572,13 +6613,82 @@ function dmEnrichRender(data) {
         const running = dmEnrichArmed && dmEnrichState === 'running';
         armBtn.disabled = false;
         armBtn.textContent = running ? 'Pause'
-            : (dmEnrichState === 'done' ? 'Arm again' : 'Arm');
+            : (dmEnrichState === 'paused' ? 'Resume'
+            : ((dmEnrichState === 'done' || dmEnrichState === 'blocked')
+                ? 'Arm again' : 'Arm'));
         armBtn.classList.toggle('dm-enrich-armed-pulse', running);
+    }
+    const tickWrap = document.getElementById('dm-enrich-tick-wrap');
+    if (tickWrap) {
+        tickWrap.dataset.tooltip = dmEnrichTickTooltip(dmEnrichArmed, dmEnrichState, progress);
+    }
+    // The saved-settings snapshot Save's dirty check compares against: the
+    // form as just filled from the plan, via the same reader Save uses.
+    dmEnrichSavedSettings = JSON.stringify(dmEnrichReadSettings());
+    dmEnrichButtonsRefresh();
+    dmEnrichScheduleRefresh(data);
+}
+
+
+// Save is enabled only while the form differs from the saved plan (Arm always
+// saves too, so a clean form leaves nothing for Save to do). The tick button
+// is disabled when there is no plan to run, or its target is already met; the
+// tooltip that explains each disabled state sits on the button's WRAPPER span,
+// which still hovers when the button inside it is disabled.
+function dmEnrichButtonsRefresh() {
+    const saveBtn = document.getElementById('dm-enrich-save-btn');
+    if (saveBtn) {
+        const dirty = dmEnrichSavedSettings !== null
+            && JSON.stringify(dmEnrichReadSettings()) !== dmEnrichSavedSettings;
+        saveBtn.disabled = !dirty;
+        saveBtn.textContent = dirty ? 'Save changes' : 'Save settings';
     }
     const tickBtn = document.getElementById('dm-enrich-tick-btn');
     if (tickBtn) {
-        tickBtn.dataset.tooltip = dmEnrichTickTooltip(dmEnrichArmed, dmEnrichState, progress);
+        const target = dmEnrichProgressCache.annotation_target ?? 0;
+        const met = target > 0 && (dmEnrichProgressCache.target_floor ?? 0) >= target;
+        tickBtn.disabled = dmEnrichTickInFlight || !dmEnrichArmed || met;
     }
+}
+
+
+// What the next tick will do for this plan, in the operator's words — the
+// same backlog-first rule the supervisor's handoff applies. Shown in the
+// status strip while the plan is armed and nothing is in flight.
+function dmEnrichNextLabel(progress) {
+    const target = progress.annotation_target ?? 0;
+    const annotated = progress.target_floor ?? 0;
+    if (!target || annotated >= target) return '';
+    const backlog = Math.min(
+        Math.max(0, (progress.unique_scraped || 0) - (progress.unique_annotated || 0)),
+        target - annotated);
+    if (backlog) return `annotate the ${backlog.toLocaleString()}-video backlog`;
+    const cycleItems = Number(document.getElementById('dm-enrich-cycle-items')?.value) || 0;
+    return cycleItems
+        ? `queue ~${cycleItems.toLocaleString()} videos to scrape`
+        : 'queue the next videos to scrape';
+}
+
+
+// While a worker is in flight, re-fetch the panel every 20s so the status
+// strip's activity line (and the bar, when a batch lands) stays current.
+// Stops itself when the modal closes or moves to another collection, and
+// idles completely between steps — the strip then changes only on a tick,
+// which the tick button already reports.
+function dmEnrichScheduleRefresh(data) {
+    if (dmEnrichRefreshTimer) {
+        clearTimeout(dmEnrichRefreshTimer);
+        dmEnrichRefreshTimer = null;
+    }
+    const kind = (data.activity || {}).kind;
+    if (!kind || kind === 'waiting') return;
+    const cid = dmEnrichCollectionId;
+    dmEnrichRefreshTimer = setTimeout(() => {
+        dmEnrichRefreshTimer = null;
+        const group = document.getElementById('edit-collection-enrichment-group');
+        if (dmEnrichCollectionId !== cid || !group || group.offsetParent === null) return;
+        dmEnrichLoad(cid);
+    }, 20000);
 }
 
 
@@ -6600,6 +6710,11 @@ function dmEnrichResetPanel() {
     dmEnrichProgressCache = {};
     dmEnrichDailyCache = null;
     dmEnrichTargetValue = 0;
+    dmEnrichSavedSettings = null;
+    if (dmEnrichRefreshTimer) {
+        clearTimeout(dmEnrichRefreshTimer);
+        dmEnrichRefreshTimer = null;
+    }
     const chart = document.getElementById('dm-enrich-daily-chart');
     if (chart) {
         chart.style.display = 'none';
@@ -6704,8 +6819,7 @@ function dmEnrichTickLabel(action) {
 // decided. Without this, "found nothing to do" and "started work" look the same.
 function dmEnrichPollTick(cid, prevStart, attempt = 0) {
     const MAX_ATTEMPTS = 20;   // ~40s; a tick is a couple of parquet reads
-    const btn = document.getElementById('dm-enrich-tick-btn');
-    const stop = () => { if (btn) btn.disabled = false; };
+    const stop = () => { dmEnrichTickInFlight = false; dmEnrichButtonsRefresh(); };
     if (dmEnrichCollectionId !== cid) { stop(); return; }
     fetch(`/api/manage/collections/${encodeURIComponent(cid)}/enrichment`)
         .then(r => r.json())
@@ -6740,6 +6854,7 @@ function dmEnrichTick() {
     const cid = dmEnrichCollectionId;
     if (!cid) return;
     const btn = document.getElementById('dm-enrich-tick-btn');
+    dmEnrichTickInFlight = true;
     if (btn) btn.disabled = true;
     dmEnrichMsg('Starting a cycle...');
     fetch(`/api/manage/collections/${encodeURIComponent(cid)}/enrichment/tick`, {
@@ -6749,14 +6864,15 @@ function dmEnrichTick() {
     })
         .then(r => r.json())
         .then(data => {
+            const stop = () => { dmEnrichTickInFlight = false; dmEnrichButtonsRefresh(); };
             if (data.error || data.status === 'error') {
-                if (btn) btn.disabled = false;
+                stop();
                 dmEnrichMsg(data.error || data.message || 'Could not start.', true);
                 return;
             }
             if (data.status === 'completed') {
                 // Local mode runs the tick inline and reports what it did.
-                if (btn) btn.disabled = false;
+                stop();
                 dmEnrichMsg(`Tick: ${dmEnrichTickLabel(data.action)}.`);
                 dmEnrichLoad(cid);
                 return;
@@ -6764,7 +6880,11 @@ function dmEnrichTick() {
             dmEnrichMsg('Cycle dispatched — waiting for it to report back...');
             dmEnrichPollTick(cid, data.prev_start_time || null);
         })
-        .catch(err => { if (btn) btn.disabled = false; dmEnrichMsg(`Failed: ${err}`, true); });
+        .catch(err => {
+            dmEnrichTickInFlight = false;
+            dmEnrichButtonsRefresh();
+            dmEnrichMsg(`Failed: ${err}`, true);
+        });
 }
 
 

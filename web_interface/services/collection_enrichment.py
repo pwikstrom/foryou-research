@@ -922,5 +922,49 @@ def last_tick() -> dict:
     }
 
 
+def activity(platform: str | None = None) -> dict:
+    """What the enrichment machinery is doing right now, for the panel's
+    status strip.
+
+    Answers "what is actually happening" from the worker task statuses — the
+    same files the supervisor's busy gate reads — rather than from anything
+    the client remembers, so the strip can never disagree with the workers.
+    One running worker is enough: the machinery is serial by design, and the
+    strip is a summary, not a scheduler view.
+
+    Args:
+        platform: The plan's platform, to name the right scraper queue. When
+            unknown (no plan yet), only the shared annotator / consolidation
+            workers are reported.
+
+    Returns:
+        ``{"kind", "worker", "message", "started_at"}`` where ``kind`` is one
+        of ``"scraping"``, ``"annotating"``, ``"consolidating"`` or
+        ``"waiting"``; ``message`` is the running worker's own latest progress
+        line (None when it has not reported one).
+    """
+    candidates = []
+    if platform:
+        candidates.append((f"queue_scraper_{platform}", "scraping"))
+    candidates += [("queue_annotator_batch", "annotating"),
+                   ("queue_annotator", "annotating"),
+                   ("consolidate_enrichment", "consolidating")]
+    try:
+        from web_interface.services.worker_status import _is_worker_running
+        from web_interface.task_status import read_task_status
+        for name, kind in candidates:
+            if not _is_worker_running(name):
+                continue
+            status = read_task_status(name) or {}
+            progress_msg = (status.get("progress") or {}).get("message") \
+                if isinstance(status.get("progress"), dict) else None
+            return {"kind": kind, "worker": name, "message": progress_msg,
+                    "started_at": status.get("start_time")}
+    except Exception as exc:
+        logger.error(f"collection_enrichment.activity failed: {exc}")
+    return {"kind": "waiting", "worker": None, "message": None,
+            "started_at": None}
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()

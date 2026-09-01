@@ -119,18 +119,8 @@ A plan stops when its annotation target is met, or when nothing processable is l
                 videos spanning the timeline and a deep dive to get maximum coverage
                 into the collection's most recent activities.
             </p>
-            <div style="border: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 10px 12px;">
-                <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;">
-                    <div style="display: flex; align-items: baseline; gap: 6px;">
-                        <div id="dm-enrich-status-line" class="text-sm" style="color: var(--color-text-secondary);">
-                            Loading enrichment plan...
-                        </div>{{ card_info(
-                        "Not armed - no plan yet. Pick a target and press Arm.
-Running - the collection is picked up automatically, about once an hour and whenever a job finishes.
-Paused - nothing new starts; work already queued still finishes.
-Idle - the annotation target is met (or nothing processable is left), so there is nothing to do. Raise the target and arm to continue.
-Needs attention - the plan queued work three times in a row without a single new scrape landing, so it stopped rather than keep spending; the reason is shown beside the status. Fix the cause, then arm it again.") }}
-                    </div>
+            <div id="dm-enrich-panel" style="border: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 10px 12px;">
+                <div style="display: flex; align-items: baseline; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;">
                     <div class="text-sm" style="display: flex; align-items: baseline; gap: 6px; color: var(--color-text-secondary);">
                         <span id="dm-enrich-progress"></span>{{ card_info(
                         "What the chart, the numbers and the bar mean.
@@ -264,27 +254,42 @@ Deep-dive days are not capped - they take the whole day, however busy it was.">M
                 </div>
                 </div>
 
-                <div style="margin-top: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                    <button type="button" class="action-btn text-sm meta-tooltip tooltip-wide" id="dm-enrich-arm-btn"
-                        data-tooltip="Arm hands this collection to the loop: it gets picked up automatically from then on, and keeps going until the annotation target is met or there is nothing left to process. Arming also saves the settings above.
+                <div style="margin-top: 14px; display: flex; align-items: baseline; gap: 6px;">
+                    <div id="dm-enrich-status-line" class="text-sm" style="color: var(--color-text-secondary);">
+                        Loading enrichment plan...
+                    </div>{{ card_info(
+                    "The plan's state, and what the machinery is doing right now.
+
+Not armed - no plan yet. Pick a target and press Arm.
+Running - the collection is picked up automatically, about once an hour and whenever a job finishes. While a step is in flight the line names it - scraping, annotating, or consolidating - with the worker's own latest progress note; between steps it says what the next tick will do.
+Paused - nothing new starts; work already queued still finishes.
+Idle - the annotation target is met (or nothing processable is left), so there is nothing to do. Raise the target and arm to continue.
+Needs attention - the plan queued work repeatedly without a single new scrape landing, so it stopped rather than keep spending; the reason is shown beside the status. Fix the cause, then arm it again.
+
+This line is a summary and refreshes itself while work is in flight. The full live logs are elsewhere: scraping and annotation on their own Data pages (the worker cards), consolidation under Dataset Assembly.") }}
+                </div>
+                <div style="margin-top: 8px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <span class="meta-tooltip tooltip-wide" id="dm-enrich-arm-wrap"
+                        data-tooltip="Arm hands this collection to the loop: it gets picked up automatically from then on, and keeps going until the annotation target is met or there is nothing left to process. Arming always saves the settings above first - there is no separate save step on this path.
 
 There is only ever ONE plan per collection - if a colleague armed it already, this updates that same plan rather than starting a second one, and the last person to save wins on the settings.
 
-Pause stops new work starting. Anything already queued still finishes.
+While the plan runs the button reads Pause: nothing new starts, anything already queued still finishes. On a paused plan it reads Resume. On a finished plan it reads Arm again - raise the annotation target first, or there is nothing for it to do."><button
+                        type="button" class="action-btn text-sm" id="dm-enrich-arm-btn"
+                        onclick="dmEnrichToggleArmed()">Arm</button></span>
+                    <span class="meta-tooltip tooltip-wide" id="dm-enrich-save-wrap"
+                        data-tooltip="Store the settings above without arming or pausing anything. Enabled only while something differs from the saved plan - Arm saves too, so this is for changing a plan (say, raising the target) without touching its state.
 
-On a plan that has finished, the button reads Arm again - raise the annotation target first, or there is nothing for it to do."
-                        onclick="dmEnrichToggleArmed()">Arm</button>
-                    <button type="button" class="action-btn btn-secondary text-sm meta-tooltip tooltip-wide" id="dm-enrich-save-btn"
-                        data-tooltip="Store these settings without starting anything. Separate from the modal's own Save button at the bottom, which never touches them.
-
-Changing a setting does not undo work already done - it applies from the next cycle onwards."
-                        onclick="dmEnrichSave()">Save settings</button>
-                    <button type="button" class="btn-discreet text-xs meta-tooltip tooltip-wide" id="dm-enrich-tick-btn"
-                        data-tooltip="Runs one step of the loop right now instead of waiting for the next automatic tick. It does one thing per click: queue the next batch of videos to scrape, start the scraper or the annotator, or fold finished results back in.
-
-Hover again once the panel has loaded - this tip then says what a cycle would actually do for this collection."
-                        onclick="dmEnrichTick()">Run a cycle now</button>
+Changing a setting does not undo work already done - it applies from the next cycle onwards. Separate from the modal's own Save button at the bottom, which never touches these."><button
+                        type="button" class="action-btn btn-secondary text-sm" id="dm-enrich-save-btn"
+                        onclick="dmEnrichSave()">Save settings</button></span>
                     <span id="dm-enrich-msg" class="text-xs" style="color: var(--color-text-tertiary);"></span>
+                    <span class="meta-tooltip tooltip-wide" id="dm-enrich-tick-wrap" style="margin-left: auto;"
+                        data-tooltip="Runs one step of the loop right now instead of waiting for the next automatic tick. A manual nudge and diagnostic - it does not arm anything, and one click advances the loop by exactly one step: queue the next batch of videos to scrape, start the scraper or the annotator, or fold finished results back in.
+
+Hover again once the panel has loaded - this tip then says what a cycle would actually do for this collection."><button
+                        type="button" class="btn-discreet text-xs" id="dm-enrich-tick-btn"
+                        onclick="dmEnrichTick()">Run a cycle now</button></span>
                 </div>
             </div>
         </div>

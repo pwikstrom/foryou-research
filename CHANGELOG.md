@@ -46,6 +46,17 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **The enrichment panel narrates itself.** The status line moved down beside
+  the buttons and now says what the machinery is doing right now — scraping,
+  annotating, or consolidating, with the running worker's own progress note
+  (server-derived from the worker statuses) — or, when armed and between
+  steps, what the next tick will do; it refreshes itself while work is in
+  flight. The buttons became state-aware: the primary button reads
+  Arm / Pause / Resume / Arm again as the plan's state dictates, *Save
+  settings* is enabled only while the form differs from the saved plan (Arm
+  always saves too), and *Run a cycle now* is disabled when there is no plan
+  to run or the target is already met — every tooltip, including the disabled
+  states' explanations, now lives on a wrapper so it still shows on hover.
 - **The annotation queue block** leads with the everyday path — target study,
   the queue button, and the failed-attempts checkbox on one row under the
   title — with the re-annotation selection modes folded behind an *Advanced*
