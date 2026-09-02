@@ -517,8 +517,24 @@ def _directionalise(mat: np.ndarray, corpus_mean: np.ndarray) -> np.ndarray:
 
 
 
+def vector_cache_enabled() -> bool:
+    """``[sessions] vector_cache`` — whole-part caching for the batch build.
+
+    Off by config only; the read-side callers (the tab's context-vector
+    lookups on the web service) never use the cache — they fetch a handful
+    of rows and must not pull 1.9 GB into the web instance's memory.
+    """
+    from fyp.fyp_config import fyp_cf
+
+    cfg = fyp_cf.get("sessions", {})
+    value = cfg.get("vector_cache", True) if isinstance(cfg, dict) else True
+    return str(value).strip().lower() not in ("0", "false", "no", "off")
+
+
+
+
 def load_directional_block(model: str, item_ids: list, corpus_mean: np.ndarray,
-                           index=None) -> tuple[dict, np.ndarray]:
+                           index=None, local_cache: bool = False) -> tuple[dict, np.ndarray]:
     """Directional vectors for one batch of item ids, from the dense sidecar.
 
     The batch-scoped counterpart of :func:`load_directional_store`: identical
@@ -534,6 +550,9 @@ def load_directional_block(model: str, item_ids: list, corpus_mean: np.ndarray,
             mean silently changes every distance; see the module docstring).
         index: The model's :class:`~fyp.analysis.embedding_store.DenseIndex`
             (None loads it, or yields an empty block when no store exists).
+        local_cache: Serve the dense parts from the per-machine whole-part
+            cache (batch builds only — see
+            :func:`embedding_store.read_vectors`).
 
     Returns:
         ``(id_to_row, U_block)`` — map of found item_id to block row, and the
@@ -546,7 +565,8 @@ def load_directional_block(model: str, item_ids: list, corpus_mean: np.ndarray,
     rows, found = index.lookup(item_ids)
     if not found.any():
         return {}, np.empty((0, index.dim), dtype=np.float32)
-    U = embedding_store.read_vectors(model, rows, index, dtype=np.float32)
+    U = embedding_store.read_vectors(model, rows, index, dtype=np.float32,
+                                     local_cache=local_cache)
     _directionalise(U, corpus_mean)
     found_ids = [str(i) for i, f in zip(item_ids, found) if f]
     return {iid: i for i, iid in enumerate(found_ids)}, U
@@ -2005,6 +2025,8 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
     stats["n_vectors"] = n_union
     stats["t_load"] = time.perf_counter() - _t
     tier1 = n_union <= max_vectors
+    use_cache = vector_cache_enabled()
+    stats["vector_cache"] = int(use_cache)
 
     session_rows: list[dict] = []
     episode_rows: list[dict] = []
@@ -2013,8 +2035,9 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
     if tier1:
         _t = time.perf_counter()
         embedded_ids = [i for i, f in zip(batch_ids, found) if f]
-        id2local, U = load_directional_block(model, embedded_ids, corpus_mean,
-                                             index) if n_union else ({}, np.empty((0, 1), np.float32))
+        id2local, U = load_directional_block(
+            model, embedded_ids, corpus_mean, index,
+            local_cache=use_cache) if n_union else ({}, np.empty((0, 1), np.float32))
         id_sets["embedded"] = set(id2local)
         stats["t_vectors"] += time.perf_counter() - _t
         _t = time.perf_counter()
@@ -2035,7 +2058,8 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
             _t = time.perf_counter()
             cplays = plays[plays["collection_id"] == cid]
             c_ids = [str(i) for i in cplays["item_id"].drop_duplicates()]
-            id2local, U = load_directional_block(model, c_ids, corpus_mean, index)
+            id2local, U = load_directional_block(model, c_ids, corpus_mean, index,
+                                                 local_cache=use_cache)
             id_sets["embedded"] = set(id2local)
             stats["t_vectors"] += time.perf_counter() - _t
             _t = time.perf_counter()
@@ -2065,6 +2089,7 @@ def format_batch_timing(chunk: int, n_collections: int, stats: dict) -> str:
             f"plays={stats.get('n_plays', 0)} tier={stats.get('tier', 1)} "
             f"load={stats.get('t_load', 0.0):.1f}s "
             f"vectors={stats.get('t_vectors', 0.0):.1f}s "
+            f"vcache={stats.get('vector_cache', 0)} "
             f"segment={stats.get('t_segment', 0.0):.1f}s "
             f"workers={stats.get('workers', 1)} units={stats.get('units', 0)} "
             f"unit_max={stats.get('unit_max', 0.0):.1f}s "

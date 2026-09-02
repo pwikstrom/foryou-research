@@ -275,7 +275,7 @@ def test_anti_guard_per_batch_mean_breaks_equivalence(corpus, monkeypatch):
     got_all = _read_artifacts()
     assert meta_all["n_windows"] > 0
 
-    def per_batch_mean_block(model, item_ids, corpus_mean, index=None):
+    def per_batch_mean_block(model, item_ids, corpus_mean, index=None, **kwargs):
         if index is None:
             index = embedding_store.load_index(model)
         rows, found = index.lookup(item_ids)

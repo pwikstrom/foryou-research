@@ -200,7 +200,10 @@ time — runs on a forked process pool over (collection, session-chunk) work
 units (`[sessions] workers`, default one per core less one; serial where
 `fork` is unavailable), and every link logs a `[TIMING] sessions_link` line
 splitting its time into load / vectors / segment. The worker count never
-changes the rows.
+changes the rows. On a hosted deployment the links also cache the dense
+embedding parts whole on the task-runner instance (`[sessions]
+vector_cache`, memory-backed `/tmp`, keyed by store fingerprint) — a batch's
+scattered rows otherwise cost a near-whole read of the store per link.
 
 Every study refresh also writes a **methods/provenance note**
 (`{study}_methods.json`, built by `web_interface/services/methods_note.py`):

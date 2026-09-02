@@ -257,6 +257,12 @@ max_windows = 3
 # Wall time only — the artifacts are identical whatever the count.
 workers = "auto"
 
+# Cache the dense embedding parts whole on the machine running a
+# sessions_refresh (memory-backed /tmp on Cloud Run, ~1.9 GB for the current
+# corpus) instead of ranged-reading them from the bucket on every chain
+# link. Batch builds only — the web service never caches. Results identical.
+vector_cache = true
+
 # How many plays immediately before/after a selected binge or low-entropy
 # sequence the Sessions-tab player offers as (clearly marked) context.
 context_plays = 3

@@ -30,6 +30,10 @@ batched consumer from ever centring on a stale mean.
 
 import hashlib
 import json
+import os
+import shutil
+import tempfile
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -441,14 +445,80 @@ def ensure_dense_store(model: str, reporter=None) -> dict:
 
 
 
+def _dense_cache_dir() -> str:
+    """Root of the per-machine dense-part cache (see :func:`_cached_part_path`)."""
+    return os.environ.get("FYP_DENSE_CACHE_DIR") or os.path.join(
+        tempfile.gettempdir(), "fyp_dense_cache")
+
+
+
+
+def _fetch_part_bytes(filename: str) -> bytes | bytearray:
+    """Download one dense part from GCS (parallel ranged GETs for big blobs)."""
+    _, _, _, blob_name = data_io._resolve_paths(STORE_LOCATION, filename)
+    return data_io._download_blob_bytes(data_io._get_bucket(), blob_name)
+
+
+
+
+def _cached_part_path(model: str, part: dict, store_fp: str, dim: int) -> str:
+    """Local path of one dense part, downloading it into the cache if absent.
+
+    Why a whole-part cache exists next to the ranged reads: a sessions link
+    asks for 3-15% of the corpus rows scattered over every part, and at that
+    density the coalesced ranges cover nearly the whole 1.9 GB store — ~30 s
+    per link however small the batch (measured 2026-09-02). A task-runner
+    instance serves many links in a row, so paying that once per instance
+    and memory-mapping thereafter takes the phase to ~0 for every later link.
+
+    Layout: ``<cache>/<model>/<fingerprint>/<part filename>``. Parts under one
+    store fingerprint are immutable (a shard-set change rebuilds or appends
+    under a new fingerprint), so a present file is trusted after a size check;
+    other fingerprints' directories for the model are evicted so the cache
+    holds one store at a time. Downloads go to a temp file and are renamed
+    into place, so a concurrent reader never sees a partial part.
+    """
+    safe = _safe_model(model)
+    root = os.path.join(_dense_cache_dir(), safe, (store_fp or "nofp")[:16])
+    path = os.path.join(root, part["filename"])
+    expected = int(part["rows"]) * dim * 2
+    if os.path.exists(path) and os.path.getsize(path) == expected:
+        return path
+    os.makedirs(root, exist_ok=True)
+    t0 = time.perf_counter()
+    buf = _fetch_part_bytes(part["filename"])
+    if len(buf) != expected:
+        raise OSError(f"[DENSE] {part['filename']}: downloaded {len(buf)} bytes, "
+                      f"expected {expected} ({part['rows']} rows x dim {dim})")
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "wb") as fh:
+        fh.write(buf)
+    os.replace(tmp, path)
+    logger.info(f"[DENSE] cached {part['filename']} locally "
+                f"({len(buf) / 1e6:.0f} MB in {time.perf_counter() - t0:.1f}s)")
+    # Evict other fingerprints' parts for this model: the store moved on, and
+    # the cache lives in memory-backed /tmp on Cloud Run.
+    model_root = os.path.join(_dense_cache_dir(), safe)
+    for entry in os.listdir(model_root):
+        if entry != os.path.basename(root):
+            shutil.rmtree(os.path.join(model_root, entry), ignore_errors=True)
+    return path
+
+
+
+
 def read_vectors(model: str, rows: np.ndarray, index: DenseIndex,
                  dtype=np.float32,
-                 coalesce_bytes: int = DEFAULT_COALESCE_BYTES) -> np.ndarray:
+                 coalesce_bytes: int = DEFAULT_COALESCE_BYTES,
+                 local_cache: bool = False) -> np.ndarray:
     """Fetch specific global rows from the dense store.
 
     Local mode memory-maps each part (RSS = touched pages); GCS mode issues
     coalesced ranged reads — adjacent requested rows whose byte gap is at most
-    ``coalesce_bytes`` share one request, over-reading the gap.
+    ``coalesce_bytes`` share one request, over-reading the gap — unless
+    ``local_cache`` is set, in which case each touched part is downloaded
+    whole into the per-machine cache once and memory-mapped like local mode
+    (see :func:`_cached_part_path`; for dense, many-part reads only).
 
     Args:
         model: Embedding model id.
@@ -456,6 +526,7 @@ def read_vectors(model: str, rows: np.ndarray, index: DenseIndex,
         index: The model's :class:`DenseIndex` (for dim + part layout).
         dtype: Output dtype (vectors are stored float16).
         coalesce_bytes: GCS-mode gap threshold.
+        local_cache: GCS mode: serve parts from the whole-part cache.
 
     Returns:
         ``(len(rows), dim)`` array of ``dtype``, aligned to ``rows`` order.
@@ -487,6 +558,9 @@ def read_vectors(model: str, rows: np.ndarray, index: DenseIndex,
 
         primary, _, mode, _ = data_io._resolve_paths(
             STORE_LOCATION, part["filename"])
+        if mode == 'gcs' and local_cache:
+            primary = _cached_part_path(model, part, index.store_fp, dim)
+            mode = 'local'
         if mode == 'gcs':
             _read_part_ranged(part["filename"], local, dest, out, row_bytes,
                               dim, coalesce_bytes)

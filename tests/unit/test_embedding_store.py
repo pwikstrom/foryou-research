@@ -235,6 +235,59 @@ def test_ranged_read_path_matches_memmap(store, monkeypatch):
 
 
 
+def test_local_part_cache_matches_memmap_and_downloads_once(store, monkeypatch, tmp_path):
+    """GCS mode + local_cache: parts are fetched whole once, then memmapped."""
+    ids = [f"c{i:03d}" for i in range(48)]
+    mat = _rand(48, 11)
+    _write_shard(ids, mat)
+    embedding_store.ensure_dense_store(MODEL)
+    index = embedding_store.load_index(MODEL)
+    rows, found = index.lookup(["c007", "c001", "c040", "c020"])
+    assert found.all()
+    want = embedding_store.read_vectors(MODEL, rows, index)
+
+    real_resolve = data_io._resolve_paths
+
+    def _fake_resolve(loc, fn):
+        primary, secondary, mode, blob = real_resolve(loc, fn)
+        if fn.startswith(embedding_store.DENSE_BLOB_PREFIX):
+            return primary, secondary, 'gcs', blob
+        return primary, secondary, mode, blob
+
+    fetches: list[str] = []
+
+    def _fetch(filename):
+        fetches.append(filename)
+        with open(real_resolve(embedding_store.STORE_LOCATION, filename)[0], "rb") as f:
+            return f.read()
+
+    monkeypatch.setattr(data_io, "_resolve_paths", _fake_resolve)
+    monkeypatch.setattr(embedding_store, "_fetch_part_bytes", _fetch)
+    monkeypatch.setenv("FYP_DENSE_CACHE_DIR", str(tmp_path / "dense_cache"))
+    # A leftover directory from an older store fingerprint must be evicted.
+    stale = tmp_path / "dense_cache" / embedding_store._safe_model(MODEL) / "0000stalefp"
+    stale.mkdir(parents=True)
+    (stale / "old.f16").write_bytes(b"x")
+
+    got = embedding_store.read_vectors(MODEL, rows, index, local_cache=True)
+    np.testing.assert_array_equal(want, got)
+    assert len(fetches) == len(index.parts)
+    assert not stale.exists()
+
+    again = embedding_store.read_vectors(MODEL, rows, index, local_cache=True)
+    np.testing.assert_array_equal(want, again)
+    assert len(fetches) == len(index.parts)  # served from the cache
+
+    # A truncated cached file is not trusted: it is re-fetched.
+    cached = tmp_path / "dense_cache" / embedding_store._safe_model(MODEL)
+    part_file = next(cached.rglob("*.f16"))
+    part_file.write_bytes(part_file.read_bytes()[:-2])
+    embedding_store.read_vectors(MODEL, rows, index, local_cache=True)
+    assert len(fetches) == len(index.parts) + 1
+
+
+
+
 def test_other_models_rows_are_excluded(store):
     _write_shard(["mine1", "mine2"], _rand(2, 10), model=MODEL)
     _write_shard(["other1"], _rand(1, 11), model="other-model")
