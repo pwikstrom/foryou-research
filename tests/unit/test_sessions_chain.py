@@ -640,8 +640,6 @@ def test_restart_args_keep_stale_only_but_strip_skip_if_busy(corpus, monkeypatch
 def test_workers_ride_the_chain_but_stay_out_of_params(corpus, monkeypatch):
     """A worker count must survive chain + restart args, and must never reach
     ``params`` — anything there lands in the meta and would force a rebuild."""
-    import json
-
     reporter = FakeReporter()
     setup = worker.run_sessions_refresh(reporter, {"batch_size": 1, "workers": 2})
     args = setup["next_task_args"]

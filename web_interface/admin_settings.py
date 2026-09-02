@@ -55,6 +55,12 @@ DEFAULTS: dict = {
     # Admins always bypass. Server-side clamp — the UI shows when it applied.
     "queue_cap_annotation_items": 5000,
     "queue_cap_scrape_items": 10000,
+    # Incremental consolidation (fold new batch files + patch enrichment
+    # status) instead of the full O(corpus) rebuild each run. The kill switch
+    # for the incremental paths: off means byte-for-byte the historical full
+    # rebuild. Runtime-flippable so a suspect fold can be rolled back without
+    # a redeploy; force-consolidation runs always take the full path anyway.
+    "incremental_consolidation": False,
     # Sessions-tab list floors. These entries are the LAST-RESORT fallbacks —
     # resolution is admin setting > [sessions] config > here (see
     # get_session_floors), so an instance that never opens the admin page keeps

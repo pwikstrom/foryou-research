@@ -1783,6 +1783,25 @@ def _load_enrichment_seeds(verbose: bool = False) -> dict[str, pd.DataFrame]:
 
 
 
+def _ensure_seed_flag(scrape_df: pd.DataFrame) -> pd.DataFrame:
+    """Guarantee the ``is_enrichment_seed`` provenance column (False = real row).
+
+    The incremental fold uses this flag to evict every seed row from the
+    previous consolidation before re-running the seed anti-join against the
+    current seed files — that is what lets a real scrape arriving later win
+    over the donated row without rebuilding from all files.
+    """
+    if "is_enrichment_seed" not in scrape_df.columns:
+        scrape_df["is_enrichment_seed"] = pd.Series(
+            False, index=scrape_df.index, dtype="bool[pyarrow]")
+    else:
+        scrape_df["is_enrichment_seed"] = (
+            scrape_df["is_enrichment_seed"].fillna(False).astype("bool[pyarrow]"))
+    return scrape_df
+
+
+
+
 def _merge_enrichment_seeds(
     scrape_df: pd.DataFrame,
     seed_frames: dict[str, pd.DataFrame],
@@ -1791,12 +1810,14 @@ def _merge_enrichment_seeds(
     """Append donated seed rows for items that have no real scrape row.
 
     Precedence is a plain anti-join on ``(source_platform, item_id)``: any real
-    scrape row beats a donated one, and re-consolidation after a later real
-    scrape automatically drops the donated row (consolidation rebuilds from all
-    files each run). Donated rows are stamped ``scraped_ok=False`` /
+    scrape row beats a donated one, and a later consolidation with a real
+    scrape drops the donated row — the full rebuild does that by construction,
+    and the incremental fold by evicting all ``is_enrichment_seed`` rows before
+    re-running this anti-join. Donated rows are stamped ``scraped_ok=False`` /
     ``video_downloaded=False`` so the items stay scrape-eligible while their
     donated caption/author metadata surfaces downstream.
     """
+    scrape_df = _ensure_seed_flag(scrape_df)
     if not seed_frames:
         return scrape_df
 
@@ -1819,6 +1840,7 @@ def _merge_enrichment_seeds(
     seeds["scraped_ok"] = pd.Series(False, index=seeds.index, dtype="bool[pyarrow]")
     seeds["video_downloaded"] = pd.Series(False, index=seeds.index, dtype="bool[pyarrow]")
     seeds["storage_link"] = pd.Series("", index=seeds.index, dtype="string[pyarrow]")
+    seeds["is_enrichment_seed"] = pd.Series(True, index=seeds.index, dtype="bool[pyarrow]")
 
     if verbose:
         logger.info(f"    Adding {len(seeds):,} donated seed row(s) for items without a real scrape.")
@@ -1835,6 +1857,10 @@ _SCRAPE_PROVENANCE_COLS = frozenset({
     "scrape_ts",
     "scrape_contract_version",
     "storage_link",
+    # Seed provenance: which store a row came from is not an analysis value,
+    # and the column's first appearance (post-deploy full rebuild) must not
+    # read as a schema change that flags every item.
+    "is_enrichment_seed",
 })
 
 
@@ -1973,116 +1999,39 @@ def _compute_changed_scrape_ids(
 
 
 
-def consolidate_and_save_scrape_data(
-    force_consolidation: bool = False,
-    return_saved_data: bool = True,
-    verbose: bool = False,
-    ):
+def _write_scrape_ledger(
+    dataset_meta: dict,
+    files_to_concatenate: list[str],
+    seed_row_counts: dict,
+    seed_fingerprints: dict,
+    current_sv,
+) -> None:
+    """Record what this consolidation covered. ALWAYS written after the saves —
+    a crash before this point replays the same fold/rebuild idempotently; a
+    ledger written early could skip files forever."""
+    if _scrapes_label() not in dataset_meta:
+        dataset_meta[_scrapes_label()] = {}
+    dataset_meta[_scrapes_label()]["filenames"] = files_to_concatenate
+    dataset_meta[_scrapes_label()]["seed_row_counts"] = seed_row_counts
+    dataset_meta[_scrapes_label()]["seed_fingerprints"] = seed_fingerprints
+    dataset_meta[_scrapes_label()]["scrape_contract_version"] = current_sv
+    _ = data_io.save_json(data=dataset_meta, storage_location="recoded",
+                          filename="consolidated_enrichment_files.json")
 
 
 
-    top_verbose = True
 
-    # There is no need to look for raw scrape files. Contrary to activity data
-    # and annotations, the scrape files are recoded and immediately after the scrape 
+def _normalize_scrape_frame(scrape_df: pd.DataFrame) -> pd.DataFrame:
+    """Row-wise normalizations every consolidated scrape frame gets.
 
-    if top_verbose:
-        logger.info("Checking for new scrape files for consolidation...")
-
-    # check if there are any changes in the relevant folder compared to last time this process was run.    
-    if data_io.exists(storage_location="recoded",filename="consolidated_enrichment_files.json",verbose=verbose):
-        dataset_meta = data_io.load_json(storage_location="recoded",filename="consolidated_enrichment_files.json",verbose=verbose)
-        if verbose:
-            logger.info("Dataset meta loaded")
-    else:
-        dataset_meta = {_scrapes_label(): {"filenames": []}}
-
-    files_to_concatenate = []
-    for fn in data_io.listdir(storage_location="scrape"):
-        if fn.startswith(_scrapes_label()) and fn.endswith(".parquet"):
-            files_to_concatenate.append(fn)
-
-    # Donated enrichment seeds participate in change detection: a fresh ingest
-    # grows a seed file's row count without adding a scrapes_* parquet, and
-    # must still trigger consolidation.
-    seed_frames = _load_enrichment_seeds(verbose=verbose)
-    seed_row_counts = {fn: len(df) for fn, df in seed_frames.items()}
-
-    latest_filename_list = dataset_meta.get(_scrapes_label(), {}).get("filenames", [])
-    latest_seed_row_counts = dataset_meta.get(_scrapes_label(), {}).get("seed_row_counts", {})
-    # A scrape-contract change (new sv_) must rebuild even with no new files:
-    # the per-file self-healing migrations (retired-column coalesce, legacy
-    # renames) only run inside a rebuild, so skipping would leave the
-    # consolidated parquet on the previous contract's column set forever.
-    from fyp.scrape import scrape_versioning
-    current_sv = scrape_versioning.active_scrape_version()
-    latest_sv = dataset_meta.get(_scrapes_label(), {}).get("scrape_contract_version")
-    if (not force_consolidation
-            and set(files_to_concatenate) <= set(latest_filename_list)
-            and seed_row_counts == latest_seed_row_counts
-            and latest_sv == current_sv):
-        if top_verbose:
-            logger.info("No new scrape files found. No need to consolidate.")
-        if return_saved_data:
-            if data_io.exists(storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"):
-                if verbose: logger.info("Returning existing file.")
-                return False, data_io.load_parquet(storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"), set()
-            if verbose: logger.info("No existing consolidated file — returning empty.")
-            return False, pd.DataFrame(), set()
-        return False, None, set()
-
-    
-    # ---------------------------------------------------------------
-    _t_start = time.perf_counter()
-    if top_verbose:
-        logger.info("Loading scrape files...")
-    # Candidate item_ids for the changed-id diff: only rows from new batch
-    # files or changed seed files can differ from the previous consolidation,
-    # so the signature diff can be restricted to them. A force run or a
-    # contract-version bump can change values corpus-wide (per-file migrations
-    # re-run), so those keep the full diff.
-    new_files = set(files_to_concatenate) - set(latest_filename_list)
-    diff_candidates: set[str] | None = set()
-    if force_consolidation or latest_sv != current_sv:
-        diff_candidates = None
-    many_scrape_dfs = []
-    scraper = get_scraper(verbose=False)
-    for fn in files_to_concatenate:
-        df = data_io.load_parquet(storage_location="scrape", filename=fn)
-        # Fold retired platform-specific columns into their generic successors
-        # BEFORE the legacy migration: its rate re-derivation reads the generic
-        # count names via the flat [perk] map.
-        df = _coalesce_retired_columns(df)
-        # Migrate legacy (pre-canonical) parquets to the canonical schema; a no-op
-        # for files already saved with canonical names.
-        df = _canonicalize_legacy_scrape(df, filename=fn, scraper=scraper)
-        many_scrape_dfs.append(df)
-        if diff_candidates is not None and fn in new_files and "item_id" in df.columns:
-            diff_candidates.update(str(i) for i in df["item_id"].dropna())
-        if verbose:
-            logger.info(f"{fn} {df.shape}")
-    if diff_candidates is not None:
-        for fn, seed_df in seed_frames.items():
-            if seed_row_counts.get(fn) != latest_seed_row_counts.get(fn) and "item_id" in seed_df.columns:
-                diff_candidates.update(str(i) for i in seed_df["item_id"].dropna())
-    _t_load = time.perf_counter() - _t_start
-
-    if top_verbose:
-        logger.info(f"Consolidating {len(many_scrape_dfs):,} scrape files (dropping duplicate items)...")
-    if many_scrape_dfs:
-        scrape_df = pd.concat(many_scrape_dfs, ignore_index=True)
-    else:
-        # No real scrapes yet (e.g. a fresh platform with only donated seeds) —
-        # start from an empty frame with the columns downstream steps touch.
-        scrape_df = pd.DataFrame({
-            "item_id": pd.Series([], dtype="string[pyarrow]"),
-            "source_platform": pd.Series([], dtype="string[pyarrow]"),
-            "video_downloaded": pd.Series([], dtype="bool[pyarrow]"),
-        })
-
-    # Backfill source_platform for rows scraped before the column existed.
-    # Canonical-era files skip _canonicalize_legacy_scrape's rename path, so the
-    # fill has to happen here; all pre-column history is TikTok by definition.
+    Shared verbatim by the full rebuild and the incremental fold so the two
+    paths cannot drift: source_platform backfill (pre-column history is TikTok
+    by definition; canonical-era files skip _canonicalize_legacy_scrape's
+    rename path, so the fill has to happen here) and the plays_per_day -1
+    missing-count sentinel mask (negative is impossible by construction;
+    per-file parquets keep the bad values but are re-masked on every load,
+    exactly like the legacy-column migration). Both are idempotent.
+    """
     backfill_platform = sc.default_platform(sc.load_contract()) or "tiktok"
     if "source_platform" not in scrape_df.columns:
         scrape_df["source_platform"] = pd.NA
@@ -2090,28 +2039,33 @@ def consolidate_and_save_scrape_data(
         scrape_df["source_platform"].fillna(backfill_platform).astype("string[pyarrow]")
     )
 
-    # Repair rows scraped before derive_plays_per_day masked the -1 missing-count
-    # sentinel: a negative plays_per_day is impossible by construction, so mask to
-    # NA. Per-file parquets keep the bad values but are re-masked on every load,
-    # exactly like the legacy-column migration.
     if "plays_per_day" in scrape_df.columns:
         scrape_df["plays_per_day"] = scrape_df["plays_per_day"].mask(
             scrape_df["plays_per_day"] < 0, pd.NA
         )
+    return scrape_df
 
 
-    # -------------------------------------------------
-    # There may be some items listed twice - once as video_downloaded and once as not
-    # This code addresses that issue
-    # -------------------------------------------------
 
-    # deduplicate based on item_id but if there are both a true and a false video_downloaded status, keep both.
-    # Sort newest scrape first so a re-scrape supersedes the older row (file order
-    # is lexicographic ≈ oldest-first, and keep="first" would otherwise pin the
-    # stale row forever).
+
+def _dedupe_and_resolve_conflicts(scrape_df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
+    """Per-item dedupe + video_downloaded conflict resolution.
+
+    Shared verbatim by the full rebuild and the incremental fold. The kept row
+    per (source_platform, item_id, video_downloaded) key is the newest by
+    scrape_ts; storage_link is a deterministic tie-break so equal-timestamp
+    duplicates resolve identically regardless of input row order (the fold
+    presents rows in a different order than the all-files rebuild). Items
+    listed both with and without a downloaded video keep the downloaded row.
+    """
+    # Sort newest scrape first so a re-scrape supersedes the older row (file
+    # order is lexicographic ≈ oldest-first, and keep="first" would otherwise
+    # pin the stale row forever).
     if "scrape_ts" in scrape_df.columns:
+        sort_cols = ["scrape_ts"] + (
+            ["storage_link"] if "storage_link" in scrape_df.columns else [])
         scrape_df = scrape_df.sort_values(
-            "scrape_ts", ascending=False, kind="mergesort", na_position="last"
+            sort_cols, ascending=False, kind="mergesort", na_position="last"
         )
     scrape_df = scrape_df.drop_duplicates(subset=["source_platform","item_id","video_downloaded"]).copy()
     if verbose:
@@ -2140,6 +2094,289 @@ def consolidate_and_save_scrape_data(
         # recombine the two dataframes
         scrape_df = pd.concat([items_w_consistent_video_download_status,items_w_inconsistent_video_download_status])
 
+    return scrape_df
+
+
+
+
+def _fold_scrape_batch(
+    dataset_meta: dict,
+    files_to_concatenate: list[str],
+    new_files: list[str],
+    seed_frames: dict[str, pd.DataFrame],
+    seed_row_counts: dict,
+    seed_fingerprints: dict,
+    changed_seed_files: set[str],
+    current_sv,
+    verbose: bool = False,
+):
+    """Fold only the new batch files into the previous consolidated frame.
+
+    O(batch) compute, O(corpus) only in blob IO. Correctness argument: the
+    previous consolidation kept, per (source_platform, item_id,
+    video_downloaded) key, exactly the row the shared transforms select from
+    all files; re-running those SAME transforms (:func:`_normalize_scrape_frame`,
+    :func:`_dedupe_and_resolve_conflicts`, :func:`_merge_enrichment_seeds`) over
+    previous-kept-rows + new-batch-rows therefore selects the same row a full
+    rebuild over all files would — the transforms are idempotent per-key
+    max-selections. Seed rows are evicted first and re-derived against the
+    current seed files, so a real scrape arriving for a seeded key wins exactly
+    as in the full rebuild.
+
+    Returns:
+        The ``(True, frame, changed_ids)`` result tuple, or ``None`` to decline
+        — the caller then runs the unchanged full-rebuild path. Declines when
+        the previous frame predates the seed provenance column or the batch
+        widens the value-column set (a schema move needs the per-file
+        migrations of a full rebuild).
+    """
+    _t_start = time.perf_counter()
+    existing_recoded_fn = f"{_scrapes_label()}_recoded.parquet"
+    existing_df = data_io.load_parquet(storage_location="recoded", filename=existing_recoded_fn)
+    if existing_df is None or existing_df.empty or "item_id" not in existing_df.columns:
+        return None
+    if "is_enrichment_seed" not in existing_df.columns:
+        logger.info("[CONSOLIDATE] full rebuild: establishing seed provenance column")
+        return None
+    _t_prev_load = time.perf_counter() - _t_start
+
+    _t_mark = time.perf_counter()
+    logger.info(f"Folding {len(new_files)} new scrape file(s) into the previous consolidation...")
+    scraper = get_scraper(verbose=False)
+    batch_dfs = []
+    diff_candidates: set[str] = set()
+    for fn in new_files:
+        df = data_io.load_parquet(storage_location="scrape", filename=fn)
+        df = _coalesce_retired_columns(df)
+        df = _canonicalize_legacy_scrape(df, filename=fn, scraper=scraper)
+        batch_dfs.append(df)
+        if "item_id" in df.columns:
+            diff_candidates.update(str(i) for i in df["item_id"].dropna())
+        if verbose:
+            logger.info(f"{fn} {df.shape}")
+    for fn in changed_seed_files:
+        seed_df = seed_frames[fn]
+        if "item_id" in seed_df.columns:
+            diff_candidates.update(str(i) for i in seed_df["item_id"].dropna())
+
+    def _value_col_set(df: pd.DataFrame) -> set[str]:
+        return {c for c in df.columns if c != "item_id" and c not in _SCRAPE_PROVENANCE_COLS}
+
+    batch_df = None
+    if batch_dfs:
+        batch_df = _normalize_scrape_frame(pd.concat(batch_dfs, ignore_index=True))
+        widened = _value_col_set(batch_df) - _value_col_set(existing_df)
+        if widened:
+            logger.info(
+                f"[CONSOLIDATE] scrape fold declined: batch adds value columns {sorted(widened)}.")
+            return None
+    _t_load = time.perf_counter() - _t_mark
+
+    _t_mark = time.perf_counter()
+    existing_real = existing_df[~existing_df["is_enrichment_seed"].fillna(False).astype(bool)]
+    if batch_df is not None:
+        combined = pd.concat([existing_real, batch_df], ignore_index=True)
+    else:
+        # Seed-only change: no new batch rows, just re-derive the seed rows.
+        combined = existing_real.copy()
+    scrape_df = _dedupe_and_resolve_conflicts(combined, verbose=verbose)
+    _t_dedupe = time.perf_counter() - _t_mark
+
+    _t_mark = time.perf_counter()
+    scrape_df = _merge_enrichment_seeds(scrape_df, seed_frames, verbose=True)
+    _t_seeds = time.perf_counter() - _t_mark
+
+    logger.info(f"Shape: {scrape_df.shape} | "
+                f"Memory usage: {scrape_df.memory_usage(deep=True).sum() / (1024**2):.2f} MB")
+
+    _t_mark = time.perf_counter()
+    new_item_ids = _compute_changed_scrape_ids(
+        existing_df, scrape_df, verbose=True, candidate_item_ids=diff_candidates)
+    _t_diff = time.perf_counter() - _t_mark
+
+    logger.info("Saving consolidated scrape data...")
+    _t_mark = time.perf_counter()
+    _ = data_io.save_parquet(df=scrape_df, storage_location="recoded", filename=existing_recoded_fn)
+    _t_save = time.perf_counter() - _t_mark
+
+    _write_scrape_ledger(dataset_meta, files_to_concatenate, seed_row_counts,
+                         seed_fingerprints, current_sv)
+    logger.info("...done")
+    logger.info(
+        f"[CONSOLIDATE][TIMING] scrape FOLD prev_load={_t_prev_load:.1f}s load={_t_load:.1f}s "
+        f"concat_dedupe={_t_dedupe:.1f}s seed_merge={_t_seeds:.1f}s diff={_t_diff:.1f}s "
+        f"save={_t_save:.1f}s total={time.perf_counter() - _t_start:.1f}s "
+        f"new_files={len(new_files)} rows={len(scrape_df):,} changed={len(new_item_ids):,}"
+    )
+    return True, scrape_df, new_item_ids
+
+
+
+
+def consolidate_and_save_scrape_data(
+    force_consolidation: bool = False,
+    return_saved_data: bool = True,
+    verbose: bool = False,
+    incremental: bool = False,
+    dry_run: bool = False,
+    ):
+    # dry_run: run the full-rebuild reference path but persist NOTHING (no
+    # recoded save, no ledger update) — the shadow verifier uses it to build
+    # the frame a full rebuild WOULD produce and compare it against the live
+    # artifacts. It forces the full path (never the fold).
+
+
+
+    top_verbose = True
+
+    # There is no need to look for raw scrape files. Contrary to activity data
+    # and annotations, the scrape files are recoded and immediately after the scrape 
+
+    if top_verbose:
+        logger.info("Checking for new scrape files for consolidation...")
+
+    # check if there are any changes in the relevant folder compared to last time this process was run.    
+    if data_io.exists(storage_location="recoded",filename="consolidated_enrichment_files.json",verbose=verbose):
+        dataset_meta = data_io.load_json(storage_location="recoded",filename="consolidated_enrichment_files.json",verbose=verbose)
+        if verbose:
+            logger.info("Dataset meta loaded")
+    else:
+        dataset_meta = {_scrapes_label(): {"filenames": []}}
+
+    files_to_concatenate = []
+    for fn in data_io.listdir(storage_location="scrape"):
+        if fn.startswith(_scrapes_label()) and fn.endswith(".parquet"):
+            files_to_concatenate.append(fn)
+
+    # Donated enrichment seeds participate in change detection: a fresh ingest
+    # grows a seed file's row count without adding a scrapes_* parquet, and
+    # must still trigger consolidation. Row counts alone miss an in-place
+    # content edit with the same row count, so the size/mtime fingerprint is
+    # compared too (ledgers written before fingerprints existed compare by
+    # row count only).
+    seed_frames = _load_enrichment_seeds(verbose=verbose)
+    seed_row_counts = {fn: len(df) for fn, df in seed_frames.items()}
+    seed_fingerprints = {
+        fn: data_io.stat(storage_location="recoded", filename=fn)
+        for fn in seed_frames
+    }
+
+    latest_filename_list = dataset_meta.get(_scrapes_label(), {}).get("filenames", [])
+    latest_seed_row_counts = dataset_meta.get(_scrapes_label(), {}).get("seed_row_counts", {})
+    latest_seed_fps = dataset_meta.get(_scrapes_label(), {}).get("seed_fingerprints")
+    seeds_unchanged = (
+        seed_row_counts == latest_seed_row_counts
+        and (latest_seed_fps is None or seed_fingerprints == latest_seed_fps)
+    )
+    # Seed files whose content moved since the last run — their item_ids are
+    # changed-id candidates alongside the new batch files' ids.
+    changed_seed_files = {
+        fn for fn in seed_frames
+        if seed_row_counts.get(fn) != latest_seed_row_counts.get(fn)
+        or (latest_seed_fps is not None
+            and seed_fingerprints.get(fn) != latest_seed_fps.get(fn))
+    }
+    # A scrape-contract change (new sv_) must rebuild even with no new files:
+    # the per-file self-healing migrations (retired-column coalesce, legacy
+    # renames) only run inside a rebuild, so skipping would leave the
+    # consolidated parquet on the previous contract's column set forever.
+    from fyp.scrape import scrape_versioning
+    current_sv = scrape_versioning.active_scrape_version()
+    latest_sv = dataset_meta.get(_scrapes_label(), {}).get("scrape_contract_version")
+    if (not force_consolidation
+            and set(files_to_concatenate) <= set(latest_filename_list)
+            and seeds_unchanged
+            and latest_sv == current_sv):
+        if top_verbose:
+            logger.info("No new scrape files found. No need to consolidate.")
+        if return_saved_data:
+            if data_io.exists(storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"):
+                if verbose: logger.info("Returning existing file.")
+                return False, data_io.load_parquet(storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"), set()
+            if verbose: logger.info("No existing consolidated file — returning empty.")
+            return False, pd.DataFrame(), set()
+        return False, None, set()
+
+    new_files = set(files_to_concatenate) - set(latest_filename_list)
+
+    # ---------------------------------------------------------------
+    # Incremental fold: fold ONLY the new batch files into the previous
+    # consolidated frame instead of re-reading every scrape parquet. The fold
+    # runs the identical normalize/dedupe/seed transforms, so its output equals
+    # the full rebuild's; anything it cannot prove equal declines to the full
+    # path below (the unchanged reference implementation). Gated off for a
+    # force run and for a contract-version bump — both can change values in
+    # files already consolidated.
+    if (incremental and not force_consolidation and not dry_run
+            and latest_sv == current_sv
+            and latest_filename_list
+            and data_io.exists(storage_location="recoded",
+                               filename=f"{_scrapes_label()}_recoded.parquet")):
+        folded = _fold_scrape_batch(
+            dataset_meta=dataset_meta,
+            files_to_concatenate=files_to_concatenate,
+            new_files=sorted(new_files),
+            seed_frames=seed_frames,
+            seed_row_counts=seed_row_counts,
+            seed_fingerprints=seed_fingerprints,
+            changed_seed_files=changed_seed_files,
+            current_sv=current_sv,
+            verbose=verbose,
+        )
+        if folded is not None:
+            return folded
+        logger.info("[CONSOLIDATE] scrape fold declined — taking the full rebuild path.")
+
+    # ---------------------------------------------------------------
+    _t_start = time.perf_counter()
+    if top_verbose:
+        logger.info("Loading scrape files...")
+    # Candidate item_ids for the changed-id diff: only rows from new batch
+    # files or changed seed files can differ from the previous consolidation,
+    # so the signature diff can be restricted to them. A force run or a
+    # contract-version bump can change values corpus-wide (per-file migrations
+    # re-run), so those keep the full diff.
+    diff_candidates: set[str] | None = set()
+    if force_consolidation or latest_sv != current_sv:
+        diff_candidates = None
+    many_scrape_dfs = []
+    scraper = get_scraper(verbose=False)
+    for fn in files_to_concatenate:
+        df = data_io.load_parquet(storage_location="scrape", filename=fn)
+        # Fold retired platform-specific columns into their generic successors
+        # BEFORE the legacy migration: its rate re-derivation reads the generic
+        # count names via the flat [perk] map.
+        df = _coalesce_retired_columns(df)
+        # Migrate legacy (pre-canonical) parquets to the canonical schema; a no-op
+        # for files already saved with canonical names.
+        df = _canonicalize_legacy_scrape(df, filename=fn, scraper=scraper)
+        many_scrape_dfs.append(df)
+        if diff_candidates is not None and fn in new_files and "item_id" in df.columns:
+            diff_candidates.update(str(i) for i in df["item_id"].dropna())
+        if verbose:
+            logger.info(f"{fn} {df.shape}")
+    if diff_candidates is not None:
+        for fn in changed_seed_files:
+            seed_df = seed_frames[fn]
+            if "item_id" in seed_df.columns:
+                diff_candidates.update(str(i) for i in seed_df["item_id"].dropna())
+    _t_load = time.perf_counter() - _t_start
+
+    if top_verbose:
+        logger.info(f"Consolidating {len(many_scrape_dfs):,} scrape files (dropping duplicate items)...")
+    if many_scrape_dfs:
+        scrape_df = pd.concat(many_scrape_dfs, ignore_index=True)
+    else:
+        # No real scrapes yet (e.g. a fresh platform with only donated seeds) —
+        # start from an empty frame with the columns downstream steps touch.
+        scrape_df = pd.DataFrame({
+            "item_id": pd.Series([], dtype="string[pyarrow]"),
+            "source_platform": pd.Series([], dtype="string[pyarrow]"),
+            "video_downloaded": pd.Series([], dtype="bool[pyarrow]"),
+        })
+
+    scrape_df = _normalize_scrape_frame(scrape_df)
+    scrape_df = _dedupe_and_resolve_conflicts(scrape_df, verbose=verbose)
 
     _t_dedupe = time.perf_counter() - _t_start - _t_load
 
@@ -2183,20 +2420,19 @@ def consolidate_and_save_scrape_data(
         candidate_item_ids=diff_candidates)
     _t_diff = time.perf_counter() - _t_mark
 
-    if top_verbose:
-        logger.info("Saving consolidated scrape data...")
-    _t_mark = time.perf_counter()
-    _ = data_io.save_parquet(df=scrape_df, storage_location="recoded", filename=existing_recoded_fn)
-    _t_save = time.perf_counter() - _t_mark
+    _t_save = 0.0
+    if dry_run:
+        logger.info("[CONSOLIDATE] dry run — skipping the scrape save and ledger update.")
+    else:
+        if top_verbose:
+            logger.info("Saving consolidated scrape data...")
+        _t_mark = time.perf_counter()
+        _ = data_io.save_parquet(df=scrape_df, storage_location="recoded", filename=existing_recoded_fn)
+        _t_save = time.perf_counter() - _t_mark
 
-
-    # update the dataset meta file
-    if _scrapes_label() not in dataset_meta:
-        dataset_meta[_scrapes_label()] = {}
-    dataset_meta[_scrapes_label()]["filenames"] = files_to_concatenate
-    dataset_meta[_scrapes_label()]["seed_row_counts"] = seed_row_counts
-    dataset_meta[_scrapes_label()]["scrape_contract_version"] = current_sv
-    _ = data_io.save_json(data=dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")
+        # update the dataset meta file
+        _write_scrape_ledger(dataset_meta, files_to_concatenate, seed_row_counts,
+                             seed_fingerprints, current_sv)
 
     if top_verbose:
         logger.info("...done")

@@ -266,6 +266,105 @@ def _tick_enrichment_supervisor(reporter) -> None:
         reporter.log(f"Enrichment supervisor tick skipped (consolidation unaffected): {exc}")
 
 
+_SHADOW_CHECK_INTERVAL_DAYS = 7
+
+
+def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
+    """Shadow-verify the incremental artifacts against a full rebuild.
+
+    Runs as a mode of the consolidate_enrichment worker (task_args
+    ``verify_consolidation``) so it shares the status key — the supervisor's
+    hard gate then serializes it against real consolidations. On divergence it
+    records a task failure (visible on Admin → System info) and promotes a
+    real ``force_consolidation`` run, folding the resulting impact into the
+    deferred-refresh ledger so downstream caches rebuild from healed data.
+    """
+    from fyp.organize_datasets import (
+        consolidate_enrichment_data,
+        verify_consolidation_equivalence,
+    )
+
+    def _progress(pct: float, msg: str) -> None:
+        reporter.update_progress(int(pct), msg, stage_index=1, stage_total=1,
+                                 stage_name="consolidate_enrichment")
+
+    _progress(5, "Shadow-verifying incremental consolidation…")
+    result = verify_consolidation_equivalence(progress_cb=_progress)
+    reporter.emit_data({"shadow_check": result})
+
+    if result.get("ok"):
+        reporter.log("Shadow verification OK — incremental artifacts match a full rebuild.")
+        return None
+
+    reporter.log(f"Shadow verification found divergence: {result.get('mismatches')}")
+    try:
+        from web_interface import task_failures
+        task_failures.record_failure(
+            task="consolidate_enrichment",
+            error=f"[SHADOW] incremental consolidation diverged from a full rebuild: "
+                  f"{result.get('mismatches')}",
+            status_key="consolidate_enrichment",
+            retry_count=0,
+            disposition=task_failures.DISPOSITION_DEAD,
+            task_args={"verify_consolidation": True},
+            phase="verify",
+        )
+    except Exception as exc:
+        reporter.log(f"Could not record the divergence in the failure ledger: {exc}")
+
+    reporter.log("Promoting a full rebuild over the divergent incremental artifacts…")
+    promote = consolidate_enrichment_data(
+        force_consolidation=True, verbose=False, progress_cb=_progress)
+    impact = promote.get("impact") if promote else None
+    if impact:
+        try:
+            from web_interface.services import downstream_refresh
+            downstream_refresh.accumulate_deferred_impact(impact)
+            reporter.log("Healed-data impact queued for the next full downstream refresh.")
+        except Exception as exc:
+            reporter.log(f"Could not record the healed-data impact: {exc}")
+    reporter.log("Full rebuild promoted. Investigate the divergence before re-enabling "
+                 "incremental consolidation if it recurs.")
+    return None
+
+
+def _maybe_schedule_shadow_check(reporter: TaskStatusReporter, incremental: bool) -> None:
+    """Dispatch the weekly shadow verification when it is due. Never raises.
+
+    Fired from the tail of a normal consolidation: the artifacts were just
+    written, the runner is warm, and the shared status key keeps the next real
+    consolidation gated while the check runs. Only meaningful while the
+    incremental paths are enabled.
+    """
+    if not incremental:
+        return
+    try:
+        import fyp.data_io as data_io
+        from fyp.organize_datasets import _SHADOW_CHECK_FILENAME
+        if data_io.exists(storage_location="recoded", filename=_SHADOW_CHECK_FILENAME):
+            payload = data_io.load_json(storage_location="recoded",
+                                        filename=_SHADOW_CHECK_FILENAME)
+            checked_at = (payload or {}).get("checked_at")
+            if checked_at:
+                age = datetime.now(UTC) - datetime.fromisoformat(checked_at)
+                if age.days < _SHADOW_CHECK_INTERVAL_DAYS:
+                    return
+        from web_interface.process_manager import (
+            _dispatch_cloud_task, dispatch_deadline_for, is_cloud_run,
+        )
+        if not is_cloud_run():
+            reporter.log("Shadow verification is due — run consolidate_enrichment "
+                         "with --verify-consolidation (local mode does not self-schedule).")
+            return
+        success, msg = _dispatch_cloud_task(
+            "consolidate_enrichment", {"verify_consolidation": True},
+            dispatch_deadline_seconds=dispatch_deadline_for("consolidate_enrichment", {}))
+        reporter.log(f"Weekly shadow verification dispatched: {msg}" if success else
+                     f"Weekly shadow verification failed to dispatch: {msg}")
+    except Exception as exc:
+        reporter.log(f"Shadow-check scheduling skipped (consolidation unaffected): {exc}")
+
+
 def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
     """Consolidate enrichment data (scrapes + machine annotations).
 
@@ -283,6 +382,9 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
 
     task_args = task_args or {}
     auto_refresh = bool(task_args.get("auto_refresh"))
+
+    if task_args.get("verify_consolidation"):
+        return _run_shadow_verification(reporter)
 
     _t_run_start = time.perf_counter()
 
@@ -333,6 +435,16 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
 
     force = bool(task_args.get("force_consolidation"))
 
+    # The incremental kill switch lives in admin settings (runtime-flippable,
+    # no redeploy) and is threaded down as a plain parameter — the fyp library
+    # must not import web_interface.
+    try:
+        from web_interface.admin_settings import get_setting
+        incremental = bool(get_setting("incremental_consolidation"))
+    except Exception as exc:
+        reporter.log(f"Could not read the incremental-consolidation setting (using full rebuild): {exc}")
+        incremental = False
+
     # Feed the reporter sub-progress from inside consolidation so the UI step
     # doesn't sit frozen at 10% for the whole run. consolidate_enrichment_data
     # takes a plain (pct, msg) callback — it stays web-agnostic; we adapt it to
@@ -350,6 +462,7 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
         force_consolidation=force,
         verbose=False,
         progress_cb=_consolidate_progress,
+        incremental=incremental,
     )
     had_new_data = result.get("had_new_data", False) if result else False
     impact = result.get("impact") if result else None
@@ -410,6 +523,8 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     # _run_task_with_stats skips both the stats save and the runner's tick, and
     # a premature tick there is harmless because _pipeline_in_flight() keeps
     # the supervisor's hard gate closed for the whole downstream pipeline.
+
+    _maybe_schedule_shadow_check(reporter, incremental)
 
     # ---- Pipeline dispatch: chain into stale downstream refreshes ----
     # Always write a last_pipeline_summary so the UI has a definitive
@@ -523,10 +638,14 @@ if __name__ == "__main__":
             (('--auto-refresh',), {'action': 'store_true',
                                    'help': 'After consolidation, record the impact so the '
                                            'web service can dispatch downstream refreshes.'}),
+            (('--verify-consolidation',), {'action': 'store_true',
+                                           'help': 'Shadow-verify the incremental artifacts '
+                                                   'against a full rebuild instead of consolidating.'}),
         ],
         make_task_args=lambda args: {
             "force_consolidation": bool(args.force_consolidation),
             "auto_refresh": bool(args.auto_refresh),
+            "verify_consolidation": bool(args.verify_consolidation),
         },
         description="Consolidate enrichment data",
     )

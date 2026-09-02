@@ -1185,6 +1185,162 @@ def _backfill_source_platform(series: pd.Series) -> pd.Series:
 
 
 
+def _merge_flag_columns(base_df: pd.DataFrame, frame: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Left-merge ``cols`` from a consolidated enrichment frame onto base rows.
+
+    The one merge line both the full status rebuild and the incremental patch
+    use — shared so the two paths cannot diverge on merge semantics
+    (item_id-keyed, left join, duplicates from the frame surface identically).
+    """
+    return pd.merge(left=base_df, right=frame[['item_id', *cols]], on='item_id', how='left')
+
+
+
+
+_STATUS_FLAG_COLS_SCRAPE = ["scraped_ok", "video_downloaded"]
+_STATUS_FLAG_COLS_ANNO = ["annotated_ok", "annotated_fail"]
+
+
+def status_patch_allowed(scrape_consolidated: bool, annotations_consolidated: bool) -> bool:
+    """Whether patch_enrichment_status may replace the full status rebuild.
+
+    Safe only when every input the patch does NOT recompute is provably
+    unchanged since the status file was built (per the marker written after
+    its save): the collections parquet (drives membership, per-item counts,
+    the modal-id-length filter), and each lane's recoded parquet UNLESS that
+    lane consolidated this very run (then its fresh frame is what the patch
+    merges from). scrape_fail is recomputed wholesale from the failed-scrapes
+    store, so its fingerprint does not gate the patch.
+    """
+    try:
+        if not data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+            return False
+        if not data_io.exists(storage_location="recoded", filename=_STATUS_INPUTS_MARKER):
+            return False
+        marker = data_io.load_json(storage_location="recoded", filename=_STATUS_INPUTS_MARKER)
+        if not isinstance(marker, dict):
+            return False
+        fps = compute_input_fingerprints()
+        if not _fp_equal(marker.get("collections_fp"), fps.get("collections_fp")):
+            return False
+        if not scrape_consolidated and not _fp_equal(
+                marker.get("scrapes_fp"), fps.get("scrapes_fp")):
+            return False
+        if not annotations_consolidated and not _fp_equal(
+                marker.get("annotations_fp"), fps.get("annotations_fp")):
+            return False
+        # Regime flip: when a lane's recoded file did not exist at the last
+        # status build (fp None), the whole frame carried that lane's
+        # everything-False fallback columns; the first consolidation of that
+        # lane switches every row to merge semantics (NA where unmatched), not
+        # just the touched ones — a patch would leave the untouched rows on
+        # the old regime.
+        if scrape_consolidated and marker.get("scrapes_fp") is None:
+            return False
+        if annotations_consolidated and marker.get("annotations_fp") is None:
+            return False
+        return True
+    except Exception as exc:
+        logger.warning(f"    Status-patch eligibility check failed (forcing rebuild): {exc}")
+        return False
+
+
+def patch_enrichment_status(
+    touched_ids: set[str],
+    scrape_frame: pd.DataFrame | None = None,
+    annotation_frame: pd.DataFrame | None = None,
+    verbose: bool = False,
+) -> pd.DataFrame | None:
+    """Patch enrichment_status.parquet for the touched ids instead of rebuilding.
+
+    Scrapes and annotations only left-merge flag columns onto the
+    collections-derived base (they cannot change membership,
+    nunique_collections, total_observations, source_platform, or the
+    modal-id-length filter), so a consolidation whose collections input is
+    unchanged only needs to re-derive the flag columns of the touched rows.
+    scrape_fail is recomputed for the WHOLE frame from the failed-scrapes
+    store each time — cheap, and it covers failed-set changes without delta
+    bookkeeping. Callers must have checked :func:`status_patch_allowed`.
+
+    Only the flag columns of lanes whose frame is passed are re-derived; a
+    ``None`` frame means that lane did not consolidate (its recoded parquet is
+    unchanged since the status build — enforced by status_patch_allowed), so
+    its existing flag values are already current and are preserved.
+
+    Returns:
+        The patched frame (also saved, with the marker refreshed), or ``None``
+        to decline — the caller must then run :func:`update_enrichment_status`.
+    """
+    _t_start = _time.perf_counter()
+    try:
+        status = data_io.load_parquet(storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose)
+    except Exception as exc:
+        logger.warning(f"    Could not load enrichment_status for patching: {exc}")
+        return None
+    if status is None or status.empty or status.index.name != "item_id":
+        return None
+    required = set(_STATUS_FLAG_COLS_SCRAPE) | set(_STATUS_FLAG_COLS_ANNO)
+    if not required <= set(status.columns):
+        return None
+
+    ids = {str(i) for i in touched_ids}
+    refresh_cols: list[str] = []
+    if scrape_frame is not None:
+        refresh_cols += _STATUS_FLAG_COLS_SCRAPE
+    if annotation_frame is not None:
+        refresh_cols += _STATUS_FLAG_COLS_ANNO
+
+    touched_mask = status.index.isin(ids)
+    n_touched = int(touched_mask.sum())
+    if refresh_cols and n_touched:
+        base = status.loc[touched_mask].drop(columns=refresh_cols).reset_index()
+        if scrape_frame is not None:
+            scr = scrape_frame
+            if not scr.empty and {'item_id', *_STATUS_FLAG_COLS_SCRAPE}.issubset(scr.columns):
+                scr = scr.loc[scr["item_id"].isin(ids)]
+                base = _merge_flag_columns(base, scr, _STATUS_FLAG_COLS_SCRAPE)
+            else:
+                for col in _STATUS_FLAG_COLS_SCRAPE:
+                    base[col] = pd.Series(False, index=base.index, dtype="bool[pyarrow]")
+        if annotation_frame is not None:
+            ann = annotation_frame
+            if not ann.empty and {'item_id', *_STATUS_FLAG_COLS_ANNO}.issubset(ann.columns):
+                ann = ann.loc[ann["item_id"].isin(ids)]
+                base = _merge_flag_columns(base, ann, _STATUS_FLAG_COLS_ANNO)
+            else:
+                for col in _STATUS_FLAG_COLS_ANNO:
+                    base[col] = pd.Series(False, index=base.index, dtype="bool[pyarrow]")
+        base.set_index("item_id", inplace=True)
+        # A duplicated item_id in a lane frame would fan the merge out and
+        # change the row count — the full rebuild would surface the same
+        # duplication, but splicing rows in requires a clean 1:1 patch.
+        if len(base) != n_touched:
+            logger.warning(
+                f"    Status patch declined: merge changed the touched row count "
+                f"({n_touched} -> {len(base)}).")
+            return None
+        status = pd.concat([status.loc[~touched_mask], base.reindex(columns=status.columns)])
+        status = status.sort_index(kind="mergesort")
+
+    # scrape_fail: full-column recompute. The full rebuild's left-merge yields
+    # True for failed ids and NA (not False) elsewhere — reproduce exactly.
+    failed_ids = {str(x) for x in load_failed_scrapes()}
+    scrape_fail = pd.Series(pd.NA, index=status.index, dtype="bool[pyarrow]")
+    if failed_ids:
+        scrape_fail[status.index.isin(failed_ids)] = True
+    status["scrape_fail"] = scrape_fail
+
+    data_io.save_parquet(df=status, storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose)
+    _write_status_inputs_marker(verbose=verbose)
+    logger.info(
+        f"[CONSOLIDATE][TIMING] status PATCH touched={n_touched:,}/{len(ids):,} "
+        f"rows={len(status):,} total={_time.perf_counter() - _t_start:.1f}s"
+    )
+    return status
+
+
+
+
 def update_enrichment_status(
     all_datasets: dict = {},
     save_to_disk: bool = True,
@@ -1241,14 +1397,16 @@ def update_enrichment_status(
 
     scrapes_for_merge = all_datasets.get(_scrapes_label())
     if scrapes_for_merge is not None and not scrapes_for_merge.empty and {'item_id', 'scraped_ok', 'video_downloaded'}.issubset(scrapes_for_merge.columns):
-        enrichment_status_df = pd.merge(left=enrichment_status_df, right=scrapes_for_merge[['item_id','scraped_ok','video_downloaded']], on='item_id', how='left')
+        enrichment_status_df = _merge_flag_columns(
+            enrichment_status_df, scrapes_for_merge, ['scraped_ok', 'video_downloaded'])
     else:
         enrichment_status_df["scraped_ok"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
         enrichment_status_df["video_downloaded"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
 
     annotations_for_merge = all_datasets.get(_machine_annotations_label())
     if annotations_for_merge is not None and not annotations_for_merge.empty and {'item_id', 'annotated_ok', 'annotated_fail'}.issubset(annotations_for_merge.columns):
-        enrichment_status_df = pd.merge(left=enrichment_status_df, right=annotations_for_merge[['item_id','annotated_ok','annotated_fail']], on='item_id', how='left')
+        enrichment_status_df = _merge_flag_columns(
+            enrichment_status_df, annotations_for_merge, ['annotated_ok', 'annotated_fail'])
     else:
         enrichment_status_df["annotated_ok"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
         enrichment_status_df["annotated_fail"] = pd.Series(False, index=enrichment_status_df.index, dtype="bool[pyarrow]")
@@ -1294,6 +1452,7 @@ def consolidate_enrichment_data(
     force_consolidation: bool = False,
     verbose: bool = False,
     progress_cb: Callable[[float, str], None] | None = None,
+    incremental: bool = False,
 ) -> dict:
     """Consolidate annotation and scrape data from raw sources, then rebuild enrichment status.
 
@@ -1306,6 +1465,12 @@ def consolidate_enrichment_data(
             sub-progress instead of the step sitting frozen at 10%. Kept as a
             plain callback so this module stays web-agnostic; defaults to a
             no-op for ad-hoc/CLI callers.
+        incremental: Allow the incremental paths — fold only the new batch
+            files into the consolidated frames, and patch enrichment_status
+            for the touched ids instead of rebuilding it. Every incremental
+            path declines to the unchanged full-rebuild code whenever it
+            cannot prove equality (and force_consolidation always bypasses
+            them). Off by default; the worker passes the admin setting.
     """
     def _progress(pct: float, msg: str) -> None:
         if progress_cb is not None:
@@ -1322,12 +1487,14 @@ def consolidate_enrichment_data(
     # lazily; when both lanes are quiet and the status inputs are unchanged,
     # nothing corpus-sized is read at all.
     (new_annotations, annotations, new_annotation_ids) = consolidate_and_save_refined_annotations(
-        force_consolidation=force_consolidation, return_saved_data=False, verbose=verbose)
+        force_consolidation=force_consolidation, return_saved_data=False, verbose=verbose,
+        incremental=incremental)
 
     logger.info("\n*** Scrape")
     _progress(40, "Consolidating scrape files…")
     (new_scrape_data, scrape_data, new_scrape_ids) = consolidate_and_save_scrape_data(
-        force_consolidation=force_consolidation, return_saved_data=False, verbose=verbose)
+        force_consolidation=force_consolidation, return_saved_data=False, verbose=verbose,
+        incremental=incremental)
 
     had_new_data = new_annotations or new_scrape_data
 
@@ -1346,17 +1513,53 @@ def consolidate_enrichment_data(
             "impact": None,
         }
 
-    def _recoded_or_empty(label: str) -> pd.DataFrame:
-        fn = f"{label}_recoded.parquet"
-        if data_io.exists(storage_location="recoded", filename=fn):
-            return data_io.load_parquet(storage_location="recoded", filename=fn)
-        return pd.DataFrame()
+    changed_item_ids = new_scrape_ids | new_annotation_ids
+    collections = None
+    status_patched = False
 
-    collections = data_io.load_parquet(filename=f"{_collections_label()}_recoded.parquet", storage_location="recoded")
-    if annotations is None:
-        annotations = _recoded_or_empty(_machine_annotations_label())
-    if scrape_data is None:
-        scrape_data = _recoded_or_empty(_scrapes_label())
+    # Incremental status patch: when the collections input (and every quiet
+    # lane's recoded parquet) is provably unchanged since the status file was
+    # built, only the touched ids' flag columns can have moved — patch those
+    # instead of the measured 75-310 s full rebuild. Declines to the full
+    # rebuild on any doubt.
+    if incremental and not force_consolidation and status_patch_allowed(
+            scrape_consolidated=bool(new_scrape_data),
+            annotations_consolidated=bool(new_annotations)):
+        logger.info("\n*** Patching (and saving) data enrichment status...")
+        _progress(65, "Patching enrichment status…")
+        patched = patch_enrichment_status(
+            changed_item_ids,
+            scrape_frame=scrape_data if new_scrape_data else None,
+            annotation_frame=annotations if new_annotations else None,
+            verbose=verbose,
+        )
+        status_patched = patched is not None
+        if status_patched:
+            logger.info("...done.")
+        else:
+            logger.info("Status patch declined — taking the full rebuild path.")
+
+    if not status_patched:
+        def _recoded_or_empty(label: str) -> pd.DataFrame:
+            fn = f"{label}_recoded.parquet"
+            if data_io.exists(storage_location="recoded", filename=fn):
+                return data_io.load_parquet(storage_location="recoded", filename=fn)
+            return pd.DataFrame()
+
+        collections = data_io.load_parquet(filename=f"{_collections_label()}_recoded.parquet", storage_location="recoded")
+        if annotations is None:
+            annotations = _recoded_or_empty(_machine_annotations_label())
+        if scrape_data is None:
+            scrape_data = _recoded_or_empty(_scrapes_label())
+
+        logger.info("\n*** Updating (and saving) data enrichment status...")
+        _progress(65, "Updating enrichment status…")
+        update_enrichment_status(all_datasets={
+            _collections_label(): collections,
+            _machine_annotations_label(): annotations,
+            _scrapes_label(): scrape_data,
+        }, verbose=verbose)
+        logger.info("...done.")
 
     fine_results = {
         _collections_label(): collections,
@@ -1364,16 +1567,25 @@ def consolidate_enrichment_data(
         _scrapes_label(): scrape_data
         }
 
-    logger.info("\n*** Updating (and saving) data enrichment status...")
-    _progress(65, "Updating enrichment status…")
-    update_enrichment_status(all_datasets=fine_results, verbose=verbose)
-    logger.info("...done.")
-
     fine_results["had_new_data"] = had_new_data
 
-    # Compute consolidation impact: which collections and studies are affected by new data
-    changed_item_ids = new_scrape_ids | new_annotation_ids
+    # Compute consolidation impact: which collections and studies are affected
+    # by new data. On the patch path the full collections frame was never
+    # loaded — the mapping needs just two columns, which is a fraction of the
+    # ~100 MB blob.
     impact = None
+
+    if changed_item_ids and collections is None:
+        try:
+            collections = data_io.load_parquet_selective(
+                storage_location="recoded",
+                filename=f"{_collections_label()}_recoded.parquet",
+                columns=["item_id", collection_id_column],
+            )
+        except Exception as exc:
+            logger.warning(f"    Could not load the collections mapping for impact: {exc}")
+            collections = data_io.load_parquet(
+                filename=f"{_collections_label()}_recoded.parquet", storage_location="recoded")
 
     if changed_item_ids and collections is not None and not collections.empty:
         _progress(85, "Computing impact on studies…")
@@ -1419,6 +1631,131 @@ def consolidate_enrichment_data(
     _progress(95, "Finalizing…")
     fine_results["impact"] = impact
     return fine_results
+
+
+
+
+_SHADOW_CHECK_FILENAME = "consolidation_shadow_check.json"
+
+
+def _per_item_signatures(df: pd.DataFrame, exclude: frozenset | set = frozenset()) -> dict[str, str]:
+    """Per-item content signatures of a consolidated frame (dtype-insensitive)."""
+    from fyp.scrape.scrape import _scrape_value_signatures
+    if df is None or df.empty:
+        return {}
+    if df.index.name == "item_id":
+        df = df.reset_index()
+    value_cols = [c for c in df.columns if c != "item_id" and c not in exclude]
+    return _scrape_value_signatures(df, value_cols)
+
+
+def _signature_mismatch(live: pd.DataFrame, shadow: pd.DataFrame,
+                        exclude: frozenset | set = frozenset()) -> dict:
+    """Compare two frames per item. Returns {count, sample, column_drift}."""
+    live_cols = set() if live is None else set(live.columns) - set(exclude)
+    shadow_cols = set() if shadow is None else set(shadow.columns) - set(exclude)
+    column_drift = sorted(live_cols ^ shadow_cols)
+    shared_exclude = set(exclude) | (live_cols ^ shadow_cols)
+    live_sig = _per_item_signatures(live, exclude=shared_exclude)
+    shadow_sig = _per_item_signatures(shadow, exclude=shared_exclude)
+    bad = sorted(
+        item for item in set(live_sig) | set(shadow_sig)
+        if live_sig.get(item) != shadow_sig.get(item)
+    )
+    return {"count": len(bad), "sample": bad[:10], "column_drift": column_drift}
+
+
+def verify_consolidation_equivalence(
+    verbose: bool = False,
+    progress_cb: Callable[[float, str], None] | None = None,
+) -> dict:
+    """Shadow full rebuild vs the live consolidated artifacts (read-only).
+
+    The anti-divergence backstop for incremental consolidation: rebuild the
+    scrape and annotation frames the full reference path WOULD produce
+    (``dry_run=True`` — nothing is persisted, though a pending raw-annotation
+    refinement still runs, as it would before any consolidation), derive the
+    enrichment status from them in memory, and compare all three against the
+    live artifacts by per-item content signature — never by row counts (a
+    self-consistent row-count check is not a completeness check). The result
+    is persisted to ``recoded/consolidation_shadow_check.json`` so callers can
+    schedule by age and surface failures.
+
+    Returns:
+        ``{"ok": bool, "checked_at": iso, "mismatches": {artifact: {count,
+        sample, column_drift}}}``. The caller decides how to react — the
+        expected reaction to ``ok=False`` is alerting plus a real
+        ``force_consolidation=True`` run to promote the full rebuild.
+    """
+    from fyp.scrape.scrape import _SCRAPE_PROVENANCE_COLS
+
+    def _progress(pct: float, msg: str) -> None:
+        if progress_cb is not None:
+            try:
+                progress_cb(pct, msg)
+            except Exception:
+                pass
+
+    logger.info("\n*** Shadow-verifying consolidation equivalence...")
+    _progress(15, "Shadow rebuild: annotations…")
+    (_, shadow_annotations, _) = consolidate_and_save_refined_annotations(
+        force_consolidation=True, verbose=verbose, dry_run=True)
+    _progress(40, "Shadow rebuild: scrapes…")
+    (_, shadow_scrapes, _) = consolidate_and_save_scrape_data(
+        force_consolidation=True, verbose=verbose, dry_run=True)
+
+    mismatches: dict = {}
+
+    _progress(60, "Comparing scrape frames…")
+    live_scrapes = data_io.load_parquet(
+        storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet")
+    mismatches[_scrapes_label()] = _signature_mismatch(
+        live_scrapes, shadow_scrapes, exclude=_SCRAPE_PROVENANCE_COLS)
+    del live_scrapes
+
+    _progress(72, "Comparing annotation frames…")
+    live_annotations = data_io.load_parquet(
+        storage_location="recoded", filename=f"{_machine_annotations_label()}_recoded.parquet")
+    mismatches[_machine_annotations_label()] = _signature_mismatch(
+        live_annotations, shadow_annotations)
+    del live_annotations
+
+    _progress(85, "Comparing enrichment status…")
+    collections = data_io.load_parquet(
+        filename=f"{_collections_label()}_recoded.parquet", storage_location="recoded")
+    shadow_status = update_enrichment_status(all_datasets={
+        _collections_label(): collections,
+        _machine_annotations_label(): shadow_annotations,
+        _scrapes_label(): shadow_scrapes,
+    }, save_to_disk=False, verbose=verbose)
+    live_status = None
+    if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+        live_status = data_io.load_parquet(
+            storage_location="recoded", filename="enrichment_status.parquet")
+    mismatches["enrichment_status"] = _signature_mismatch(live_status, shadow_status)
+
+    ok = all(m["count"] == 0 and not m["column_drift"] for m in mismatches.values())
+    result = {
+        "ok": ok,
+        "checked_at": _dt.datetime.now(_dt.UTC).isoformat(),
+        "mismatches": mismatches,
+    }
+    try:
+        data_io.save_json(data=result, storage_location="recoded",
+                          filename=_SHADOW_CHECK_FILENAME)
+    except Exception as exc:
+        logger.warning(f"    Could not persist the shadow-check result: {exc}")
+
+    if ok:
+        logger.info("[CONSOLIDATE][SHADOW] OK — incremental artifacts match a full rebuild.")
+    else:
+        for name, m in mismatches.items():
+            if m["count"] or m["column_drift"]:
+                logger.error(
+                    f"[CONSOLIDATE][SHADOW] MISMATCH artifact={name} items={m['count']} "
+                    f"column_drift={m['column_drift']} sample={m['sample']}")
+    _progress(95, "Finalizing…")
+    return result
 
 
 

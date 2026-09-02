@@ -122,6 +122,13 @@
                 autoEnrich.disabled = false;
             }
 
+            // General → "Incremental consolidation" switch
+            const incCons = document.getElementById('setting-incremental-consolidation');
+            if (incCons) {
+                incCons.checked = !!settings.incremental_consolidation;
+                incCons.disabled = false;
+            }
+
             // General → "Default role for new users" dropdown
             const roleSelect = document.getElementById('setting-default-new-user-role');
             if (roleSelect && Array.isArray(window.availableRoles)) {
@@ -436,6 +443,35 @@
             }
         } catch (e) {
             console.error('saveAutoEnrichmentSetting:', e);
+            checkbox.checked = previous;
+            if (status) status.textContent = 'Failed — reverted';
+        } finally {
+            checkbox.disabled = false;
+        }
+    }
+
+    async function saveIncrementalConsolidationSetting(checkbox) {
+        const status = document.getElementById('setting-incremental-consolidation-status');
+        const previous = !checkbox.checked;
+        const desired = checkbox.checked;
+        checkbox.disabled = true;
+        if (status) status.textContent = 'Saving…';
+        try {
+            const response = await fetch('/api/admin/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ incremental_consolidation: desired })
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'Save failed');
+            }
+            if (status) {
+                status.textContent = 'Saved';
+                setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
+            }
+        } catch (e) {
+            console.error('saveIncrementalConsolidationSetting:', e);
             checkbox.checked = previous;
             if (status) status.textContent = 'Failed — reverted';
         } finally {

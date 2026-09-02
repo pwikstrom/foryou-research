@@ -102,6 +102,17 @@
                 style="color: var(--color-text-muted); margin-left: 8px;"></span>
         </label>
     </div>
+    <div style="margin-bottom: 12px;">
+        <label class="meta-tooltip"
+            data-tooltip="When on, consolidation folds only the new batch files into the consolidated datasets and patches the enrichment status for the changed items (minutes faster per run). When off, every run rebuilds from all files. A forced consolidation always rebuilds from all files either way."
+            style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="setting-incremental-consolidation"
+                onchange="saveIncrementalConsolidationSetting(this)" disabled />
+            <span class="text-sm">Incremental consolidation (fold new batches instead of rebuilding)</span>
+            <span id="setting-incremental-consolidation-status" class="text-xs"
+                style="color: var(--color-text-muted); margin-left: 8px;"></span>
+        </label>
+    </div>
 </section>
 
 <!-- Cost guardrails -->

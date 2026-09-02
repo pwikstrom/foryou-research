@@ -1861,11 +1861,179 @@ def refine_and_save_all_raw_annotation_files(verbose = False, notebook_mode = Fa
 
 
 
+def _normalize_annotation_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Backfills every consolidated annotation frame gets, full path and fold.
+
+    Rows from legacy refined files predating versioning default to the legacy
+    version; rows predating multi-platform annotation are TikTok-era, and item
+    ids are only guaranteed unique within a platform, so all annotation keying
+    is composite (source_platform, item_id). Idempotent.
+    """
+    if "annotation_version" not in df.columns:
+        df["annotation_version"] = annotation_versioning.LEGACY_VERSION
+    df["annotation_version"] = (
+        df["annotation_version"].fillna(annotation_versioning.LEGACY_VERSION)
+    )
+    if "source_platform" not in df.columns:
+        df["source_platform"] = scrape_queues.default_platform()
+    df["source_platform"] = (
+        df["source_platform"].fillna(scrape_queues.default_platform())
+    )
+    return df
+
+
+
+
+def _preferred_view_from_history(history_df: pd.DataFrame) -> pd.DataFrame:
+    """Derive the active per-item view from a (subset of the) version history.
+
+    The promoted-version view when one is promoted, else the latest annotation
+    per item — the same derivation the full rebuild and
+    :func:`rebuild_preferred_annotations_from_archive` apply. Per-key
+    decomposable ONLY when the frame holds a key's complete history, which is
+    why the incremental fold sources touched keys from the all_versions
+    archive, never from the recoded view.
+    """
+    preferred_version = annotation_versioning.get_preferred_version()
+    dedup_cols = (
+        ["source_platform", "item_id"] if "source_platform" in history_df.columns else ["item_id"]
+    )
+    if preferred_version is None:
+        return history_df.drop_duplicates(subset=dedup_cols, keep="last").reset_index(drop=True)
+    return annotation_versioning.select_preferred_view(history_df, preferred_version)
+
+
+
+
+def _fold_annotation_batch(
+    dataset_meta: dict,
+    files_to_concatenate: list[str],
+    new_files: list[str],
+    verbose: bool = False,
+):
+    """Fold only the new refined files into the archive + recoded view.
+
+    O(batch) compute plus the archive/recoded blob IO — instead of re-reading
+    every refined parquet (measured ~70 s for ~500 files) and re-deriving the
+    view over the whole corpus. The archive fold is order-preserving: batch
+    rows are appended AFTER the existing archive rows and the archive is never
+    sorted — "keep last" per (platform, item, version) and the latest-per-item
+    fallback both lean on that row order.
+
+    Returns:
+        The ``(True, frame, changed_ids)`` result tuple, or ``None`` to decline
+        (missing archive/recoded, or a batch whose column set drifts from the
+        recoded view) — the caller then runs the unchanged full-rebuild path.
+    """
+    _t_start = time.perf_counter()
+    archive_fn = f"{_machine_annotations_label()}_all_versions.parquet"
+    recoded_fn = f"{_machine_annotations_label()}_recoded.parquet"
+    if not data_io.exists(storage_location="recoded", filename=archive_fn):
+        return None
+    if not data_io.exists(storage_location="recoded", filename=recoded_fn):
+        return None
+
+    logger.info(f"Folding {len(new_files)} new refined annotation file(s) into the previous consolidation...")
+    batch_dfs = []
+    new_item_ids: set[str] = set()
+    for fn in new_files:
+        df = data_io.load_parquet(storage_location="machine_annotations_refined", filename=fn)
+        batch_dfs.append(df)
+        new_item_ids.update(df["item_id"].tolist())
+        if verbose:
+            logger.info(f"{fn} {df.shape}")
+    if not batch_dfs:
+        return None
+    batch = _normalize_annotation_frame(pd.concat(batch_dfs, ignore_index=True))
+    _t_load = time.perf_counter() - _t_start
+
+    _t_mark = time.perf_counter()
+    archive = data_io.load_parquet(storage_location="recoded", filename=archive_fn)
+    if archive is None or archive.empty or "item_id" not in archive.columns:
+        return None
+    archive = _normalize_annotation_frame(archive)
+    existing_recoded = data_io.load_parquet(storage_location="recoded", filename=recoded_fn)
+    if existing_recoded is None or existing_recoded.empty:
+        return None
+    _t_prev_load = time.perf_counter() - _t_mark
+
+    _t_mark = time.perf_counter()
+    folded_archive = pd.concat([archive, batch], ignore_index=True).drop_duplicates(
+        subset=["source_platform", "item_id", "annotation_version"], keep="last"
+    ).reset_index(drop=True)
+
+    key_cols = ["source_platform", "item_id"]
+    batch_keys = pd.MultiIndex.from_frame(
+        batch[key_cols].astype("string[pyarrow]")).unique()
+    archive_keys = pd.MultiIndex.from_frame(
+        folded_archive[key_cols].astype("string[pyarrow]"))
+    history = folded_archive[archive_keys.isin(batch_keys)]
+    new_view = _preferred_view_from_history(history)
+
+    if set(new_view.columns) != set(existing_recoded.columns):
+        added = sorted(set(new_view.columns) - set(existing_recoded.columns))
+        removed = sorted(set(existing_recoded.columns) - set(new_view.columns))
+        logger.info(
+            f"[CONSOLIDATE] annotation fold declined: column drift (+{added} / -{removed}).")
+        return None
+
+    recoded_keys = pd.MultiIndex.from_frame(
+        existing_recoded[key_cols].astype("string[pyarrow]"))
+    consolidated_annotations = pd.concat(
+        [existing_recoded[~recoded_keys.isin(batch_keys)], new_view],
+        ignore_index=True)
+    _t_fold = time.perf_counter() - _t_mark
+
+    logger.info(f"Shape: {consolidated_annotations.shape} | "
+                f"Memory usage: {consolidated_annotations.memory_usage(deep=True).sum() / (1024**2):.2f} MB")
+    logger.info(f"Found {len(new_item_ids):,} changed/newly annotated item_ids from {len(new_files)} new file(s).")
+
+    # Archive first, then the view, then the ledger — a crash anywhere replays
+    # this fold idempotently (the batch rows dedupe away on the second pass).
+    logger.info("Saving consolidated annotations...")
+    _t_mark = time.perf_counter()
+    data_io.save_parquet(df=folded_archive, storage_location="recoded",
+                         filename=archive_fn, verbose=verbose)
+    # The registry must see the WHOLE archive's version set — it feeds the
+    # var_schema hash, and narrowing it to the batch would silently shrink the
+    # hash and mark every study for rebuild (or worse, fail to).
+    annotation_versioning.record_versions_in_data(
+        folded_archive["annotation_version"].dropna().unique()
+    )
+    data_io.save_parquet(df=consolidated_annotations, storage_location="recoded",
+                         filename=recoded_fn, verbose=verbose)
+    _t_save = time.perf_counter() - _t_mark
+    logger.info("...done")
+
+    if "machine_annotations" not in dataset_meta:
+        dataset_meta["machine_annotations"] = {}
+    dataset_meta["machine_annotations"]["filenames"] = files_to_concatenate
+    dataset_meta["machine_annotations"]["preferred_version"] = (
+        annotation_versioning.get_preferred_version())
+    _ = data_io.save_json(data=dataset_meta, storage_location="recoded",
+                          filename="consolidated_enrichment_files.json")
+
+    logger.info(
+        f"[CONSOLIDATE][TIMING] anno FOLD load={_t_load:.1f}s prev_load={_t_prev_load:.1f}s "
+        f"fold={_t_fold:.1f}s save={_t_save:.1f}s total={time.perf_counter() - _t_start:.1f}s "
+        f"new_files={len(new_files)} rows={len(consolidated_annotations):,} "
+        f"changed={len(new_item_ids):,}"
+    )
+    return True, consolidated_annotations, new_item_ids
+
+
+
+
 def consolidate_and_save_refined_annotations(
     force_consolidation = False,
     return_saved_data = True,
     verbose = False,
+    incremental = False,
+    dry_run = False,
     ):
+    # dry_run: run the full-rebuild reference path but persist NOTHING (no
+    # archive/recoded save, no version-registry update, no ledger) — the
+    # shadow verifier uses it to build what a full rebuild WOULD produce.
 
 
     top_verbose = True
@@ -1897,6 +2065,11 @@ def consolidate_and_save_refined_annotations(
     for fn in data_io.listdir(storage_location="machine_annotations_refined"):
         if fn.startswith(_machine_annotations_label()) and fn.endswith(".parquet"):
             files_to_concatenate.append(fn)
+    # Deterministic chronological order (the filenames are timestamped).
+    # "Keep the latest annotation per item" leans on concat order, and local
+    # listdir order is arbitrary — sorted order also makes the incremental
+    # fold's append-new-files-last equal to the full rebuild's concat.
+    files_to_concatenate.sort()
 
     latest_filename_list = dataset_meta.get("machine_annotations", {}).get("filenames", [])
 
@@ -1915,8 +2088,31 @@ def consolidate_and_save_refined_annotations(
             if verbose: logger.info("No existing consolidated file — returning empty.")
             return False, pd.DataFrame(), set()
         return False, None, set()
-    
- 
+
+    # ---------------------------------------------------------------
+    # Incremental fold: fold ONLY the new refined files into the archive and
+    # the recoded view instead of re-reading every refined parquet. Anything
+    # the fold cannot prove equal to a full rebuild declines to the full path
+    # below (the unchanged reference implementation). The fold re-derives only
+    # the touched keys' view rows, so it is valid only while the preferred
+    # version is the one the previous consolidation was built under — a
+    # promotion (or demotion) in between would leave every untouched key on
+    # the old view, hence the ledger comparison.
+    latest_preferred = dataset_meta.get("machine_annotations", {}).get("preferred_version")
+    current_preferred = annotation_versioning.get_preferred_version()
+    if (incremental and not force_consolidation and not dry_run
+            and latest_filename_list
+            and latest_preferred == current_preferred):
+        folded = _fold_annotation_batch(
+            dataset_meta=dataset_meta,
+            files_to_concatenate=files_to_concatenate,
+            new_files=sorted(set(files_to_concatenate) - set(latest_filename_list)),
+            verbose=verbose,
+        )
+        if folded is not None:
+            return folded
+        logger.info("[CONSOLIDATE] annotation fold declined — taking the full rebuild path.")
+
     # ---------------------------------------------------------------
     # load all refined files
     _t_mark = time.perf_counter()
@@ -1943,53 +2139,32 @@ def consolidate_and_save_refined_annotations(
     # overwritten); the active dataset that downstream consumers read is then
     # derived from the promoted version, or — when nothing is promoted yet —
     # the latest annotation per item (identical to the historical behaviour).
-    if "annotation_version" not in consolidated_annotations.columns:
-        consolidated_annotations["annotation_version"] = annotation_versioning.LEGACY_VERSION
-    consolidated_annotations["annotation_version"] = (
-        consolidated_annotations["annotation_version"].fillna(annotation_versioning.LEGACY_VERSION)
-    )
-
-    # Backfill source_platform: refined files predating multi-platform
-    # annotation carry no platform column (all TikTok-era rows). Item ids are
-    # only guaranteed unique within a platform, so all annotation keying below
-    # is composite (source_platform, item_id).
-    if "source_platform" not in consolidated_annotations.columns:
-        consolidated_annotations["source_platform"] = scrape_queues.default_platform()
-    consolidated_annotations["source_platform"] = (
-        consolidated_annotations["source_platform"].fillna(scrape_queues.default_platform())
-    )
+    consolidated_annotations = _normalize_annotation_frame(consolidated_annotations)
 
     annotation_archive = consolidated_annotations.drop_duplicates(
         subset=["source_platform", "item_id", "annotation_version"], keep="last"
     ).reset_index(drop=True)
-    data_io.save_parquet(
-        df=annotation_archive,
-        storage_location="recoded",
-        filename=f"{_machine_annotations_label()}_all_versions.parquet",
-        verbose=verbose,
-    )
-    # Record which annotation versions the archive actually contains, so the
-    # legacy-metadata union (and therefore the var_schema hash) is pruned to
-    # versions that can occur in the data. NOTE: a consolidation that shrinks
-    # this set changes the schema hash and marks studies for rebuild.
-    annotation_versioning.record_versions_in_data(
-        annotation_archive["annotation_version"].dropna().unique()
-    )
+    if not dry_run:
+        data_io.save_parquet(
+            df=annotation_archive,
+            storage_location="recoded",
+            filename=f"{_machine_annotations_label()}_all_versions.parquet",
+            verbose=verbose,
+        )
+        # Record which annotation versions the archive actually contains, so the
+        # legacy-metadata union (and therefore the var_schema hash) is pruned to
+        # versions that can occur in the data. NOTE: a consolidation that shrinks
+        # this set changes the schema hash and marks studies for rebuild.
+        annotation_versioning.record_versions_in_data(
+            annotation_archive["annotation_version"].dropna().unique()
+        )
 
     _t_archive = time.perf_counter() - _t_mark
     _t_mark = time.perf_counter()
 
-    preferred_version = annotation_versioning.get_preferred_version()
-    if preferred_version is None:
-        # No version promoted yet: keep the most recent annotation per item
-        # (the historical, version-agnostic behaviour — zero migration change).
-        consolidated_annotations = consolidated_annotations.drop_duplicates(
-            subset=["source_platform", "item_id"], keep="last"
-        ).reset_index(drop=True)
-    else:
-        consolidated_annotations = annotation_versioning.select_preferred_view(
-            consolidated_annotations, preferred_version
-        )
+    # No promoted version: keep the most recent annotation per item (the
+    # historical, version-agnostic behaviour); else the promoted-version view.
+    consolidated_annotations = _preferred_view_from_history(consolidated_annotations)
 
     memory_per_column = consolidated_annotations.memory_usage(deep=True) 
     total_memory_bytes = memory_per_column.sum()
@@ -2020,15 +2195,19 @@ def consolidate_and_save_refined_annotations(
 
     # ---------------------------------------------------------------
     # save the consolidated annotations
-    if top_verbose:
-        logger.info("Saving consolidated annotations...")
-    _t_mark = time.perf_counter()
-    data_io.save_parquet(
-        df=consolidated_annotations,
-        storage_location="recoded", filename=existing_recoded_fn, verbose=verbose)
-    _t_save = time.perf_counter() - _t_mark
-    if top_verbose:
-        logger.info("...done")
+    _t_save = 0.0
+    if dry_run:
+        logger.info("[CONSOLIDATE] dry run — skipping the annotation saves and ledger update.")
+    else:
+        if top_verbose:
+            logger.info("Saving consolidated annotations...")
+        _t_mark = time.perf_counter()
+        data_io.save_parquet(
+            df=consolidated_annotations,
+            storage_location="recoded", filename=existing_recoded_fn, verbose=verbose)
+        _t_save = time.perf_counter() - _t_mark
+        if top_verbose:
+            logger.info("...done")
     logger.info(
         f"[CONSOLIDATE][TIMING] anno refine={_t_refine:.1f}s load={_t_load:.1f}s "
         f"concat_archive={_t_archive:.1f}s preferred_view={_t_view:.1f}s save={_t_save:.1f}s "
@@ -2038,10 +2217,15 @@ def consolidate_and_save_refined_annotations(
 
     # ---------------------------------------------------------------
     # update the dataset meta file
-    if "machine_annotations" not in dataset_meta:
-        dataset_meta["machine_annotations"] = {}
-    dataset_meta["machine_annotations"]["filenames"] = files_to_concatenate
-    _ = data_io.save_json(data = dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")
+    if not dry_run:
+        if "machine_annotations" not in dataset_meta:
+            dataset_meta["machine_annotations"] = {}
+        dataset_meta["machine_annotations"]["filenames"] = files_to_concatenate
+        # The preferred version this view was derived under — the fold is only
+        # equal to a full rebuild while this matches the current promotion.
+        dataset_meta["machine_annotations"]["preferred_version"] = (
+            annotation_versioning.get_preferred_version())
+        _ = data_io.save_json(data = dataset_meta, storage_location="recoded", filename="consolidated_enrichment_files.json")
 
     return True, consolidated_annotations, new_item_ids
 

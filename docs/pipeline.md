@@ -105,6 +105,26 @@ studies auto-refresh). `organize_datasets.new_merge` joins activity with
 enrichment on `(source_platform, item_id)`; `recode_variables.py` derives
 analysis variables per the var_schema (type-driven generic recoder).
 
+**Incremental consolidation.** With the *Incremental consolidation* admin
+setting on, `consolidate_enrichment` folds only the NEW batch files into the
+consolidated frames (scrape lane: `_fold_scrape_batch`; annotation lane:
+`_fold_annotation_batch`, sourcing touched keys' history from the
+all-versions archive) and patches `enrichment_status.parquet` for the
+touched item_ids (`patch_enrichment_status`) instead of rebuilding
+everything from all files — O(batch) compute instead of O(corpus). The fold
+reuses the full rebuild's normalize/dedupe/seed/preferred-view transforms
+verbatim, and declines to the unchanged full path whenever equality cannot
+be proven: a forced run, a scrape-contract bump, a value-column-set change,
+an annotation-version promotion since the last run (recorded in the
+ledger), or a missing archive/marker. Donated seed rows carry an
+`is_enrichment_seed` provenance column so the fold can evict and re-derive
+them against the current seed files. A weekly shadow verification
+(`consolidate_enrichment` with `verify_consolidation`, self-scheduled from
+the tail of a normal run) dry-runs the full rebuild and compares all three
+artifacts per item; a mismatch is recorded in the task-failure ledger and
+auto-promotes the full rebuild. Golden equality tests:
+`tests/golden/test_incremental_consolidation.py`.
+
 **Scrape → annotate handoff for participant first batches.** A
 participant's prioritised first batch is queued to the *scrape* queue only,
 at ingest; the items reach the annotate queue at **consolidation** — the
