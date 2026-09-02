@@ -489,6 +489,15 @@ def _finalize(reporter, require_backstop: bool = False) -> dict | None:
     deferred = downstream_refresh.get_deferred_impact()
     if not deferred:
         return None
+    if not require_backstop:
+        # "Quiet" means the LOOP is quiet, not merely this tick: a tick where
+        # everything is WAITING (scraper mid-run, jobs in flight, nothing to
+        # start) also falls through to here, and refreshing then would block
+        # the loop behind the pipeline for the rest of the cycle — observed
+        # live 2026-09-01, one tick after a boundary move.
+        from web_interface.services.worker_status import _workers_blocking_consolidate
+        if _workers_blocking_consolidate():
+            return None
     if require_backstop:
         ref = downstream_refresh.last_full_refresh() or deferred.get("deferred_since")
         try:

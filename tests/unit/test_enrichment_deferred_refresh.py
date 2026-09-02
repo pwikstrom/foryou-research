@@ -86,6 +86,35 @@ def test_supervisor_quiet_finalize_dispatches_and_clears(store):
     assert calls == [None]                     # scope comes from the deferred meta
 
 
+def test_quiet_finalize_requires_idle_workers(store, monkeypatch):
+    """Regression pin, observed live 2026-09-01: a tick where everything is
+    merely WAITING (scraper mid-run, jobs in flight, nothing to start) also
+    falls through to the quiet path — it must not refresh then, or the
+    pipeline blocks the loop for the rest of the cycle."""
+    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.services.worker_status as ws
+
+    class Rep:
+        def log(self, m): pass
+
+    dr.accumulate_deferred_impact(IMPACT_A)
+    monkeypatch.setattr(ws, "_workers_blocking_consolidate",
+                        lambda: ["queue_scraper_tiktok"])
+    with patch.object(dr, "dispatch_downstream_refresh") as dispatch:
+        assert sup._finalize(Rep()) is None
+    dispatch.assert_not_called()
+    assert dr.get_deferred_impact() is not None
+
+    # The BACKSTOP path deliberately still fires while lanes are busy.
+    ce.set_meta(dr.LAST_FULL_REFRESH_KEY,
+                (datetime.now(UTC)
+                 - timedelta(hours=sup.FINALIZE_BACKSTOP_H + 1)).isoformat())
+    with patch.object(dr, "dispatch_downstream_refresh",
+                      return_value=("started", "ok")) as dispatch:
+        out = sup._finalize(Rep(), require_backstop=True)
+    assert out and out["action"] == "finalize"
+
+
 def test_supervisor_finalize_noops_without_debt(store):
     import web_interface.run_enrichment_supervisor as sup
 
