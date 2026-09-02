@@ -400,10 +400,16 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
 
     # Automatic enrichment: this consolidation is what makes the last batch's
     # scrape/annotation outcomes visible, so it is also the moment the loop can
-    # take its next step (hand scraped items to annotation, or cut a new slice).
-    # Fired unconditionally — a cycle whose whole batch failed to scrape still
-    # needs the tick, so that its stall counter can advance and park the plan.
-    _tick_enrichment_supervisor(reporter)
+    # take its next step. The tick is NOT fired here on the non-chain paths:
+    # last_consolidation only reaches process_stats.json after this function
+    # returns (in _run_task_with_stats), and a tick dispatched before that read
+    # a stale timestamp and re-ran a full no-op consolidation (~5 min wasted,
+    # observed most cycles in prod). The task runner ticks once, after the
+    # stats save — see the consolidate_enrichment branch in process_routes.
+    # The chain path below still ticks in-task: its early return in
+    # _run_task_with_stats skips both the stats save and the runner's tick, and
+    # a premature tick there is harmless because _pipeline_in_flight() keeps
+    # the supervisor's hard gate closed for the whole downstream pipeline.
 
     # ---- Pipeline dispatch: chain into stale downstream refreshes ----
     # Always write a last_pipeline_summary so the UI has a definitive
@@ -491,6 +497,10 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
         f"(stage 2/{next_task_args['pipeline_stage_total']}); "
         f"pipeline={[p['task'] for p in pipeline]}"
     )
+
+    # Chain path only (see the comment above): the chain hop's early return in
+    # _run_task_with_stats never reaches the runner-side tick, so fire it here.
+    _tick_enrichment_supervisor(reporter)
 
     return chain
 

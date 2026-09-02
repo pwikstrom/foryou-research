@@ -1157,6 +1157,16 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
         # one tick later anyway.
         if not _maybe_autofire_armed_consolidate(name):
             _tick_enrichment_supervisor(name)
+    elif name == "consolidate_enrichment":
+        # A finished consolidation is what lets the enrichment loop take its
+        # next step (handoff, new slice, or settle). Ticked HERE — after the
+        # save_process_stats() above — and not inside the task, so the tick's
+        # _unconsolidated() check reads the fresh last_consolidation instead of
+        # re-firing a full no-op consolidation against the stale one (the
+        # observed double-run). Chain runs (auto_refresh) early-return before
+        # this block and tick in-task instead; no armed-autofire check here —
+        # firing an armed consolidate off a consolidate completion would loop.
+        _tick_enrichment_supervisor(name)
 
     return outcome == "Success"
 

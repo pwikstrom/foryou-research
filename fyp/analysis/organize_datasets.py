@@ -221,6 +221,57 @@ def compute_input_fingerprints() -> dict:
 
 
 
+# Marker file recording the input fingerprints that produced the current
+# enrichment_status.parquet. Written right after the status save; compared by
+# _status_inputs_unchanged() so a consolidation with nothing new can skip the
+# full status rebuild (measured at 75-310 s). The marker deliberately trails
+# the status file: a crash between the two leaves it stale, which only costs
+# one extra rebuild — never a skipped one.
+_STATUS_INPUTS_MARKER = "enrichment_status_inputs.json"
+# video_map_fp is part of compute_input_fingerprints() but irrelevant to the
+# status file (no niche columns in it), so it is excluded from the marker.
+_STATUS_FP_KEYS = ("collections_fp", "scrapes_fp", "annotations_fp")
+
+
+def _write_status_inputs_marker(verbose: bool = False) -> None:
+    """Persist the current status-input fingerprints. Never raises."""
+    try:
+        fps = compute_input_fingerprints()
+        payload = {key: fps.get(key) for key in _STATUS_FP_KEYS}
+        payload["failed_scrapes_fp"] = compute_failed_scrapes_fingerprint()
+        data_io.save_json(data=payload, storage_location="recoded",
+                          filename=_STATUS_INPUTS_MARKER, verbose=verbose)
+    except Exception as exc:
+        logger.warning(f"    Could not write the status-inputs marker: {exc}")
+
+
+def _status_inputs_unchanged(verbose: bool = False) -> bool:
+    """True when enrichment_status.parquet is already up to date with its inputs.
+
+    Compares the persisted marker against the current input fingerprints
+    (collections/scrapes/annotations recoded stat + failed-scrapes hash). Any
+    read problem or mismatch returns False — the full rebuild is always the
+    safe answer.
+    """
+    try:
+        if not data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
+            return False
+        if not data_io.exists(storage_location="recoded", filename=_STATUS_INPUTS_MARKER):
+            return False
+        marker = data_io.load_json(storage_location="recoded",
+                                   filename=_STATUS_INPUTS_MARKER, verbose=verbose)
+        if not isinstance(marker, dict):
+            return False
+        fps = compute_input_fingerprints()
+        for key in _STATUS_FP_KEYS:
+            if not _fp_equal(marker.get(key), fps.get(key)):
+                return False
+        return marker.get("failed_scrapes_fp") == compute_failed_scrapes_fingerprint()
+    except Exception as exc:
+        logger.warning(f"    Status-inputs marker check failed (forcing rebuild): {exc}")
+        return False
+
+
 def compute_failed_scrapes_fingerprint() -> dict:
     """Return a lightweight fingerprint of the failed-scrapes JSON set.
 
@@ -1141,6 +1192,7 @@ def update_enrichment_status(
     ) -> pd.DataFrame:
     """Rebuild enrichment_status.parquet from collections, scrapes, and annotations."""
 
+    _t_start = _time.perf_counter()
     activity_columns = ['item_id', collection_id_column]
     has_platform = 'source_platform' in all_datasets[_collections_label()].columns
     if has_platform:
@@ -1161,6 +1213,7 @@ def update_enrichment_status(
         # guard (an item_id never spans platforms, so "first" is exact).
         named_aggs["source_platform"] = pd.NamedAgg(column='source_platform', aggfunc="first")
     enrichment_status_df = combined_activity_data.groupby("item_id").agg(**named_aggs)
+    _t_groupby = _time.perf_counter() - _t_start
 
     annotation_votes = pd.DataFrame()
     if data_io.exists(storage_location="recoded", filename="enrichment_status.parquet"):
@@ -1214,8 +1267,22 @@ def update_enrichment_status(
     else:
         enrichment_status_df["annotation_votes"] = pd.Series(0, index=enrichment_status_df.index, dtype="int64[pyarrow]")
 
+    _t_merges = _time.perf_counter() - _t_start - _t_groupby
+    _t_save = 0.0
     if save_to_disk:
+        _t_mark = _time.perf_counter()
         data_io.save_parquet(df=enrichment_status_df, storage_location="recoded", filename="enrichment_status.parquet", verbose=verbose)
+        # Record what this status file was built from so an unchanged-input
+        # consolidation can skip the rebuild entirely. Written AFTER the
+        # parquet on purpose (a stale marker forces a rebuild; a premature
+        # one could skip a needed rebuild).
+        _write_status_inputs_marker(verbose=verbose)
+        _t_save = _time.perf_counter() - _t_mark
+    logger.info(
+        f"[CONSOLIDATE][TIMING] status groupby={_t_groupby:.1f}s merges={_t_merges:.1f}s "
+        f"save={_t_save:.1f}s total={_time.perf_counter() - _t_start:.1f}s "
+        f"rows={len(enrichment_status_df):,}"
+    )
 
     return enrichment_status_df
 
@@ -1249,17 +1316,47 @@ def consolidate_enrichment_data(
 
     logger.info("\n*** Annotations")
     _progress(15, "Consolidating annotation files…")
+    # return_saved_data=False: a quiet lane returns (False, None, set()) instead
+    # of downloading its ~0.5 GB recoded blob just to hand it back. When the
+    # status rebuild below actually runs, any quiet lane's frame is loaded
+    # lazily; when both lanes are quiet and the status inputs are unchanged,
+    # nothing corpus-sized is read at all.
     (new_annotations, annotations, new_annotation_ids) = consolidate_and_save_refined_annotations(
-        force_consolidation=force_consolidation, verbose=verbose)
+        force_consolidation=force_consolidation, return_saved_data=False, verbose=verbose)
 
     logger.info("\n*** Scrape")
     _progress(40, "Consolidating scrape files…")
     (new_scrape_data, scrape_data, new_scrape_ids) = consolidate_and_save_scrape_data(
-        force_consolidation=force_consolidation, verbose=verbose)
+        force_consolidation=force_consolidation, return_saved_data=False, verbose=verbose)
 
     had_new_data = new_annotations or new_scrape_data
 
+    if not had_new_data and _status_inputs_unchanged(verbose=verbose):
+        # No-op fast path: neither lane consolidated and the status file was
+        # built from exactly these inputs (measured no-op runs cost 265-335 s
+        # without this). The frames are deliberately None — the only prod
+        # consumer (run_consolidate_enrichment) reads had_new_data and impact.
+        logger.info("\n*** Enrichment status inputs unchanged — skipping status rebuild.")
+        _progress(95, "Finalizing…")
+        return {
+            _collections_label(): None,
+            _machine_annotations_label(): None,
+            _scrapes_label(): None,
+            "had_new_data": False,
+            "impact": None,
+        }
+
+    def _recoded_or_empty(label: str) -> pd.DataFrame:
+        fn = f"{label}_recoded.parquet"
+        if data_io.exists(storage_location="recoded", filename=fn):
+            return data_io.load_parquet(storage_location="recoded", filename=fn)
+        return pd.DataFrame()
+
     collections = data_io.load_parquet(filename=f"{_collections_label()}_recoded.parquet", storage_location="recoded")
+    if annotations is None:
+        annotations = _recoded_or_empty(_machine_annotations_label())
+    if scrape_data is None:
+        scrape_data = _recoded_or_empty(_scrapes_label())
 
     fine_results = {
         _collections_label(): collections,

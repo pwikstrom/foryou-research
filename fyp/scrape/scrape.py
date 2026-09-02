@@ -1883,6 +1883,7 @@ def _compute_changed_scrape_ids(
     existing_df: pd.DataFrame | None,
     new_df: pd.DataFrame,
     verbose: bool = False,
+    candidate_item_ids: set[str] | None = None,
 ) -> set[str]:
     """Item_ids whose consolidated scrape row changed vs the previous output.
 
@@ -1905,6 +1906,15 @@ def _compute_changed_scrape_ids(
             first-ever consolidation).
         new_df: The freshly consolidated scrape frame about to be saved.
         verbose: Print a one-line changed/new/updated breakdown.
+        candidate_item_ids: When given, only these item_ids can have changed
+            (they came from the new batch files / changed seed files), so the
+            per-row signatures are computed over just their rows instead of the
+            whole corpus — O(batch) instead of the measured ~270 s full-frame
+            pass. ``None`` keeps the full diff. A value-column-set change
+            ignores the candidates and still flags every item: the signatures
+            only cover the column intersection, so a schema move must not be
+            narrowed. Callers must pass ``None`` when items outside the batch
+            can change (force re-consolidation, contract-version bump).
 
     Returns:
         The set of changed item_ids.
@@ -1924,6 +1934,14 @@ def _compute_changed_scrape_ids(
             removed = sorted(_value_col_set(existing_df) - _value_col_set(new_df))
             logger.info(f"Scrape column set changed (+{added} / -{removed}) — flagging all items as changed.")
         return {str(i) for i in new_df.loc[new_df["item_id"].notna(), "item_id"]}
+
+    # Column sets match — from here on, only rows named in the candidate set
+    # can differ, so the signature pass shrinks to those rows.
+    if candidate_item_ids is not None:
+        existing_df = existing_df.loc[existing_df["item_id"].isin(candidate_item_ids)]
+        new_df = new_df.loc[new_df["item_id"].isin(candidate_item_ids)]
+        if new_df.empty and existing_df.empty:
+            return set()
 
     value_cols = [
         c for c in new_df.columns
@@ -2015,8 +2033,18 @@ def consolidate_and_save_scrape_data(
 
     
     # ---------------------------------------------------------------
+    _t_start = time.perf_counter()
     if top_verbose:
         logger.info("Loading scrape files...")
+    # Candidate item_ids for the changed-id diff: only rows from new batch
+    # files or changed seed files can differ from the previous consolidation,
+    # so the signature diff can be restricted to them. A force run or a
+    # contract-version bump can change values corpus-wide (per-file migrations
+    # re-run), so those keep the full diff.
+    new_files = set(files_to_concatenate) - set(latest_filename_list)
+    diff_candidates: set[str] | None = set()
+    if force_consolidation or latest_sv != current_sv:
+        diff_candidates = None
     many_scrape_dfs = []
     scraper = get_scraper(verbose=False)
     for fn in files_to_concatenate:
@@ -2029,8 +2057,15 @@ def consolidate_and_save_scrape_data(
         # for files already saved with canonical names.
         df = _canonicalize_legacy_scrape(df, filename=fn, scraper=scraper)
         many_scrape_dfs.append(df)
+        if diff_candidates is not None and fn in new_files and "item_id" in df.columns:
+            diff_candidates.update(str(i) for i in df["item_id"].dropna())
         if verbose:
             logger.info(f"{fn} {df.shape}")
+    if diff_candidates is not None:
+        for fn, seed_df in seed_frames.items():
+            if seed_row_counts.get(fn) != latest_seed_row_counts.get(fn) and "item_id" in seed_df.columns:
+                diff_candidates.update(str(i) for i in seed_df["item_id"].dropna())
+    _t_load = time.perf_counter() - _t_start
 
     if top_verbose:
         logger.info(f"Consolidating {len(many_scrape_dfs):,} scrape files (dropping duplicate items)...")
@@ -2106,11 +2141,14 @@ def consolidate_and_save_scrape_data(
         scrape_df = pd.concat([items_w_consistent_video_download_status,items_w_inconsistent_video_download_status])
 
 
+    _t_dedupe = time.perf_counter() - _t_start - _t_load
+
     # ---------------------------------------------------------------
     # Donated enrichment seeds — lowest-precedence fallback rows for
     # items with no real scrape (anti-join on source_platform+item_id).
     # ---------------------------------------------------------------
     scrape_df = _merge_enrichment_seeds(scrape_df, seed_frames, verbose=top_verbose)
+    _t_seeds = time.perf_counter() - _t_start - _t_load - _t_dedupe
 
 
     memory_per_column = scrape_df.memory_usage(deep=True)
@@ -2133,15 +2171,23 @@ def consolidate_and_save_scrape_data(
     # never refresh the studies that item belongs to. Compare the actual row
     # values instead, so any enrichment-value backfill surfaces as a change.
     existing_recoded_fn = f"{_scrapes_label()}_recoded.parquet"
+    _t_mark = time.perf_counter()
     existing_df = None
     if data_io.exists(storage_location="recoded", filename=existing_recoded_fn):
         existing_df = data_io.load_parquet(storage_location="recoded", filename=existing_recoded_fn)
+    _t_prev_load = time.perf_counter() - _t_mark
 
-    new_item_ids = _compute_changed_scrape_ids(existing_df, scrape_df, verbose=top_verbose)
+    _t_mark = time.perf_counter()
+    new_item_ids = _compute_changed_scrape_ids(
+        existing_df, scrape_df, verbose=top_verbose,
+        candidate_item_ids=diff_candidates)
+    _t_diff = time.perf_counter() - _t_mark
 
     if top_verbose:
         logger.info("Saving consolidated scrape data...")
+    _t_mark = time.perf_counter()
     _ = data_io.save_parquet(df=scrape_df, storage_location="recoded", filename=existing_recoded_fn)
+    _t_save = time.perf_counter() - _t_mark
 
 
     # update the dataset meta file
@@ -2154,6 +2200,14 @@ def consolidate_and_save_scrape_data(
 
     if top_verbose:
         logger.info("...done")
+    logger.info(
+        f"[CONSOLIDATE][TIMING] scrape load={_t_load:.1f}s concat_dedupe={_t_dedupe:.1f}s "
+        f"seed_merge={_t_seeds:.1f}s prev_load={_t_prev_load:.1f}s diff={_t_diff:.1f}s "
+        f"save={_t_save:.1f}s total={time.perf_counter() - _t_start:.1f}s "
+        f"files={len(files_to_concatenate)} new_files={len(new_files)} "
+        f"rows={len(scrape_df):,} changed={len(new_item_ids):,} "
+        f"diff_scope={'full' if diff_candidates is None else 'batch'}"
+    )
 
 
 

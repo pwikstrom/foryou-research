@@ -30,7 +30,11 @@ def _run_capture(with_impact: bool):
         "scrape": od.consolidate_and_save_scrape_data,
         "status": od.update_enrichment_status,
         "load": od.data_io.load_parquet,
+        "marker": od._status_inputs_unchanged,
     }
+    # Pin the no-op fast path off so this test always exercises the full
+    # 15/40/65/85/95 sequence regardless of what markers exist on disk.
+    od._status_inputs_unchanged = lambda **k: False
     # Annotations / scrape return (new_data, df, new_ids).
     od.consolidate_and_save_refined_annotations = lambda **k: (bool(changed), pd.DataFrame(), set(changed))
     od.consolidate_and_save_scrape_data = lambda **k: (False, pd.DataFrame(), set())
@@ -54,6 +58,7 @@ def _run_capture(with_impact: bool):
         od.consolidate_and_save_scrape_data = orig["scrape"]
         od.update_enrichment_status = orig["status"]
         od.data_io.load_parquet = orig["load"]
+        od._status_inputs_unchanged = orig["marker"]
     return percents
 
 

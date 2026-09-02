@@ -1871,10 +1871,12 @@ def consolidate_and_save_refined_annotations(
     top_verbose = True
 
     # ---------------------------------------------------------------
+    _t_start = time.perf_counter()
     if top_verbose:
         logger.info("Checking for raw annotation batches that needs refining...")
     # check if there are any raw files that need refining and refine those
     result = refine_and_save_all_raw_annotation_files(verbose = verbose, notebook_mode = False)
+    _t_refine = time.perf_counter() - _t_start
     if top_verbose:
         if result["refined_files_after"] == result["refined_files_before"]:
             logger.info("    ...all files already refined.")
@@ -1902,6 +1904,10 @@ def consolidate_and_save_refined_annotations(
     if not force_consolidation and set(files_to_concatenate) <= set(latest_filename_list):
         if top_verbose:
             logger.info("No new refined machine annotations files found. No need to consolidate.")
+        logger.info(
+            f"[CONSOLIDATE][TIMING] anno quiet refine={_t_refine:.1f}s "
+            f"total={time.perf_counter() - _t_start:.1f}s files={len(files_to_concatenate)}"
+        )
         if return_saved_data:
             if data_io.exists(storage_location="recoded", filename=f"{_machine_annotations_label()}_recoded.parquet"):
                 if verbose: logger.info("Returning existing file.")
@@ -1913,6 +1919,7 @@ def consolidate_and_save_refined_annotations(
  
     # ---------------------------------------------------------------
     # load all refined files
+    _t_mark = time.perf_counter()
     if top_verbose:
         logger.info("Loading refined annotation files...")
     refined_annotation_dfs = []
@@ -1921,9 +1928,10 @@ def consolidate_and_save_refined_annotations(
         refined_annotation_dfs.append(df)
         if verbose:
             logger.info(f"{fn} {df.shape}")
+    _t_load = time.perf_counter() - _t_mark
 
-    
     # ---------------------------------------------------------------
+    _t_mark = time.perf_counter()
     if top_verbose:
         logger.info(f"Consolidating {len(refined_annotation_dfs):,} refined files (keeping latest version of each item_id)...")
     consolidated_annotations = pd.concat(refined_annotation_dfs, ignore_index=True)
@@ -1968,6 +1976,9 @@ def consolidate_and_save_refined_annotations(
         annotation_archive["annotation_version"].dropna().unique()
     )
 
+    _t_archive = time.perf_counter() - _t_mark
+    _t_mark = time.perf_counter()
+
     preferred_version = annotation_versioning.get_preferred_version()
     if preferred_version is None:
         # No version promoted yet: keep the most recent annotation per item
@@ -2005,15 +2016,25 @@ def consolidate_and_save_refined_annotations(
         if top_verbose and new_item_ids:
             logger.info(f"Found {len(new_item_ids):,} changed/newly annotated item_ids from {len(new_files)} new file(s).")
 
+    _t_view = time.perf_counter() - _t_mark
+
     # ---------------------------------------------------------------
     # save the consolidated annotations
     if top_verbose:
         logger.info("Saving consolidated annotations...")
+    _t_mark = time.perf_counter()
     data_io.save_parquet(
         df=consolidated_annotations,
         storage_location="recoded", filename=existing_recoded_fn, verbose=verbose)
+    _t_save = time.perf_counter() - _t_mark
     if top_verbose:
         logger.info("...done")
+    logger.info(
+        f"[CONSOLIDATE][TIMING] anno refine={_t_refine:.1f}s load={_t_load:.1f}s "
+        f"concat_archive={_t_archive:.1f}s preferred_view={_t_view:.1f}s save={_t_save:.1f}s "
+        f"total={time.perf_counter() - _t_start:.1f}s files={len(files_to_concatenate)} "
+        f"rows={len(consolidated_annotations):,} changed={len(new_item_ids):,}"
+    )
 
     # ---------------------------------------------------------------
     # update the dataset meta file

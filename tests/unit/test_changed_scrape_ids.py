@@ -131,6 +131,60 @@ def test_column_set_change_flags_all():
     assert _compute_changed_scrape_ids(new, with_prov) == set()
 
 
+def test_candidate_scope_matches_full_diff_when_covering() -> None:
+    """Batch-scoped diff equals the full diff when candidates cover the changes."""
+    existing = _frame([
+        {"item_id": "A", "source_platform": "instagram", "play_count": -1, "desc": "cats"},
+        {"item_id": "B", "source_platform": "instagram", "play_count": 500, "desc": "dogs"},
+    ])
+    new = _frame([
+        {"item_id": "A", "source_platform": "instagram", "play_count": 12345, "desc": "cats"},
+        {"item_id": "B", "source_platform": "instagram", "play_count": 500, "desc": "dogs"},
+        {"item_id": "C", "source_platform": "instagram", "play_count": 9, "desc": "birds"},
+    ])
+    full = _compute_changed_scrape_ids(existing, new)
+    scoped = _compute_changed_scrape_ids(existing, new, candidate_item_ids={"A", "C"})
+    assert scoped == full == {"A", "C"}
+
+
+def test_candidate_scope_limits_the_diff() -> None:
+    """Only candidate ids are inspected — that is the contract, documented here.
+
+    Callers own the promise that non-candidate rows cannot have changed (their
+    values come from files already consolidated last run); a change smuggled in
+    outside the candidate set is deliberately not seen.
+    """
+    existing = _frame([
+        {"item_id": "A", "source_platform": "tiktok", "play_count": 1, "desc": "x"},
+        {"item_id": "B", "source_platform": "tiktok", "play_count": 2, "desc": "y"},
+    ])
+    new = _frame([
+        {"item_id": "A", "source_platform": "tiktok", "play_count": 1, "desc": "x"},
+        {"item_id": "B", "source_platform": "tiktok", "play_count": 999, "desc": "y"},
+    ])
+    assert _compute_changed_scrape_ids(existing, new, candidate_item_ids={"A"}) == set()
+    assert _compute_changed_scrape_ids(existing, new) == {"B"}
+
+
+def test_candidate_scope_ignored_on_column_set_change() -> None:
+    """A schema move flags ALL items even when a narrow candidate set is given."""
+    old = pd.DataFrame([
+        {"item_id": "A", "play_count": 5, "stats_diggCount": 2},
+        {"item_id": "B", "play_count": 9, "stats_diggCount": 4},
+    ])
+    new = pd.DataFrame([
+        {"item_id": "A", "play_count": 5, "fave_count": 2},
+        {"item_id": "B", "play_count": 9, "fave_count": 4},
+    ])
+    assert _compute_changed_scrape_ids(old, new, candidate_item_ids={"A"}) == {"A", "B"}
+
+
+def test_empty_candidate_set_flags_nothing() -> None:
+    existing = _frame([{"item_id": "A", "source_platform": "tiktok", "play_count": 1}])
+    new = _frame([{"item_id": "A", "source_platform": "tiktok", "play_count": 2}])
+    assert _compute_changed_scrape_ids(existing, new, candidate_item_ids=set()) == set()
+
+
 _TESTS = [
     test_rescrape_value_backfill_is_flagged,
     test_provenance_only_change_is_ignored,
@@ -138,6 +192,10 @@ _TESTS = [
     test_na_to_value_and_value_to_na_are_flagged,
     test_identical_frame_flags_nothing,
     test_column_set_change_flags_all,
+    test_candidate_scope_matches_full_diff_when_covering,
+    test_candidate_scope_limits_the_diff,
+    test_candidate_scope_ignored_on_column_set_change,
+    test_empty_candidate_set_flags_nothing,
 ]
 
 
