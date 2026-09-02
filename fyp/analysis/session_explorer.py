@@ -211,8 +211,14 @@ def _child_init() -> None:
 
 
 
-def _run_unit(i: int) -> tuple[int, list[dict], list[dict], list[dict]]:
-    """Segment one work unit of the batch context (runs in parent or child)."""
+def _run_unit(i: int) -> tuple[int, list[dict], list[dict], list[dict], float]:
+    """Segment one work unit of the batch context (runs in parent or child).
+
+    Returns the unit's rows plus its wall seconds, so the batch can report
+    the slowest unit — the floor a link cannot go under however many workers
+    it has.
+    """
+    _t = time.perf_counter()
     ctx = _FORK_CTX
     cid, lo, hi = ctx["units"][i]
     codes = ctx["codes"][cid]
@@ -222,7 +228,7 @@ def _run_unit(i: int) -> tuple[int, list[dict], list[dict], list[dict]]:
         cid, chunk, ctx["play_ts"][cid], ctx["id2idx"], ctx["U"], ctx["feat"],
         ctx["id_sets"], ctx["params"], trend_cols=ctx["trend_cols"],
         stories=ctx["stories"])
-    return i, srows, erows, wrows
+    return i, srows, erows, wrows, time.perf_counter() - _t
 
 
 
@@ -291,14 +297,16 @@ def _segment_units(units: list[tuple[str, int, int]], ctx: dict, workers: int,
     unit order regardless of completion order.
 
     Returns:
-        ``(session_rows, episode_rows, window_rows)``, or None when the
-        reporter reports a cancellation.
+        ``(session_rows, episode_rows, window_rows, unit_seconds)`` — the
+        last a list of per-unit wall seconds — or None when the reporter
+        reports a cancellation.
     """
     emit = log if log is not None else logger.info
     _FORK_CTX.clear()
     _FORK_CTX.update(ctx)
     _FORK_CTX["units"] = units
     results: dict[int, tuple[list, list, list]] = {}
+    unit_seconds: dict[int, float] = {}
     if reporter is not None and reporter.check_cancelled():
         return None
     if workers > 1 and len(units) > 1:
@@ -315,8 +323,9 @@ def _segment_units(units: list[tuple[str, int, int]], ctx: dict, workers: int,
                                          initializer=_child_init) as ex:
                     futures = [ex.submit(_run_unit, i) for i in range(len(units))]
                     for n_done, fut in enumerate(as_completed(futures), start=1):
-                        i, srows, erows, wrows = fut.result()
+                        i, srows, erows, wrows, secs = fut.result()
                         results[i] = (srows, erows, wrows)
+                        unit_seconds[i] = secs
                         if (reporter is not None and n_done % _CANCEL_CHECK_EVERY == 0
                                 and reporter.check_cancelled()):
                             ex.shutdown(wait=False, cancel_futures=True)
@@ -324,13 +333,24 @@ def _segment_units(units: list[tuple[str, int, int]], ctx: dict, workers: int,
         except Exception as e:
             emit(f"[SESSIONS] worker pool failed ({type(e).__name__}: {e}) "
                  f"— finishing this batch serially")
-    for i in range(len(units)):
-        if i in results:
-            continue
-        if reporter is not None and reporter.check_cancelled():
-            return None
-        _, srows, erows, wrows = _run_unit(i)
-        results[i] = (srows, erows, wrows)
+    # The in-process path runs under the same one-thread BLAS as the pool
+    # children: the episode geometry takes the max of a float32 U @ U.T, and
+    # multi-threaded kernels sum in a different order — on prod (2026-09-02)
+    # that flipped one episode's 4-decimal `diameter` between a workers=1 and
+    # a pooled build. Same kernel everywhere → bit-identical rows.
+    pending = [i for i in range(len(units)) if i not in results]
+    if pending:
+        try:
+            from threadpoolctl import threadpool_limits
+        except Exception:
+            from contextlib import nullcontext as threadpool_limits  # type: ignore
+        with threadpool_limits(1):
+            for i in pending:
+                if reporter is not None and reporter.check_cancelled():
+                    return None
+                _, srows, erows, wrows, secs = _run_unit(i)
+                results[i] = (srows, erows, wrows)
+                unit_seconds[i] = secs
     session_rows: list[dict] = []
     episode_rows: list[dict] = []
     window_rows: list[dict] = []
@@ -339,7 +359,8 @@ def _segment_units(units: list[tuple[str, int, int]], ctx: dict, workers: int,
         session_rows.extend(srows)
         episode_rows.extend(erows)
         window_rows.extend(wrows)
-    return session_rows, episode_rows, window_rows
+    return (session_rows, episode_rows, window_rows,
+            [unit_seconds[i] for i in range(len(units))])
 
 
 
@@ -352,8 +373,8 @@ def _segment_collections(cids: list[str], plays: pd.DataFrame, id2idx: dict,
     """Segment ``cids`` against one vector context, as parallel work units.
 
     Returns:
-        ``(session_rows, episode_rows, window_rows, n_units)`` or None on
-        cancellation.
+        ``(session_rows, episode_rows, window_rows, unit_seconds)`` or None
+        on cancellation.
     """
     ctx: dict = {"plays": {}, "play_ts": {}, "codes": {}, "id2idx": id2idx,
                  "U": U, "feat": feat, "id_sets": id_sets, "params": params,
@@ -368,10 +389,7 @@ def _segment_collections(cids: list[str], plays: pd.DataFrame, id2idx: dict,
         ctx["codes"][cid] = np.asarray(codes)
         units.extend((cid, lo, hi)
                      for lo, hi in _session_chunks(codes, SESSION_CHUNK_PLAYS))
-    out = _segment_units(units, ctx, workers, reporter=reporter, log=log)
-    if out is None:
-        return None
-    return out[0], out[1], out[2], len(units)
+    return _segment_units(units, ctx, workers, reporter=reporter, log=log)
 
 
 
@@ -1946,7 +1964,8 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
     n_workers = resolve_workers(workers)
     log = reporter.log if reporter is not None else None
     stats = {"n_plays": 0, "n_vectors": 0, "tier": 1, "workers": n_workers,
-             "units": 0, "t_load": 0.0, "t_vectors": 0.0, "t_segment": 0.0}
+             "units": 0, "unit_max": 0.0, "unit_cpu": 0.0,
+             "t_load": 0.0, "t_vectors": 0.0, "t_segment": 0.0}
     _t = time.perf_counter()
     plays = load_plays(cids)
     if coverage is not None and not plays.empty:
@@ -2005,8 +2024,10 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
         stats["t_segment"] += time.perf_counter() - _t
         if out is None:
             return None, None, None, None, None
-        session_rows, episode_rows, window_rows, n_units = out
-        stats["units"] += n_units
+        session_rows, episode_rows, window_rows, unit_secs = out
+        stats["units"] += len(unit_secs)
+        stats["unit_max"] = max(stats["unit_max"], max(unit_secs, default=0.0))
+        stats["unit_cpu"] += sum(unit_secs)
     else:
         # Tier 2: the union exceeds the budget — load and free per collection.
         stats["tier"] = 2
@@ -2024,11 +2045,13 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
             stats["t_segment"] += time.perf_counter() - _t
             if out is None:
                 return None, None, None, None, None
-            srows, erows, wrows, n_units = out
+            srows, erows, wrows, unit_secs = out
             session_rows.extend(srows)
             episode_rows.extend(erows)
             window_rows.extend(wrows)
-            stats["units"] += n_units
+            stats["units"] += len(unit_secs)
+            stats["unit_max"] = max(stats["unit_max"], max(unit_secs, default=0.0))
+            stats["unit_cpu"] += sum(unit_secs)
             del U, id2local
     _FORK_CTX.clear()
     return session_rows, episode_rows, window_rows, plays, stats
@@ -2043,7 +2066,9 @@ def format_batch_timing(chunk: int, n_collections: int, stats: dict) -> str:
             f"load={stats.get('t_load', 0.0):.1f}s "
             f"vectors={stats.get('t_vectors', 0.0):.1f}s "
             f"segment={stats.get('t_segment', 0.0):.1f}s "
-            f"workers={stats.get('workers', 1)} units={stats.get('units', 0)}")
+            f"workers={stats.get('workers', 1)} units={stats.get('units', 0)} "
+            f"unit_max={stats.get('unit_max', 0.0):.1f}s "
+            f"unit_cpu={stats.get('unit_cpu', 0.0):.1f}s")
 
 
 
