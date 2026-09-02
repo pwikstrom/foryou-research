@@ -637,6 +637,47 @@ def test_restart_args_keep_stale_only_but_strip_skip_if_busy(corpus, monkeypatch
 
 
 
+def test_plan_batch_rules():
+    counts = {"a": 300, "b": 120, "c": 120, "d": 10, "e": 10, "f": 10}
+    order = list(counts)
+    # Explicit count wins over the budget.
+    assert worker.plan_batch(order, counts, 2) == (["a", "b"], ["c", "d", "e", "f"])
+    # No manifest counts: legacy fixed count.
+    assert worker.plan_batch(order, None, None)[0] == order[:worker.COLLECTIONS_PER_BATCH]
+    # Budget: an oversized collection gets its own link, then fill to the budget.
+    monkeypatch_budget = worker.PLAYS_PER_BATCH
+    try:
+        worker.PLAYS_PER_BATCH = 200
+        assert worker.plan_batch(order, counts, None) == (["a"], ["b", "c", "d", "e", "f"])
+        assert worker.plan_batch(order[1:], counts, None) == (["b", "c"], ["d", "e", "f"])
+        assert worker.plan_batch(order[3:], counts, None) == (["d", "e", "f"], [])
+        worker.MAX_COLLECTIONS_PER_BATCH, keep = 2, worker.MAX_COLLECTIONS_PER_BATCH
+        assert worker.plan_batch(order[3:], counts, None) == (["d", "e"], ["f"])
+        worker.MAX_COLLECTIONS_PER_BATCH = keep
+    finally:
+        worker.PLAYS_PER_BATCH = monkeypatch_budget
+
+
+
+
+def test_default_batching_by_play_budget_matches_golden(corpus, monkeypatch):
+    """No batch_size: links fill to the play budget; rows unchanged."""
+    se.build_artifacts(batch_size=99)
+    want = _read_artifacts()
+
+    # Fixture collections hold 16 plays each: a 20-play budget packs two
+    # collections into link 0 and leaves the third for link 1.
+    monkeypatch.setattr(worker, "PLAYS_PER_BATCH", 20)
+    reporter, links = _run_chain({})
+    assert links == 3  # setup + [coll0, coll1] + [coll2]
+    assert "batch_size" not in json.dumps(reporter.lines)
+    got = _read_artifacts()
+    for kind in ("sessions", "episodes", "windows"):
+        pd.testing.assert_frame_equal(want[kind], got[kind])
+
+
+
+
 def test_workers_ride_the_chain_but_stay_out_of_params(corpus, monkeypatch):
     """A worker count must survive chain + restart args, and must never reach
     ``params`` — anything there lands in the meta and would force a rebuild."""

@@ -54,10 +54,22 @@ sys.path.append(str(project_root))
 
 from web_interface.task_status import TaskStatusReporter
 
-# Collections per chain link. The binding constraint is the vector working
-# set (see session_explorer.MAX_VECTORS_PER_LINK), which build_batch enforces
+# Collections per chain link when the caller pins ``batch_size``. The binding
+# constraint is the vector working set (see
+# session_explorer.MAX_VECTORS_PER_LINK), which build_batch enforces
 # independently; this only sets the plays/feature batch width.
 COLLECTIONS_PER_BATCH = 8
+
+# Default batching is by play budget, not collection count: a link takes
+# collections (biggest first) until it holds PLAYS_PER_BATCH plays or
+# MAX_COLLECTIONS_PER_BATCH collections. With a fixed count of 8 the tail
+# links were eight tiny collections each and ~40 s of pure per-link overhead
+# (loads + dispatch) for a second of segmentation (prod, 2026-09-02); the
+# budget folds that tail into one or two links while the biggest collections
+# still get links of their own. Segmentation is parallel within a link, so a
+# bigger link costs wall time only in proportion to its plays.
+PLAYS_PER_BATCH = 250_000
+MAX_COLLECTIONS_PER_BATCH = 32
 _DISPATCH_DEADLINE = 1800
 MAX_CHAIN_RESTARTS = 2
 
@@ -68,6 +80,33 @@ _OVERRIDE_KEYS = (("cut", float), ("mem", int), ("min_videos", int),
                   ("window_n", int), ("max_windows", int))
 
 
+
+
+
+
+def plan_batch(remaining: list[str], counts: dict | None,
+               batch_size: int | None) -> tuple[list[str], list[str]]:
+    """Split ``remaining`` into this link's batch and the rest.
+
+    An explicit ``batch_size`` is a plain count. Otherwise the batch grows
+    until it reaches :data:`PLAYS_PER_BATCH` plays (per the run manifest's
+    in-window ``counts``) or :data:`MAX_COLLECTIONS_PER_BATCH` collections;
+    a collection bigger than the budget gets a link to itself. A legacy chain
+    with no manifest counts falls back to :data:`COLLECTIONS_PER_BATCH`.
+    """
+    if batch_size:
+        n = int(batch_size)
+        return remaining[:n], remaining[n:]
+    if not counts:
+        return (remaining[:COLLECTIONS_PER_BATCH],
+                remaining[COLLECTIONS_PER_BATCH:])
+    n, plays = 0, 0
+    while n < len(remaining) and n < MAX_COLLECTIONS_PER_BATCH:
+        n += 1
+        plays += int(counts.get(remaining[n - 1], 0))
+        if plays >= PLAYS_PER_BATCH:
+            break
+    return remaining[:n], remaining[n:]
 
 
 
@@ -251,7 +290,9 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
 
     task_args = task_args or {}
     chunk = int(task_args.get("chunk_index", 0))
-    batch_size = int(task_args.get("batch_size") or COLLECTIONS_PER_BATCH)
+    # None = the play-budget rule (see plan_batch); an explicit count is
+    # carried verbatim through every link.
+    batch_size = int(task_args["batch_size"]) if task_args.get("batch_size") else None
     restarts = int(task_args.get("chain_restarts", 0))
     stale_only = _flag(task_args.get("stale_only", ""))
     # Segmentation worker processes. Deliberately NOT a segmentation
@@ -279,7 +320,8 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             base["stale_only"] = True
         if workers is not None:
             base["workers"] = workers
-        base["batch_size"] = batch_size
+        if batch_size:
+            base["batch_size"] = batch_size
         base["chunk_index"] = 0
         base["chain_restarts"] = restarts + 1
         return base
@@ -290,7 +332,6 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
                     annotations_fp: str) -> dict:
         args = {
             "chunk_index": next_chunk,
-            "batch_size": batch_size,
             # \x1f (unit separator): collection ids are user-derived strings,
             # so a comma join would be ambiguous.
             "remaining_collections": "\x1f".join(remaining),
@@ -316,6 +357,8 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             args["stale_only"] = True
         if workers is not None:
             args["workers"] = workers
+        if batch_size:
+            args["batch_size"] = batch_size
         return args
 
     # The initial dispatch (no run_id yet) is SETUP-ONLY: discovery, corpus-
@@ -517,8 +560,21 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         else:
             corpus_mean, n_vectors = None, 0
 
-    batch = remaining[:batch_size]
-    rest = remaining[batch_size:]
+    # The run manifest (seeded at setup) carries each collection's coverage
+    # windows and in-window play counts (the batching budget); a legacy chain
+    # has none and builds unscoped in fixed-count batches, as before.
+    manifest: dict = {}
+    if data_io.exists(storage_location=session_explorer.ARTIFACT_LOCATION,
+                      filename=_progress_filename(run_id)):
+        prog = data_io.load_json(
+            storage_location=session_explorer.ARTIFACT_LOCATION,
+            filename=_progress_filename(run_id))
+        if isinstance(prog, dict) and isinstance(prog.get("manifest"), dict):
+            manifest = prog["manifest"]
+    coverage_map = manifest.get("coverage") if manifest else None
+
+    batch, rest = plan_batch(remaining, manifest.get("counts") if manifest else None,
+                             batch_size)
 
     # Report before segmenting, not only after: a link runs for many minutes and
     # each link's reporter starts from a blank progress dict (link 0) or the
@@ -530,18 +586,6 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         f"Segmenting collections {started + 1}-{started + len(batch)} of {total}...")
 
     index = embedding_store.load_index(model) if corpus_mean is not None else None
-
-    # The run manifest (seeded at setup) carries each collection's coverage
-    # windows; a legacy chain has none and builds unscoped, as before.
-    manifest: dict = {}
-    if data_io.exists(storage_location=session_explorer.ARTIFACT_LOCATION,
-                      filename=_progress_filename(run_id)):
-        prog = data_io.load_json(
-            storage_location=session_explorer.ARTIFACT_LOCATION,
-            filename=_progress_filename(run_id))
-        if isinstance(prog, dict) and isinstance(prog.get("manifest"), dict):
-            manifest = prog["manifest"]
-    coverage_map = manifest.get("coverage") if manifest else None
 
     with mem_probe("SESSIONS", f"chunk_{chunk:04d}", log=reporter.log,
                    collections=len(batch)):
@@ -728,7 +772,9 @@ if __name__ == "__main__":
                                    "help": "Exit gracefully when another sessions "
                                            "refresh appears to be running"}),
             (("--batch-size",), {"type": int, "default": None,
-                                 "help": f"Collections per link (default {COLLECTIONS_PER_BATCH})"}),
+                                 "help": "Collections per link (default: fill each "
+                                         f"link to {PLAYS_PER_BATCH:,} plays or "
+                                         f"{MAX_COLLECTIONS_PER_BATCH} collections)"}),
             (("--workers",), {"type": int, "default": None,
                               "help": "Segmentation worker processes per link "
                                       "(default: config [sessions] workers; "
