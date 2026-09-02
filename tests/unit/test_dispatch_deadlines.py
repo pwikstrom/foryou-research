@@ -104,12 +104,29 @@ def test_every_worker_deadline_is_honoured_on_initial_dispatch(dispatched):
 
 @pytest.mark.parametrize("name", ["sessions_refresh", "timelines_refresh",
                                   "embeddings_refresh", "pca_refresh",
-                                  "recode_refresh_studies"])
+                                  "recode_refresh_studies",
+                                  "consolidate_enrichment"])
 def test_known_long_runners_exceed_the_600s_default(dispatched, name):
     process_manager.start_process(name, None, task_args={})
     assert dispatched and dispatched[0]["deadline"] is not None
     assert dispatched[0]["deadline"] > 600, (
         f"{name} would take Cloud Tasks' 600s default and loop")
+
+
+
+
+def test_consolidate_enrichment_covers_the_shadow_verification():
+    """The shadow check is the longest consolidate mode and sets the deadline.
+
+    2026-09-02 prod: the weekly verification ran 772-816 s and every attempt
+    answered 200 after Cloud Tasks had already re-delivered at 600 s — five
+    attempts, ~66 minutes of an 8-vCPU runner, for one check. A force rebuild
+    over the whole corpus sits in the same range.
+    """
+    got = process_manager.dispatch_deadline_for("consolidate_enrichment", {})
+    assert got is not None and got >= 1800, (
+        f"consolidate_enrichment gets {got}s; a shadow verification or force "
+        "rebuild would be re-dispatched mid-run")
 
 
 

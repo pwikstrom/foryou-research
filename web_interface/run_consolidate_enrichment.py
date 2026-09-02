@@ -269,6 +269,30 @@ def _tick_enrichment_supervisor(reporter) -> None:
 _SHADOW_CHECK_INTERVAL_DAYS = 7
 
 
+def _shadow_check_age_days() -> float | None:
+    """Days since the last recorded shadow check, or None if there is none.
+
+    Reads ``recoded/consolidation_shadow_check.json``, the marker
+    :func:`verify_consolidation_equivalence` writes after every check.
+    Never raises — an unreadable marker reads as "no check on record", which
+    makes the check run rather than silently skipping it.
+    """
+    try:
+        import fyp.data_io as data_io
+        from fyp.organize_datasets import _SHADOW_CHECK_FILENAME
+        if not data_io.exists(storage_location="recoded", filename=_SHADOW_CHECK_FILENAME):
+            return None
+        payload = data_io.load_json(storage_location="recoded",
+                                    filename=_SHADOW_CHECK_FILENAME)
+        checked_at = (payload or {}).get("checked_at")
+        if not checked_at:
+            return None
+        delta = datetime.now(UTC) - datetime.fromisoformat(checked_at)
+        return delta.total_seconds() / 86400.0
+    except Exception:
+        return None
+
+
 def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
     """Shadow-verify the incremental artifacts against a full rebuild.
 
@@ -278,6 +302,12 @@ def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
     records a task failure (visible on Admin → System info) and promotes a
     real ``force_consolidation`` run, folding the resulting impact into the
     deferred-refresh ledger so downstream caches rebuild from healed data.
+
+    Re-checks the marker age before doing the work, because this task can
+    arrive more than once for a single scheduling: Cloud Tasks re-delivers on
+    any dispatch failure, and a check that already passed minutes ago has
+    nothing to add. Without the guard a single re-delivery costs another full
+    corpus rebuild (2026-09-02: five attempts, 66 minutes of runner).
     """
     from fyp.organize_datasets import (
         consolidate_enrichment_data,
@@ -287,6 +317,13 @@ def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
     def _progress(pct: float, msg: str) -> None:
         reporter.update_progress(int(pct), msg, stage_index=1, stage_total=1,
                                  stage_name="consolidate_enrichment")
+
+    age = _shadow_check_age_days()
+    if age is not None and age < _SHADOW_CHECK_INTERVAL_DAYS:
+        reporter.log(
+            f"Shadow verification skipped — last check was {age * 24:.1f} h ago "
+            f"(interval {_SHADOW_CHECK_INTERVAL_DAYS} d).")
+        return None
 
     _progress(5, "Shadow-verifying incremental consolidation…")
     result = verify_consolidation_equivalence(progress_cb=_progress)
@@ -339,16 +376,9 @@ def _maybe_schedule_shadow_check(reporter: TaskStatusReporter, incremental: bool
     if not incremental:
         return
     try:
-        import fyp.data_io as data_io
-        from fyp.organize_datasets import _SHADOW_CHECK_FILENAME
-        if data_io.exists(storage_location="recoded", filename=_SHADOW_CHECK_FILENAME):
-            payload = data_io.load_json(storage_location="recoded",
-                                        filename=_SHADOW_CHECK_FILENAME)
-            checked_at = (payload or {}).get("checked_at")
-            if checked_at:
-                age = datetime.now(UTC) - datetime.fromisoformat(checked_at)
-                if age.days < _SHADOW_CHECK_INTERVAL_DAYS:
-                    return
+        age = _shadow_check_age_days()
+        if age is not None and age < _SHADOW_CHECK_INTERVAL_DAYS:
+            return
         from web_interface.process_manager import (
             _dispatch_cloud_task, dispatch_deadline_for, is_cloud_run,
         )

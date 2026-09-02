@@ -129,6 +129,13 @@ _LONG_RUNNING_DEADLINES = {
     "timelines_refresh": 1800,
     "embeddings_refresh": 1800,
     "queue_annotator_batch": 1800,
+    # A consolidation is normally ~2 min, but two of its modes are not: a
+    # force rebuild over the whole corpus, and the weekly shadow verification
+    # (which rebuilds scrapes AND annotations, then signature-compares three
+    # artifacts). 2026-09-02 prod: the shadow check ran 772-816s five times,
+    # each attempt answering 200 after Cloud Tasks had already given up at
+    # 600s and re-delivered — 66 minutes of an 8-vCPU runner for one check.
+    "consolidate_enrichment": 3600,
 }
 
 
