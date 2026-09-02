@@ -131,6 +131,87 @@ def test_consolidate_enrichment_covers_the_shadow_verification():
 
 
 
+# Cloud Tasks' own limit for HTTP targets. Not ours to raise.
+_CLOUD_TASKS_MAX = 1800
+
+
+def _representative_args(name: str) -> list[dict]:
+    """Task args that exercise every branch of dispatch_deadline_for."""
+    if name == "queue_annotator":
+        return [{}, {"batch_size": 50}, {"batch_size": 1000}, {"batch_size": 5000}]
+    return [{}]
+
+
+def test_no_deadline_exceeds_the_cloud_tasks_maximum():
+    """A deadline over 30 min is not 'generous', it is a 400 at task creation.
+
+    2026-09-03 prod: consolidate_enrichment was given 3600 s. Cloud Tasks
+    rejected every dispatch — the armed post-scrape trigger and the admin's
+    Consolidate button alike — with "Task.dispatchDeadline must be between
+    [15s, 30m]", so no consolidation could start until a redeploy. The
+    queue_annotator >1000-item branch had carried the same 3600 s since it was
+    written and could never have dispatched either.
+    """
+    too_long = []
+    for name in sorted(process_manager.CLOUD_TASK_ELIGIBLE):
+        for args in _representative_args(name):
+            got = process_manager.dispatch_deadline_for(name, args)
+            if got is not None and got > _CLOUD_TASKS_MAX:
+                too_long.append(f"{name} {args}: {got}s")
+    assert not too_long, (
+        "Cloud Tasks would reject these dispatches outright:\n  "
+        + "\n  ".join(too_long))
+    assert process_manager.CLOUD_TASKS_MAX_DISPATCH_DEADLINE == _CLOUD_TASKS_MAX
+
+
+def test_dispatch_site_clamps_an_overlong_deadline(monkeypatch):
+    """The last line of defence: an illegal value is clamped, never sent."""
+    captured: dict = {}
+
+    class _Task:
+        """Stands in for tasks_v2.Task; the real duration_pb2 sets the deadline."""
+        http_request = None
+        dispatch_deadline = None
+        schedule_time = None
+
+    class _Client:
+        def queue_path(self, *a):
+            return "q"
+        def create_task(self, request=None, **kw):
+            captured["task"] = request["task"] if request else kw["task"]
+            class _Resp:
+                name = "projects/x/tasks/t"
+            return _Resp()
+
+    import sys
+    import types
+
+    # Stub only the Cloud Tasks client; google.protobuf is already imported by
+    # other deps, so the genuine Duration is what the task ends up holding.
+    tasks_v2 = types.SimpleNamespace(
+        CloudTasksClient=lambda: _Client(),
+        Task=lambda **kw: _Task(),
+        HttpRequest=lambda **kw: None,
+        HttpMethod=types.SimpleNamespace(POST=1),
+        OidcToken=lambda **kw: None,
+    )
+    monkeypatch.setitem(sys.modules, "google.cloud.tasks_v2", tasks_v2)
+    monkeypatch.setattr(process_manager, "is_cloud_run", lambda: True)
+    for env in ("GCP_PROJECT_ID", "CLOUD_TASKS_LOCATION", "CLOUD_TASKS_QUEUE",
+                "K_SERVICE", "CLOUD_RUN_SERVICE_URL"):
+        monkeypatch.setenv(env, "x")
+
+    ok, _msg = process_manager._dispatch_cloud_task(
+        "consolidate_enrichment", {}, dispatch_deadline_seconds=3600)
+    assert ok, _msg
+    sent = captured["task"].dispatch_deadline
+    assert sent is not None and sent.seconds == _CLOUD_TASKS_MAX, (
+        f"3600s reached Cloud Tasks as {getattr(sent, 'seconds', None)}; "
+        f"must clamp to {_CLOUD_TASKS_MAX}")
+
+
+
+
 def test_worker_declared_deadlines_are_in_the_shared_table():
     """dispatch_deadline_for is the single source of truth for every launcher."""
     missing = []

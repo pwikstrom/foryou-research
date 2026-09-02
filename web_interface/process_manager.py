@@ -122,6 +122,15 @@ CLOUD_TASK_ELIGIBLE |= set(SCRAPER_PROCESS_NAMES)
 # run_sessions_refresh._claim_chain_dispatch.
 # Keep in sync with the workers that define _DISPATCH_DEADLINE;
 # tests/unit/test_dispatch_deadlines.py pins that.
+# Cloud Tasks rejects any HTTP-target dispatchDeadline outside [15s, 30m] with
+# a 400 at task-creation time — the task is never queued at all. 2026-09-03
+# prod: consolidate_enrichment was given 3600s and every dispatch (the armed
+# post-scrape trigger AND the admin's Consolidate button) failed with
+# "Task.dispatchDeadline must be between [15s, 30m]" until redeployed.
+# _dispatch_cloud_task clamps to this as a last line of defence; the table
+# below must never need it.
+CLOUD_TASKS_MAX_DISPATCH_DEADLINE = 1800
+
 _LONG_RUNNING_DEADLINES = {
     "pca_refresh": 1800,
     "recode_refresh_studies": 1800,
@@ -132,10 +141,10 @@ _LONG_RUNNING_DEADLINES = {
     # A consolidation is normally ~2 min, but two of its modes are not: a
     # force rebuild over the whole corpus, and the weekly shadow verification
     # (which rebuilds scrapes AND annotations, then signature-compares three
-    # artifacts). 2026-09-02 prod: the shadow check ran 772-816s five times,
-    # each attempt answering 200 after Cloud Tasks had already given up at
-    # 600s and re-delivered — 66 minutes of an 8-vCPU runner for one check.
-    "consolidate_enrichment": 3600,
+    # artifacts, ~13 min). 2026-09-02 prod: the shadow check ran 772-816s five
+    # times, each attempt answering 200 after Cloud Tasks had already given up
+    # at 600s and re-delivered — 66 minutes of an 8-vCPU runner for one check.
+    "consolidate_enrichment": CLOUD_TASKS_MAX_DISPATCH_DEADLINE,
 }
 
 
@@ -162,8 +171,10 @@ def dispatch_deadline_for(name: str, task_args: dict | None = None) -> int | Non
         Deadline in seconds, or None to accept the Cloud Tasks default.
     """
     if name == "queue_annotator":
-        batch_size = int((task_args or {}).get("batch_size", 500))
-        return 3600 if batch_size > 1000 else 1800
+        # Used to scale to 3600 above 1000 items, which Cloud Tasks rejects
+        # outright (see CLOUD_TASKS_MAX_DISPATCH_DEADLINE) — the big-batch
+        # path could never have dispatched. The ceiling is the deadline.
+        return CLOUD_TASKS_MAX_DISPATCH_DEADLINE
     if name.startswith("queue_scraper_"):
         return 1800
     return _LONG_RUNNING_DEADLINES.get(name)
@@ -632,9 +643,9 @@ def _dispatch_cloud_task(name: str, task_args: dict,
         dispatch_deadline_seconds: Optional override for the Cloud Tasks
             ``dispatch_deadline``.  When set, Cloud Tasks will wait up to
             this many seconds for the HTTP response before considering the
-            task failed.  Max 1800s for HTTP targets on the default queue
-            config, but can go up to 1800s (30 min) or 3600s with
-            appropriate queue settings.
+            task failed.  Cloud Tasks accepts [15s, 30m] for HTTP targets and
+            rejects anything else with a 400 at creation time, so the value
+            is clamped to ``CLOUD_TASKS_MAX_DISPATCH_DEADLINE`` here.
         schedule_delay_seconds: Optional delay before the task is eligible to
             run (Cloud Tasks ``schedule_time``). Used by the batch annotator's
             poll phase to re-check a running job after a delay WITHOUT holding a
@@ -682,6 +693,11 @@ def _dispatch_cloud_task(name: str, task_args: dict,
         )
 
         if dispatch_deadline_seconds:
+            if dispatch_deadline_seconds > CLOUD_TASKS_MAX_DISPATCH_DEADLINE:
+                print(f"[CloudTasks] {name}: dispatch deadline "
+                      f"{dispatch_deadline_seconds}s exceeds the Cloud Tasks maximum; "
+                      f"clamping to {CLOUD_TASKS_MAX_DISPATCH_DEADLINE}s.")
+                dispatch_deadline_seconds = CLOUD_TASKS_MAX_DISPATCH_DEADLINE
             task.dispatch_deadline = duration_pb2.Duration(
                 seconds=dispatch_deadline_seconds,
             )
