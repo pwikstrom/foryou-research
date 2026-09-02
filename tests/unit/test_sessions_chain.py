@@ -8,6 +8,7 @@ fail is not a guard, and per-batch-centred distances are plausible-looking.
 """
 
 import json
+import multiprocessing
 
 import numpy as np
 import pandas as pd
@@ -176,6 +177,94 @@ def test_golden_equivalence_across_batch_sizes(corpus):
         pd.testing.assert_frame_equal(got_all[kind], got_one[kind])
 
 
+
+
+
+
+_HAS_FORK = "fork" in multiprocessing.get_all_start_methods()
+
+
+
+
+@pytest.mark.skipif(not _HAS_FORK, reason="forked worker pool needs the fork start method")
+def test_golden_equivalence_across_worker_counts(corpus):
+    """The pool is a wall-time device only: rows identical at any worker count."""
+    meta_serial = se.build_artifacts(batch_size=99, workers=1)
+    want = _read_artifacts()
+    assert meta_serial["n_windows"] > 0
+
+    reporter = FakeReporter()
+    meta_pool = se.build_artifacts(batch_size=99, workers=3, reporter=reporter)
+    got = _read_artifacts()
+    assert meta_pool["n_sessions"] == meta_serial["n_sessions"]
+    for kind in ("sessions", "episodes", "windows"):
+        pd.testing.assert_frame_equal(want[kind], got[kind])
+    # The pool genuinely ran — no silent degradation to the serial path.
+    assert not any("worker pool failed" in line for line in reporter.lines)
+    timing = [line for line in reporter.lines if "[TIMING] sessions_link" in line]
+    assert timing and "workers=3" in timing[0] and "units=3" in timing[0]
+
+    se.build_artifacts(batch_size=1, workers=3)
+    got_one = _read_artifacts()
+    for kind in ("sessions", "episodes", "windows"):
+        pd.testing.assert_frame_equal(want[kind], got_one[kind])
+
+
+
+
+@pytest.mark.skipif(not _HAS_FORK, reason="forked worker pool needs the fork start method")
+def test_session_chunking_does_not_change_rows(corpus, monkeypatch):
+    """One session per work unit vs the default chunk: same rows, same order."""
+    se.build_artifacts(batch_size=99, workers=1)
+    want = _read_artifacts()
+
+    monkeypatch.setattr(se, "SESSION_CHUNK_PLAYS", 1)
+    se.build_artifacts(batch_size=99, workers=3)
+    got = _read_artifacts()
+    for kind in ("sessions", "episodes", "windows"):
+        pd.testing.assert_frame_equal(want[kind], got[kind])
+
+
+
+
+def test_broken_pool_falls_back_to_serial(corpus, monkeypatch):
+    """A pool failure must degrade to the serial path, never fail the run."""
+    from concurrent.futures.process import BrokenProcessPool
+
+    se.build_artifacts(batch_size=99, workers=1)
+    want = _read_artifacts()
+
+    class _Boom:
+        def __init__(self, *args, **kwargs):
+            raise BrokenProcessPool("boom")
+
+    monkeypatch.setattr(se, "ProcessPoolExecutor", _Boom)
+    monkeypatch.setattr(se, "resolve_workers", lambda requested=None: 3)
+    reporter = FakeReporter()
+    meta = se.build_artifacts(batch_size=99, reporter=reporter)
+    assert not meta.get("cancelled")
+    got = _read_artifacts()
+    for kind in ("sessions", "episodes", "windows"):
+        pd.testing.assert_frame_equal(want[kind], got[kind])
+    assert any("worker pool failed" in line and "serially" in line
+               for line in reporter.lines)
+
+
+
+
+@pytest.mark.skipif(not _HAS_FORK, reason="forked worker pool needs the fork start method")
+def test_cancel_under_pool_leaves_previous_artifacts_intact(corpus, monkeypatch):
+    se.build_artifacts(batch_size=99, workers=1)
+    want = _read_artifacts()
+
+    monkeypatch.setattr(se, "_CANCEL_CHECK_EVERY", 1)
+    reporter = FakeReporter(cancel_after=1)
+    setup = worker.run_sessions_refresh(reporter, {"batch_size": 2, "workers": 2})
+    out = worker.run_sessions_refresh(reporter, setup["next_task_args"])
+    assert out is None
+    got = _read_artifacts()
+    for kind in ("sessions", "episodes", "windows"):
+        pd.testing.assert_frame_equal(want[kind], got[kind])
 
 
 
@@ -544,3 +633,25 @@ def test_restart_args_keep_stale_only_but_strip_skip_if_busy(corpus, monkeypatch
     rargs = restart["next_task_args"]
     assert rargs["stale_only"] is True
     assert "skip_if_busy" not in rargs
+
+
+
+
+def test_workers_ride_the_chain_but_stay_out_of_params(corpus, monkeypatch):
+    """A worker count must survive chain + restart args, and must never reach
+    ``params`` — anything there lands in the meta and would force a rebuild."""
+    import json
+
+    reporter = FakeReporter()
+    setup = worker.run_sessions_refresh(reporter, {"batch_size": 1, "workers": 2})
+    args = setup["next_task_args"]
+    assert args["workers"] == 2
+    assert "workers" not in json.loads(args["params_json"])
+    assert "workers" not in se.default_params()
+
+    def drifted(model, expected_fp=None, reporter=None):
+        raise embedding_store.CorpusMeanDrift("store moved")
+
+    monkeypatch.setattr(embedding_store, "get_corpus_mean", drifted)
+    restart = worker.run_sessions_refresh(reporter, args)
+    assert restart["next_task_args"]["workers"] == 2

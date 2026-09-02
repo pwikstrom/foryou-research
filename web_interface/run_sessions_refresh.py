@@ -254,6 +254,11 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
     batch_size = int(task_args.get("batch_size") or COLLECTIONS_PER_BATCH)
     restarts = int(task_args.get("chain_restarts", 0))
     stale_only = _flag(task_args.get("stale_only", ""))
+    # Segmentation worker processes. Deliberately NOT a segmentation
+    # override: overrides land in ``params`` and therefore in the published
+    # meta, where a change would (rightly) force a full rebuild — the worker
+    # count changes wall time only, never the rows.
+    workers = task_args.get("workers")
     _t_run_start = time.perf_counter()
 
     overrides: dict = {}
@@ -272,6 +277,8 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             base["collections"] = collections_str
         if stale_only:
             base["stale_only"] = True
+        if workers is not None:
+            base["workers"] = workers
         base["batch_size"] = batch_size
         base["chunk_index"] = 0
         base["chain_restarts"] = restarts + 1
@@ -307,6 +314,8 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             args["collections"] = collections_str
         if stale_only:
             args["stale_only"] = True
+        if workers is not None:
+            args["workers"] = workers
         return args
 
     # The initial dispatch (no run_id yet) is SETUP-ONLY: discovery, corpus-
@@ -538,10 +547,11 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
                    collections=len(batch)):
         srows, erows, wrows, plays, stats = session_explorer.build_batch(
             batch, model, corpus_mean, index, params=params, reporter=reporter,
-            trend_cols=trend_cols, coverage=coverage_map)
+            trend_cols=trend_cols, coverage=coverage_map, workers=workers)
     if srows is None:
         reporter.log("Cancelled by user. Previous artifacts left intact.")
         return None
+    reporter.log(session_explorer.format_batch_timing(chunk, len(batch), stats))
 
     session_explorer.write_batch_shards(run_id, chunk, srows, erows, wrows,
                                         trend_cols=trend_cols, plays=plays)
@@ -687,6 +697,8 @@ if __name__ == "__main__":
             task_args["skip_if_busy"] = True
         if args.batch_size:
             task_args["batch_size"] = args.batch_size
+        if getattr(args, "workers", None) is not None:
+            task_args["workers"] = args.workers
         for key in ("cut", "mem", "min_videos", "min_minutes", "max_skip",
                     "window_n", "max_windows"):
             value = getattr(args, key, None)
@@ -717,6 +729,10 @@ if __name__ == "__main__":
                                            "refresh appears to be running"}),
             (("--batch-size",), {"type": int, "default": None,
                                  "help": f"Collections per link (default {COLLECTIONS_PER_BATCH})"}),
+            (("--workers",), {"type": int, "default": None,
+                              "help": "Segmentation worker processes per link "
+                                      "(default: config [sessions] workers; "
+                                      "1 = serial; results identical)"}),
             (("--cut",), {"type": float, "default": None,
                           "help": "Focus threshold on mean cosine distance to the "
                                   "recent centroid (default: config [sessions])"}),

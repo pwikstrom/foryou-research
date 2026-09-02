@@ -39,6 +39,12 @@ model-scoped — every read passes an explicit ``model`` so vectors from
 different embedding models are never mixed.
 """
 
+import multiprocessing
+import os
+import time
+import warnings
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -131,6 +137,241 @@ TREND_EXCLUDE = {"item_id", "niche", "x", "y"}
 # whole in the web process) grows by hundreds of MB corpus-wide.
 _SEARCH_FRAGMENT_CAP = 200
 _SEARCH_TEXT_CAP = 8_000
+
+# Parallel segmentation. The per-session work (segment_session /
+# episode_record / session_record) is pure Python and was measured at ~38 of
+# a 40-minute full rebuild on one core of an 8-CPU runner (2026-09-01). It is
+# embarrassingly parallel per session, so a batch is cut into
+# (collection, session-chunk) work units of roughly SESSION_CHUNK_PLAYS plays
+# — never splitting a session — and run on a forked process pool. Chunks
+# rather than whole collections, because the largest collection alone (279k
+# plays, 15% of the corpus) would otherwise floor the link at ~6 minutes.
+# Units are concatenated in unit order, so the rows come out byte-identical
+# to the serial loop whatever the worker count.
+SESSION_CHUNK_PLAYS = 4_000
+# How many completed units between cancellation checks in pool mode (each
+# check is a storage stat).
+_CANCEL_CHECK_EVERY = 8
+
+# The batch context forked workers inherit (copy-on-write) — vectors,
+# features, prepared play frames. Task payloads are unit indices only, so
+# nothing large is ever pickled. Written by _segment_units right before the
+# pool is created; a child must never write to storage, log, or touch the
+# reporter (the parent is a multi-threaded gunicorn process and only pure
+# compute is fork-safe).
+_FORK_CTX: dict = {}
+
+
+
+
+def resolve_workers(requested=None) -> int:
+    """Worker-process count for segmentation.
+
+    Args:
+        requested: An explicit count, ``"auto"``, or None (read the
+            ``[sessions] workers`` config key, default ``"auto"``).
+
+    Returns:
+        ``1`` (serial) wherever the ``fork`` start method is unavailable
+        (Windows); otherwise the requested count, with ``auto`` resolving
+        to one fewer than the machine's cores.
+    """
+    if requested is None:
+        from fyp.fyp_config import fyp_cf
+
+        cfg = fyp_cf.get("sessions", {})
+        requested = cfg.get("workers", "auto") if isinstance(cfg, dict) else "auto"
+    if "fork" not in multiprocessing.get_all_start_methods():
+        return 1
+    auto = max(1, (os.cpu_count() or 1) - 1)
+    if isinstance(requested, str) and requested.strip().lower() in ("", "auto"):
+        return auto
+    try:
+        return max(1, int(requested))
+    except (TypeError, ValueError):
+        return auto
+
+
+
+
+def _child_init() -> None:
+    """Pool-worker initialiser: one BLAS thread per process.
+
+    Seven workers each spinning up an OpenBLAS thread pool would oversubscribe
+    the cores, and OpenBLAS thread pools inherited across a fork are a known
+    hang. The per-episode eigen decompositions are tiny anyway.
+    """
+    try:
+        from threadpoolctl import threadpool_limits
+
+        threadpool_limits(1)
+    except Exception:
+        pass
+
+
+
+
+def _run_unit(i: int) -> tuple[int, list[dict], list[dict], list[dict]]:
+    """Segment one work unit of the batch context (runs in parent or child)."""
+    ctx = _FORK_CTX
+    cid, lo, hi = ctx["units"][i]
+    codes = ctx["codes"][cid]
+    frame = ctx["plays"][cid]
+    chunk = frame[(codes >= lo) & (codes < hi)]
+    srows, erows, wrows = build_session_group(
+        cid, chunk, ctx["play_ts"][cid], ctx["id2idx"], ctx["U"], ctx["feat"],
+        ctx["id_sets"], ctx["params"], trend_cols=ctx["trend_cols"],
+        stories=ctx["stories"])
+    return i, srows, erows, wrows
+
+
+
+
+def _prepare_collection(plays: pd.DataFrame, id2idx: dict) -> tuple[pd.DataFrame, np.ndarray]:
+    """Time-sort one collection's plays and attach the session/embedded keys.
+
+    Returns:
+        ``(plays, play_ts)`` — the sorted frame with ``_sess`` (stable
+        session key) and ``_emb`` (membership in ``id2idx``) columns, and the
+        sorted int64 timestamps of ALL its plays (``episode_record`` counts
+        unembedded plays interleaved inside an episode's span against them).
+    """
+    plays = plays.sort_values("_ts")
+    play_ts = plays["_ts"].astype("int64").to_numpy()
+
+    # Stable session key (isolate rows with no session_id rather than merging them).
+    sess = plays["session_id"].astype("string")
+    if sess.isna().any():
+        # Only build the row-indexed fallback when needed — unconditionally it
+        # allocated a full-length Python-string Series per collection that
+        # .where() then discarded (session_id is non-null in real data).
+        sess = sess.where(sess.notna(), "na_" + pd.Series(plays.index, index=plays.index).astype("string"))
+    plays = plays.assign(_sess=sess)
+
+    # One vectorised membership pass per collection; the per-session loop must
+    # never call Series.isin against the whole embedded-id set (see
+    # session_record's note on why).
+    if "_emb" not in plays.columns:
+        plays = plays.assign(_emb=plays["item_id"].isin(list(id2idx)))
+    return plays, play_ts
+
+
+
+
+def _session_chunks(codes: np.ndarray, target_plays: int) -> list[tuple[int, int]]:
+    """Cut first-appearance-ordered session codes into ``[lo, hi)`` code ranges.
+
+    Each range holds whole sessions totalling at least ``target_plays`` plays
+    (except the last), in the order ``groupby(sort=False)`` would visit them.
+    """
+    if len(codes) == 0:
+        return []
+    counts = np.bincount(codes)
+    ranges: list[tuple[int, int]] = []
+    lo, acc = 0, 0
+    for code, n in enumerate(counts):
+        acc += int(n)
+        if acc >= target_plays:
+            ranges.append((lo, code + 1))
+            lo, acc = code + 1, 0
+    if lo < len(counts):
+        ranges.append((lo, len(counts)))
+    return ranges
+
+
+
+
+def _segment_units(units: list[tuple[str, int, int]], ctx: dict, workers: int,
+                   reporter=None, log=None):
+    """Run the batch's work units, on a forked pool when ``workers > 1``.
+
+    Any pool failure (a broken pool, a child that died, an unpicklable row)
+    is logged and the outstanding units are finished in-process: the pool is
+    an accelerator, never a way for a run to fail. Rows are concatenated in
+    unit order regardless of completion order.
+
+    Returns:
+        ``(session_rows, episode_rows, window_rows)``, or None when the
+        reporter reports a cancellation.
+    """
+    emit = log if log is not None else logger.info
+    _FORK_CTX.clear()
+    _FORK_CTX.update(ctx)
+    _FORK_CTX["units"] = units
+    results: dict[int, tuple[list, list, list]] = {}
+    if reporter is not None and reporter.check_cancelled():
+        return None
+    if workers > 1 and len(units) > 1:
+        try:
+            with warnings.catch_warnings():
+                # Python 3.12 warns that forking a multi-threaded process may
+                # deadlock the child: the children here do pure compute on
+                # inherited memory and take no locks, which is the safe case.
+                warnings.filterwarnings("ignore", message=".*fork.*",
+                                        category=DeprecationWarning)
+                mp_ctx = multiprocessing.get_context("fork")
+                with ProcessPoolExecutor(max_workers=min(workers, len(units)),
+                                         mp_context=mp_ctx,
+                                         initializer=_child_init) as ex:
+                    futures = [ex.submit(_run_unit, i) for i in range(len(units))]
+                    for n_done, fut in enumerate(as_completed(futures), start=1):
+                        i, srows, erows, wrows = fut.result()
+                        results[i] = (srows, erows, wrows)
+                        if (reporter is not None and n_done % _CANCEL_CHECK_EVERY == 0
+                                and reporter.check_cancelled()):
+                            ex.shutdown(wait=False, cancel_futures=True)
+                            return None
+        except Exception as e:
+            emit(f"[SESSIONS] worker pool failed ({type(e).__name__}: {e}) "
+                 f"— finishing this batch serially")
+    for i in range(len(units)):
+        if i in results:
+            continue
+        if reporter is not None and reporter.check_cancelled():
+            return None
+        _, srows, erows, wrows = _run_unit(i)
+        results[i] = (srows, erows, wrows)
+    session_rows: list[dict] = []
+    episode_rows: list[dict] = []
+    window_rows: list[dict] = []
+    for i in range(len(units)):
+        srows, erows, wrows = results[i]
+        session_rows.extend(srows)
+        episode_rows.extend(erows)
+        window_rows.extend(wrows)
+    return session_rows, episode_rows, window_rows
+
+
+
+
+def _segment_collections(cids: list[str], plays: pd.DataFrame, id2idx: dict,
+                         U: np.ndarray, feat: pd.DataFrame, id_sets: dict,
+                         params: dict, trend_cols: list[str] | None,
+                         stories: dict[str, str] | None, workers: int,
+                         reporter=None, log=None):
+    """Segment ``cids`` against one vector context, as parallel work units.
+
+    Returns:
+        ``(session_rows, episode_rows, window_rows, n_units)`` or None on
+        cancellation.
+    """
+    ctx: dict = {"plays": {}, "play_ts": {}, "codes": {}, "id2idx": id2idx,
+                 "U": U, "feat": feat, "id_sets": id_sets, "params": params,
+                 "trend_cols": trend_cols, "stories": stories}
+    units: list[tuple[str, int, int]] = []
+    for cid in cids:
+        prepared, play_ts = _prepare_collection(
+            plays[plays["collection_id"] == cid], id2idx)
+        codes, _ = pd.factorize(prepared["_sess"])
+        ctx["plays"][cid] = prepared
+        ctx["play_ts"][cid] = play_ts
+        ctx["codes"][cid] = np.asarray(codes)
+        units.extend((cid, lo, hi)
+                     for lo, hi in _session_chunks(codes, SESSION_CHUNK_PLAYS))
+    out = _segment_units(units, ctx, workers, reporter=reporter, log=log)
+    if out is None:
+        return None
+    return out[0], out[1], out[2], len(units)
 
 
 
@@ -1399,24 +1640,42 @@ def build_collection(cid: str, plays: pd.DataFrame, id2idx: dict, U: np.ndarray,
         ``(session_rows, episode_rows, window_rows)``.
     """
     p = {**default_params(), **(params or {})}
-    plays = plays.sort_values("_ts")
-    play_ts = plays["_ts"].astype("int64").to_numpy()
+    prepared, play_ts = _prepare_collection(plays, id2idx)
+    return build_session_group(cid, prepared, play_ts, id2idx, U, feat, id_sets,
+                               p, trend_cols=trend_cols, stories=stories)
 
-    # Stable session key (isolate rows with no session_id rather than merging them).
-    sess = plays["session_id"].astype("string")
-    if sess.isna().any():
-        # Only build the row-indexed fallback when needed — unconditionally it
-        # allocated a full-length Python-string Series per collection that
-        # .where() then discarded (session_id is non-null in real data).
-        sess = sess.where(sess.notna(), "na_" + pd.Series(plays.index, index=plays.index).astype("string"))
-    plays = plays.assign(_sess=sess)
 
-    # One vectorised membership pass per collection; the per-session loop must
-    # never call Series.isin against the whole embedded-id set (see
-    # session_record's note on why).
-    if "_emb" not in plays.columns:
-        plays = plays.assign(_emb=plays["item_id"].isin(list(id2idx)))
 
+
+def build_session_group(cid: str, plays: pd.DataFrame, play_ts: np.ndarray,
+                        id2idx: dict, U: np.ndarray, feat: pd.DataFrame,
+                        id_sets: dict, p: dict,
+                        trend_cols: list[str] | None = None,
+                        stories: dict[str, str] | None = None,
+                        ) -> tuple[list[dict], list[dict], list[dict]]:
+    """Build the rows for a group of whole sessions of one collection.
+
+    The parallel work unit: ``plays`` is a session-complete slice of the
+    frame :func:`_prepare_collection` returned (any subset of sessions, in
+    first-appearance order), so the rows for a collection are the same
+    whether it is built in one call or many.
+
+    Args:
+        cid: The collection id.
+        plays: Prepared play rows (``_sess``/``_emb`` present, time-sorted)
+            for whole sessions only.
+        play_ts: Sorted int64 timestamps of ALL the collection's plays.
+        id2idx: item_id → row map into ``U``.
+        U: Directional vector store.
+        feat: Per-video features indexed by item_id.
+        id_sets: Enrichment id sets from :func:`enrichment_id_sets`.
+        p: Resolved segmentation parameters (see :func:`default_params`).
+        trend_cols: Numeric feature columns for the session-extreme columns.
+        stories: item_id → story text for the search blob.
+
+    Returns:
+        ``(session_rows, episode_rows, window_rows)``.
+    """
     session_rows: list[dict] = []
     episode_rows: list[dict] = []
     window_rows: list[dict] = []
@@ -1643,7 +1902,8 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
                 index=None, params: dict | None = None, reporter=None,
                 max_vectors: int = MAX_VECTORS_PER_LINK,
                 trend_cols: list[str] | None = None,
-                coverage: dict[str, list[list[str]]] | None = None):
+                coverage: dict[str, list[list[str]]] | None = None,
+                workers=None):
     """Segment one batch of collections against the dense embedding sidecar.
 
     Peak memory is O(batch): only the batch's plays, features, id sets and
@@ -1672,13 +1932,22 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
             :func:`compute_coverage_spec`). When given, each collection's
             plays are restricted to its intervals before segmentation — a
             collection absent from the spec contributes nothing.
+        workers: Segmentation worker processes (see :func:`resolve_workers`;
+            None reads the config). Affects wall time only, never the rows.
 
     Returns:
         ``(session_rows, episode_rows, window_rows, plays, stats)`` — ``plays``
         is the batch's loaded play frame (the plays-artifact shard source, so
         the worker never re-reads it); all None when cancelled mid-batch.
+        ``stats`` carries the phase timings (``t_load`` / ``t_vectors`` /
+        ``t_segment`` seconds) plus ``workers`` and ``units``.
     """
     p = {**default_params(), **(params or {})}
+    n_workers = resolve_workers(workers)
+    log = reporter.log if reporter is not None else None
+    stats = {"n_plays": 0, "n_vectors": 0, "tier": 1, "workers": n_workers,
+             "units": 0, "t_load": 0.0, "t_vectors": 0.0, "t_segment": 0.0}
+    _t = time.perf_counter()
     plays = load_plays(cids)
     if coverage is not None and not plays.empty:
         keep = pd.Series(False, index=plays.index)
@@ -1689,8 +1958,9 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
             sel = (plays["collection_id"] == cid).to_numpy(dtype=bool)
             keep[sel] = coverage_mask(plays.loc[sel, "_ts"], windows).to_numpy()
         plays = plays[keep]
-    stats = {"n_plays": int(len(plays)), "n_vectors": 0, "tier": 1}
+    stats["n_plays"] = int(len(plays))
     if plays.empty:
+        stats["t_load"] = time.perf_counter() - _t
         return [], [], [], plays, stats
 
     if trend_cols is None:
@@ -1714,6 +1984,7 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
         found = np.zeros(len(batch_ids), dtype=bool)
         n_union = 0
     stats["n_vectors"] = n_union
+    stats["t_load"] = time.perf_counter() - _t
     tier1 = n_union <= max_vectors
 
     session_rows: list[dict] = []
@@ -1721,37 +1992,58 @@ def build_batch(cids: list[str], model: str, corpus_mean: np.ndarray | None,
     window_rows: list[dict] = []
 
     if tier1:
+        _t = time.perf_counter()
         embedded_ids = [i for i, f in zip(batch_ids, found) if f]
         id2local, U = load_directional_block(model, embedded_ids, corpus_mean,
                                              index) if n_union else ({}, np.empty((0, 1), np.float32))
         id_sets["embedded"] = set(id2local)
-        for cid in cids:
-            if reporter is not None and reporter.check_cancelled():
-                return None, None, None, None, None
-            srows, erows, wrows = build_collection(
-                cid, plays[plays["collection_id"] == cid], id2local, U,
-                feat, id_sets, p, trend_cols=trend_cols, stories=stories)
-            session_rows.extend(srows)
-            episode_rows.extend(erows)
-            window_rows.extend(wrows)
+        stats["t_vectors"] += time.perf_counter() - _t
+        _t = time.perf_counter()
+        out = _segment_collections(cids, plays, id2local, U, feat, id_sets, p,
+                                   trend_cols, stories, n_workers,
+                                   reporter=reporter, log=log)
+        stats["t_segment"] += time.perf_counter() - _t
+        if out is None:
+            return None, None, None, None, None
+        session_rows, episode_rows, window_rows, n_units = out
+        stats["units"] += n_units
     else:
         # Tier 2: the union exceeds the budget — load and free per collection.
         stats["tier"] = 2
         for cid in cids:
-            if reporter is not None and reporter.check_cancelled():
-                return None, None, None, None, None
+            _t = time.perf_counter()
             cplays = plays[plays["collection_id"] == cid]
             c_ids = [str(i) for i in cplays["item_id"].drop_duplicates()]
             id2local, U = load_directional_block(model, c_ids, corpus_mean, index)
             id_sets["embedded"] = set(id2local)
-            srows, erows, wrows = build_collection(
-                cid, cplays, id2local, U, feat, id_sets, p,
-                trend_cols=trend_cols, stories=stories)
+            stats["t_vectors"] += time.perf_counter() - _t
+            _t = time.perf_counter()
+            out = _segment_collections([cid], cplays, id2local, U, feat,
+                                       id_sets, p, trend_cols, stories,
+                                       n_workers, reporter=reporter, log=log)
+            stats["t_segment"] += time.perf_counter() - _t
+            if out is None:
+                return None, None, None, None, None
+            srows, erows, wrows, n_units = out
             session_rows.extend(srows)
             episode_rows.extend(erows)
             window_rows.extend(wrows)
+            stats["units"] += n_units
             del U, id2local
+    _FORK_CTX.clear()
     return session_rows, episode_rows, window_rows, plays, stats
+
+
+
+
+def format_batch_timing(chunk: int, n_collections: int, stats: dict) -> str:
+    """One ``[TIMING]`` line per batch: where a link's wall time went."""
+    return (f"[TIMING] sessions_link chunk={chunk} collections={n_collections} "
+            f"plays={stats.get('n_plays', 0)} tier={stats.get('tier', 1)} "
+            f"load={stats.get('t_load', 0.0):.1f}s "
+            f"vectors={stats.get('t_vectors', 0.0):.1f}s "
+            f"segment={stats.get('t_segment', 0.0):.1f}s "
+            f"workers={stats.get('workers', 1)} units={stats.get('units', 0)}")
 
 
 
@@ -2118,7 +2410,8 @@ def build_artifacts(reporter=None, params: dict | None = None,
                     collections: list[str] | None = None,
                     batch_size: int = 8,
                     max_vectors: int = MAX_VECTORS_PER_LINK,
-                    coverage: dict[str, list[list[str]]] | None = None) -> dict:
+                    coverage: dict[str, list[list[str]]] | None = None,
+                    workers=None) -> dict:
     """Build and persist the session + episode artifacts for all collections.
 
     In-process driver over :func:`build_batch` — the same batch-scoped
@@ -2179,10 +2472,12 @@ def build_artifacts(reporter=None, params: dict | None = None,
         batch = cids[start:start + batch_size]
         srows, erows, wrows, plays, stats = build_batch(
             batch, model, corpus_mean, index, params=p, reporter=reporter,
-            max_vectors=max_vectors, trend_cols=trend_cols, coverage=coverage)
+            max_vectors=max_vectors, trend_cols=trend_cols, coverage=coverage,
+            workers=workers)
         if srows is None:
             _log("Cancelled by user.")
             return {"cancelled": True}
+        _log(format_batch_timing(start // batch_size, len(batch), stats))
         all_sessions.extend(srows)
         all_episodes.extend(erows)
         all_windows.extend(wrows)

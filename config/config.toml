@@ -251,6 +251,12 @@ binge_min_minutes = 1.0
 window_n = 6
 max_windows = 3
 
+# Worker processes the sessions_refresh worker segments with, per chain link.
+# "auto" = one fewer than the machine's cores (a forked pool; platforms
+# without fork, i.e. Windows, always run serially). 1 disables the pool.
+# Wall time only — the artifacts are identical whatever the count.
+workers = "auto"
+
 # How many plays immediately before/after a selected binge or low-entropy
 # sequence the Sessions-tab player offers as (clearly marked) context.
 context_plays = 3

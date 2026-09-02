@@ -174,7 +174,13 @@ hosted or local Qwen alternatives, model-scoped shard store). The Sessions
 tab's artifacts (session index, binge episodes, low-entropy windows) are
 built by `fyp/analysis/session_explorer.py` + `entropy_metrics.py` over a
 dense random-access embedding sidecar (`fyp/analysis/embedding_store.py`),
-as a batch-and-chained `sessions_refresh` worker.
+as a batch-and-chained `sessions_refresh` worker. Within each link the
+per-session segmentation — pure Python, and nearly all of a rebuild's wall
+time — runs on a forked process pool over (collection, session-chunk) work
+units (`[sessions] workers`, default one per core less one; serial where
+`fork` is unavailable), and every link logs a `[TIMING] sessions_link` line
+splitting its time into load / vectors / segment. The worker count never
+changes the rows.
 
 Every study refresh also writes a **methods/provenance note**
 (`{study}_methods.json`, built by `web_interface/services/methods_note.py`):
