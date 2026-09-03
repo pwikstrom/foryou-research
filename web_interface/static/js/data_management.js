@@ -3534,7 +3534,7 @@ function renderPipelineSteps(steps) {
                 + (s.percent != null ? ` ${Math.round(s.percent)}%` : '');
             if (detail) bar += `<span class="gantt-msg text-xxs" style="left:calc(${pct(now)}% + 6px)">${detail}</span>`;
             dur = `${_fmtDuration((now - a) / 1000)} …`;
-            title = `Started ${new Date(a).toLocaleTimeString()}, running`;
+            title = `Started ${fypFmtTime(a)}, running`;
         } else if (state === 'queued') {
             const from = Number.isFinite(q) ? q : (Number.isFinite(forkAt) ? forkAt : now);
             const left = pct(from);
@@ -3545,7 +3545,7 @@ function renderPipelineSteps(steps) {
             const left = pct(a);
             bar = `<span class="gantt-bar gantt-bar--${state}" style="left:${left}%;width:${Math.max(pct(e) - left, 0)}%"></span>`;
             dur = _fmtDuration(s.duration_s != null ? s.duration_s : (e - a) / 1000);
-            title = `${new Date(a).toLocaleTimeString()} → ${new Date(e).toLocaleTimeString()}`
+            title = `${fypFmtTime(a)} → ${fypFmtTime(e)}`
                 + (state === 'failed' ? ' — failed' : '');
         } else if (state === 'skipped') {
             // Planned work that never happened — an anomaly, unlike not_planned.
@@ -3565,7 +3565,7 @@ function renderPipelineSteps(steps) {
     if (haveAxis) {
         const spanS = spanMs / 1000;
         const step = _ganttTickStep(spanS);
-        const ticks = [`<span class="gantt-tick gantt-tick--origin text-xxs" style="left:0%">${escapeHtml(new Date(t0).toLocaleTimeString())}</span>`];
+        const ticks = [`<span class="gantt-tick gantt-tick--origin text-xxs" style="left:0%">${escapeHtml(fypFmtTime(t0))}</span>`];
         for (let t = step; t <= spanS; t += step) {
             const label = t % 60 === 0 ? `+${t / 60} min` : `+${t} s`;
             ticks.push(`<span class="gantt-tick text-xxs" style="left:${(t / spanS) * 100}%">${label}</span>`);

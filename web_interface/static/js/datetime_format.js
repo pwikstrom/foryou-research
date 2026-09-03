@@ -161,6 +161,18 @@
     }
 
 
+    /**
+     * "14:32:07" in the viewer's timezone — the clock time on its own, for a
+     * chart whose axis already fixes the day. Seconds always show: the surfaces
+     * that want a bare time are timing a run, where a minute is a coarse unit.
+     */
+    function fypFmtTime(value, fallback) {
+        const d = fypParseInstant(value);
+        if (!d) return fallback === undefined ? '' : fallback;
+        return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+    }
+
+
     /** "just now" / "5m ago" / "3h ago" / "2d ago", relative to the viewer's clock. */
     function fypFmtRelative(value, fallback) {
         const d = fypParseInstant(value);
@@ -276,6 +288,7 @@
     global.fypFmtDate = fypFmtDate;
     global.fypFmtDateShort = fypFmtDateShort;
     global.fypFmtDateTimeFull = fypFmtDateTimeFull;
+    global.fypFmtTime = fypFmtTime;
     global.fypFmtRelative = fypFmtRelative;
     global.fypFmtAuto = fypFmtAuto;
     global.fypTimeZoneLabel = fypTimeZoneLabel;

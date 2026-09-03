@@ -121,7 +121,7 @@ def test_fromtimestamp_always_passes_a_timezone():
     "helper",
     [
         "fypParseInstant", "fypIsWallClock", "fypFmtDateTime", "fypFmtDateTimeShort",
-        "fypFmtDate", "fypFmtDateShort", "fypFmtDateTimeFull", "fypFmtRelative",
+        "fypFmtDate", "fypFmtDateShort", "fypFmtDateTimeFull", "fypFmtTime", "fypFmtRelative",
         "fypFmtAuto", "fypTimeZoneLabel", "fypWallDateTime", "fypWallDate",
         "fypWallDateShort", "fypWallIsoDate",
     ],
