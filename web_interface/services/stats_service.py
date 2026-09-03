@@ -1080,9 +1080,19 @@ def _evaluate_consolidation_staleness() -> dict:
             all_fresh = False
 
     if all_fresh:
-        consolidate_entry.pop("consolidation_impact", None)
-        process_stats["consolidate_enrichment"] = consolidate_entry
-        save_process_stats()
+        # Reload right before mutating. This runs on every browser poll, and
+        # save_process_stats writes the WHOLE consolidate entry from this
+        # process's memory: the copy loaded at the top of this function is
+        # already seconds old by here (one status read per pipeline step), and a
+        # write by another instance in that window would be put back to its
+        # pre-write state. 2026-09-03: a stats poll 0.7 s after "Consolidate"
+        # was armed erased the fresh `auto_armed` flag this way, and the armed
+        # refresh never fired.
+        load_process_stats()
+        fresh_entry = process_stats.get("consolidate_enrichment", {})
+        if fresh_entry.pop("consolidation_impact", None) is not None:
+            process_stats["consolidate_enrichment"] = fresh_entry
+            save_process_stats()
         # Also drop the in-memory copy. get_enrichment_stats merges
         # process_stats with processes[name]["data"] when building its
         # response, so a lingering in-memory copy would re-surface the

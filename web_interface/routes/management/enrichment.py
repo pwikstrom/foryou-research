@@ -300,9 +300,18 @@ def get_enrichment_stats():
         else:
             stale = True
         if stale:
-            consolidate_entry.pop("pipeline_in_flight", None)
-            process_stats["consolidate_enrichment"] = consolidate_entry
-            save_process_stats()
+            # Reload before mutating: this runs on every browser poll, on
+            # whichever web instance answers, and save_process_stats writes the
+            # WHOLE consolidate entry from this process's memory. An instance
+            # whose copy predated another instance's write would put its stale
+            # entry back — 2026-09-03 that erased a fresh `auto_armed` flag 47 s
+            # after it was set, and the armed refresh never fired.
+            load_process_stats()
+            fresh_entry = process_stats.get("consolidate_enrichment", {})
+            if fresh_entry.pop("pipeline_in_flight", None) is not None:
+                process_stats["consolidate_enrichment"] = fresh_entry
+                save_process_stats()
+            consolidate_entry = fresh_entry
             flag_in_flight = False
 
     pipeline_active = flag_in_flight or any_step_running
