@@ -10,6 +10,7 @@ Locally it runs all collections in a single subprocess (same as before).
 
 import json
 import os
+import time
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -309,6 +310,27 @@ def _process_batch(reporter: TaskStatusReporter,
     batch_total = len(collection_ids)
     max_workers = min(batch_total, os.cpu_count() or 1)
     valid_count = 0
+    _t_batch = time.perf_counter()
+    # Per-collection wall seconds, so a slow batch can be attributed. Before
+    # this the log only said "Collection 9/15" at completion and the 13-minute
+    # batch of 2026-09-03 could not be explained from the record.
+    unit_secs: dict[str, float] = {}
+
+    def _timed(cid: str) -> bool:
+        t0 = time.perf_counter()
+        try:
+            return process_one_collection(
+                cid, collection_slices[cid], viz_vars, collection_first_event.get(cid))
+        finally:
+            unit_secs[cid] = time.perf_counter() - t0
+
+    def _rows(cid: str) -> int:
+        s = collection_slices.get(cid)
+        return len(s) if s is not None else 0
+
+    def _log_unit(cid: str, ok: bool) -> None:
+        reporter.log(f"[TIMING] timelines_collection cid={cid} rows={_rows(cid):,} "
+                     f"secs={unit_secs.get(cid, 0.0):.1f} ok={int(ok)}")
 
     # Must happen before any pool thread runs — see _warm_worker_imports.
     _warm_worker_imports()
@@ -322,8 +344,10 @@ def _process_batch(reporter: TaskStatusReporter,
             pct = int((overall_done / total_collections) * 100) if total_collections else 0
             reporter.update_progress(pct, f"Collection {overall_done + 1}/{total_collections}")
             try:
-                if process_one_collection(cid, collection_slices[cid], viz_vars, collection_first_event.get(cid)):
+                ok = _timed(cid)
+                if ok:
                     valid_count += 1
+                _log_unit(cid, ok)
             except Exception as e:
                 reporter.log(f"Error processing {cid}: {e}")
     else:
@@ -331,16 +355,7 @@ def _process_batch(reporter: TaskStatusReporter,
         completed = 0
 
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {}
-            for cid in collection_ids:
-                f = pool.submit(
-                    process_one_collection,
-                    cid,
-                    collection_slices[cid],
-                    viz_vars,
-                    collection_first_event.get(cid),
-                )
-                futures[f] = cid
+            futures = {pool.submit(_timed, cid): cid for cid in collection_ids}
 
             for future in as_completed(futures):
                 cid = futures[future]
@@ -349,8 +364,10 @@ def _process_batch(reporter: TaskStatusReporter,
                 pct = int((overall_done / total_collections) * 100) if total_collections else 0
                 reporter.update_progress(pct, f"Collection {overall_done}/{total_collections}")
                 try:
-                    if future.result():
+                    ok = bool(future.result())
+                    if ok:
                         valid_count += 1
+                    _log_unit(cid, ok)
                 except Exception as e:
                     reporter.log(f"Error processing {cid}: {e}")
 
@@ -359,6 +376,13 @@ def _process_batch(reporter: TaskStatusReporter,
                     pool.shutdown(wait=False, cancel_futures=True)
                     break
 
+    if unit_secs:
+        slowest = max(unit_secs, key=unit_secs.get)
+        reporter.log(
+            f"[TIMING] timelines_batch collections={len(unit_secs)} ok={valid_count} "
+            f"wall={time.perf_counter() - _t_batch:.1f}s unit_sum={sum(unit_secs.values()):.1f}s "
+            f"unit_max={unit_secs[slowest]:.1f}s slowest={slowest} rows_slowest={_rows(slowest):,} "
+            f"workers={max_workers}")
     return valid_count
 
 

@@ -15,7 +15,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
     """Refresh recoded datasets and stats for studies."""
     import fyp.data_io as data_io
     from fyp.fyp_config import fyp_cf
-    from fyp.organize_datasets import create_study_recoded_dataset
+    from fyp.organize_datasets import create_study_recoded_dataset, enrichment_preload
     from fyp.studies import init_study_defs, save_study_defs
     from web_interface.services.methods_note import write_methods_note
     from web_interface.services.stats_service import compute_study_dataset_stats
@@ -65,79 +65,83 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
     _t_status_load = time.perf_counter() - _t_phase
     reporter.log(f"[TIMING] enrichment_status load={_t_status_load:.2f}s")
 
-    for i, (study_name, config) in enumerate(studies.items()):
-        if reporter.check_cancelled():
-            reporter.log("Cancelled by user.")
-            break
-        reporter.update_progress(int((i / total) * 100), f"Study {i + 1}/{total}: {study_name}")
-        reporter.log(f"Processing study: {study_name}")
-        _t_study_start = time.perf_counter()
+    # The two enrichment blobs (scrapes 327 MB, annotations 479 MB) are loaded
+    # once for the whole run and filtered per study, instead of once per study
+    # — see enrichment_preload. Released when the block exits.
+    with enrichment_preload():
+        for i, (study_name, config) in enumerate(studies.items()):
+            if reporter.check_cancelled():
+                reporter.log("Cancelled by user.")
+                break
+            reporter.update_progress(int((i / total) * 100), f"Study {i + 1}/{total}: {study_name}")
+            reporter.log(f"Processing study: {study_name}")
+            _t_study_start = time.perf_counter()
 
-        try:
-            if force_full_rebuild:
-                sidecar_fn = f"{study_name}_recoded.meta.json"
-                if data_io.exists(storage_location="cache", filename=sidecar_fn):
-                    data_io.remove(storage_location="cache", filename=sidecar_fn)
+            try:
+                if force_full_rebuild:
+                    sidecar_fn = f"{study_name}_recoded.meta.json"
+                    if data_io.exists(storage_location="cache", filename=sidecar_fn):
+                        data_io.remove(storage_location="cache", filename=sidecar_fn)
 
-            df_study = create_study_recoded_dataset(
-                study_name=study_name,
-                save_to_cache=True,
-                enrichment_status=df_status,
-                force_full_rebuild=force_full_rebuild,
-                verbose=False,
-            )
-
-            if df_study is None:
-                reporter.log(f"Skipping {study_name}: No data generated.")
-                studies[study_name]['stats'] = {
-                    "total_activities": 0,
-                    "unique_videos": 0,
-                    "scraped_videos": 0,
-                    "annotated_videos": 0,
-                    "activities_scraped": 0,
-                    "activities_annotated": 0,
-                    "unique_collections": 0,
-                    "active_days": 0,
-                }
-            else:
-                refresh_action = df_study.attrs.get("refresh_action", "full_rebuild")
-                if refresh_action == "short_circuit":
-                    reporter.log(f"  Short-circuit for {study_name}: cached parquet reused ({len(df_study)} rows)")
-                elif refresh_action == "enrichment_patch":
-                    reporter.log(f"  Enrichment patch for {study_name}: re-merged enrichment onto cached activity ({len(df_study)} rows)")
-                else:
-                    reporter.log(f"  Successfully refreshed data for {study_name} ({len(df_study)} rows)")
-
-                # Same stats definition (and full key set, incl. total_activities)
-                # as the single-study refresh — see compute_study_dataset_stats.
-                selected = config.get("SELECTED_COLLECTIONS") or []
-                studies[study_name]['stats'] = compute_study_dataset_stats(
-                    df_study, df_status, selected)
-                studies[study_name]['last_updated'] = datetime.now(UTC).isoformat()
-
-                # Methods/provenance note — written on every refresh, even a
-                # short-circuit, so it tracks registry moves (e.g. a newly
-                # preferred annotation version) that don't rebuild the parquet.
-                write_methods_note(
+                df_study = create_study_recoded_dataset(
                     study_name=study_name,
-                    study_config=studies[study_name],
-                    df_study=df_study,
-                    df_status=df_status,
-                    stats=studies[study_name]['stats'],
-                    refresh_action=refresh_action,
-                    refresh_trigger="pipeline",
+                    save_to_cache=True,
+                    enrichment_status=df_status,
+                    force_full_rebuild=force_full_rebuild,
+                    verbose=False,
                 )
 
-        except Exception as e:
-            reporter.log(f"Error processing {study_name}: {e}")
+                if df_study is None:
+                    reporter.log(f"Skipping {study_name}: No data generated.")
+                    studies[study_name]['stats'] = {
+                        "total_activities": 0,
+                        "unique_videos": 0,
+                        "scraped_videos": 0,
+                        "annotated_videos": 0,
+                        "activities_scraped": 0,
+                        "activities_annotated": 0,
+                        "unique_collections": 0,
+                        "active_days": 0,
+                    }
+                else:
+                    refresh_action = df_study.attrs.get("refresh_action", "full_rebuild")
+                    if refresh_action == "short_circuit":
+                        reporter.log(f"  Short-circuit for {study_name}: cached parquet reused ({len(df_study)} rows)")
+                    elif refresh_action == "enrichment_patch":
+                        reporter.log(f"  Enrichment patch for {study_name}: re-merged enrichment onto cached activity ({len(df_study)} rows)")
+                    else:
+                        reporter.log(f"  Successfully refreshed data for {study_name} ({len(df_study)} rows)")
 
-        _t_study = time.perf_counter() - _t_study_start
-        reporter.log(f"  [TIMING] study={study_name} total={_t_study:.2f}s")
-        # Same message as the emit above: advances the bar without adding a
-        # second, content-free line to the run log (the reporter dedupes
-        # consecutive identical progress messages).
-        reporter.update_progress(int(((i + 1) / total) * 100),
-                                 f"Study {i + 1}/{total}: {study_name}")
+                    # Same stats definition (and full key set, incl. total_activities)
+                    # as the single-study refresh — see compute_study_dataset_stats.
+                    selected = config.get("SELECTED_COLLECTIONS") or []
+                    studies[study_name]['stats'] = compute_study_dataset_stats(
+                        df_study, df_status, selected)
+                    studies[study_name]['last_updated'] = datetime.now(UTC).isoformat()
+
+                    # Methods/provenance note — written on every refresh, even a
+                    # short-circuit, so it tracks registry moves (e.g. a newly
+                    # preferred annotation version) that don't rebuild the parquet.
+                    write_methods_note(
+                        study_name=study_name,
+                        study_config=studies[study_name],
+                        df_study=df_study,
+                        df_status=df_status,
+                        stats=studies[study_name]['stats'],
+                        refresh_action=refresh_action,
+                        refresh_trigger="pipeline",
+                    )
+
+            except Exception as e:
+                reporter.log(f"Error processing {study_name}: {e}")
+
+            _t_study = time.perf_counter() - _t_study_start
+            reporter.log(f"  [TIMING] study={study_name} total={_t_study:.2f}s")
+            # Same message as the emit above: advances the bar without adding a
+            # second, content-free line to the run log (the reporter dedupes
+            # consecutive identical progress messages).
+            reporter.update_progress(int(((i + 1) / total) * 100),
+                                     f"Study {i + 1}/{total}: {study_name}")
 
     # Persist updated stats to studies.json
     # Merge updated studies back into the full study_defs to avoid clobbering

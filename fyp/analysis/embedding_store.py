@@ -461,6 +461,32 @@ def _fetch_part_bytes(filename: str) -> bytes | bytearray:
 
 
 
+# Below this share of a part's rows, a ranged read is cheaper than caching the
+# part whole, and the cache is skipped for that part on that call. Measured
+# 2026-09-03: a one-collection sessions refresh wanted 3,299 vectors — ~0.5% of
+# each of 34 parts — and the cache pulled 1.4 GB in 21 s to serve ~10 MB; the
+# link's actual segmentation took 2 s. A full-rebuild link 0 sits at ~1.3%
+# (10k vectors over ~40 parts) and stays on the cache path, so the 7-minute
+# rebuild is unchanged. A part already in the cache is always used regardless.
+CACHE_MIN_PART_DENSITY = 0.01
+
+
+def _cached_part_if_present(model: str, part: dict, store_fp: str, dim: int) -> str | None:
+    """Local path of a dense part if the cache already holds it intact, else None.
+
+    The presence probe :func:`_cached_part_path` uses before downloading, split
+    out so :func:`read_vectors` can prefer a warm part without triggering a
+    fetch for a cold one.
+    """
+    safe = _safe_model(model)
+    root = os.path.join(_dense_cache_dir(), safe, (store_fp or "nofp")[:16])
+    path = os.path.join(root, part["filename"])
+    expected = int(part["rows"]) * dim * 2
+    if os.path.exists(path) and os.path.getsize(path) == expected:
+        return path
+    return None
+
+
 def _cached_part_path(model: str, part: dict, store_fp: str, dim: int) -> str:
     """Local path of one dense part, downloading it into the cache if absent.
 
@@ -478,12 +504,13 @@ def _cached_part_path(model: str, part: dict, store_fp: str, dim: int) -> str:
     holds one store at a time. Downloads go to a temp file and are renamed
     into place, so a concurrent reader never sees a partial part.
     """
+    path = _cached_part_if_present(model, part, store_fp, dim)
+    if path is not None:
+        return path
     safe = _safe_model(model)
     root = os.path.join(_dense_cache_dir(), safe, (store_fp or "nofp")[:16])
     path = os.path.join(root, part["filename"])
     expected = int(part["rows"]) * dim * 2
-    if os.path.exists(path) and os.path.getsize(path) == expected:
-        return path
     os.makedirs(root, exist_ok=True)
     t0 = time.perf_counter()
     buf = _fetch_part_bytes(part["filename"])
@@ -542,6 +569,7 @@ def read_vectors(model: str, rows: np.ndarray, index: DenseIndex,
     starts = np.array([p["start_row"] for p in index.parts], dtype=np.int64)
     ends = starts + np.array([p["rows"] for p in index.parts], dtype=np.int64)
 
+    sparse_skipped = 0
     pos = 0
     while pos < len(order):
         row = rows[order[pos]]
@@ -559,8 +587,15 @@ def read_vectors(model: str, rows: np.ndarray, index: DenseIndex,
         primary, _, mode, _ = data_io._resolve_paths(
             STORE_LOCATION, part["filename"])
         if mode == 'gcs' and local_cache:
-            primary = _cached_part_path(model, part, index.store_fp, dim)
-            mode = 'local'
+            # A warm part is free; a cold one is only worth downloading whole
+            # when this call wants a real share of it (CACHE_MIN_PART_DENSITY).
+            warm = _cached_part_if_present(model, part, index.store_fp, dim)
+            wanted_share = len(local) / max(1, int(part["rows"]))
+            if warm is not None or wanted_share >= CACHE_MIN_PART_DENSITY:
+                primary = warm or _cached_part_path(model, part, index.store_fp, dim)
+                mode = 'local'
+            else:
+                sparse_skipped += 1
         if mode == 'gcs':
             _read_part_ranged(part["filename"], local, dest, out, row_bytes,
                               dim, coalesce_bytes)
@@ -570,6 +605,9 @@ def read_vectors(model: str, rows: np.ndarray, index: DenseIndex,
             out[dest] = mm[local]
             del mm
         pos = stop
+    if sparse_skipped:
+        logger.info(f"[DENSE] {model}: {sparse_skipped} part(s) read by range instead of "
+                    f"cached whole (each wanted <{CACHE_MIN_PART_DENSITY:.0%} of its rows).")
     return out
 
 

@@ -610,42 +610,110 @@ def _filter_enrichment_data(
     # here but offered no speedup (GIL-serialised decode), so this stays serial.
 
     # scrape data
-    _t_s = _time.perf_counter()
     if tutti_data.get(_scrapes_label()) is None or tutti_data[_scrapes_label()].empty:
-        if not data_io.exists(storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet"):
-            logger.info(f"    [Scrape] '{_scrapes_label()}_recoded.parquet' not present — treating as empty")
-            tutti_data[_scrapes_label()] = pd.DataFrame()
-        else:
-            logger.info("    [Scrape] Loading scraped data from main storage...")
-            scrapes_df = data_io.load_parquet(
-                storage_location="recoded", filename=f"{_scrapes_label()}_recoded.parquet", verbose=verbose)
-            if scrapes_df is not None and not scrapes_df.empty and study_name != 'everything':
-                scrapes_df = scrapes_df[scrapes_df["item_id"].isin(unique_videos)].copy()
-            tutti_data[_scrapes_label()] = scrapes_df if scrapes_df is not None else pd.DataFrame()
-            logger.info(f"    [Scrape] ...done. Kept {len(tutti_data[_scrapes_label()]):,} rows in {_time.perf_counter() - _t_s:.2f}s.")
+        tutti_data[_scrapes_label()] = _load_enrichment_frame(
+            _scrapes_label(), "Scrape", "scraped data", unique_videos, study_name, verbose)
     else:
         cached = tutti_data[_scrapes_label()]
         tutti_data[_scrapes_label()] = cached[cached["item_id"].isin(unique_videos)].copy()
         logger.info(f"    [Scrape] Cache had {len(cached):,} items; {len(tutti_data[_scrapes_label()]):,} overlap with activity datasets.")
 
     # machine annotations
-    _t_a = _time.perf_counter()
     if tutti_data.get(_machine_annotations_label()) is None or tutti_data[_machine_annotations_label()].empty:
-        if not data_io.exists(storage_location="recoded", filename=f"{_machine_annotations_label()}_recoded.parquet"):
-            logger.info(f"    [Machine annotations] '{_machine_annotations_label()}_recoded.parquet' not present — treating as empty")
-            tutti_data[_machine_annotations_label()] = pd.DataFrame()
-        else:
-            logger.info("    [Machine annotations] Loading machine annotations from main storage...")
-            annotations_df = data_io.load_parquet(
-                storage_location="recoded", filename=f"{_machine_annotations_label()}_recoded.parquet", verbose=verbose)
-            if annotations_df is not None and not annotations_df.empty and study_name != 'everything':
-                annotations_df = annotations_df[annotations_df["item_id"].isin(unique_videos)].copy()
-            tutti_data[_machine_annotations_label()] = annotations_df if annotations_df is not None else pd.DataFrame()
-            logger.info(f"    [Machine annotations] ...done. Kept {len(tutti_data[_machine_annotations_label()]):,} rows in {_time.perf_counter() - _t_a:.2f}s.")
+        tutti_data[_machine_annotations_label()] = _load_enrichment_frame(
+            _machine_annotations_label(), "Machine annotations", "machine annotations",
+            unique_videos, study_name, verbose)
     else:
         cached = tutti_data[_machine_annotations_label()]
         tutti_data[_machine_annotations_label()] = cached[cached["item_id"].isin(unique_videos)].copy()
         logger.info(f"    [Machine annotations] Cache had {len(cached):,} items; {len(tutti_data[_machine_annotations_label()]):,} overlap with activity datasets.")
+
+
+# Run-scoped stash of the full enrichment frames, or None when no run holds one.
+# See enrichment_preload.
+_ENRICHMENT_PRELOAD: dict[str, pd.DataFrame] | None = None
+
+
+class enrichment_preload:
+    """Hold each enrichment blob in memory for the duration of a multi-study run.
+
+    Every study refresh ends in :func:`_filter_enrichment_data`, which reads
+    ``scrapes_recoded.parquet`` (327 MB) and ``machine_annotations_recoded
+    .parquet`` (479 MB) from storage and keeps the study's rows. Refreshing
+    five studies in one process therefore downloaded the same two blobs five
+    times — 3.5 GB, 54 s of a 179 s run (prod, 2026-09-03). Inside this
+    context the first study to need a blob loads it and parks the full frame
+    here; later studies filter the parked copy. Nothing is loaded up front, so
+    a study that short-circuits costs nothing, and the enrichment-patch path
+    benefits as much as a full rebuild.
+
+    The price is memory: both frames stay resident for the run (~3 GB on top
+    of a peak that was ~9 GB with per-study load/free, on a 32 GB runner).
+    ``__exit__`` drops them and collects, so nothing outlives the run.
+    Re-entrant: an inner block defers to the outer owner.
+    """
+
+    def __enter__(self):
+        global _ENRICHMENT_PRELOAD
+        self._owner = _ENRICHMENT_PRELOAD is None
+        if self._owner:
+            _ENRICHMENT_PRELOAD = {}
+        return self
+
+    def __exit__(self, *exc):
+        global _ENRICHMENT_PRELOAD
+        if not self._owner:
+            return False
+        held, _ENRICHMENT_PRELOAD = _ENRICHMENT_PRELOAD, None
+        if held:
+            logger.info(f"    [Enrichment preload] Released {len(held)} frame(s) held for this run.")
+            held.clear()
+            import gc
+            gc.collect()
+        return False
+
+
+def _load_enrichment_frame(
+    label: str,
+    tag: str,
+    what: str,
+    unique_videos: set,
+    study_name: str | None,
+    verbose: bool,
+) -> pd.DataFrame:
+    """The ``<label>_recoded.parquet`` rows for ``unique_videos``.
+
+    Serves from the run-scoped preload when one is active and already holds
+    the label, loads (and, inside a preload, parks) the full frame otherwise.
+    ``study_name == 'everything'`` means no filtering.
+    """
+    fn = f"{label}_recoded.parquet"
+    t0 = _time.perf_counter()
+    stash = _ENRICHMENT_PRELOAD
+    if stash is not None and label in stash:
+        full = stash[label]
+        source = "run preload"
+    else:
+        if not data_io.exists(storage_location="recoded", filename=fn):
+            logger.info(f"    [{tag}] '{fn}' not present — treating as empty")
+            return pd.DataFrame()
+        logger.info(f"    [{tag}] Loading {what} from main storage...")
+        full = data_io.load_parquet(storage_location="recoded", filename=fn, verbose=verbose)
+        if full is None:
+            full = pd.DataFrame()
+        source = "main storage"
+        if stash is not None:
+            stash[label] = full
+            logger.info(f"    [{tag}] Holding the full frame for the rest of this run "
+                        f"({len(full):,} rows, {_df_size_mb(full):.0f} MB).")
+    if not full.empty and study_name != 'everything':
+        out = full[full["item_id"].isin(unique_videos)].copy()
+    else:
+        # A parked frame must never be handed out by reference.
+        out = full.copy() if stash is not None else full
+    logger.info(f"    [{tag}] ...done. Kept {len(out):,} rows in "
+                f"{_time.perf_counter() - t0:.2f}s ({source}).")
+    return out
 
 
 

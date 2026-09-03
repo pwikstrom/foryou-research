@@ -288,6 +288,80 @@ def test_local_part_cache_matches_memmap_and_downloads_once(store, monkeypatch, 
 
 
 
+def test_sparse_request_skips_the_whole_part_cache(store, monkeypatch, tmp_path):
+    """A request wanting few rows of a cold part reads by range, not by caching.
+
+    2026-09-03 prod: a one-collection sessions refresh wanted ~0.5% of each of
+    34 parts and the cache pulled 1.4 GB in 21 s to serve ~10 MB. Below
+    CACHE_MIN_PART_DENSITY a cold part is served by ranged read; a part that is
+    already cached is used regardless of density.
+    """
+    ids = [f"s{i:03d}" for i in range(48)]
+    mat = _rand(48, 11)
+    _write_shard(ids, mat)
+    embedding_store.ensure_dense_store(MODEL)
+    index = embedding_store.load_index(MODEL)
+    assert len(index.parts) >= 1
+
+    real_resolve = data_io._resolve_paths
+
+    def _fake_resolve(loc, fn):
+        primary, secondary, mode, blob = real_resolve(loc, fn)
+        if fn.startswith(embedding_store.DENSE_BLOB_PREFIX):
+            return primary, secondary, 'gcs', blob
+        return primary, secondary, mode, blob
+
+    fetches: list[str] = []
+    ranged: list[str] = []
+
+    def _fetch(filename):
+        fetches.append(filename)
+        with open(real_resolve(embedding_store.STORE_LOCATION, filename)[0], "rb") as f:
+            return f.read()
+
+    def _local_ranges(storage_location="cache", filename="", ranges=None, **kw):
+        ranged.append(filename)
+        path = real_resolve(storage_location, filename)[0]
+        out = []
+        with open(path, 'rb') as f:
+            for off, length in ranges:
+                f.seek(off)
+                out.append(f.read(length))
+        return out
+
+    monkeypatch.setattr(data_io, "_resolve_paths", _fake_resolve)
+    monkeypatch.setattr(data_io, "read_byte_ranges", _local_ranges)
+    monkeypatch.setattr(embedding_store, "_fetch_part_bytes", _fetch)
+    monkeypatch.setenv("FYP_DENSE_CACHE_DIR", str(tmp_path / "dense_cache"))
+
+    one_row, found = index.lookup(["s005"])
+    assert found.all()
+    expected = mat[[5]].astype(np.float32)
+
+    # Sparse (one row of a part, threshold set above it): ranged, no download.
+    monkeypatch.setattr(embedding_store, "CACHE_MIN_PART_DENSITY", 0.5)
+    got = embedding_store.read_vectors(MODEL, one_row, index, local_cache=True)
+    np.testing.assert_array_equal(got, expected)
+    assert fetches == [], "a sparse request must not download the part whole"
+    assert len(ranged) == 1
+
+    # Dense enough (threshold at zero): the part is cached whole.
+    monkeypatch.setattr(embedding_store, "CACHE_MIN_PART_DENSITY", 0.0)
+    got = embedding_store.read_vectors(MODEL, one_row, index, local_cache=True)
+    np.testing.assert_array_equal(got, expected)
+    assert len(fetches) == 1
+    assert len(ranged) == 1  # unchanged
+
+    # Warm part beats any density rule: same sparse request, served from cache.
+    monkeypatch.setattr(embedding_store, "CACHE_MIN_PART_DENSITY", 1.0)
+    got = embedding_store.read_vectors(MODEL, one_row, index, local_cache=True)
+    np.testing.assert_array_equal(got, expected)
+    assert len(fetches) == 1 and len(ranged) == 1, (
+        "an already-cached part must be memmapped, not re-fetched or ranged")
+
+
+
+
 def test_other_models_rows_are_excluded(store):
     _write_shard(["mine1", "mine2"], _rand(2, 10), model=MODEL)
     _write_shard(["other1"], _rand(1, 11), model="other-model")
