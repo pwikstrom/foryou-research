@@ -2100,18 +2100,31 @@ def consolidate_and_save_refined_annotations(
     # the old view, hence the ledger comparison.
     latest_preferred = dataset_meta.get("machine_annotations", {}).get("preferred_version")
     current_preferred = annotation_versioning.get_preferred_version()
-    if (incremental and not force_consolidation and not dry_run
-            and latest_filename_list
-            and latest_preferred == current_preferred):
-        folded = _fold_annotation_batch(
-            dataset_meta=dataset_meta,
-            files_to_concatenate=files_to_concatenate,
-            new_files=sorted(set(files_to_concatenate) - set(latest_filename_list)),
-            verbose=verbose,
-        )
-        if folded is not None:
-            return folded
-        logger.info("[CONSOLIDATE] annotation fold declined — taking the full rebuild path.")
+    if incremental and not force_consolidation and not dry_run:
+        # Say why the fold is not even attempted — a silent full rebuild here
+        # read as a bug on 2026-09-03, when the first annotation batch after
+        # Phase 1 met a ledger written before the ledger recorded a preferred
+        # version (None ≠ the promoted one). That is the one-time bootstrap:
+        # this full rebuild records the version, and the next batch folds.
+        if not latest_filename_list:
+            logger.info("[CONSOLIDATE] annotation full rebuild: the ledger has no file list yet "
+                        "(first consolidation) — the fold needs one to know what is new.")
+        elif latest_preferred != current_preferred:
+            logger.info(
+                "[CONSOLIDATE] annotation full rebuild: preferred version is "
+                f"{current_preferred!r} but the previous consolidation was built under "
+                f"{latest_preferred!r} — every item's view must be re-derived. The ledger "
+                "now records the current version, so the next batch can fold.")
+        else:
+            folded = _fold_annotation_batch(
+                dataset_meta=dataset_meta,
+                files_to_concatenate=files_to_concatenate,
+                new_files=sorted(set(files_to_concatenate) - set(latest_filename_list)),
+                verbose=verbose,
+            )
+            if folded is not None:
+                return folded
+            logger.info("[CONSOLIDATE] annotation fold declined — taking the full rebuild path.")
 
     # ---------------------------------------------------------------
     # load all refined files
