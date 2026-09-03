@@ -142,17 +142,70 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
         df = preloaded_df
     else:
         df = create_collection_unified_dataset(collection_id=collection_id, verbose=False)
-        
+
     if df is None or df.empty:
         print("ERROR: Could not load unified dataset for collection", collection_id)
         return None
-        
+
+    agg_df = aggregate_timeline_frame(df, viz_vars, collection_id=collection_id)
+    if agg_df is None:
+        return None
+
+    result_dfs: dict[str, pd.DataFrame] = {}
+    for interval in intervals:
+        save_timeline_cache(collection_id, agg_df, viz_vars, interval=interval)
+        result_dfs[interval] = agg_df
+    return result_dfs
+
+
+def save_timeline_cache(collection_id, agg_df: pd.DataFrame, viz_vars, interval: str = 'day') -> None:
+    """Persist one aggregated timeline plus its coverage sidecar.
+
+    The I/O half of a timeline refresh, split from :func:`aggregate_timeline_frame`
+    so the batch worker can aggregate in forked, compute-only children and let
+    the parent do the writes — a forked child must not touch storage clients
+    inherited from its parent.
+    """
+    filename = f"timeline_{collection_id}_{interval}.parquet"
+    data_io.save_parquet(df=agg_df, storage_location="cache", filename=filename)
+    # Coverage sidecar: which vars this parquet was aggregated with. Read by
+    # get_timeline_covered_vars so a variable absent from the data doesn't
+    # look uncovered and trigger a regeneration loop.
+    try:
+        data_io.save_json(
+            data={"vars": list(viz_vars)},
+            storage_location="cache",
+            filename=f"timeline_{collection_id}_{interval}.aggvars.json",
+        )
+    except Exception as e:
+        print(f"    [TIMELINE] Failed to write aggvars sidecar for {collection_id}/{interval}: {e}")
+
+
+def aggregate_timeline_frame(df: pd.DataFrame, viz_vars, collection_id="") -> pd.DataFrame | None:
+    """Aggregate one collection's unified frame into its per-day timeline table.
+
+    Pure compute — reads nothing and writes nothing — so it can run in a forked
+    worker. Returns the day-level frame :func:`save_timeline_cache` persists, or
+    None when the frame cannot be aggregated (missing columns, or no annotated
+    plays with recorded watch time).
+
+    List-valued variables (hashtags, brands, …) are aggregated in long format:
+    one explode carrying the row weight, ``groupby([period, tag])`` for both the
+    count and the weight sum, and per-day JSON built only from the cells that
+    exist. The earlier shape exploded twice and unstacked to a
+    days × unique-tags matrix before a Python ``json.dumps`` over every cell —
+    at ~40k distinct hashtags that was 5× slower for identical output, and it
+    grew with tag cardinality, which is why big collections cost more per row.
+    """
     # Ensure date column
     date_col = 'local_date'
     if date_col not in df.columns:
          print(f"ERROR: {date_col} missing in unified dataset")
          return None
-         
+
+    # Work on a copy: callers hand in a slice of a shared frame, and the
+    # aggregation adds columns.
+    df = df.copy()
     df[date_col] = pd.to_datetime(df[date_col]).astype('datetime64[ns]')
 
     # Engagement-activity breakdown is now computed AFTER the universe
@@ -217,10 +270,8 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
         df['_w'] = play_dur.fillna(0.0)
 
     # ---------------------------------------------------------
-    # 2. Iterate and Aggregate
-    result_dfs: dict[str, pd.DataFrame] = {}
-    
-    for interval in intervals:
+    # 2. Aggregate (day interval)
+    for interval in ('day',):
 
         # Grouping — assign() shares underlying column data, avoiding a full copy
         temp_df = df.assign(period=df[date_col].dt.date.astype(str))
@@ -346,34 +397,33 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
                 extra_cols[f"{var}_weighted_counts"] = pd.Series(dtype='object')
                 extra_cols[f"{var}_weighted_valid"] = pd.Series(dtype='float64')
 
-        # --- List variables: explode (carrying weight) once per side ---
+        # --- List variables: one explode carrying the weight, long format ---
         for var in list_vars:
-            is_valid_list = temp_df[var].apply(lambda x: isinstance(x, list) and len(x) > 0)
-            extra_cols[f"{var}_valid"] = temp_df.assign(_is_valid=is_valid_list).groupby(group_col)['_is_valid'].sum().astype(int)
-            extra_cols[f"{var}_weighted_valid"] = temp_df.loc[is_valid_list].groupby(group_col)['_w'].sum()
+            lens = temp_df[var].map(lambda x: len(x) if isinstance(x, list) else 0).to_numpy()
+            is_valid_list = lens > 0
+            extra_cols[f"{var}_valid"] = (
+                pd.Series(is_valid_list, index=temp_df.index)
+                .groupby(temp_df[group_col]).sum().astype(int))
+            extra_cols[f"{var}_weighted_valid"] = (
+                temp_df.loc[is_valid_list, '_w'].groupby(temp_df.loc[is_valid_list, group_col]).sum())
 
-            # Unweighted exploded counts (kept for hover and occurrence-floor filtering).
-            exploded = temp_df[[group_col, var]].explode(var)
+            exploded = temp_df.loc[is_valid_list, [group_col, var, '_w']].explode(var)
             exploded = exploded[exploded[var].notna()]
-            vc = exploded.groupby(group_col)[var].value_counts()
-            if not vc.empty:
-                unstacked = vc.unstack(fill_value=0)
-                extra_cols[f"{var}_counts"] = unstacked.apply(
-                    lambda row: json.dumps({k: int(v) for k, v in row.items() if v > 0}), axis=1
-                )
-            else:
+            if exploded.empty:
                 agg_df[f"{var}_counts"] = '{}'
-
-            # Weighted exploded counts: each exploded tag inherits its play's weight.
-            wexploded = temp_df[[group_col, var, '_w']].explode(var)
-            wexploded = wexploded[wexploded[var].notna()]
-            if not wexploded.empty:
-                wvc = wexploded.groupby([group_col, var])['_w'].sum().unstack(fill_value=0.0)
-                extra_cols[f"{var}_weighted_counts"] = wvc.apply(
-                    lambda row: json.dumps({k: round(float(v), 2) for k, v in row.items() if v > 0}), axis=1
-                )
-            else:
                 agg_df[f"{var}_weighted_counts"] = '{}'
+                continue
+
+            # Every (period, tag) cell once: its unweighted count (kept for
+            # hover and occurrence-floor filtering) and its attention weight.
+            cells = (exploded.groupby([group_col, var], sort=False)['_w']
+                     .agg(n='size', w='sum').reset_index())
+            extra_cols[f"{var}_counts"] = cells.groupby(group_col).apply(
+                lambda d: json.dumps(dict(zip(d[var], (int(n) for n in d['n'])))),
+                include_groups=False)
+            extra_cols[f"{var}_weighted_counts"] = cells.groupby(group_col).apply(
+                lambda d: json.dumps(dict(zip(d[var], (round(float(w), 2) for w in d['w'])))),
+                include_groups=False)
 
         # Single merge for all accumulated columns
         if extra_cols:
@@ -388,23 +438,9 @@ def check_and_update_timeline_cache(collection_id, viz_vars, verbose=False, prel
         # the "scraped + annotated plays only" universe definition.
         agg_df['timeline_universe'] = 'annotated_plays'
 
-        # Save
-        filename = f"timeline_{collection_id}_{interval}.parquet"
-        data_io.save_parquet(df=agg_df, storage_location="cache", filename=filename)
-        # Coverage sidecar: which vars this parquet was aggregated with. Read by
-        # get_timeline_covered_vars so a variable absent from the data doesn't
-        # look uncovered and trigger a regeneration loop.
-        try:
-            data_io.save_json(
-                data={"vars": list(viz_vars)},
-                storage_location="cache",
-                filename=f"timeline_{collection_id}_{interval}.aggvars.json",
-            )
-        except Exception as e:
-            print(f"    [TIMELINE] Failed to write aggvars sidecar for {collection_id}/{interval}: {e}")
-        result_dfs[interval] = agg_df
+        return agg_df
 
-    return result_dfs
+    return None
 
 
 

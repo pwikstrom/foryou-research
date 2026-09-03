@@ -9,10 +9,12 @@ Locally it runs all collections in a single subprocess (same as before).
 """
 
 import json
+import multiprocessing
 import os
-import time
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+import warnings
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import pandas as pd
@@ -51,10 +53,120 @@ def _warm_worker_imports() -> None:
     the same module single-threaded, so its pool was always warm. Links 1..n
     skip discovery and went straight to the pool. Calling this from the parent
     thread gives every link link-0's head start.
+
+    Since the batch moved onto forked processes the same call matters for a
+    second reason: a child forked from a parent whose modules are already
+    initialised inherits them by copy-on-write and imports nothing itself.
     """
     import fyp.core.data_io  # noqa: F401
-    from fyp.analysis import timeline_analysis  # noqa: F401
+    from fyp.analysis import organize_datasets, timeline_analysis  # noqa: F401
     from web_interface import data_service  # noqa: F401
+    from web_interface.services import timeline_service  # noqa: F401
+
+
+# Whole collections are the work unit and the big ones are big (the largest
+# holds ~390k plays), so the pool is capped below the core count to bound the
+# batch's peak memory: each child materialises its own exploded frames.
+MAX_WORKERS = 6
+
+# Read by forked children through copy-on-write: the per-collection slices,
+# the per-collection variable lists and the first-event dates. Nothing in it
+# is pickled — a 150k-row slice would cost more to ship than to aggregate.
+_FORK_CTX: dict = {}
+
+
+def _child_init() -> None:
+    """Pool-worker initialiser: one BLAS thread per process (see sessions)."""
+    try:
+        from threadpoolctl import threadpool_limits
+
+        threadpool_limits(1)
+    except Exception:
+        pass
+
+
+def _vars_with_prior_coverage(collection_id: str, viz_vars: list[str]) -> list[str]:
+    """The requested vars plus whatever the collection's cache already covered.
+
+    Regenerating with the union keeps the study-wide cache a superset, so one
+    user's per-user include never evicts another's. Reads the coverage sidecar
+    — storage I/O, so this runs in the parent before the pool.
+    """
+    from web_interface.services.timeline_service import get_timeline_covered_vars
+
+    prior = get_timeline_covered_vars(collection_id, 'day')
+    if not prior:
+        return list(viz_vars)
+    return list(viz_vars) + [v for v in sorted(prior) if v not in viz_vars]
+
+
+def compute_collection_timeline(
+    collection_id: str,
+    preloaded_slice: pd.DataFrame,
+    viz_vars: list[str],
+    first_activity_date: str | None,
+) -> tuple[pd.DataFrame, dict | None] | None:
+    """Aggregate one collection and analyse it — pure compute, no storage.
+
+    Safe to run in a forked child: everything it needs is in the slice and in
+    the in-memory config. Returns the day-level frame and the analysis (None
+    when the series is too short to analyse), or None when the slice has no
+    aggregatable plays.
+    """
+    from fyp.analysis.timeline_analysis import analyse_timeline
+    from web_interface.services.timeline_service import (
+        aggregate_timeline_frame,
+        get_timeline_data,
+    )
+
+    if preloaded_slice is None or preloaded_slice.empty:
+        return None
+    agg_df = aggregate_timeline_frame(preloaded_slice, viz_vars, collection_id=collection_id)
+    if agg_df is None:
+        return None
+
+    analysis: dict | None = None
+    try:
+        tdata = get_timeline_data(collection_id, interval='day',
+                                  skip_cache_check=True, preloaded_agg_df=agg_df)
+        if tdata and tdata.get("dates"):
+            analysis = analyse_timeline(tdata, interval='day',
+                                        first_activity_date=first_activity_date) or None
+    except Exception as ae:
+        print(f"  Warning: Analysis failed for {collection_id}/day: {ae}")
+    return agg_df, analysis
+
+
+def write_collection_timeline(
+    collection_id: str,
+    agg_df: pd.DataFrame,
+    viz_vars: list[str],
+    analysis: dict | None,
+) -> None:
+    """Persist one collection's timeline parquet, coverage sidecar and analysis.
+
+    The storage half of a refresh; runs in the parent. The analysis JSON is
+    written or, when there is none, removed, so the two artefacts never drift.
+    """
+    import fyp.core.data_io as data_io
+    from web_interface.services.timeline_service import save_timeline_cache
+
+    save_timeline_cache(collection_id, agg_df, viz_vars, interval='day')
+    analysis_fname = f"timeline_analysis_{collection_id}_day.json"
+    if analysis:
+        data_io.save_json(analysis, storage_location="cache", filename=analysis_fname)
+    elif data_io.exists(storage_location="cache", filename=analysis_fname):
+        data_io.remove(storage_location="cache", filename=analysis_fname)
+
+
+def _run_collection(collection_id: str) -> tuple[str, tuple | None, float]:
+    """Pool entry point: aggregate + analyse one collection from _FORK_CTX."""
+    ctx = _FORK_CTX
+    t0 = time.perf_counter()
+    out = compute_collection_timeline(
+        collection_id, ctx["slices"][collection_id], ctx["viz_vars"][collection_id],
+        ctx["first_event"].get(collection_id))
+    return collection_id, out, time.perf_counter() - t0
 
 
 def process_one_collection(
@@ -63,40 +175,23 @@ def process_one_collection(
     viz_vars: list[str],
     first_activity_date: str | None,
 ) -> bool:
-    """Process a single collection: aggregate timeline cache + run analysis.
+    """Process a single collection end to end: aggregate, analyse, persist.
+
+    The serial path (no pool, or a slice the preload could not produce, in
+    which case the unified dataset is loaded from storage as before).
 
     Returns:
         True if the collection was processed successfully.
     """
-    import fyp.core.data_io as data_io
-    from fyp.analysis.timeline_analysis import analyse_timeline
-    from web_interface.data_service import check_and_update_timeline_cache, get_timeline_data
+    from fyp.analysis.organize_datasets import create_collection_unified_dataset
 
-    # Remove existing cache to force recalculation
-    for interval in ['day']:#, 'week', 'month']:
-        filename = f"timeline_{collection_id}_{interval}.parquet"
-        if data_io.exists(storage_location="cache", filename=filename):
-            data_io.remove(storage_location="cache", filename=filename)
-
-    # Aggregate — returns {interval: agg_df} or None on failure
-    agg_result = check_and_update_timeline_cache(collection_id, viz_vars, preloaded_df=preloaded_slice)
-    if not agg_result:
+    viz = _vars_with_prior_coverage(collection_id, viz_vars)
+    if preloaded_slice is None:
+        preloaded_slice = create_collection_unified_dataset(collection_id=collection_id, verbose=False)
+    out = compute_collection_timeline(collection_id, preloaded_slice, viz, first_activity_date)
+    if out is None:
         return False
-
-    # Analyse for each interval, passing preloaded agg_df to avoid re-reading cache
-    for a_interval in ['day']:#, 'week', 'month']:
-        try:
-            agg_df = agg_result.get(a_interval)
-            tdata = get_timeline_data(collection_id, interval=a_interval,
-                                      skip_cache_check=True, preloaded_agg_df=agg_df)
-            if tdata and tdata.get("dates"):
-                analysis = analyse_timeline(tdata, interval=a_interval, first_activity_date=first_activity_date)
-                if analysis:
-                    analysis_fname = f"timeline_analysis_{collection_id}_{a_interval}.json"
-                    data_io.save_json(analysis, storage_location="cache", filename=analysis_fname)
-        except Exception as ae:
-            print(f"  Warning: Analysis failed for {collection_id}/{a_interval}: {ae}")
-
+    write_collection_timeline(collection_id, out[0], viz, out[1])
     return True
 
 
@@ -308,73 +403,111 @@ def _process_batch(reporter: TaskStatusReporter,
         Number of successfully processed collections in this batch.
     """
     batch_total = len(collection_ids)
-    max_workers = min(batch_total, os.cpu_count() or 1)
     valid_count = 0
     _t_batch = time.perf_counter()
-    # Per-collection wall seconds, so a slow batch can be attributed. Before
+    # Per-collection compute seconds, so a slow batch can be attributed. Before
     # this the log only said "Collection 9/15" at completion and the 13-minute
     # batch of 2026-09-03 could not be explained from the record.
     unit_secs: dict[str, float] = {}
-
-    def _timed(cid: str) -> bool:
-        t0 = time.perf_counter()
-        try:
-            return process_one_collection(
-                cid, collection_slices[cid], viz_vars, collection_first_event.get(cid))
-        finally:
-            unit_secs[cid] = time.perf_counter() - t0
+    done: set[str] = set()
 
     def _rows(cid: str) -> int:
         s = collection_slices.get(cid)
         return len(s) if s is not None else 0
 
-    def _log_unit(cid: str, ok: bool) -> None:
+    def _log_unit(cid: str, ok: bool, write_secs: float = 0.0) -> None:
         reporter.log(f"[TIMING] timelines_collection cid={cid} rows={_rows(cid):,} "
-                     f"secs={unit_secs.get(cid, 0.0):.1f} ok={int(ok)}")
+                     f"secs={unit_secs.get(cid, 0.0):.1f} write={write_secs:.1f} ok={int(ok)}")
 
-    # Must happen before any pool thread runs — see _warm_worker_imports.
+    def _progress(n_done: int) -> None:
+        overall_done = collections_processed + n_done
+        pct = int((overall_done / total_collections) * 100) if total_collections else 0
+        reporter.update_progress(pct, f"Collection {overall_done}/{total_collections}")
+
+    # Resolve every import once in the parent, before forking — children then
+    # inherit fully-initialised modules (see _warm_worker_imports).
     _warm_worker_imports()
 
-    if max_workers <= 1:
-        for i, cid in enumerate(collection_ids):
-            if reporter.check_cancelled():
-                reporter.log("Cancellation requested. Stopping.")
-                break
-            overall_done = collections_processed + i
-            pct = int((overall_done / total_collections) * 100) if total_collections else 0
-            reporter.update_progress(pct, f"Collection {overall_done + 1}/{total_collections}")
-            try:
-                ok = _timed(cid)
-                if ok:
-                    valid_count += 1
-                _log_unit(cid, ok)
-            except Exception as e:
-                reporter.log(f"Error processing {cid}: {e}")
-    else:
-        reporter.log(f"Using {max_workers} parallel workers.")
-        completed = 0
+    # The coverage sidecars are storage reads: do them here, threaded (I/O
+    # bound), so the children never touch storage.
+    with ThreadPoolExecutor(max_workers=8) as io_pool:
+        viz_by_cid = dict(zip(collection_ids, io_pool.map(
+            lambda cid: _vars_with_prior_coverage(cid, viz_vars), collection_ids)))
 
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {pool.submit(_timed, cid): cid for cid in collection_ids}
+    # Biggest first: one collection can't be split across workers, so the
+    # largest sets the batch's floor — start it at t=0, not last.
+    pooled = sorted((cid for cid in collection_ids if collection_slices.get(cid) is not None),
+                    key=_rows, reverse=True)
+    max_workers = min(len(pooled), os.cpu_count() or 1, MAX_WORKERS)
+    if "fork" not in multiprocessing.get_all_start_methods():
+        max_workers = 1
 
-            for future in as_completed(futures):
-                cid = futures[future]
-                completed += 1
-                overall_done = collections_processed + completed
-                pct = int((overall_done / total_collections) * 100) if total_collections else 0
-                reporter.update_progress(pct, f"Collection {overall_done}/{total_collections}")
-                try:
-                    ok = bool(future.result())
-                    if ok:
-                        valid_count += 1
-                    _log_unit(cid, ok)
-                except Exception as e:
-                    reporter.log(f"Error processing {cid}: {e}")
+    if max_workers > 1:
+        # Threads were what ran here before, and they delivered no
+        # parallelism: the aggregation is pandas over object columns (lists,
+        # strings) and holds the GIL — measured 2026-09-03, 8 threads ran 8
+        # units in 27 s against 3.5 s for one (1.1×); 8 forked processes ran
+        # them in 4.6 s (6.2×). The children compute only; the parent writes.
+        reporter.log(f"Using {max_workers} worker processes.")
+        _FORK_CTX.clear()
+        _FORK_CTX.update({"slices": collection_slices, "viz_vars": viz_by_cid,
+                          "first_event": collection_first_event})
+        try:
+            with warnings.catch_warnings():
+                # Python 3.12 warns that forking a multi-threaded process may
+                # deadlock the child: these children do pure compute on
+                # inherited memory and take no locks, which is the safe case.
+                warnings.filterwarnings("ignore", message=".*fork.*",
+                                        category=DeprecationWarning)
+                mp_ctx = multiprocessing.get_context("fork")
+                with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp_ctx,
+                                         initializer=_child_init) as pool:
+                    futures = [pool.submit(_run_collection, cid) for cid in pooled]
+                    for future in as_completed(futures):
+                        cid, out, secs = future.result()
+                        unit_secs[cid] = secs
+                        done.add(cid)
+                        ok = out is not None
+                        t_w = time.perf_counter()
+                        if ok:
+                            try:
+                                write_collection_timeline(cid, out[0], viz_by_cid[cid], out[1])
+                                valid_count += 1
+                            except Exception as e:
+                                ok = False
+                                reporter.log(f"Error writing {cid}: {e}")
+                        _log_unit(cid, ok, time.perf_counter() - t_w)
+                        _progress(len(done))
+                        if reporter.check_cancelled():
+                            reporter.log("Cancellation requested. Shutting down workers...")
+                            pool.shutdown(wait=False, cancel_futures=True)
+                            return valid_count
+        except Exception as e:
+            reporter.log(f"[TIMELINES] worker pool failed ({type(e).__name__}: {e}) "
+                         f"— finishing this batch serially")
+        finally:
+            _FORK_CTX.clear()
 
-                if reporter.check_cancelled():
-                    reporter.log("Cancellation requested. Shutting down workers...")
-                    pool.shutdown(wait=False, cancel_futures=True)
-                    break
+    # Serial path: everything the pool did not finish, plus any collection
+    # whose slice the preload could not produce (loaded from storage inside).
+    pending = [cid for cid in collection_ids if cid not in done]
+    for cid in pending:
+        if reporter.check_cancelled():
+            reporter.log("Cancellation requested. Stopping.")
+            break
+        t0 = time.perf_counter()
+        try:
+            ok = process_one_collection(
+                cid, collection_slices.get(cid), viz_vars, collection_first_event.get(cid))
+            if ok:
+                valid_count += 1
+        except Exception as e:
+            ok = False
+            reporter.log(f"Error processing {cid}: {e}")
+        unit_secs[cid] = time.perf_counter() - t0
+        done.add(cid)
+        _log_unit(cid, ok)
+        _progress(len(done))
 
     if unit_secs:
         slowest = max(unit_secs, key=unit_secs.get)
