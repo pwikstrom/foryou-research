@@ -425,6 +425,55 @@ def _neighbour_preservation(
 
 
 
+_WARM_START_MIN_MEMBERS = 5
+
+
+def _warm_start_centroids(item_ids: list[str], reduced: np.ndarray,
+                          n_niches: int) -> tuple[np.ndarray | None, str]:
+    """Initial centroids for the clustering, taken from the previous build.
+
+    A fresh k-means++ run redraws every niche boundary even when the corpus
+    barely moved: on 2026-09-03 an append of 97 vectors to 619,845 re-clustered
+    into a partition where only 90 of 150 niches overlapped their predecessor
+    enough to keep their name, so 60 were re-named through Gemini (244 s) for
+    no real change. Starting the fit from the previous partition — each old
+    niche's members averaged in the CURRENT reduced space, since PCA is refit
+    every run — makes the new clustering a refinement of the old one: near-total
+    overlap, names carried, and niche identity stable across rebuilds.
+
+    Returns ``(centroids, reason)``; ``centroids`` is None when there is nothing
+    usable to start from (no previous map, a different niche count, or too few
+    members surviving for some niche), in which case the caller cold-starts.
+    """
+    if not data_io.exists(storage_location=embeddings.STORE_LOCATION, filename=MAP_FILE):
+        return None, "no previous map"
+    try:
+        prev = data_io.load_parquet_selective(
+            storage_location=embeddings.STORE_LOCATION, filename=MAP_FILE,
+            columns=["item_id", "niche"])
+    except Exception as exc:
+        return None, f"previous map unreadable ({type(exc).__name__})"
+    if prev is None or prev.empty or "niche" not in prev.columns:
+        return None, "previous map has no niches"
+    prev["item_id"] = prev["item_id"].astype("string")
+    prev_niche = pd.to_numeric(
+        prev.drop_duplicates("item_id").set_index("item_id")["niche"], errors="coerce"
+    ).reindex(pd.Index(item_ids, dtype="string")).to_numpy()
+    known = ~np.isnan(prev_niche)
+    if not known.any():
+        return None, "no shared items with the previous map"
+    old_ids = np.unique(prev_niche[known]).astype(int)
+    if old_ids.size != n_niches:
+        return None, f"previous map has {old_ids.size} niches, this build wants {n_niches}"
+    centroids = np.empty((n_niches, reduced.shape[1]), dtype=reduced.dtype)
+    for k, old_id in enumerate(old_ids):
+        members = known & (prev_niche == old_id)
+        if int(members.sum()) < _WARM_START_MIN_MEMBERS:
+            return None, f"previous niche {old_id} has only {int(members.sum())} surviving members"
+        centroids[k] = reduced[members].mean(axis=0)
+    return centroids, f"{n_niches} niches, {int(known.sum()):,} shared items"
+
+
 def _align_labels_to_previous(
     item_ids: list[str],
     labels: np.ndarray,
@@ -786,7 +835,20 @@ def build_niche_map(
     if reporter is not None:
         reporter.update_progress(35, f"Clustering into {n_niches} niches...")
     n_niches = min(n_niches, len(item_ids))
-    kmeans = MiniBatchKMeans(n_clusters=n_niches, random_state=0, n_init=5, batch_size=4096)
+    # Warm-start from the previous partition unless the operator asked for a
+    # reset: the fit then refines the old niches instead of redrawing them, so
+    # names carry over and Gemini is only asked about niches that really moved.
+    # reset_labels is the escape hatch — a cold k-means++ start lets genuinely
+    # new niches form when the corpus has drifted.
+    init_centroids, warm_reason = (None, "reset_labels") if reset_labels else \
+        _warm_start_centroids(item_ids, reduced, n_niches)
+    if init_centroids is not None:
+        _log(f"Clustering warm-started from the previous build ({warm_reason}).")
+        kmeans = MiniBatchKMeans(n_clusters=n_niches, init=init_centroids, n_init=1,
+                                 random_state=0, batch_size=4096)
+    else:
+        _log(f"Clustering cold-started with k-means++ ({warm_reason}).")
+        kmeans = MiniBatchKMeans(n_clusters=n_niches, random_state=0, n_init=5, batch_size=4096)
     labels = kmeans.fit_predict(reduced)
     _log(f"Assigned {len(item_ids):,} videos to {n_niches} niches.")
 
