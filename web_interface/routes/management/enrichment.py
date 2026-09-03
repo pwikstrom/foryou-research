@@ -1238,6 +1238,8 @@ def api_consolidate_enrichment():
         entry["auto_armed"] = True
         entry["auto_armed_force"] = False
         entry["auto_armed_auto_refresh"] = auto_refresh
+        print(f"[consolidate] armed (auto_refresh={auto_refresh}) — waiting for "
+              f"{', '.join(blocking)}.")
         process_stats["consolidate_enrichment"] = entry
         save_process_stats()
         return jsonify({

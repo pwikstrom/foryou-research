@@ -1220,6 +1220,10 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
     if not entry.get("auto_armed"):
+        # Say so: 2026-09-03 two armed refreshes failed to fire and every exit
+        # here was silent, so the record could not tell which one it was.
+        print(f"[{just_finished}] Armed consolidate: no arm flag in process_stats "
+              f"(keys: {sorted(k for k in entry if 'arm' in k) or 'none'}).")
         return False
 
     # The other enrichment workers may still be running on separate task-runner
@@ -1233,13 +1237,19 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
             try:
                 age = (datetime.now(UTC) - datetime.fromisoformat(updated)).total_seconds()
                 if age <= 600:
+                    print(f"[{just_finished}] Armed consolidate deferred: {worker} still "
+                          f"running (heartbeat {age:.0f}s ago).")
                     return False
             except (ValueError, TypeError):
+                print(f"[{just_finished}] Armed consolidate deferred: {worker} running "
+                      f"with an unreadable heartbeat {updated!r}.")
                 return False  # Malformed heartbeat — treat as running, be safe.
 
     # Don't double-fire onto an already-running consolidate.
     cs = read_task_status("consolidate_enrichment") or {}
     if (cs.get("state") or "").lower() == "running":
+        print(f"[{just_finished}] Armed consolidate deferred: a consolidation is already "
+              f"running (since {cs.get('start_time')}).")
         return False
 
     # Defer while a local scrape-queue drain holds a lease on the shared
