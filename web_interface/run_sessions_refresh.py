@@ -148,9 +148,30 @@ def _manifest_n_plays(value) -> int:
 
 
 
+def _store_shards_for(store_fp: str) -> list | None:
+    """The shard set to record in the meta, or None when it no longer matches
+    ``store_fp`` (the store moved mid-chain; the next run then re-baselines).
+
+    Recorded so the next run can tell an append from a rewrite — see
+    ``session_explorer.enrichment_change_scope``.
+    """
+    from fyp.analysis import embedding_store
+
+    try:
+        entries = embedding_store.shard_entries()
+        if store_fp and embedding_store.fingerprint_of(entries) != store_fp:
+            return None
+        return [[str(n), int(s), float(m)] for n, s, m in entries]
+    except Exception as exc:
+        print(f"[sessions] shard set not recorded ({type(exc).__name__}: {exc}); "
+              "the next run will re-baseline.")
+        return None
+
+
 def _merge_meta(meta_old, manifest: dict, params: dict, model: str,
                 store_fp: str, n_vectors: int, dim: int,
-                trend_cols: list[str], annotations_fp: str) -> dict:
+                trend_cols: list[str], annotations_fp: str,
+                annotations_max_ts: str | None = None) -> dict:
     """Meta payload for a merge publish.
 
     The per-collection block is the previous build's block minus dropped and
@@ -159,6 +180,8 @@ def _merge_meta(meta_old, manifest: dict, params: dict, model: str,
     :func:`session_explorer.merge_publish_artifacts` from the merged files.
     ``corpus_mean_drift`` records that untouched collections were centred on
     a different (statistically equivalent) corpus mean than this run's.
+    ``baseline_corpus_count`` (the vector count at the last FULL build) is
+    carried forward: it is what the drift budget is measured against.
     """
     import pandas as pd
 
@@ -185,7 +208,13 @@ def _merge_meta(meta_old, manifest: dict, params: dict, model: str,
         "params": params,
         "trend_vars": trend_cols,
         "collections": block,
+        "baseline_corpus_count": int(old.get("baseline_corpus_count")
+                                     or old.get("corpus_mean_count") or n_vectors),
+        "annotations_max_ts": annotations_max_ts or old.get("annotations_max_ts"),
     }
+    shards = _store_shards_for(store_fp)
+    if shards is not None:
+        meta["store_shards"] = shards
     if old.get("store_fingerprint") and store_fp and \
             old.get("store_fingerprint") != store_fp:
         meta["corpus_mean_drift"] = True
@@ -329,7 +358,8 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
     def _chain_args(next_chunk: int, remaining: list[str], run_id: str,
                     params: dict, trend_cols: list[str], model: str,
                     store_fp: str, total: int, mode: str,
-                    annotations_fp: str) -> dict:
+                    annotations_fp: str,
+                    annotations_max_ts: str | None = None) -> dict:
         args = {
             "chunk_index": next_chunk,
             # \x1f (unit separator): collection ids are user-derived strings,
@@ -345,6 +375,9 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             # into the published meta, and it must describe the corpus the
             # chain actually read, not whatever landed while it ran.
             "annotations_fp": annotations_fp,
+            # The annotation corpus's latest inference_ts at setup — the
+            # watermark the next run scopes "changed annotations" against.
+            "annotations_max_ts": annotations_max_ts,
             "total_collections": total,
             "chain_restarts": restarts,
         }
@@ -431,10 +464,37 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
                                sorted(session_explorer.plays_table(None).schema.names))
 
         scope = {str(c) for c in collections} if collections else None
+
+        # Where did the enrichment change land? A routine append (newly
+        # annotated videos, embedded and folded in) touches only the
+        # collections that contain those videos; the planner rebuilds
+        # everything unless this proves the change local.
+        covered = {cid for cid, _ in discovered}
+        annotations_max_ts = (meta_old or {}).get("annotations_max_ts")
+        try:
+            escope = session_explorer.enrichment_change_scope(
+                meta_old, store_fp, int(n_vectors), annotations_fp, model, covered)
+            if escope.get("reason") and escope.get("reason") != "enrichment unchanged":
+                verb = "local" if escope.get("local") else "not local"
+                reporter.log(f"Enrichment change is {verb}: {escope['reason']}.")
+            # The watermark the published meta records: freshly scanned when
+            # the corpus moved, else carried from the previous build, else
+            # scanned now (a first build, or one from before the watermark).
+            annotations_max_ts = escope.get("annotations_max_ts") or annotations_max_ts
+            if annotations_max_ts is None and annotations_fp:
+                annotations_max_ts = session_explorer.annotation_corpus_max_ts()
+        except Exception as exc:
+            # Scoping is an optimisation: if it cannot be computed the plan
+            # falls back to the full rebuild it always did.
+            reporter.log(f"Enrichment-change scoping skipped ({type(exc).__name__}: {exc}) "
+                         "— any enrichment change rebuilds every collection.")
+            escope = None
+
         plan = session_explorer.compute_refresh_plan(
             discovered, coverage, meta_old, params, model, trend_cols,
             artifacts_exist, plays_schema_ok=plays_schema_ok, scope=scope,
-            store_fp=store_fp, annotations_fp=annotations_fp)
+            store_fp=store_fp, annotations_fp=annotations_fp,
+            enrichment_scope=escope)
         if not stale_only and plan["mode"] != "full":
             # Forced refresh: rebuild the requested set regardless of
             # staleness. Unscoped -> full overwrite; scoped -> merge.
@@ -473,7 +533,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
                 meta_old, {"refresh": [], "drop": plan["drop"]}, params,
                 model, store_fp, n_vectors,
                 embeddings.active_embedding_backend().dim(), trend_cols,
-                annotations_fp)
+                annotations_fp, annotations_max_ts)
             session_explorer.merge_publish_artifacts(
                 run_id, n_chunks=0, refresh_cids=[], drop_cids=plan["drop"],
                 expected={}, meta=meta, trend_cols=trend_cols,
@@ -523,7 +583,8 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             "chain": True,
             "next_task_args": _chain_args(0, remaining, run_id, params,
                                           trend_cols, model, store_fp, total,
-                                          plan["mode"], annotations_fp),
+                                          plan["mode"], annotations_fp,
+                                          annotations_max_ts),
             "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
         }
     else:
@@ -531,6 +592,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         model = str(task_args["embedding_model"])
         store_fp = str(task_args.get("corpus_mean_fp", ""))
         annotations_fp = str(task_args.get("annotations_fp", ""))
+        annotations_max_ts = task_args.get("annotations_max_ts") or None
         run_id = str(task_args["run_id"])
         # Legacy in-flight chains (started pre-upgrade) carry no mode and have
         # no manifest: they publish full, unscoped, without the per-collection
@@ -648,7 +710,8 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             "chain": True,
             "next_task_args": _chain_args(chunk + 1, rest, run_id, params,
                                           trend_cols, model, store_fp, total,
-                                          mode, annotations_fp),
+                                          mode, annotations_fp,
+                                          annotations_max_ts),
             "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
         }
 
@@ -676,7 +739,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
                 filename=session_explorer.META_FILE)
         meta = _merge_meta(meta_old, manifest, params, model, store_fp,
                            int(n_vectors), int(index_dim), trend_cols,
-                           annotations_fp)
+                           annotations_fp, annotations_max_ts)
         session_explorer.merge_publish_artifacts(
             run_id, n_chunks=chunk + 1,
             refresh_cids=list(manifest.get("refresh") or []),
@@ -692,6 +755,11 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
             "corpus_mean_count": int(n_vectors),
             "store_fingerprint": store_fp,
             "annotations_fingerprint": annotations_fp,
+            # A full build IS the baseline: every collection is centred on
+            # this corpus mean, and the drift budget counts appends from here.
+            "baseline_corpus_count": int(n_vectors),
+            "annotations_max_ts": annotations_max_ts,
+            "store_shards": _store_shards_for(store_fp),
             "params": params,
             "trend_vars": trend_cols,
             "n_collections": total,

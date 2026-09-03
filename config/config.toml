@@ -257,6 +257,14 @@ max_windows = 3
 # Wall time only — the artifacts are identical whatever the count.
 workers = "auto"
 
+# When new videos are annotated and embedded, only the collections that
+# contain them are re-segmented; the rest keep the corpus mean they were
+# centred on. That drift is negligible for an append but must not accumulate
+# forever: once the vectors appended since the last full build exceed this
+# share of the corpus, the next refresh rebuilds every collection on the
+# current mean. 0 disables scoping (every embedding change rebuilds all).
+rebaseline_fraction = 0.05
+
 # Cache the dense embedding parts whole on the machine running a
 # sessions_refresh (memory-backed /tmp on Cloud Run, ~1.9 GB for the current
 # corpus) instead of ranged-reading them from the bucket on every chain

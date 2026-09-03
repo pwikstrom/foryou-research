@@ -105,6 +105,30 @@ def corpus_mean_filename(model: str) -> str:
 
 
 
+def shard_entries() -> list[tuple[str, int, float]]:
+    """The shard set as sorted ``(name, size, mtime)`` triples.
+
+    What :func:`store_fingerprint` hashes, exposed so a consumer can record
+    the set it was built against and later tell an append (every old triple
+    still present, new ones added) from a rewrite. The shard store is
+    append-only by contract, so a changed or vanished triple means a compaction
+    or a rebuild — either way, everything derived from it must be redone.
+    """
+    entries = []
+    for shard in sorted(embeddings._list_shards()):
+        st = data_io.stat(storage_location=STORE_LOCATION, filename=shard)
+        if st is not None:
+            entries.append((shard, int(st.get("size", 0)), float(st.get("mtime", 0.0))))
+    return entries
+
+
+def fingerprint_of(entries) -> str:
+    """The fingerprint :func:`store_fingerprint` would give for ``entries``."""
+    normalised = [(str(e[0]), int(e[1]), float(e[2])) for e in entries]
+    payload = json.dumps(normalised, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def store_fingerprint() -> str:
     """Fingerprint of the shard set: sha256 over sorted (name, size, mtime).
 
@@ -112,13 +136,7 @@ def store_fingerprint() -> str:
     per-row ``model`` stamps), so any shard-set change conservatively
     invalidates every model's derived state.
     """
-    entries = []
-    for shard in sorted(embeddings._list_shards()):
-        st = data_io.stat(storage_location=STORE_LOCATION, filename=shard)
-        if st is not None:
-            entries.append((shard, int(st.get("size", 0)), float(st.get("mtime", 0.0))))
-    payload = json.dumps(entries, sort_keys=True).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+    return fingerprint_of(shard_entries())
 
 
 
