@@ -289,7 +289,11 @@ def get_enrichment_stats():
     # the run has not been touched for >60s (longer than any plausible
     # inter-step gap), treat it as abandoned — otherwise every card stays
     # locked forever.
-    if flag_in_flight and not any_step_running:
+    # An outstanding fan-out is NOT abandoned: a leaf dropped by a 429 is
+    # redelivered by the queue minutes later, and resolve_forked_pipeline owns
+    # that window with its own (much longer) grace. Clearing the run here at 60s
+    # would declare a run failed that is about to finish normally.
+    if flag_in_flight and not any_step_running and not refresh_run.get("fork"):
         touched = refresh_run.get("updated_ts") or refresh_run.get("started_ts")
         stale = False
         if touched:

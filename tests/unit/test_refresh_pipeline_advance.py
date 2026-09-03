@@ -269,3 +269,23 @@ def test_a_consolidation_started_without_auto_refresh_plans_no_cascade(runner):
                for step, state in runner.states().items()
                if step != "consolidate_enrichment")
     assert rp.load_run()["in_flight"] is False
+
+
+def test_an_outstanding_fan_out_is_not_declared_abandoned(runner, monkeypatch):
+    """The 60s abandoned-run sweep must not race the fork's own 600s grace.
+
+    A leaf dropped by a 429 is redelivered minutes later, and
+    ``resolve_forked_pipeline`` is what owns that window. Between the fork and
+    the leaf booting, no step is "running" and the record has not been written
+    for over a minute — exactly the shape the sweep looks for — so the fork has
+    to veto it, or a run that is about to finish normally is failed instead.
+    """
+    import inspect
+
+    from web_interface.routes.management import enrichment as en
+
+    src = inspect.getsource(en.get_enrichment_stats)
+    i = src.index("flag_in_flight and not any_step_running")
+    line = src[i:src.index("\n", i)]
+    assert 'refresh_run.get("fork")' in line, (
+        "the abandoned-run sweep must stand down while a fan-out is outstanding")
