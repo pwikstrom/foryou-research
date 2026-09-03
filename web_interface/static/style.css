@@ -1065,12 +1065,22 @@ button {
 .gantt-row,
 .gantt-axis {
     display: grid;
-    grid-template-columns: 11rem minmax(0, 1fr) 6rem;
+    grid-template-columns: 4.2rem 11rem minmax(0, 1fr) 6rem;
     align-items: center;
     gap: 10px;
 }
 
 .gantt-row { padding: 3px 0; }
+
+/* The card's View Log, repeated on each row so a run can be read and opened in
+   one place. Admin-only; everyone else gets the empty cell, which keeps the
+   four columns aligned. */
+.gantt-log {
+    display: block;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+}
 
 .gantt-label {
     color: var(--color-text-primary);
@@ -1080,9 +1090,22 @@ button {
     white-space: nowrap;
 }
 
+/* A name that carries its worker's description. The tooltip is an absolutely
+   positioned ::after, so this cell must not clip it — hence overflow:visible,
+   which the short noun labels do not need anyway. The pointer stays an arrow:
+   the dotted underline already says "there is more here", and swapping to a
+   question mark on every row reads as an error state. */
+.gantt-label.gantt-label--help {
+    overflow: visible;
+    cursor: default;
+}
+
 .gantt-track {
     position: relative;
     height: 18px;
+    /* A message is free to run past the end of its bar, but not out of the
+       track: overflowing the whole cell put it on top of the duration column
+       and both became unreadable. */
     overflow: hidden;
     background: linear-gradient(var(--color-border), var(--color-border)) center / 100% 1px no-repeat;
 }
@@ -1103,13 +1126,25 @@ button {
     box-sizing: border-box;
 }
 
-/* The running step's live message, riding just past the bar's growing edge. */
+/* The step's own progress line, written from the bar's left edge — the same
+   text its card shows, minus the percentage. It is allowed to run past the end
+   of the bar rather than be truncated, so a long message stays readable. */
 .gantt-msg {
     position: absolute;
     top: 0;
     line-height: 18px;
     white-space: nowrap;
     color: var(--color-text-secondary);
+}
+
+/* --progress-text is the token the worker cards use for exactly this job: text
+   that has to stay legible both on the green fill and on the empty track, in
+   either theme (light grey on dark, dark grey on light). Reusing it keeps the
+   two blocks reading as one thing. */
+.gantt-msg--live {
+    padding-left: 5px;
+    padding-right: 4px;
+    color: var(--progress-text);
 }
 
 .gantt-dur {
@@ -1129,6 +1164,11 @@ button {
    (runs before this run's starting point) and "not_planned" (nothing in this
    run feeds it). All keep their row so the chart's shape is the same every run
    and the reader learns what was not needed as well as what ran. */
+/* No run has ever been recorded. Every worker is still listed, in dependency
+   order, so the block always shows what the pipeline IS — and still reaches
+   each log — instead of collapsing to a single empty line. */
+.gantt-row--idle .gantt-label { color: var(--color-text-secondary); }
+
 .gantt-row--skipped { opacity: 0.5; }
 .gantt-row--skipped .gantt-dur { color: var(--color-warning); font-style: italic; }
 .gantt-row--not_planned,
@@ -1150,8 +1190,8 @@ button {
    can start anywhere in the chain and the rows above it are inert. */
 .gantt-row--origin .gantt-label { font-weight: var(--weight-bold); opacity: 1; }
 
-/* Guidelines across every track: the fork (dashed) where the study
-   definitions finished and the leaves started, and "now" while live. */
+/* Guidelines across every track: the fork (dashed) where the step that fanned
+   the run out finished, and "now" while live. */
 .gantt-fork,
 .gantt-now {
     position: absolute;
@@ -1178,6 +1218,8 @@ button {
     color: var(--color-text-tertiary);
 }
 .gantt-tick--origin { transform: none; }
+/* The clock time the run finished, pinned to the axis's right edge. */
+.gantt-tick--end { transform: translateX(-100%); }
 .gantt-tick::before {
     content: "";
     position: absolute;
@@ -1188,6 +1230,7 @@ button {
     background: var(--color-border);
 }
 .gantt-tick--origin::before { left: 0; }
+.gantt-tick--end::before { left: 100%; }
 
 /* Legend swatches under the chart. */
 .gantt-key {
@@ -1202,7 +1245,6 @@ button {
 .gantt-key--queued { background: transparent; border: 1px dashed var(--status-idle); box-sizing: border-box; }
 .gantt-key--failed { background: var(--status-error); }
 .gantt-key--unplanned { background: var(--color-text-tertiary); opacity: 0.35; }
-.gantt-key--fork { width: 0; height: 10px; border-left: 1px dashed var(--color-text-tertiary); border-radius: 0; background: none; }
 
 @keyframes gantt-pulse {
     0%, 100% { opacity: 1; }
@@ -1211,7 +1253,7 @@ button {
 
 @media (max-width: 700px) {
     .gantt-row,
-    .gantt-axis { grid-template-columns: 7rem minmax(0, 1fr) 4.5rem; }
+    .gantt-axis { grid-template-columns: 3.4rem 7rem minmax(0, 1fr) 4.5rem; }
 }
 
 /* Per-platform cookie-status pill on the enrichment scraper cards. A colored dot

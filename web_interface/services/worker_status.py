@@ -34,7 +34,7 @@ def _actor() -> str:
 # supervisor and the tests read it as the liveness set ("is any pipeline worker
 # running right now").
 from .refresh_pipeline import DOWNSTREAM_ORDER as PIPELINE_STEPS_ORDER  # noqa: E402
-from .refresh_pipeline import LABELS as _PIPELINE_STAGE_LABELS  # noqa: E402
+from .refresh_pipeline import SHORT_LABELS as _PIPELINE_STAGE_LABELS  # noqa: E402
 
 
 def _is_worker_running(name: str) -> bool:
@@ -206,10 +206,17 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
     hand-started refresh, a sessions run chained from a study save — can never
     be painted into it or widen its time axis.
 
+    ``idle``
+        No refresh run has ever been recorded. Every step still gets its row —
+        the block is a standing list of the workers, not only a run's record —
+        with no bar and no timing, so the reader always sees the same eight
+        rows and can reach each worker's log from them.
+
+    The three inert states plus ``idle`` read no status file and carry no
+    timing.
+
     Live state comes from each step's GCS status file (Cloud Run); terminal
-    outcomes fall back to ``process_stats``. Returns ``[]`` when no run has ever
-    been recorded, so the UI hides the chart rather than showing eight greyed
-    rows that assert a run happened and needed nothing.
+    outcomes fall back to ``process_stats``.
 
     Args:
         pipeline_active: Whether a refresh run is in flight (its own flag, or
@@ -220,7 +227,23 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
 
     record = load_run(reload=False)
     if not record:
-        return []
+        # Nothing has ever run. The block still lists every worker in pipeline
+        # order — an empty panel hid the one thing that is always true (what the
+        # steps ARE and in which order they depend on each other), and left no
+        # route to the logs on a quiet system.
+        return [
+            {
+                "step": step,
+                "label": _PIPELINE_STAGE_LABELS.get(step, step),
+                "state": "idle",
+                "reason": None,
+                "is_origin": False,
+                "percent": None, "message": None, "ran_at": None,
+                "started_at": None, "ended_at": None, "queued_at": None,
+                "duration_s": None, "plan_mode": "refresh", "provisional": False,
+            }
+            for step in ["consolidate_enrichment"] + list(PIPELINE_STEPS_ORDER)
+        ]
 
     steps_plan = record.get("steps") or {}
     provisional = bool(record.get("provisional"))

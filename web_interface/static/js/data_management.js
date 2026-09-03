@@ -3498,6 +3498,26 @@ function applyRefreshCardState(data) {
     if (typeof applyRefreshRunLock === 'function') applyRefreshRunLock();
 }
 
+function _stepHelpText(step) {
+    // The (i) tooltip from this worker's card in "Rebuild Downstream Datasets",
+    // reused verbatim on its row here. Harvested from the DOM rather than
+    // copied into JS so the description lives in exactly one place and the two
+    // can never drift apart.
+    if (!step) return '';
+    const el = document.querySelector(`.card-info[data-step="${step}"]`);
+    return el ? (el.getAttribute('data-tooltip') || '') : '';
+}
+
+function _stepLogLink(step, label) {
+    // The card's View Log, doubled up on the chart row so a run can be read and
+    // opened from one place. Admin-only, exactly like the card's link; everyone
+    // else gets the empty cell so the grid keeps its columns.
+    if (!window.USER_IS_ADMIN) return '<span class="gantt-log"></span>';
+    const arg = escapeHtml(String(label).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+    return `<a class="gantt-log text-xxs view-log-link"`
+        + ` onclick="openLogModal(&#39;${step}&#39;, &#39;${arg}&#39;)">View Log</a>`;
+}
+
 function renderPipelineSteps(steps, run) {
     // The last (or running) refresh run as a timeline. One row per step in
     // dispatch order; each bar is placed by the step's start and sized by its
@@ -3526,7 +3546,8 @@ function renderPipelineSteps(steps, run) {
         return;
     }
     if (empty) empty.style.display = 'none';
-    if (legend) legend.style.display = '';
+    const allIdle = steps.every(s => s.state === 'idle');
+    if (legend) legend.style.display = allIdle ? 'none' : '';
     chart.style.display = '';
     // Who started this run and how it ended. Without it the chart silently
     // implies every run is a consolidation, which is exactly what stopped being
@@ -3596,20 +3617,36 @@ function renderPipelineSteps(steps, run) {
             title = only
                 ? 'Not requested \u2014 this run consolidated without the refresh pipeline'
                 : "Not needed \u2014 nothing in this run feeds it";
+        } else if (state === 'idle') {
+            // Nothing has ever run. The row is here so the block always lists
+            // every worker in dependency order, with a way into its log. Sits
+            // with the other bar-less states, ahead of the no-axis guard: an
+            // all-idle chart has no timing anywhere, so that guard would
+            // otherwise swallow every row.
+            bar = '<span class="gantt-msg gantt-msg--live text-xxs" style="left:0">Idle</span>';
+            title = 'No refresh run recorded yet';
         } else if (!haveAxis) {
             dur = state;
         } else if (state === 'running' && Number.isFinite(a)) {
             const left = pct(a);
             bar = `<span class="gantt-bar gantt-bar--running" style="left:${left}%;width:${Math.max(pct(now) - left, 0)}%"></span>`;
-            const detail = (s.message ? escapeHtml(s.message) : '')
-                + (s.percent != null ? ` ${Math.round(s.percent)}%` : '');
-            if (detail) bar += `<span class="gantt-msg text-xxs" style="left:calc(${pct(now)}% + 6px)">${detail}</span>`;
+            // The worker's own progress message, the same line its card shows,
+            // written from the bar's left edge — without the percentage, which
+            // the bar's own length already tells you. It may run past the end
+            // of its bar; the track clips it so it can never reach the
+            // duration column.
+            if (s.message) {
+                bar += `<span class="gantt-msg gantt-msg--live text-xxs" style="left:${left}%">`
+                    + escapeHtml(s.message) + '</span>';
+            }
             dur = `${_fmtDuration((now - a) / 1000)} …`;
             title = `Started ${fypFmtTime(a)}, running`;
         } else if (state === 'queued') {
             const from = Number.isFinite(q) ? q : (Number.isFinite(forkAt) ? forkAt : now);
             const left = pct(from);
             bar = `<span class="gantt-bar gantt-bar--queued" style="left:${left}%;width:${Math.max(pct(now) - left, 0)}%"></span>`;
+            bar += `<span class="gantt-msg gantt-msg--live text-xxs" style="left:${left}%">`
+                + escapeHtml(s.message || 'Queued…') + '</span>';
             dur = 'waiting';
             title = 'Queued — waiting for a worker';
         } else if ((state === 'success' || state === 'failed') && Number.isFinite(a) && Number.isFinite(e)) {
@@ -3626,9 +3663,20 @@ function renderPipelineSteps(steps, run) {
             dur = state === 'failed' ? 'failed' : 'pending';
         }
         const originCls = s.is_origin ? ' gantt-row--origin' : '';
-        return `<div class="gantt-row gantt-row--${state}${originCls}" title="${escapeHtml(title)}">`
-            + `<span class="gantt-label text-xs">${escapeHtml(s.label || s.step)}</span>`
-            + `<span class="gantt-track">${markers}${bar}</span>`
+        const label = s.label || s.step;
+        // The worker's own description, on its name. The row's timing title
+        // stays on the track instead of the whole row, so hovering the name
+        // shows one tooltip (what this step does) and hovering its bar the
+        // other (when it ran) — never both at once.
+        const help = _stepHelpText(s.step);
+        const labelCell = help
+            ? `<span class="gantt-label gantt-label--help meta-tooltip tooltip-wide text-xs"`
+                + ` tabindex="0" data-tooltip="${escapeHtml(help)}">${escapeHtml(label)}</span>`
+            : `<span class="gantt-label text-xs">${escapeHtml(label)}</span>`;
+        return `<div class="gantt-row gantt-row--${state}${originCls}">`
+            + _stepLogLink(s.step, label)
+            + labelCell
+            + `<span class="gantt-track" title="${escapeHtml(title)}">${markers}${bar}</span>`
             + `<span class="gantt-dur text-xs">${escapeHtml(dur)}</span>`
             + `</div>`;
     });
@@ -3637,12 +3685,22 @@ function renderPipelineSteps(steps, run) {
     if (haveAxis) {
         const spanS = spanMs / 1000;
         const step = _ganttTickStep(spanS);
+        // Both ends carry a wall-clock time — the left when the run started,
+        // the right when it finished — so the chart answers "when was this?"
+        // and not only "how long did it take?". While a run is live the right
+        // edge is "now" and moving, so no finish time is claimed.
+        const endLabel = (!anyLive && Number.isFinite(tEnd) && tEnd > t0)
+            ? `<span class="gantt-tick gantt-tick--end text-xxs" style="left:100%">${escapeHtml(fypFmtTime(tEnd))}</span>`
+            : '';
         const ticks = [`<span class="gantt-tick gantt-tick--origin text-xxs" style="left:0%">${escapeHtml(fypFmtTime(t0))}</span>`];
         for (let t = step; t <= spanS; t += step) {
+            const at = (t / spanS) * 100;
+            if (endLabel && at > 88) continue;   // don't collide with the finish time
             const label = t % 60 === 0 ? `+${t / 60} min` : `+${t} s`;
-            ticks.push(`<span class="gantt-tick text-xxs" style="left:${(t / spanS) * 100}%">${label}</span>`);
+            ticks.push(`<span class="gantt-tick text-xxs" style="left:${at}%">${label}</span>`);
         }
-        axis = `<div class="gantt-axis"><span></span><span class="gantt-axis-track">${ticks.join('')}</span><span></span></div>`;
+        if (endLabel) ticks.push(endLabel);
+        axis = `<div class="gantt-axis"><span></span><span></span><span class="gantt-axis-track">${ticks.join('')}</span><span></span></div>`;
     }
     chart.innerHTML = `<div class="gantt-body">${rows.join('')}</div>${axis}`;
 

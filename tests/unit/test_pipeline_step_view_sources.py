@@ -63,10 +63,37 @@ def _states(view):
     return {row["step"]: row["state"] for row in view}
 
 
-def test_no_run_recorded_hides_the_chart(stores, monkeypatch):
-    """Eight greyed rows would assert a run happened and needed nothing."""
+def test_no_run_recorded_still_lists_every_worker_as_idle(stores, monkeypatch):
+    """The block is a standing list of the workers, not only a run's record.
+
+    With no run ever recorded it still shows every step in dependency order —
+    that is what gives a quiet system a route into each worker's log — but the
+    rows are inert: no state to read, no timing to draw an axis from.
+    """
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
-    assert ws._build_pipeline_step_view(pipeline_active=False) == []
+    view = ws._build_pipeline_step_view(pipeline_active=False)
+
+    assert [row["step"] for row in view] == ["consolidate_enrichment"] + REAL_STEPS
+    assert {row["state"] for row in view} == {"idle"}
+    for row in view:
+        assert row["started_at"] is None
+        assert row["ended_at"] is None
+        assert row["duration_s"] is None
+        assert row["message"] is None
+        assert row["is_origin"] is False
+
+
+def test_idle_rows_are_named_without_a_verb(stores, monkeypatch):
+    """The chart lists workers by name; a column of gerunds reads as noise."""
+    monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
+    labels = {r["step"]: r["label"]
+              for r in ws._build_pipeline_step_view(pipeline_active=False)}
+
+    assert labels["embeddings_refresh"] == "Semantic embeddings"
+    assert labels["video_map_refresh"] == "Semantic map"
+    assert labels["recode_refresh_studies"] == "Study definitions"
+    for label in labels.values():
+        assert not label.startswith(("Refreshing", "Rebuilding", "Consolidating"))
 
 
 def test_plan_is_pending_until_the_origin_finishes(stores, monkeypatch):

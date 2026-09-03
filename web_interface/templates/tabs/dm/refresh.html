@@ -1,10 +1,14 @@
 <!-- Dataset Assembly sub-page -->
 
 {# The (i) affordance next to a card title. One argument feeds both the visual
-   tooltip and the accessible name, so the two can never drift apart. #}
-{% macro card_info(text) -%}
+   tooltip and the accessible name, so the two can never drift apart. Passing a
+   step name stamps data-step, which is how the Refresh Pipeline chart finds the
+   text to put on that worker's row — harvested from this element rather than
+   copied, so the two can never disagree. #}
+{% macro card_info(text, step='') -%}
 <span class="card-info meta-tooltip tooltip-wide" tabindex="0" role="note"
-    aria-label="{{ text }}" data-tooltip="{{ text }}">&#9432;</span>
+    {% if step %}data-step="{{ step }}" {% endif %}aria-label="{{ text }}"
+    data-tooltip="{{ text }}">&#9432;</span>
 {%- endmacro %}
 
 <h2 style="margin: 0 0 16px 0;">Dataset Assembly</h2>
@@ -13,7 +17,7 @@
      datasets and (optionally) refreshes all affected caches. -->
 <div style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); margin-bottom: 20px;">
     <div class="font-bold" style="margin-bottom: 10px;">Consolidate Scrape and Annotation Data{{ card_info(
-        "Folds newly scraped and newly annotated items into the consolidated datasets every study reads: the scrape and machine-annotation tables plus the per-item enrichment status. It then reports its impact — how many items changed, and which collections and studies they belong to. With \"Refresh caches afterwards\" ticked it goes on to run the downstream pipeline (below) for exactly those studies and collections; each step is skipped when nothing it owns changed.") }}</div>
+        "Folds newly scraped and newly annotated items into the consolidated datasets every study reads: the scrape and machine-annotation tables plus the per-item enrichment status. It then reports its impact — how many items changed, and which collections and studies they belong to. With \"Refresh caches afterwards\" ticked it goes on to run the downstream pipeline (below) for exactly those studies and collections; each step is skipped when nothing it owns changed.", 'consolidate_enrichment') }}</div>
     <div class="controls" style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;">
         <span style="display: flex; align-items: center; gap: 6px;">
             <span id="consolidate_enrichment-status" class="status-indicator status-stopped"></span>
@@ -71,16 +75,15 @@
         Planned steps. As the run learns what actually changed, the steps it does not need are greyed out with the reason.
     </div>
     <div id="pipeline-gantt-empty" class="text-xs" style="color: var(--color-text-tertiary);">
-        No refresh run recorded yet. Start any step below — or Consolidate with “Refresh caches afterwards” ticked — and the run is charted here.
+        Loading the refresh pipeline…
     </div>
     <div id="pipeline-gantt" class="pipeline-gantt" style="display: none;"></div>
     <div id="pipeline-gantt-legend" class="text-xxs" style="display: none; margin-top: 8px; color: var(--color-text-tertiary);">
         <span class="gantt-key gantt-key--success"></span> finished &nbsp;
-        <span class="gantt-key gantt-key--running"></span> running (grows to now) &nbsp;
+        <span class="gantt-key gantt-key--running"></span> running &nbsp;
         <span class="gantt-key gantt-key--queued"></span> queued, waiting for a worker &nbsp;
         <span class="gantt-key gantt-key--failed"></span> failed &nbsp;
-        <span class="gantt-key gantt-key--unplanned"></span> not needed / not in this run &nbsp;
-        <span class="gantt-key gantt-key--fork"></span> the run fans out here
+        <span class="gantt-key gantt-key--unplanned"></span> not needed / not in this run
     </div>
 </div>
 
@@ -97,7 +100,7 @@
     <!-- 1. Semantic Embeddings -->
     <div class="refresh-card">
         <div class="font-bold" style="margin-bottom: 10px;">Semantic Embeddings{{ card_info(
-            "Turns each newly annotated video's text into a dense vector with the active embedding backend and appends it to the embedding store — the corpus the semantic map and the Sessions tab are both built from. Only videos that are not embedded yet are processed, in batches, so repeat runs are cheap. Runs automatically as part of the Consolidate refresh pipeline; refresh here to top up on demand.") }}
+            "Turns each newly annotated video's text into a dense vector with the active embedding backend and appends it to the embedding store — the corpus the semantic map and the Sessions tab are both built from. Only videos that are not embedded yet are processed, in batches, so repeat runs are cheap. Runs automatically as part of the Consolidate refresh pipeline; refresh here to top up on demand.", 'embeddings_refresh') }}
             <span id="embeddings_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
         </div>
         <div class="controls"
@@ -121,7 +124,7 @@
     <!-- 2. Semantic Map -->
     <div class="refresh-card">
         <div class="font-bold" style="margin-bottom: 10px;">Semantic Map{{ card_info(
-            "Rebuilds the Semantic Space map from the embedding store: clusters the vectors into niches, names them, and lays them out in 2D. The niche columns it writes are joined into every study dataset and every timeline, so a rebuild that actually moves videos between niches is followed by a study, timeline and session refresh — and one that moves none is followed by nothing, which the chart above states. Runs automatically after a consolidation in preserve-labels mode, so new videos get niches; niche names stay stable, but the 2D layout still reshuffles each rebuild. Tick \"Reset all labels\" to regenerate every niche name from scratch instead of preserving stable ones.") }}
+            "Rebuilds the Semantic Space map from the embedding store: clusters the vectors into niches, names them, and lays them out in 2D. The niche columns it writes are joined into every study dataset and every timeline, so a rebuild that actually moves videos between niches is followed by a study, timeline and session refresh — and one that moves none is followed by nothing, which the chart above states. Runs automatically after a consolidation in preserve-labels mode, so new videos get niches; niche names stay stable, but the 2D layout still reshuffles each rebuild. Tick \"Reset all labels\" to regenerate every niche name from scratch instead of preserving stable ones.", 'video_map_refresh') }}
             <span id="video_map_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
         </div>
         <div class="controls"
@@ -149,7 +152,7 @@
     <!-- 3. Study Definitions -->
     <div class="refresh-card">
         <div class="font-bold" style="margin-bottom: 10px;">Study Definitions{{ card_info(
-            "Rebuilds each study's dataset from its saved definition: the selected collections' activity within the study's date window, merged with scrape and annotation enrichment and the current niche columns, then recoded into analysis variables. It also recomputes the study's headline counts and rewrites its methods note. Everything else study-level is built from this file, so it runs before Explore metadata, Correlations and Timelines. The button here forces a full rebuild rather than reusing the cached dataset.") }}
+            "Rebuilds each study's dataset from its saved definition: the selected collections' activity within the study's date window, merged with scrape and annotation enrichment and the current niche columns, then recoded into analysis variables. It also recomputes the study's headline counts and rewrites its methods note. Everything else study-level is built from this file, so it runs before Explore metadata, Correlations and Timelines. The button here forces a full rebuild rather than reusing the cached dataset.", 'recode_refresh_studies') }}
             <span id="recode_refresh_studies-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
         </div>
         <div class="controls"
@@ -174,7 +177,7 @@
     <!-- 4. 'Explore' Metadata (parallel with 5-7) -->
     <div class="refresh-card">
         <div class="font-bold" style="margin-bottom: 10px;">'Explore' Metadata{{ card_info(
-            "Rebuilds each study's Explore metadata: the variable catalogue, the filter value lists and the distribution statistics that the Explore and Video Analysis tabs read. It reads the study's recoded dataset, so refresh Study Definitions first if the underlying rows changed. Run this when a study's filters or variable lists look stale.") }}
+            "Rebuilds each study's Explore metadata: the variable catalogue, the filter value lists and the distribution statistics that the Explore and Video Analysis tabs read. It reads the study's recoded dataset, so refresh Study Definitions first if the underlying rows changed. Run this when a study's filters or variable lists look stale.", 'meta_refresh_groups') }}
             <span id="meta_refresh_groups-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
         </div>
         <div class="controls"
@@ -198,7 +201,7 @@
     <!-- 5. Correlations (PCA) -->
     <div class="refresh-card">
         <div class="font-bold" style="margin-bottom: 10px;">Correlations{{ card_info(
-            "Recomputes what the Correlations tab shows for each study: the PCA scores that place videos in a reduced variable space, and the group-difference statistics (effect sizes and significance tests) compared across the study's groups. Reads the study's recoded dataset, so refresh Study Definitions first if the underlying rows changed.") }}
+            "Recomputes what the Correlations tab shows for each study: the PCA scores that place videos in a reduced variable space, and the group-difference statistics (effect sizes and significance tests) compared across the study's groups. Reads the study's recoded dataset, so refresh Study Definitions first if the underlying rows changed.", 'pca_refresh') }}
             <span id="pca_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
         </div>
         <div class="controls"
@@ -222,7 +225,7 @@
     <!-- 6. Timelines -->
     <div class="refresh-card">
         <div class="font-bold" style="margin-bottom: 10px;">Timelines{{ card_info(
-            "Recomputes the per-collection timeline caches behind the Timelines tab — each collection's activity aggregated per day and week for the timeline variables — and the analysis layered on top: trend lines, anomalous days, structural breaks and volatility. Collections with too few active days are skipped. Runs in batches of 30 collections, chaining one batch per task.") }}
+            "Recomputes the per-collection timeline caches behind the Timelines tab — each collection's activity aggregated per day and week for the timeline variables — and the analysis layered on top: trend lines, anomalous days, structural breaks and volatility. Collections with too few active days are skipped. Runs in batches of 30 collections, chaining one batch per task.", 'timelines_refresh') }}
             <span id="timelines_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
         </div>
         <div class="controls"
@@ -246,7 +249,7 @@
     <!-- 7. Sessions -->
     <div class="refresh-card">
         <div class="font-bold" style="margin-bottom: 10px;">Sessions{{ card_info(
-            "Rebuilds the Sessions tab's session index and focus-episode tables from the embedding store, covering each collection within its studies' date windows — collections in no study are not built at all. By default only collections whose study windows or in-window data changed are re-segmented; tick \"Force full rebuild\" to re-segment everything. Also runs automatically after a study save and as the last step of the Consolidate refresh pipeline.") }}
+            "Rebuilds the Sessions tab's session index and focus-episode tables from the embedding store, covering each collection within its studies' date windows — collections in no study are not built at all. By default only collections whose study windows or in-window data changed are re-segmented; tick \"Force full rebuild\" to re-segment everything. Also runs automatically after a study save and as the last step of the Consolidate refresh pipeline.", 'sessions_refresh') }}
             <span id="sessions_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
         </div>
         <div class="controls"
