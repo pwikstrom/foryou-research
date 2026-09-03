@@ -251,14 +251,20 @@
         realDataPending: {{ user.settings.get('hub_tour_real_data_pending', false) | tojson }}
     };
 </script>
-<script src="{{ url_for('static', filename='main.js') }}?v=20"></script>
+<script>
+    // The refresh pipeline's dependency graph, server-rendered so the page and
+    // the planner can never disagree about the step order or the labels. Single
+    // source: web_interface/services/refresh_pipeline.
+    window.PIPELINE_REGISTRY = {{ pipeline_registry | tojson }};
+</script>
+<script src="{{ url_for('static', filename='main.js') }}?v=21"></script>
 <script src="{{ url_for('static', filename='js/variable_prefs.js') }}"></script>
 <script src="{{ url_for('static', filename='study_state.js') }}?v=6"></script>
 <script src="{{ url_for('static', filename='filter_value_search.js') }}?v=1"></script>
 <script src="{{ url_for('static', filename='explore.js') }}?v=15"></script>
 <script src="{{ url_for('static', filename='video_analysis.js') }}?v=13"></script>
 <script src="{{ url_for('static', filename='correlations.js') }}?v=5"></script>
-<script src="{{ url_for('static', filename='semantic_space.js') }}?v=10"></script>
+<script src="{{ url_for('static', filename='semantic_space.js') }}?v=11"></script>
 <script src="{{ url_for('static', filename='sessions.js') }}?v=16"></script>
 <script src="{{ url_for('static', filename='timelines.js') }}?v=6"></script>
 {% if user.can_access('tab.my_stuff.my_collections') or user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
@@ -278,6 +284,6 @@
    actually see, so any role may take it. #}
 <script src="{{ url_for('static', filename='js/hub_tour.js') }}?v=3"></script>
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
-<script src="{{ url_for('static', filename='js/data_management.js') }}?v=47"></script>
+<script src="{{ url_for('static', filename='js/data_management.js') }}?v=48"></script>
 {% endif %}
 {% endblock %}

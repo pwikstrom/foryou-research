@@ -54,7 +54,20 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
     total = len(studies)
     if total == 0:
         reporter.log("No studies found to refresh.")
+        # An explicit empty list, not a missing signal: nothing was rebuilt, so
+        # the metadata and correlation refreshes that read these datasets have
+        # nothing to do either.
+        reporter.emit_data({"studies_changed": [], "studies_unchanged": [],
+                            "studies_failed": []})
         return
+
+    # Which studies this run actually rebuilt. create_study_recoded_dataset
+    # decides per study by fingerprint, so a run over 40 studies can legitimately
+    # rewrite none of them; the pipeline uses these lists to scope (or skip) the
+    # explore-metadata and correlations refreshes that follow.
+    studies_changed: list[str] = []
+    studies_unchanged: list[str] = []
+    studies_failed: list[str] = []
 
     # Pre-load enrichment status once for all studies
     _t_phase = time.perf_counter()
@@ -93,6 +106,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
 
                 if df_study is None:
                     reporter.log(f"Skipping {study_name}: No data generated.")
+                    studies_unchanged.append(study_name)
                     studies[study_name]['stats'] = {
                         "total_activities": 0,
                         "unique_videos": 0,
@@ -106,10 +120,13 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
                 else:
                     refresh_action = df_study.attrs.get("refresh_action", "full_rebuild")
                     if refresh_action == "short_circuit":
+                        studies_unchanged.append(study_name)
                         reporter.log(f"  Short-circuit for {study_name}: cached parquet reused ({len(df_study)} rows)")
                     elif refresh_action == "enrichment_patch":
+                        studies_changed.append(study_name)
                         reporter.log(f"  Enrichment patch for {study_name}: re-merged enrichment onto cached activity ({len(df_study)} rows)")
                     else:
+                        studies_changed.append(study_name)
                         reporter.log(f"  Successfully refreshed data for {study_name} ({len(df_study)} rows)")
 
                     # Same stats definition (and full key set, incl. total_activities)
@@ -133,6 +150,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
                     )
 
             except Exception as e:
+                studies_failed.append(study_name)
                 reporter.log(f"Error processing {study_name}: {e}")
 
             _t_study = time.perf_counter() - _t_study_start
@@ -165,6 +183,13 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
         except Exception as exc:
             reporter.log(f"Participant-study reconciliation failed (sweep unaffected): {exc}")
 
+    reporter.emit_data({"studies_changed": studies_changed,
+                        "studies_unchanged": studies_unchanged,
+                        "studies_failed": studies_failed})
+    reporter.log(
+        f"Study datasets: {len(studies_changed)} rebuilt, "
+        f"{len(studies_unchanged)} already current, {len(studies_failed)} failed."
+    )
     reporter.log(f"[TIMING] recode_refresh_studies wall={_t_run:.2f}s studies={total}")
     reporter.log("Study Definitions (Recoded Data) refresh completed.")
 

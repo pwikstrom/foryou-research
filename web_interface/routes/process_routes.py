@@ -25,6 +25,7 @@ from fyp.fyp_config import (
 )
 
 from ..permissions import user_has_permission
+from ..services import refresh_pipeline
 from ..process_manager import (
     CLOUD_TASK_ELIGIBLE,
     SCRAPER_PROCESS_NAMES,
@@ -141,6 +142,22 @@ def api_start(name):
         if not embed_ok:
             return jsonify({"status": "error", "message": embed_reason}), 400
 
+    # One refresh run at a time. Two runs would interleave writes to the same
+    # caches — and the second would plan against inputs the first is still
+    # rewriting. The cards grey out while a run is in flight; this is the
+    # server-side half of that, and a distinct code from the 409 that means
+    # "this worker is already running" so the client explains rather than
+    # offering to stop and retry.
+    if name in refresh_pipeline.STEP_ORDER and refresh_pipeline.run_in_flight():
+        run = refresh_pipeline.load_run() or {}
+        origin = run.get("origin_label") or run.get("origin") or "another step"
+        return jsonify({
+            "status": "busy",
+            "message": (f"A refresh run started from {origin} is still in "
+                        f"progress. Wait for it to finish before starting "
+                        f"another step."),
+        }), 423
+
     data = request.json or {}
     args = []
     
@@ -189,12 +206,19 @@ def api_start(name):
     if name == "recode_refresh_studies" and data.get("force_full_rebuild"):
         args.append("--force")
 
-    if name == "video_map_refresh":
-        # A map rebuild remaps every video's niche, so default to refreshing all
-        # study caches afterwards (the new niches must reach the analysis tabs).
-        # Callers can opt out with {"auto_refresh": false}.
-        if data.get("auto_refresh", True):
+    if name == "consolidate_enrichment":
+        # The Consolidate card posts to its own endpoint; this is the plain-API
+        # door. Honour the same flag so both agree: without it the consolidation
+        # records its impact as deferred debt and nothing downstream runs.
+        if data.get("force_consolidation") or data.get("force"):
+            args.append("--force-consolidation")
+        if data.get("auto_refresh"):
             args.append("--auto-refresh")
+
+    if name == "video_map_refresh":
+        # No --auto-refresh here any more: what a rebuilt map makes stale is the
+        # refresh pipeline's decision, and it is made from what the rebuild
+        # reports (how many videos actually changed niche) rather than assumed.
         if data.get("reset_labels"):
             args.append("--reset-labels")
         for flag, key in (
@@ -221,8 +245,34 @@ def api_start(name):
         "sessions_refresh": SESSIONS_REFRESH_SCRIPT,
     }
     
+    # Plan the run before starting the origin, so the chart can show what is
+    # coming from the first poll instead of appearing only once the first
+    # dependent has been dispatched.
+    started_by = getattr(current_user, "username", "")
+    run_task_args = None
+    record = None
+    if name in refresh_pipeline.STEP_ORDER:
+        # A consolidation only cascades when the caller asked it to; every other
+        # step's whole purpose is to feed the ones below it.
+        mode = ("refresh" if name != "consolidate_enrichment" or data.get("auto_refresh")
+                else "consolidate_only")
+        record = refresh_pipeline.plan_run(
+            name, kind="card", started_by=started_by, mode=mode,
+            origin_task_args=dict(data), provisional=True)
+        refresh_pipeline.seed_run(record)
+        run_task_args = {
+            "pipeline_run_id": record["run_id"],
+            "pipeline_stage_index": 1,
+            "pipeline_stage_total": record["stage_total"],
+        }
+
     success, msg = start_process(name, script_map[name], args, study_name=study_name,
-                                 started_by=getattr(current_user, "username", ""))
+                                 started_by=started_by,
+                                 extra_task_args=run_task_args)
+    if not success and record is not None:
+        # Nothing started, so nothing will ever finish this run — leaving the
+        # record in flight would lock every card until the stale-flag sweep.
+        refresh_pipeline.clear_run()
     if success:
         activity_log.record(
             actor=getattr(current_user, "username", ""),
@@ -707,7 +757,7 @@ def _pipeline_actor(task_args: dict, parent: str) -> str:
     origin = (task_args.get("started_by") or "").strip()
     if not origin:
         return f"auto-pipeline (after {parent})"
-    if "(via " in origin:
+    if "(via " in origin or origin.startswith("auto-pipeline"):
         return origin  # already traced; don't nest the annotation
     return f"{origin} (via {parent})"
 
@@ -911,6 +961,7 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
     # True once a cross-task chain has been dispatched (the dispatch IS this
     # step's hand-off, so the pipeline-advance block below must not also fire).
     dispatched_cross_task = False
+    cancelled = False
 
     # Tee the fyp package's own narration into the run log. On Cloud Run the
     # task runner is nobody's subprocess, so without this the UI showed only
@@ -935,11 +986,12 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
         chain_result = task_func(reporter=reporter, task_args=task_args)
 
         if isinstance(chain_result, dict) and chain_result.get("chain"):
-            # Dispatch next Cloud Task in the chain. ``next_task`` (if
-            # provided) switches to a different task type — used by the
-            # consolidate → downstream-refresh pipeline. Same-task chains
-            # (scraper/annotator batching) inherit the current task name
-            # and status key.
+            # Dispatch next Cloud Task in the chain. ``next_task`` (if provided)
+            # switches to a different task type; same-task chains (scraper /
+            # annotator / embeddings batching) inherit the current task name and
+            # status key. A worker that names its own successor has done the
+            # hand-off itself, so the refresh run must not also advance —
+            # ``dispatched_cross_task`` is what says so below.
             next_task_name = chain_result.get("next_task") or name
             next_args = chain_result["next_task_args"]
             # A worker may name its own chain deadline; otherwise fall back to
@@ -979,10 +1031,10 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
                 # log_run_id and started_by ride along too, so every batch of a
                 # self-chaining scraper or annotator appends to one continuous
                 # run instead of starting a fresh, unattributed log per link.
-                for k in ("pipeline_remaining", "pipeline_stage_total",
-                          "pipeline_stage_index", "pipeline_fanout",
-                          "pipeline_leaves", "pipeline_fork_ts",
-                          "log_run_id", "started_by"):
+                for k in ("pipeline_run_id", "pipeline_remaining",
+                          "pipeline_stage_total", "pipeline_stage_index",
+                          "pipeline_fanout", "pipeline_leaves",
+                          "pipeline_fork_ts", "log_run_id", "started_by"):
                     if k in task_args and k not in next_args:
                         next_args[k] = task_args[k]
                 success, msg = _dispatch_cloud_task(
@@ -1017,6 +1069,11 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
                 # continues (on success) or the failure is recorded above.
                 return success
         else:
+            # Read the cancel sentinel BEFORE complete() clears it. Every worker
+            # returns None after a cancellation, which is indistinguishable from
+            # an ordinary finish once the flag is gone — and a cancelled step
+            # must stop the run, not advance it onto stale inputs.
+            cancelled = reporter.check_cancelled()
             reporter.complete()
             outcome = "Success"
     except Exception as e:
@@ -1052,125 +1109,12 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
         duration=duration, study_name=study_name)
     save_process_stats()
 
-    # ---- Pipeline advance. The downstream pipeline is an out-tree: a linear
-    # spine (consolidate → embeddings → video_map → recode) that fans out at
-    # recode into the independent terminal leaves (meta ‖ pca ‖ timelines). So:
-    #   - a spine step advances the single next spine step (pipeline_remaining);
-    #   - the recode step fans out to every leaf at once (pipeline_fanout);
-    #   - a leaf checks whether it is the last leaf to finish (the barrier) and,
-    #     if so, writes the summary;
-    #   - a non-leaf failure aborts the pipeline; a leaf failure does not abort
-    #     its (independent, already-dispatched) siblings.
-    pipeline_remaining = task_args.get("pipeline_remaining") or []
-    pipeline_fanout = task_args.get("pipeline_fanout") or []
-    pipeline_leaves = task_args.get("pipeline_leaves") or []
-    is_leaf = name in pipeline_leaves
-
-    if is_leaf:
-        # Terminal leaf (success OR failure): the forked pipeline is finished
-        # once every leaf is in a terminal state. This leaf has already written
-        # its own terminal status (complete()/fail() above), so the barrier only
-        # reads its siblings' own status files — no shared mutable counter, so no
-        # lost-update race on process_stats.json.
-        _maybe_finish_forked_pipeline(
-            pipeline_leaves, fork_ts=task_args.get("pipeline_fork_ts")
-        )
-    elif outcome == "Success" and not dispatched_cross_task:
-        if pipeline_remaining:
-            next_step = pipeline_remaining[0]
-            next_remaining = pipeline_remaining[1:]
-            next_name = next_step["task"]
-            next_args = dict(next_step.get("task_args") or {})
-            next_args["pipeline_remaining"] = next_remaining
-            next_args["pipeline_stage_total"] = pipeline_stage_total
-            next_args["pipeline_stage_index"] = (
-                int(pipeline_stage_index or 1) + 1 if pipeline_stage_index is not None else None
-            )
-            next_args["started_by"] = _pipeline_actor(task_args, name)
-            next_args["log_run_id"] = run_logs.new_run_id()
-
-            success, msg = _dispatch_cloud_task(
-                next_name, next_args,
-                dispatch_deadline_seconds=dispatch_deadline_for(next_name, next_args))
-            if success:
-                print(f"[{name}] Pipeline: advanced to {next_name}: {msg}")
-                run_logs.open_run(next_name, run_id=next_args["log_run_id"],
-                                  started_by=next_args["started_by"],
-                                  task_args=next_args, mode="cloud")
-                _set_pipeline_in_flight(True)
-            else:
-                print(f"[{name}] Pipeline advance to {next_name} failed: {msg}")
-                _set_pipeline_in_flight(False)
-                _write_pipeline_summary_cloud(partial=True, failed_at=next_name)
-        elif pipeline_fanout:
-            # Fork point (recode): dispatch every terminal leaf concurrently.
-            # The leaves are mutually independent (distinct readers, distinct
-            # outputs), so no join is needed for dispatch — only the leaf
-            # barrier, below, to detect when the whole fan-out has finished. A
-            # single fork timestamp lets each leaf ignore a sibling's stale
-            # "completed" status left over from a previous pipeline run.
-            fork_ts = datetime.now(UTC).isoformat()
-            leaf_stage_index = (
-                int(pipeline_stage_index or 1) + 1 if pipeline_stage_index is not None else None
-            )
-            leaf_stage = {
-                "stage_index": leaf_stage_index,
-                "stage_total": pipeline_stage_total,
-            }
-            any_dispatch_failed = False
-            for child in pipeline_fanout:
-                child_name = child["task"]
-                child_args = dict(child.get("task_args") or {})
-                child_args["pipeline_leaves"] = pipeline_leaves
-                child_args["pipeline_fork_ts"] = fork_ts
-                child_args["pipeline_stage_total"] = pipeline_stage_total
-                child_args["pipeline_stage_index"] = leaf_stage_index
-                child_args["started_by"] = _pipeline_actor(task_args, name)
-                child_args["log_run_id"] = run_logs.new_run_id()
-                # Stamp the leaf "queued" BEFORE dispatching so its card shows a
-                # definitive this-run status (not a stale one from a previous
-                # run). When the task actually boots it overwrites this with
-                # "running"; if it is dropped (429, no retry) it stays "queued"
-                # and the grace check below flips it to "failed".
-                stamp_task_status(
-                    child_name, "queued", "Queued — waiting for a worker…",
-                    stage=leaf_stage,
-                )
-                success, msg = _dispatch_cloud_task(
-                    child_name, child_args,
-                    dispatch_deadline_seconds=dispatch_deadline_for(child_name, child_args))
-                if success:
-                    print(f"[{name}] Pipeline: forked {child_name}: {msg}")
-                    run_logs.open_run(child_name, run_id=child_args["log_run_id"],
-                                      started_by=child_args["started_by"],
-                                      task_args=child_args, mode="cloud")
-                else:
-                    print(f"[{name}] Pipeline fork of {child_name} failed: {msg}")
-                    stamp_task_status(
-                        child_name, "failed",
-                        "Couldn't start — the task could not be queued for a worker.",
-                        error=f"Dispatch failed: {msg}", stage=leaf_stage,
-                    )
-                    any_dispatch_failed = True
-            # Record the fork so the completion barrier and the status-poll
-            # backstop can detect a leaf that was dispatched but never started.
-            _record_pipeline_fork(pipeline_leaves, fork_ts)
-            if any_dispatch_failed:
-                _set_pipeline_in_flight(False)
-                _write_pipeline_summary_cloud(partial=True, failed_at=name)
-            else:
-                _set_pipeline_in_flight(True)
-        elif pipeline_stage_index is not None:
-            # Final step of a fully-linear pipeline (no fan-out) and it succeeded.
-            _set_pipeline_in_flight(False)
-            _write_pipeline_summary_cloud(partial=False)
-    elif outcome != "Success":
-        # A spine step (non-leaf) failed → abort the pipeline. (A leaf failure is
-        # handled by the barrier above, which must not abort independent siblings.)
-        if pipeline_remaining or pipeline_fanout or pipeline_stage_index is not None:
-            print(f"[{name}] Step failed; aborting pipeline.")
-            _set_pipeline_in_flight(False)
-            _write_pipeline_summary_cloud(partial=True, failed_at=name)
+    # ---- Refresh-run advance. Every finished step asks the planner what, if
+    # anything, depends on what it just produced. See services/refresh_pipeline.
+    # Skipped when the worker dispatched its own successor: that hand-off has
+    # already happened, and advancing too would run the next step twice.
+    if not dispatched_cross_task:
+        _advance_refresh_run(name, task_args, outcome, cancelled)
 
     # Server-side auto-fire of an armed Consolidate & Refresh. Arming promises
     # the pipeline runs once the enrichment queues finish, but the original
@@ -1189,9 +1133,8 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
         # save_process_stats() above — and not inside the task, so the tick's
         # _unconsolidated() check reads the fresh last_consolidation instead of
         # re-firing a full no-op consolidation against the stale one (the
-        # observed double-run). Chain runs (auto_refresh) early-return before
-        # this block and tick in-task instead; no armed-autofire check here —
-        # firing an armed consolidate off a consolidate completion would loop.
+        # observed double-run). No armed-autofire check here — firing an armed
+        # consolidate off a consolidate completion would loop.
         _tick_enrichment_supervisor(name)
 
     return outcome == "Success"
@@ -1279,15 +1222,27 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
     if auto_refresh:
         task_args["auto_refresh"] = True
 
+    # Plan the run before dispatching, exactly as the button does, so an armed
+    # refresh that fires while nobody is watching is charted like any other.
+    record = refresh_pipeline.plan_run(
+        "consolidate_enrichment", kind="armed",
+        started_by=f"auto-pipeline (armed, after {just_finished})",
+        mode="refresh" if auto_refresh else "consolidate_only",
+        origin_task_args=task_args, provisional=bool(auto_refresh))
+    refresh_pipeline.seed_run(record)
+    task_args["pipeline_run_id"] = record["run_id"]
+    task_args["pipeline_stage_index"] = 1
+    task_args["pipeline_stage_total"] = record["stage_total"]
+
     success, msg = _dispatch_cloud_task(
         "consolidate_enrichment", task_args,
         dispatch_deadline_seconds=dispatch_deadline_for("consolidate_enrichment", task_args))
     if success:
         print(f"[{just_finished}] Armed Consolidate & Refresh fired: {msg}")
-        _set_pipeline_in_flight(True)
         return True
     else:
         print(f"[{just_finished}] Armed consolidate dispatch failed: {msg}")
+        refresh_pipeline.clear_run()
         # Re-arm so the other finisher or a manual trigger can retry.
         load_process_stats()
         entry = process_stats.get("consolidate_enrichment", {})
@@ -1324,28 +1279,207 @@ def _tick_enrichment_supervisor(just_finished: str) -> None:
         print(f"[{just_finished}] Enrichment supervisor tick skipped: {exc}")
 
 
-def _record_pipeline_fork(leaves: list[str], fork_ts: str) -> None:
-    """Persist the active fan-out so the status-poll backstop can resolve it.
+def _advance_refresh_run(name: str, task_args: dict, outcome: str,
+                         cancelled: bool = False) -> None:
+    """Move the refresh run forward now that ``name`` has finished.
 
-    Stored on the consolidate_enrichment stats entry as ``pipeline_fork`` =
-    ``{"leaves": [...], "fork_ts": "..."}``. Cleared by the barrier when the
-    fan-out finishes (see :func:`_maybe_finish_forked_pipeline`).
+    The run's shape is planned when it starts; this decides, one completion at a
+    time, which of the remaining steps still have anything to do. A step whose
+    upstream reports no change is pruned with the reason shown in the chart
+    rather than dispatched — that is the whole point of planning a run rather
+    than hard-wiring a chain.
+
+    Dispatch is an out-tree: the first spine step that still has work runs
+    alone (it can change what the later steps see), and when no spine step is
+    left every remaining leaf fans out together. The fan-out's completion is
+    detected by :func:`_maybe_finish_forked_pipeline`, which reads each leaf's
+    own status file rather than a shared counter.
+
+    Args:
+        name: The step that just finished.
+        task_args: Its arguments — ``pipeline_run_id`` is what ties it to a run.
+        outcome: ``"Success"`` or ``"Fail"``.
+        cancelled: The operator cancelled this step.
     """
+    from ..process_manager import _dispatch_cloud_task
+
+    run_id = task_args.get("pipeline_run_id")
+    leaves = task_args.get("pipeline_leaves") or []
+
+    if not run_id:
+        # A chain that predates the run record: the sessions refresh a study
+        # save appends, or a task queued before this deploy. Advance it exactly
+        # as before and leave the run record alone — it is not part of a run,
+        # and the chart correctly shows it as foreign work.
+        _advance_legacy_chain(name, task_args, outcome)
+        return
+
+    if name in leaves:
+        _maybe_finish_forked_pipeline(
+            leaves, fork_ts=task_args.get("pipeline_fork_ts"), run_id=run_id)
+        return
+
+    if cancelled:
+        print(f"[{name}] Refresh run {run_id}: cancelled; stopping the run.")
+        record = refresh_pipeline.finish_run(partial=True, failed_at=name,
+                                             reason="cancelled", run_id=run_id)
+        _publish_run_summary(record)
+        return
+
+    if outcome != "Success":
+        print(f"[{name}] Refresh run {run_id}: step failed; stopping the run.")
+        record = refresh_pipeline.finish_run(partial=True, failed_at=name,
+                                             run_id=run_id)
+        _publish_run_summary(record)
+        return
+
+    record = refresh_pipeline.load_run()
+    if not record or record.get("run_id") != run_id:
+        print(f"[{name}] Refresh run {run_id} is no longer the current run "
+              f"({(record or {}).get('run_id')}); not advancing.")
+        return
+
+    action = refresh_pipeline.next_actions(record)  # prunes applied to the copy
+    prunes = action["prunes"]
+    for step, reason in prunes.items():
+        print(f"[{name}] Refresh run: skipping {step} — {reason}.")
+
+    if action["action"] == "finish":
+        record = refresh_pipeline.finish_run(partial=False, prunes=prunes,
+                                             run_id=run_id)
+        _publish_run_summary(record)
+        print(f"[{name}] Refresh run finished: {(record or {}).get('summary')}")
+        return
+
+    stage_total = refresh_pipeline.stage_total(record["steps"])
+    stage_index = refresh_pipeline.next_stage_index(record["steps"])
+    actor = _pipeline_actor(task_args, name)
+
+    def _child_args(step: str, step_args: dict) -> dict:
+        args = dict(step_args or {})
+        args["pipeline_run_id"] = run_id
+        args["pipeline_stage_total"] = stage_total
+        args["pipeline_stage_index"] = stage_index
+        args["started_by"] = actor
+        args["log_run_id"] = run_logs.new_run_id()
+        return args
+
+    if action["action"] == "spine":
+        next_name = action["step"]
+        next_args = _child_args(next_name, action["task_args"])
+        success, msg = _dispatch_cloud_task(
+            next_name, next_args,
+            dispatch_deadline_seconds=dispatch_deadline_for(next_name, next_args))
+        if success:
+            print(f"[{name}] Refresh run: advanced to {next_name}: {msg}")
+            run_logs.open_run(next_name, run_id=next_args["log_run_id"],
+                              started_by=actor, task_args=next_args, mode="cloud")
+            refresh_pipeline.record_dispatch(run_id, {next_name: {}}, prunes=prunes)
+        else:
+            print(f"[{name}] Refresh run: advance to {next_name} failed: {msg}")
+            record = refresh_pipeline.finish_run(partial=True, failed_at=next_name,
+                                                 prunes=prunes, run_id=run_id)
+            _publish_run_summary(record)
+        return
+
+    # Fan-out: the remaining leaves are mutually independent (distinct readers,
+    # distinct outputs), so they are dispatched together and only their
+    # completion needs detecting. One fork timestamp lets each leaf ignore a
+    # sibling's stale terminal status from an earlier run.
+    fork_ts = datetime.now(UTC).isoformat()
+    leaf_names = [leaf for leaf, _ in action["leaves"]]
+    leaf_stage = {"stage_index": stage_index, "stage_total": stage_total}
+    dispatched: dict[str, dict] = {}
+    any_failed = False
+    for leaf, leaf_args in action["leaves"]:
+        child_args = _child_args(leaf, leaf_args)
+        child_args["pipeline_leaves"] = leaf_names
+        child_args["pipeline_fork_ts"] = fork_ts
+        # Stamp "queued" BEFORE dispatch so the card shows a definitive
+        # this-run status rather than a stale one. A booting task overwrites it
+        # with "running"; a dropped one stays queued and the grace check below
+        # flips it to failed.
+        stamp_task_status(leaf, "queued", "Queued — waiting for a worker…",
+                          stage=leaf_stage)
+        success, msg = _dispatch_cloud_task(
+            leaf, child_args,
+            dispatch_deadline_seconds=dispatch_deadline_for(leaf, child_args))
+        if success:
+            print(f"[{name}] Refresh run: forked {leaf}: {msg}")
+            run_logs.open_run(leaf, run_id=child_args["log_run_id"],
+                              started_by=actor, task_args=child_args, mode="cloud")
+            dispatched[leaf] = {}
+        else:
+            print(f"[{name}] Refresh run: fork of {leaf} failed: {msg}")
+            stamp_task_status(
+                leaf, "failed",
+                "Couldn't start — the task could not be queued for a worker.",
+                error=f"Dispatch failed: {msg}", stage=leaf_stage)
+            any_failed = True
+
+    refresh_pipeline.record_dispatch(
+        run_id, dispatched, prunes=prunes, fork_at=name,
+        fork={"leaves": leaf_names, "fork_ts": fork_ts})
+    if any_failed:
+        record = refresh_pipeline.finish_run(partial=True, failed_at=name,
+                                             run_id=run_id)
+        _publish_run_summary(record)
+
+
+def _advance_legacy_chain(name: str, task_args: dict, outcome: str) -> None:
+    """Advance a plain ``pipeline_remaining`` chain that carries no run record.
+
+    Two callers reach this: a study save, which appends a sessions refresh to
+    its own study refresh, and any task that was already queued when the run
+    record shipped. Linear, no fan-out, no chart.
+    """
+    from ..process_manager import _dispatch_cloud_task
+
+    remaining = task_args.get("pipeline_remaining") or []
+    if outcome != "Success" or not remaining:
+        return
+    next_step = remaining[0]
+    next_name = next_step["task"]
+    next_args = dict(next_step.get("task_args") or {})
+    next_args["pipeline_remaining"] = remaining[1:]
+    next_args["started_by"] = _pipeline_actor(task_args, name)
+    next_args["log_run_id"] = run_logs.new_run_id()
+    success, msg = _dispatch_cloud_task(
+        next_name, next_args,
+        dispatch_deadline_seconds=dispatch_deadline_for(next_name, next_args))
+    if success:
+        print(f"[{name}] Chained to {next_name}: {msg}")
+        run_logs.open_run(next_name, run_id=next_args["log_run_id"],
+                          started_by=next_args["started_by"],
+                          task_args=next_args, mode="cloud")
+    else:
+        print(f"[{name}] Chain to {next_name} failed: {msg}")
+
+
+def _publish_run_summary(record: dict | None) -> None:
+    """Mirror a finished run's outcome onto the Consolidate card.
+
+    Only for runs that started from a consolidation (or from "Refresh All
+    Affected", which replays one): that card is where the operator reads
+    "what did the last consolidation actually refresh?". A run started from a
+    worker card reports through the chart's own header instead, so it must not
+    overwrite the consolidation's standing summary.
+    """
+    if not record or record.get("origin_kind") not in (
+            "consolidate", "armed", "refresh_downstream"):
+        return
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
-    entry["pipeline_fork"] = {"leaves": list(leaves), "fork_ts": fork_ts}
+    entry["last_pipeline_summary"] = record.get("summary") or ""
+    entry["last_pipeline_summary_ts"] = record.get("finished_ts")
+    entry["last_pipeline_partial"] = bool(record.get("partial"))
+    entry["last_pipeline_failed_at"] = record.get("failed_at")
+    # A completed refresh has consumed the impact; a partial one leaves it so
+    # "Refresh All Affected" stays offered.
+    if not record.get("partial"):
+        entry.pop("consolidation_impact", None)
     process_stats["consolidate_enrichment"] = entry
     save_process_stats()
-
-
-def _clear_pipeline_fork() -> None:
-    """Remove the recorded fan-out once it has finished (or been resolved)."""
-    load_process_stats()
-    entry = process_stats.get("consolidate_enrichment", {})
-    if "pipeline_fork" in entry:
-        entry.pop("pipeline_fork", None)
-        process_stats["consolidate_enrichment"] = entry
-        save_process_stats()
 
 
 def resolve_forked_pipeline() -> None:
@@ -1358,14 +1492,16 @@ def resolve_forked_pipeline() -> None:
     would hang. The web-service status poll calls this on each tick; once the
     grace window passes it flips the dropped leaf to "failed" and finalizes.
     """
-    load_process_stats()
-    fork = process_stats.get("consolidate_enrichment", {}).get("pipeline_fork")
-    if not fork:
+    record = refresh_pipeline.load_run()
+    fork = (record or {}).get("fork")
+    if not record or not record.get("in_flight") or not fork:
         return
-    _maybe_finish_forked_pipeline(fork.get("leaves") or [], fork.get("fork_ts"))
+    _maybe_finish_forked_pipeline(fork.get("leaves") or [], fork.get("fork_ts"),
+                                  run_id=record.get("run_id"))
 
 
-def _maybe_finish_forked_pipeline(leaves: list[str], fork_ts: str | None = None) -> None:
+def _maybe_finish_forked_pipeline(leaves: list[str], fork_ts: str | None = None,
+                                  run_id: str | None = None) -> None:
     """Finalize the fan-out once every forked leaf has reached a terminal state.
 
     Called both by each completing leaf (event-driven) and by the status-poll
@@ -1383,8 +1519,10 @@ def _maybe_finish_forked_pipeline(leaves: list[str], fork_ts: str | None = None)
     drop) and stamped "failed" so its card stops looking like it is still waiting.
 
     Args:
-        leaves: The full leaf set forked from recode (task names).
+        leaves: The full leaf set that was forked (task names).
         fork_ts: ISO timestamp of the fan-out, the freshness lower bound.
+        run_id: The refresh run being finished. A mismatch means a newer run has
+            replaced this one, and the stale barrier must not close it.
     """
     fork_dt = None
     if fork_ts:
@@ -1439,87 +1577,23 @@ def _maybe_finish_forked_pipeline(leaves: list[str], fork_ts: str | None = None)
         return  # still within grace, or running — not done yet
 
     # Every leaf has reached a terminal state for THIS run — the fan-out is done.
-    _clear_pipeline_fork()
-    _set_pipeline_in_flight(False)
-    _write_pipeline_summary_cloud(
+    record = refresh_pipeline.finish_run(
         partial=bool(failed),
         failed_at=",".join(failed) if failed else None,
+        run_id=run_id,
     )
-
-
-def _write_pipeline_summary_cloud(partial: bool = False, failed_at: str | None = None) -> None:
-    """Write a human-readable pipeline summary into consolidate_stats.
-
-    Called at the end of the Cloud Tasks pipeline chain. Inspects each
-    downstream step's last_run_end_time against the consolidate step's
-    last_run_end_time to determine which steps ran as part of this
-    pipeline; a step "ran" when its end_time is newer.
-    """
-    from web_interface.run_consolidate_enrichment import (
-        _PIPELINE_STEPS_ORDER,
-        build_pipeline_summary,
-    )
-
-    load_process_stats()
-    entry = process_stats.get("consolidate_enrichment", {})
-    impact = entry.get("consolidation_impact")
-    consol_end = entry.get("last_run_end_time")
-    consol_end_dt = None
-    if consol_end:
-        try:
-            consol_end_dt = datetime.fromisoformat(consol_end)
-        except (ValueError, TypeError):
-            pass
-
-    steps_ran: list[str] = []
-    for step in _PIPELINE_STEPS_ORDER:
-        step_end = process_stats.get(step, {}).get("last_run_end_time")
-        if not step_end or not consol_end_dt:
-            continue
-        try:
-            step_end_dt = datetime.fromisoformat(step_end)
-        except (ValueError, TypeError):
-            continue
-        if step_end_dt > consol_end_dt:
-            steps_ran.append(step)
-
-    summary = build_pipeline_summary(impact, steps_ran)
-    if partial:
-        suffix = f" (Pipeline aborted at '{failed_at}'.)" if failed_at else " (Pipeline aborted.)"
-        summary = summary + suffix
-    entry["last_pipeline_summary"] = summary
-    entry["last_pipeline_summary_ts"] = datetime.now(UTC).isoformat()
-    # Structured outcome so the UI can style the summary (green ✓ vs amber ⚠)
-    # and annotate the impact panel with where the chain stopped.
-    entry["last_pipeline_partial"] = bool(partial)
-    entry["last_pipeline_failed_at"] = failed_at
-    # On a fully-successful pipeline every affected study/collection has been
-    # refreshed, so the consolidation impact is fully resolved — clear it
-    # deterministically here instead of waiting for the timestamp-based
-    # staleness heuristic to notice on a later poll. On a partial/aborted run we
-    # keep the impact so "Refresh All Affected" stays offered.
-    if not partial:
-        entry.pop("consolidation_impact", None)
-    process_stats["consolidate_enrichment"] = entry
-    save_process_stats()
+    _publish_run_summary(record)
 
 
 def _set_pipeline_in_flight(value: bool) -> None:
-    """Record whether a consolidate→downstream pipeline is currently in flight.
+    """Record whether a refresh run is currently occupying the pipeline.
 
-    Used by the UI to keep polling across the brief gap between one step
-    completing and the next step's Cloud Task booting up and writing a
-    'running' status file. Stored under the consolidate_enrichment stats
-    entry so the enrichment-stats endpoint can read it without extra state.
+    Kept as a thin alias over the run record: the UI polls it to keep watching
+    across the gap between one step completing and the next one booting, and
+    the enrichment supervisor's hard gate reads the legacy mirror of it on the
+    consolidate entry.
     """
-    load_process_stats()
-    entry = process_stats.get("consolidate_enrichment", {})
-    if value:
-        entry["pipeline_in_flight"] = True
-    else:
-        entry.pop("pipeline_in_flight", None)
-    process_stats["consolidate_enrichment"] = entry
-    save_process_stats()
+    refresh_pipeline.set_in_flight(value)
 
 
 @internal_bp.route('/internal/run-task/<name>', methods=['POST'])

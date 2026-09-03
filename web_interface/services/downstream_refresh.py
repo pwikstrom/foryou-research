@@ -99,7 +99,8 @@ def last_full_refresh() -> str | None:
 
 
 def dispatch_downstream_refresh(impact: dict | None = None, *,
-                                include_deferred: bool = True) -> tuple[str, str]:
+                                include_deferred: bool = True,
+                                started_by: str = "") -> tuple[str, str]:
     """Build and start the downstream pipeline for an impact.
 
     Args:
@@ -108,18 +109,14 @@ def dispatch_downstream_refresh(impact: dict | None = None, *,
             (and settle it on success). The supervisor's finalize passes only
             the deferred debt (impact=None); the manual button passes the
             stored impact and settles the debt along the way.
+        started_by: Who asked for it, for the run's attribution.
 
     Returns:
         ``(status, message)`` with status one of ``"started"``, ``"noop"``
         (nothing to refresh), ``"busy"`` (a pipeline or consolidation is
         already running), ``"error"`` (dispatch failed; state rolled back).
     """
-    from web_interface.process_manager import (
-        load_process_stats, process_stats, processes, save_process_stats,
-    )
-    from web_interface.run_consolidate_enrichment import (
-        _build_downstream_pipeline, build_pipeline_chain,
-    )
+    from web_interface.services import refresh_pipeline
     from web_interface.services.worker_status import (
         PIPELINE_STEPS_ORDER, _is_worker_running,
     )
@@ -130,59 +127,64 @@ def dispatch_downstream_refresh(impact: dict | None = None, *,
     if not effective:
         return "noop", "No consolidation impact to refresh."
 
-    load_process_stats()
-    ps_entry = process_stats.get("consolidate_enrichment", {})
-    if ps_entry.get("pipeline_in_flight") or any(
+    if refresh_pipeline.run_in_flight() or any(
         _is_worker_running(n) for n in (["consolidate_enrichment"] + PIPELINE_STEPS_ORDER)
     ):
         return "busy", "A refresh pipeline is already running."
 
-    pipeline = _build_downstream_pipeline(effective)
-    if not pipeline:
+    # The consolidation this replays already happened, so the run starts from
+    # its impact with the consolidate row marked as not part of the run. The
+    # first action is computed here rather than on a completion, because there
+    # is no completion to hang it off.
+    record = refresh_pipeline.plan_run(
+        "consolidate_enrichment", kind="refresh_downstream",
+        started_by=started_by, impact=effective, origin_ran=False)
+    action = refresh_pipeline.next_actions(record)
+    if action["action"] == "finish":
         return "noop", "Nothing to refresh."
 
-    now_iso = datetime.now(UTC).isoformat()
-    ps_entry["pipeline_plan"] = {"steps": [p["task"] for p in pipeline], "started_ts": now_iso}
-    ps_entry["last_pipeline_partial"] = False
-    ps_entry["last_pipeline_failed_at"] = None
-    ps_entry["last_pipeline_summary"] = "Pipeline in progress — refreshing caches..."
-    ps_entry["last_pipeline_summary_ts"] = now_iso
-    ps_entry["pipeline_in_flight"] = True
-    process_stats["consolidate_enrichment"] = ps_entry
-    save_process_stats()
-
-    # Local dev: the consolidate worker's last ::DATA:: emission lingers in
-    # processes[...]["data"] and would shadow the fresh plan in the stats
-    # overlay; mirror the plan so both stores agree (no-op on Cloud Run).
-    mem = processes.get("consolidate_enrichment", {}).get("data")
-    if isinstance(mem, dict) and not is_cloud_run():
-        mem["pipeline_plan"] = ps_entry["pipeline_plan"]
-        mem["last_pipeline_partial"] = False
-        mem["last_pipeline_failed_at"] = None
+    refresh_pipeline.seed_run(record)
 
     if is_cloud_run():
-        from web_interface.process_manager import _dispatch_cloud_task, dispatch_deadline_for
-        chain = build_pipeline_chain(pipeline)
-        success, msg = _dispatch_cloud_task(
-            chain["next_task"], chain["next_task_args"],
-            dispatch_deadline_seconds=dispatch_deadline_for(
-                chain["next_task"], chain["next_task_args"]))
-        if not success:
-            # Roll back the in-flight flag so the UI doesn't hang; the deferred
-            # debt is deliberately left in place for a later retry.
-            load_process_stats()
-            entry = process_stats.get("consolidate_enrichment", {})
-            entry.pop("pipeline_in_flight", None)
-            process_stats["consolidate_enrichment"] = entry
-            save_process_stats()
-            return "error", f"Dispatch failed: {msg}"
+        from web_interface.process_manager import (
+            _dispatch_cloud_task, dispatch_deadline_for,
+        )
+        stage_total = record["stage_total"]
+        stage_index = refresh_pipeline.next_stage_index(record["steps"])
+        dispatched: dict[str, dict] = {}
+        fork = None
+        targets = ([(action["step"], action["task_args"])] if action["action"] == "spine"
+                   else list(action["leaves"]))
+        fork_ts = datetime.now(UTC).isoformat()
+        leaf_names = [t for t, _ in targets] if action["action"] == "fork" else []
+        for task, task_args in targets:
+            args = dict(task_args)
+            args["pipeline_run_id"] = record["run_id"]
+            args["pipeline_stage_total"] = stage_total
+            args["pipeline_stage_index"] = stage_index
+            args["started_by"] = started_by or "auto-pipeline"
+            if leaf_names:
+                args["pipeline_leaves"] = leaf_names
+                args["pipeline_fork_ts"] = fork_ts
+            success, msg = _dispatch_cloud_task(
+                task, args, dispatch_deadline_seconds=dispatch_deadline_for(task, args))
+            if not success:
+                # Roll the run back so the cards do not stay locked; the deferred
+                # debt is deliberately left in place for a later retry.
+                refresh_pipeline.clear_run()
+                return "error", f"Dispatch failed: {msg}"
+            dispatched[task] = {}
+        if leaf_names:
+            fork = {"leaves": leaf_names, "fork_ts": fork_ts}
+        refresh_pipeline.record_dispatch(
+            record["run_id"], dispatched, prunes=action["prunes"],
+            fork=fork, fork_at="consolidate_enrichment" if fork else None)
     else:
         import threading
 
-        from web_interface.process_manager import _run_local_downstream_pipeline
-        threading.Thread(
-            target=_run_local_downstream_pipeline, args=(effective,), daemon=True
-        ).start()
+        from web_interface.process_manager import run_local_refresh_run
+        threading.Thread(target=run_local_refresh_run, args=(record["run_id"],),
+                         daemon=True).start()
 
     if include_deferred:
         settle_deferred_impact()

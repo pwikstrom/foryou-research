@@ -90,10 +90,20 @@ def test_warm_start_keeps_the_partition_after_a_small_append(monkeypatch):
                              batch_size=64).fit_predict(X2)
 
     # Every old point stays with the niche it started in (up to relabelling).
-    aligned, carried = vm._align_labels_to_previous(ids2, labels, "niche", "niche_name")
+    aligned, carried, prev_per_item = vm._align_labels_to_previous(
+        ids2, labels, "niche", "niche_name")
     prev_ids = (prev_labels + 1) % 3
     assert (aligned[:len(ids)] == prev_ids).all(), "warm-started niches must keep their members"
     assert len(carried) == 3, "every previous name carries over"
+
+    # The previous assignment comes back alongside, in the SAME id space as the
+    # aligned labels, which is what lets a rebuild report how many videos
+    # actually changed niche — and lets the refresh pipeline skip every
+    # downstream rebuild when that number is zero.
+    known = ~np.isnan(prev_per_item)
+    assert known.sum() == len(ids), "only the appended points are new"
+    changed = int((aligned[known] != prev_per_item[known].astype(np.int32)).sum())
+    assert changed == 0, "a warm-started append must move no existing video"
 
 
 if __name__ == "__main__":

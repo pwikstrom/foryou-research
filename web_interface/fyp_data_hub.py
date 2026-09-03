@@ -239,6 +239,10 @@ def _register_web_ui(app):
         # The home pane is a user guide: it walks only the pipeline stages this
         # user can actually reach (see permissions.visible_pipeline_steps).
         pipeline_steps = visible_pipeline_steps(current_user)
+        # The refresh pipeline's dependency graph, so the page's step order and
+        # labels come from the same place the planner reads.
+        from .services.refresh_pipeline import registry_for_js
+        pipeline_registry = registry_for_js()
         # The site-wide default study (Admin -> Site Settings), or "" when the
         # operator has not picked one. study_state.js opens on it for users
         # who have not chosen a study themselves.
@@ -247,7 +251,7 @@ def _register_web_ui(app):
         # The admin-chosen collection the guided tour demonstrates with (part
         # of the default study; "" when unset, and the tour skips those steps).
         demo_collection = get_demo_collection()
-        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, media_on_gcs=media_on_gcs, platform_url_templates=platform_url_templates(), pipeline_steps=pipeline_steps, default_study=default_study, demo_collection=demo_collection)
+        return render_template('index.html', user=current_user, user_perms=user_perms, slack_messages=slack_messages, slack_configured=slack_configured, media_on_gcs=media_on_gcs, platform_url_templates=platform_url_templates(), pipeline_steps=pipeline_steps, pipeline_registry=pipeline_registry, default_study=default_study, demo_collection=demo_collection)
 
 
 def create_app():

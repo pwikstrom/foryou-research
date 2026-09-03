@@ -1123,15 +1123,32 @@ button {
 
 /* Two bar-less, greyed states that must not be confused. "skipped" is an
    anomaly — the step WAS planned and never ran — so its word carries the
-   warning colour. "not_planned" is the ordinary case: this run's impact never
-   needed the step (or no refresh was requested at all), so it recedes further
-   and stays uncoloured. Both keep their row so the chart's shape is the same
-   every run and the reader learns what was not needed as well as what ran. */
+   warning colour. The three quiet states recede further and stay uncoloured:
+   "pruned" (planned, then skipped because nothing upstream changed — the
+   ordinary outcome of a quiet run, and the right column says why), "upstream"
+   (runs before this run's starting point) and "not_planned" (nothing in this
+   run feeds it). All keep their row so the chart's shape is the same every run
+   and the reader learns what was not needed as well as what ran. */
 .gantt-row--skipped { opacity: 0.5; }
 .gantt-row--skipped .gantt-dur { color: var(--color-warning); font-style: italic; }
-.gantt-row--not_planned { opacity: 0.45; }
-.gantt-row--not_planned .gantt-label { color: var(--color-text-tertiary); }
-.gantt-row--not_planned .gantt-dur { font-style: italic; }
+.gantt-row--not_planned,
+.gantt-row--pruned,
+.gantt-row--upstream { opacity: 0.45; }
+.gantt-row--not_planned .gantt-label,
+.gantt-row--pruned .gantt-label,
+.gantt-row--upstream .gantt-label { color: var(--color-text-tertiary); }
+.gantt-row--not_planned .gantt-dur,
+.gantt-row--pruned .gantt-dur,
+.gantt-row--upstream .gantt-dur { font-style: italic; }
+
+/* Why a step was skipped, written across the empty track. The reason is the
+   point of a pruned row — a bare "not needed" would leave the reader guessing
+   whether the run was clever or broken. */
+.gantt-msg--reason { color: var(--color-text-tertiary); font-style: italic; }
+
+/* The step the run started from. Named rather than merely first, because a run
+   can start anywhere in the chain and the rows above it are inert. */
+.gantt-row--origin .gantt-label { font-weight: var(--weight-bold); opacity: 1; }
 
 /* Guidelines across every track: the fork (dashed) where the study
    definitions finished and the leaves started, and "now" while live. */

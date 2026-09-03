@@ -599,6 +599,13 @@ async function startProcess(name, extraBody = {}) {
             // render the real running status.
             pendingStarts.delete(name);
             _showAlreadyRunningDialog(name, extraBody);
+        } else if (res.status === 423 || data.status === 'busy') {
+            // A refresh run holds the pipeline. Not the same as "this worker is
+            // already running", so explain it rather than offering to stop and
+            // retry — there is nothing here to stop.
+            pendingStarts.delete(name);
+            showAppAlert(data.message || 'A refresh run is already in progress.',
+                         { title: 'Refresh run in progress' });
         } else if (data.status !== 'success') {
             // Dispatch refused — revert the card so it doesn't sit in
             // "Starting…"; the next poll restores the idle UI.
@@ -1262,6 +1269,44 @@ async function refreshBatchFeed(procData) {
 
 
 
+// Steps of the refresh pipeline. While a refresh run is in flight, starting a
+// second one would interleave writes to the same caches, so their cards are
+// disabled and say which run holds the pipeline (the server refuses with a 423
+// regardless — this is the visible half).
+const _REFRESH_RUN_STEPS = (window.PIPELINE_REGISTRY && window.PIPELINE_REGISTRY.order) || [
+    'consolidate_enrichment', 'embeddings_refresh', 'video_map_refresh',
+    'recode_refresh_studies', 'meta_refresh_groups', 'pca_refresh',
+    'timelines_refresh', 'sessions_refresh',
+];
+
+function applyRefreshRunLock(only) {
+    const lock = window._refreshRunLock || null;
+    const names = only ? [only] : _REFRESH_RUN_STEPS;
+    for (const name of names) {
+        if (!_REFRESH_RUN_STEPS.includes(name)) continue;
+        const btn = document.getElementById(`${name}-toggle`);
+        if (!btn) continue;
+        // Never disable a Stop button — a running step must stay stoppable.
+        const isStop = btn.className === 'btn-stop';
+        const shouldLock = !!lock && !isStop && name !== lock.origin;
+        if (shouldLock) {
+            btn.disabled = true;
+            btn.title = lock.reason;
+        } else if (btn.dataset.lockedByRun === 'yes') {
+            // Only release what THIS lock disabled; a button disabled for another
+            // reason (a start in flight, say) must stay as it is.
+            btn.disabled = false;
+            btn.title = '';
+        }
+        btn.dataset.lockedByRun = shouldLock ? 'yes' : 'no';
+    }
+    // The two option checkboxes that change what a start would do.
+    for (const id of ['video_map_reset-labels', 'sessions_refresh-force']) {
+        const box = document.getElementById(id);
+        if (box) box.disabled = !!lock;
+    }
+}
+
 function setStatus(name, data) {
     if (!data) return;
     const status = data.state;
@@ -1329,6 +1374,10 @@ function setStatus(name, data) {
             };
         }
     }
+
+    // This poll rebuilds the button above from scratch, so the refresh-run lock
+    // has to be re-applied here or the cards flicker back to enabled every tick.
+    applyRefreshRunLock(name);
 
     // Show running process settings for scraper/annotator. Only *reset* on
     // the running→stopped transition (disabled flips back off); on every

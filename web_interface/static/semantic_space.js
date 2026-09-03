@@ -1926,8 +1926,10 @@ async function _ssReloadMap() {
 
 // Admin-only: kick off a video_map_refresh. Embeddings are kept current by the
 // consolidation cascade, so this rebuilds the 2D map/niches from the store.
-// The backend defaults to auto_refresh, so a rebuild also re-recodes every
-// study cache to propagate the new niche assignments into the analysis tabs.
+// Starting it starts a refresh run: the study, timeline and session caches that
+// read the niche columns are rebuilt after it IF the rebuild actually moves
+// videos between niches, and skipped when it does not. A run already in flight
+// refuses this with 423 — the banner reports the message.
 async function _ssRebuildMap() {
     const actionEl = document.getElementById('ss-banner-action');
     if (actionEl) { actionEl.disabled = true; actionEl.textContent = 'Starting…'; }
@@ -1942,7 +1944,14 @@ async function _ssRebuildMap() {
             body: '{}'
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || (data.status && data.status !== 'success')) {
+        if (res.status === 423 || data.status === 'busy') {
+            if (typeof showAppAlert === 'function') {
+                showAppAlert(data.message || 'A refresh run is already in progress.',
+                             { title: 'Refresh run in progress' });
+            } else {
+                console.warn('Rebuild map refused:', data.message);
+            }
+        } else if (!res.ok || (data.status && data.status !== 'success')) {
             console.error('Rebuild map failed:', data.message || res.status);
         }
     } catch (e) {

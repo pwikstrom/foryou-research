@@ -189,15 +189,26 @@ workers (e.g. `sessions_refresh`) must be wired there. Every card carries a
 `card_info()` ⓘ tooltip (one Jinja macro; the tooltip text doubles as the
 accessible name). Status lights use the unified `--status-*` tokens in
 `style.css`: green = running, blue = idle/stopped, amber = warn, red =
-error/failed. The Consolidate card owns the pipeline: a "Refresh caches
-afterwards" checkbox (run the downstream refresh pipeline for exactly the
-studies/collections the consolidation touched) plus "Force full rebuild",
-and below it a live **pipeline step list** showing the last (or running)
-refresh pipeline's planned steps in dispatch order with per-step state —
-study definitions is the fork point, after which explore metadata,
-correlations, timelines and **sessions** run concurrently
-(`sessions_refresh` is a pipeline member and also chains automatically after
-every study save).
+error/failed.
+
+Starting **any** of these cards starts a *refresh run*: the steps that read
+what it writes follow it automatically. The graph and the rules live in
+`services/refresh_pipeline.py` — one registry replacing the four literals that
+used to be kept in sync by comment, plus the predicates that decide, at each
+completion, whether the next step has anything to do. A step is dispatched only
+when an upstream step reports that something actually changed (embeddings
+written, videos that moved niche, study datasets rebuilt); the rule is to prune
+only on a positive statement of no change, so a missing signal always runs. The
+run is recorded in `process_stats["refresh_pipeline"]` and drawn as a
+wall-clock Gantt above the cards, with a header naming its origin, and each
+skipped step stating why. Only one run happens at a time: the other cards grey
+out while one is in flight and `/api/start` refuses with 423.
+
+The Consolidate card is one origin among several, with a "Refresh caches
+afterwards" checkbox (plan a run for exactly what the consolidation touched)
+plus "Force full rebuild"; its own summary line still reports the outcome of a
+run it started. `sessions_refresh` is also chained after every study save,
+which is a private chain rather than a run and stays out of the chart.
 
 **Study modal.** The edit-study modal's footer groups
 Delete | Rename | Duplicate: delete and rename have their own endpoints

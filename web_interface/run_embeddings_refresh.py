@@ -113,7 +113,10 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
         reporter: Status reporter (GCS or local).
         task_args: Optional ``batch_size``, ``max_batches``, ``chunk_index``,
             ``initial_total``. Chain-internal: ``run_id`` (the single-flight
-            lease owner; minted at link 0 when absent).
+            lease owner; minted at link 0 when absent) and ``embedded_so_far``
+            (the running total this chain has written, carried across links so
+            the refresh pipeline can ask "did this step produce anything?" —
+            the last link is the only one the pipeline sees).
 
     Returns:
         Dict with ``chain=True`` and ``next_task_args`` if more batches remain,
@@ -128,6 +131,7 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
         max_batches = int(max_batches)
     chunk_index = int(task_args.get("chunk_index", 0))
     initial_total = int(task_args.get("initial_total", 0))
+    embedded_so_far = int(task_args.get("embedded_so_far", 0))
     run_id = str(task_args.get("run_id") or uuid.uuid4().hex)
 
     if not _claim_link(run_id, chunk_index):
@@ -136,6 +140,11 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
             "ran) — skipping this dispatch to avoid duplicate shards."
         )
         reporter.update_progress(100, "Skipped — refresh already running")
+        # An explicit zero: a skipped link wrote nothing, so a pipeline built on
+        # this step must not rebuild the map off it. Absent signals mean
+        # "unknown" downstream and would (correctly) refresh everything.
+        reporter.emit_data({"embeddings_embedded_run": embedded_so_far,
+                            "embeddings_skipped": True})
         return None
 
     backend = active_embedding_backend()
@@ -167,7 +176,10 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
     done = max(0, total - remaining)
     pct = int(done / total * 100) if total else 100
     reporter.update_progress(pct, f"Embedded {done:,}/{total:,} videos")
-    reporter.emit_data({"embeddings_total": done, "embeddings_remaining": remaining})
+    embedded_so_far += embedded
+    reporter.emit_data({"embeddings_total": done, "embeddings_remaining": remaining,
+                        "embeddings_embedded_run": embedded_so_far,
+                        "embeddings_skipped": False})
     reporter.log(
         f"Batch {chunk_index + 1} complete: +{embedded:,} embedded, "
         f"{remaining:,} remaining of {total:,}."
@@ -202,6 +214,7 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
         "chunk_index": next_chunk,
         "initial_total": initial_total,
         "run_id": run_id,
+        "embedded_so_far": embedded_so_far,
     }
     reporter.log(f"Chaining to next batch (chunk_index={next_chunk})...")
     return {

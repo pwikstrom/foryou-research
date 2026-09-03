@@ -25,7 +25,7 @@ from ...process_manager import (
     start_process,
 )
 from ...permissions import permission_required
-from ...services import collection_enrichment, system_health
+from ...services import collection_enrichment, refresh_pipeline, system_health
 from ...task_status import is_cloud_run
 
 
@@ -42,6 +42,7 @@ from ...services.worker_status import (
     _is_worker_running,
     _workers_blocking_consolidate,
     consolidate_entry_view,
+    refresh_run_view,
 )
 
 
@@ -274,26 +275,27 @@ def get_enrichment_stats():
 
     consolidate_entry = process_stats.get("consolidate_enrichment", {})
 
-    # Is any consolidate-pipeline step currently running? Used by the UI to
-    # pick up live stage progress after a page reload mid-pipeline. The
-    # pipeline_in_flight flag covers the brief gap between one step completing
-    # and the next step booting up (when no step is technically "running").
+    # Is any refresh-run step currently running? Used by the UI to pick up live
+    # stage progress after a page reload mid-run. The run's in_flight flag
+    # covers the gap between one step completing and the next one booting up
+    # (when no step is technically "running").
+    refresh_run = refresh_pipeline.load_run(reload=False) or {}
     pipeline_step_names = ["consolidate_enrichment"] + PIPELINE_STEPS_ORDER
     any_step_running = any(_is_worker_running(n) for n in pipeline_step_names)
-    flag_in_flight = bool(consolidate_entry.get("pipeline_in_flight"))
+    flag_in_flight = bool(refresh_run.get("in_flight"))
 
-    # Stale-flag cleanup: a server restart mid-pipeline leaves the flag set
-    # with no orchestrator thread to clear it. If the flag is on but nothing
-    # is running AND the consolidate step completed >60s ago (longer than
-    # any plausible inter-step gap), treat the pipeline as abandoned and
-    # clear the flag so the UI stops showing "in flight" forever.
+    # Stale-flag cleanup: a server restart mid-run leaves the flag set with
+    # nothing left to advance it. If the flag is on, nothing is running, and
+    # the run has not been touched for >60s (longer than any plausible
+    # inter-step gap), treat it as abandoned — otherwise every card stays
+    # locked forever.
     if flag_in_flight and not any_step_running:
-        last_end = consolidate_entry.get("last_run_end_time")
+        touched = refresh_run.get("updated_ts") or refresh_run.get("started_ts")
         stale = False
-        if last_end:
+        if touched:
             try:
-                end_dt = datetime.fromisoformat(last_end)
-                if (datetime.now(UTC) - end_dt).total_seconds() > 60:
+                touched_dt = datetime.fromisoformat(touched)
+                if (datetime.now(UTC) - touched_dt).total_seconds() > 60:
                     stale = True
             except (ValueError, TypeError):
                 stale = True
@@ -302,16 +304,14 @@ def get_enrichment_stats():
         if stale:
             # Reload before mutating: this runs on every browser poll, on
             # whichever web instance answers, and save_process_stats writes the
-            # WHOLE consolidate entry from this process's memory. An instance
-            # whose copy predated another instance's write would put its stale
-            # entry back — 2026-09-03 that erased a fresh `auto_armed` flag 47 s
-            # after it was set, and the armed refresh never fired.
-            load_process_stats()
-            fresh_entry = process_stats.get("consolidate_enrichment", {})
-            if fresh_entry.pop("pipeline_in_flight", None) is not None:
-                process_stats["consolidate_enrichment"] = fresh_entry
-                save_process_stats()
-            consolidate_entry = fresh_entry
+            # WHOLE entry from this process's memory. An instance whose copy
+            # predated another instance's write would put its stale entry back —
+            # 2026-09-03 that erased a fresh `auto_armed` flag 47 s after it was
+            # set, and the armed refresh never fired.
+            refresh_run = refresh_pipeline.finish_run(
+                partial=True, reason="abandoned",
+                run_id=refresh_run.get("run_id")) or {}
+            consolidate_entry = process_stats.get("consolidate_enrichment", {})
             flag_in_flight = False
 
     pipeline_active = flag_in_flight or any_step_running
@@ -377,6 +377,9 @@ def get_enrichment_stats():
         "consolidate_auto_armed_auto_refresh": bool(consolidate_entry.get("auto_armed_auto_refresh")),
         "consolidate_pipeline_active": pipeline_active,
         "pipeline_steps": _build_pipeline_step_view(pipeline_active),
+        # Where this run came from, who started it and how it ended — the chart
+        # header. None until a run has ever been recorded.
+        "refresh_run": refresh_run_view(),
         "last_pipeline_partial": bool(consolidate_entry.get("last_pipeline_partial")),
         "last_pipeline_failed_at": consolidate_entry.get("last_pipeline_failed_at"),
         # Includes fresh drain leases: the browser's armed auto-fire keys off
@@ -1224,6 +1227,15 @@ def api_consolidate_enrichment():
     # which stays chain-free by default to keep it debuggable.
     auto_refresh = bool(data.get("auto_refresh", not force))
 
+    if refresh_pipeline.run_in_flight():
+        run = refresh_pipeline.load_run() or {}
+        origin = run.get("origin_label") or run.get("origin") or "another step"
+        return jsonify({
+            "status": "busy",
+            "message": (f"A refresh run started from {origin} is still in "
+                        f"progress. Wait for it to finish."),
+        }), 423
+
     blocking = _consolidate_blockers()
     if blocking:
         if force:
@@ -1254,53 +1266,42 @@ def api_consolidate_enrichment():
     if auto_refresh:
         task_args["auto_refresh"] = True
 
-    # Firing now — clear any stale armed flag and seed a pipeline-plan marker so
-    # the whole step list is on screen from the very first poll instead of after
-    # the (long) consolidation phase. With auto_refresh the marker carries the
-    # FORECAST pipeline — every downstream step, flagged provisional — so the
-    # user can see what is queued up behind the consolidation; the worker
-    # replaces it with the real plan once the impact tells it which steps are
-    # actually needed. A consolidate-only run has no downstream plan to forecast.
-    now_iso = datetime.now(UTC).isoformat()
+    # Firing now — clear any stale armed flag, then plan the run BEFORE the
+    # worker starts so the whole step list is on screen from the very first poll
+    # instead of after the (long) consolidation phase. The plan is provisional:
+    # it shows every step a consolidation can reach, and each one is confirmed or
+    # skipped as the run learns what actually changed. A consolidate-only run
+    # plans nothing downstream.
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
     entry.pop("auto_armed", None)
     entry.pop("auto_armed_force", None)
     entry.pop("auto_armed_auto_refresh", None)
-    entry["pipeline_plan"] = {
-        "steps": list(PIPELINE_STEPS_ORDER) if auto_refresh else [],
-        "started_ts": now_iso,
-        "mode": "refresh" if auto_refresh else "consolidate_only",
-        "provisional": bool(auto_refresh),
-    }
     entry["last_pipeline_partial"] = False
     entry["last_pipeline_failed_at"] = None
     process_stats["consolidate_enrichment"] = entry
     save_process_stats()
 
-    success, msg = start_process("consolidate_enrichment", CONSOLIDATE_ENRICHMENT_SCRIPT,
-                                 task_args=task_args if task_args else None,
-                                 started_by=_actor())
+    record = refresh_pipeline.plan_run(
+        "consolidate_enrichment", kind="consolidate", started_by=_actor(),
+        mode="refresh" if auto_refresh else "consolidate_only",
+        origin_task_args=task_args, provisional=bool(auto_refresh))
+    refresh_pipeline.seed_run(record)
+
+    success, msg = start_process(
+        "consolidate_enrichment", CONSOLIDATE_ENRICHMENT_SCRIPT,
+        task_args=task_args if task_args else None,
+        started_by=_actor(),
+        extra_task_args={"pipeline_run_id": record["run_id"],
+                         "pipeline_stage_index": 1,
+                         "pipeline_stage_total": record["stage_total"]})
     if success:
-        # start_process resets the in-memory ::DATA:: copy; mirror the marker
-        # there too so the local-dev overlay in consolidate_entry_view agrees
-        # with process_stats. Subprocess mode only — on Cloud Run that dict is
-        # never updated again (the worker runs in the other service), so a
-        # marker written here would outlive the real plan and pin this web
-        # instance to it.
-        mem = processes.get("consolidate_enrichment", {}).get("data")
-        if isinstance(mem, dict) and not is_cloud_run():
-            mem["pipeline_plan"] = entry["pipeline_plan"]
         _log_dm("consolidate_enrichment", target="force" if force else "normal",
                 details={"auto_refresh": auto_refresh})
         return jsonify({"status": "started", "message": msg})
     else:
-        # Dispatch failed — don't leave a phantom plan marker behind.
-        load_process_stats()
-        entry = process_stats.get("consolidate_enrichment", {})
-        entry.pop("pipeline_plan", None)
-        process_stats["consolidate_enrichment"] = entry
-        save_process_stats()
+        # Nothing started — don't leave a phantom run locking every card.
+        refresh_pipeline.clear_run()
         return jsonify({"status": "error", "message": msg}), 409
 
 
@@ -1323,15 +1324,13 @@ def api_consolidate_disarm():
 @permission_required('tab.data_management.refresh')
 @login_required
 def api_refresh_downstream():
-    """Re-run the downstream refresh pipeline for the stored consolidation impact.
+    """Start a refresh run for the stored consolidation impact.
 
-    Powers the "Refresh All Affected" button. It runs the SAME pipeline as the
-    consolidate auto-refresh — embeddings → video_map → recode → {meta ‖ pca ‖
-    timelines} — against the impact recorded by a prior Consolidate Only run, so
-    the niche steps the old per-button cascade skipped are now included and in
-    the right order. Writes ``pipeline_plan`` so the step list renders, then
-    dispatches via the Cloud Tasks chain (Cloud Run) or the local sequential
-    orchestrator (dev).
+    Powers the "Refresh All Affected" button. It plans the same run a
+    consolidation with auto-refresh would, against the impact a prior
+    Consolidate Only recorded — so the niche steps the old per-button cascade
+    skipped are included, in the right order, and pruned by the same rules. The
+    consolidate row is marked as not part of the run: it already happened.
     """
     from ...services import downstream_refresh
 
@@ -1342,7 +1341,8 @@ def api_refresh_downstream():
 
     # The shared dispatcher folds in any deferred-refresh debt an enrichment
     # plan has accumulated, so the manual button also settles it.
-    status, message = downstream_refresh.dispatch_downstream_refresh(impact)
+    status, message = downstream_refresh.dispatch_downstream_refresh(
+        impact, started_by=_actor())
     if status == "busy":
         return jsonify({"status": "error", "message": message}), 409
     if status == "error":

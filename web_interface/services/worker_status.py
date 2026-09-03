@@ -29,23 +29,12 @@ def _actor() -> str:
 
 
 
-# Downstream refresh steps considered by the auto-pipeline, in the order they
-# are dispatched. Keep in sync with _PIPELINE_STEPS_ORDER in
-# run_consolidate_enrichment.py. Ordering matters: embeddings feed video_map
-# (the niches), video_map feeds recode, and recode produces the recoded datasets
-# that meta_refresh_groups / pca_refresh consume. Both membership and order are
-# load-bearing — this is the liveness check AND the forecast plan the consolidate
-# dispatch seeds, which is what the user reads off the step list before the
-# worker has computed the real one.
-PIPELINE_STEPS_ORDER = [
-    "embeddings_refresh",
-    "video_map_refresh",
-    "recode_refresh_studies",
-    "meta_refresh_groups",
-    "pca_refresh",
-    "timelines_refresh",
-    "sessions_refresh",
-]
+# The dispatchable refresh steps, in dependency order. The graph itself lives in
+# services/refresh_pipeline; this alias stays because the endpoints, the
+# supervisor and the tests read it as the liveness set ("is any pipeline worker
+# running right now").
+from .refresh_pipeline import DOWNSTREAM_ORDER as PIPELINE_STEPS_ORDER  # noqa: E402
+from .refresh_pipeline import LABELS as _PIPELINE_STAGE_LABELS  # noqa: E402
 
 
 def _is_worker_running(name: str) -> bool:
@@ -153,105 +142,135 @@ def consolidate_entry_view() -> dict:
     return entry
 
 
+def refresh_run_view() -> dict | None:
+    """The current refresh run as the page header reads it, or None.
+
+    Names where the run came from and how it ended, so the chart can say
+    "Started from Semantic Map by patrik" rather than implying every run is a
+    consolidation.
+    """
+    from .refresh_pipeline import SHORT_LABELS, load_run
+
+    record = load_run(reload=False)
+    if not record:
+        return None
+    return {
+        "run_id": record.get("run_id"),
+        "origin": record.get("origin"),
+        "origin_label": record.get("origin_label") or SHORT_LABELS.get(
+            record.get("origin", ""), record.get("origin")),
+        "origin_kind": record.get("origin_kind"),
+        "started_by": record.get("started_by") or "",
+        "started_ts": record.get("started_ts"),
+        "finished_ts": record.get("finished_ts"),
+        "in_flight": bool(record.get("in_flight")),
+        "provisional": bool(record.get("provisional")),
+        "mode": record.get("mode") or "refresh",
+        "fork_at": record.get("fork_at"),
+        "summary": record.get("summary"),
+        "partial": bool(record.get("partial")),
+        "failed_at": record.get("failed_at"),
+        "reason": record.get("reason"),
+    }
+
+
 def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
-    """Build an ordered per-step view of the last/active consolidate pipeline.
+    """Build an ordered per-step view of the current/last refresh run.
 
     Returns one dict per step — ``consolidate_enrichment`` followed by the whole
     canonical ``PIPELINE_STEPS_ORDER``, ALWAYS, so the chart keeps the same shape
     run to run — with keys ``step``, ``label``, ``state``, ``percent``,
-    ``message``, ``ran_at``, ``plan_mode`` and ``provisional``. ``state`` is one
-    of ``running``, ``queued``, ``success``, ``failed``, ``skipped``,
-    ``pending`` or ``not_planned``.
+    ``message``, ``ran_at``, ``reason``, ``is_origin``, ``plan_mode`` and
+    ``provisional``.
 
-    ``not_planned`` is a step this run's plan never included — it was not needed
-    by the consolidation's impact, or (``plan_mode == "consolidate_only"``) no
-    refresh was requested at all. It is distinct from ``skipped``, which means
-    the step WAS planned and never ran (aborted run, dropped dispatch). An
-    unplanned row is inert: no status file is read for it and every timing field
-    is ``None``, so work that ran outside this pipeline can never be painted
-    into it and it cannot widen the chart's time axis.
+    ``state`` is one of:
+
+    ``running`` / ``queued`` / ``success`` / ``failed``
+        What the step is doing, read from its own status file.
+    ``pending``
+        Planned, not started yet.
+    ``pruned``
+        Planned, then skipped because its upstream reported no change —
+        ``reason`` says which. This is the ordinary outcome of a run whose
+        inputs barely moved, and the chart should read as a decision, not a gap.
+    ``not_planned``
+        Nothing in this run feeds it.
+    ``upstream``
+        It comes BEFORE this run's origin — a semantic-map run does not
+        re-embed. Not part of the run at all.
+    ``skipped``
+        Planned and never ran: the run was aborted or a dispatch was dropped.
+
+    The three inert states (``pruned``, ``not_planned``, ``upstream``) read no
+    status file and carry no timing, so work running outside this run — a
+    hand-started refresh, a sessions run chained from a study save — can never
+    be painted into it or widen its time axis.
 
     Live state comes from each step's GCS status file (Cloud Run); terminal
-    outcomes fall back to ``process_stats``. ``provisional`` marks a row that
-    belongs to the dispatch-time forecast rather than the plan the consolidation
-    computed. Returns ``[]`` when no plan has been recorded so the UI hides the
-    list — eight greyed rows would assert that a run happened and needed
-    nothing, when nothing has happened at all.
+    outcomes fall back to ``process_stats``. Returns ``[]`` when no run has ever
+    been recorded, so the UI hides the chart rather than showing eight greyed
+    rows that assert a run happened and needed nothing.
 
     Args:
-        pipeline_active: Whether a consolidate pipeline is currently in flight
-            (``pipeline_in_flight`` or any step running). Drives the
-            pending-vs-skipped distinction for steps that have not run — as does
-            an unconfirmed forecast plan, which keeps its steps pending until the
-            consolidation that would confirm them has ended.
+        pipeline_active: Whether a refresh run is in flight (its own flag, or
+            any step running). Drives the pending-vs-skipped distinction for
+            steps that have not run.
     """
-    from web_interface.run_consolidate_enrichment import _PIPELINE_STAGE_LABELS
+    from .refresh_pipeline import load_run
 
-    entry = consolidate_entry_view()
-    plan = entry.get("pipeline_plan") or {}
-    # Show the list whenever a plan record exists. The marker seeded at dispatch
-    # carries the FORECAST pipeline (every downstream step, flagged provisional)
-    # so the whole list is visible with live pending/running/success from the
-    # first poll — the user should not have to wait out the consolidation to
-    # learn what is coming. Once the worker computes the real plan it replaces
-    # the forecast and any step this run doesn't need greys out in place rather
-    # than dropping off. Only a truly absent plan hides the list.
-    if not plan:
+    record = load_run(reload=False)
+    if not record:
         return []
-    plan_steps = plan.get("steps") or []
-    provisional = bool(plan.get("provisional"))
-    # "refresh" for every plan the worker publishes (it only records one when a
-    # pipeline follows) and for the dispatch forecast; "consolidate_only" only
-    # when the user ran Consolidate with the refresh box unticked. Older plan
-    # records predate the key and are all refresh-mode.
-    plan_mode = plan.get("mode") or "refresh"
 
-    # Every canonical step gets a row every run — the ones this run did not plan
-    # come back as "not_planned" rather than vanishing, which is what keeps the
-    # chart's shape stable and tells the reader what was NOT needed. A plan step
-    # outside the canonical order (shouldn't happen, but a plan record is data)
-    # is appended so a planned step can never lose its row.
-    planned = set(plan_steps)
+    steps_plan = record.get("steps") or {}
+    provisional = bool(record.get("provisional"))
+    plan_mode = record.get("mode") or "refresh"
+    origin = record.get("origin")
+
+    # Every canonical step gets a row every run, so the chart's shape never
+    # moves with what a given run happened to need. A planned step outside the
+    # canonical order (shouldn't happen, but a record is data) is appended so it
+    # can never lose its row.
     rows = ["consolidate_enrichment"] + list(PIPELINE_STEPS_ORDER)
-    rows += [s for s in plan_steps if s not in rows]
+    rows += [s for s in steps_plan if s not in rows]
 
     started_dt = None
-    started_ts = plan.get("started_ts")
+    started_ts = record.get("started_ts")
     if started_ts:
         try:
             started_dt = datetime.fromisoformat(started_ts)
         except (ValueError, TypeError):
             started_dt = None
 
-    # A forecast plan describes a run that is by definition still ahead of
-    # itself, so its un-run steps stay "pending" until the consolidation that
-    # will confirm them has finished — without this they read as "skipped"
-    # in the seconds between dispatch and the consolidate step's first status
-    # write, and again in the gap before the real plan lands.
-    consolidate_end = process_stats.get("consolidate_enrichment", {}).get("last_run_end_time")
-    consolidate_done = False
-    if consolidate_end:
+    # A provisional plan describes a run still ahead of itself, so its un-run
+    # steps stay "pending" until the origin has finished — otherwise they read
+    # as "skipped" in the seconds between dispatch and the first status write.
+    origin_done = False
+    origin_end = process_stats.get(origin, {}).get("last_run_end_time") if origin else None
+    if origin_end:
         try:
-            consolidate_done = (started_dt is None
-                                or datetime.fromisoformat(consolidate_end) >= started_dt)
+            origin_done = (started_dt is None
+                           or datetime.fromisoformat(origin_end) >= started_dt)
         except (ValueError, TypeError):
-            consolidate_done = False
-    steps_pending = pipeline_active or (provisional and not consolidate_done)
+            origin_done = False
+    steps_pending = pipeline_active or (provisional and not origin_done)
 
     cloud = is_cloud_run()
     view: list[dict] = []
     for step in rows:
         ps = process_stats.get(step, {})
         label = _PIPELINE_STAGE_LABELS.get(step, step)
+        plan_state = (steps_plan.get(step) or {}).get("state") or "not_planned"
 
-        # Not in this run's plan: an inert row. Deliberately no status read and
-        # no process_stats fallback — a step can run outside this pipeline while
-        # it is in flight (a hand-started Timelines refresh, a sessions run
-        # self-chained from a study save) and that foreign work must not be
-        # drawn as part of this run, nor stretch its axis.
-        if step != "consolidate_enrichment" and step not in planned:
+        # Inert rows: no status read and no process_stats fallback. A step can
+        # run outside this run while it is in flight (a sessions refresh chained
+        # from a study save) and that foreign work must not be drawn as part of
+        # the run, nor stretch its axis.
+        if plan_state in ("pruned", "not_planned", "upstream"):
             view.append({
-                "step": step, "label": label, "state": "not_planned",
+                "step": step, "label": label, "state": plan_state,
+                "reason": (steps_plan.get(step) or {}).get("reason"),
+                "is_origin": False,
                 "percent": None, "message": None, "ran_at": None,
                 "started_at": None, "ended_at": None, "queued_at": None,
                 "duration_s": None, "plan_mode": plan_mode, "provisional": False,
@@ -338,6 +357,8 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
             "step": step,
             "label": label,
             "state": state,
+            "reason": (steps_plan.get(step) or {}).get("reason"),
+            "is_origin": step == origin,
             "percent": percent if state == "running" else None,
             "message": message if state == "running" else None,
             "ran_at": end if ran_this_run else None,
@@ -348,9 +369,9 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
             # Repeated on every row so the renderer can word the unplanned rows
             # ("not needed" vs "not requested") without an envelope.
             "plan_mode": plan_mode,
-            # True while this row is part of the dispatch-time forecast rather
-            # than the plan the consolidation actually computed.
-            "provisional": provisional and step != "consolidate_enrichment",
+            # True while this row is part of the plan made at dispatch rather
+            # than one the run has confirmed by getting there.
+            "provisional": provisional and step != origin,
         })
 
     return view

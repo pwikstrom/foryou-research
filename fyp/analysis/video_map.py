@@ -27,6 +27,7 @@ backend's model instead — the ``_ask``/``ask_fn`` seam in ``_name_niches`` /
 ``_dedupe_niche_names`` is the intended hook.
 """
 
+import hashlib
 import re
 from collections.abc import Callable
 
@@ -497,20 +498,25 @@ def _align_labels_to_previous(
         prev_name_col: Column in the previous map holding the cluster name.
 
     Returns:
-        ``(aligned_labels, carried_names)`` where ``carried_names`` maps each
-        carried-forward (previous) id to the previous name to reuse.
+        ``(aligned_labels, carried_names, previous_per_item)`` — ``carried_names``
+        maps each carried-forward (previous) id to the previous name to reuse,
+        and ``previous_per_item`` is each video's niche in the PREVIOUS build
+        (NaN where the video is new, None when there was no previous map).
+        Because the aligned labels live in the previous build's id space, the
+        two arrays compare directly: that is how a rebuild reports how many
+        videos actually changed niche.
     """
     if not data_io.exists(storage_location=embeddings.STORE_LOCATION, filename=MAP_FILE):
-        return labels.astype(np.int32), {}
+        return labels.astype(np.int32), {}, None
     try:
         prev = data_io.load_parquet_selective(
             storage_location=embeddings.STORE_LOCATION, filename=MAP_FILE,
             columns=["item_id", prev_id_col, prev_name_col],
         )
     except Exception:
-        return labels.astype(np.int32), {}
+        return labels.astype(np.int32), {}, None
     if prev is None or prev.empty or prev_id_col not in prev.columns:
-        return labels.astype(np.int32), {}
+        return labels.astype(np.int32), {}, None
 
     prev["item_id"] = prev["item_id"].astype("string")
     prev = prev.dropna(subset=[prev_id_col])
@@ -526,7 +532,7 @@ def _align_labels_to_previous(
     new_ids = np.unique(labels)
     old_ids = np.array(sorted(old_name_by_id.keys()))
     if old_ids.size == 0:
-        return labels.astype(np.int32), {}
+        return labels.astype(np.int32), {}, None
 
     new_pos = {int(c): i for i, c in enumerate(new_ids)}
     old_pos = {int(c): j for j, c in enumerate(old_ids)}
@@ -558,7 +564,7 @@ def _align_labels_to_previous(
             next_id += 1
 
     aligned = np.array([mapping[int(l)] for l in labels], dtype=np.int32)
-    return aligned, carried
+    return aligned, carried, old_per_item
 
 
 
@@ -856,7 +862,23 @@ def build_niche_map(
     # niche-filtered analyses survive a rebuild (see _align_labels_to_previous).
     if reporter is not None:
         reporter.update_progress(45, "Aligning niche ids to previous build...")
-    labels, niche_carry = _align_labels_to_previous(item_ids, labels, "niche", "niche_name")
+    labels, niche_carry, prev_niche_per_item = _align_labels_to_previous(
+        item_ids, labels, "niche", "niche_name")
+    # How much did the partition actually move? This is what lets the refresh
+    # pipeline skip the study/timeline rebuilds after a map run that changed
+    # nothing — a warm-started append typically moves a handful of videos.
+    # A cold start (or no previous map) means every assignment is new.
+    cold_start = init_centroids is None
+    if prev_niche_per_item is None or cold_start:
+        niche_changed = len(item_ids)
+        new_videos = len(item_ids) if prev_niche_per_item is None else int(
+            np.isnan(prev_niche_per_item).sum())
+    else:
+        known = ~np.isnan(prev_niche_per_item)
+        new_videos = int((~known).sum())
+        niche_changed = int((labels[known] != prev_niche_per_item[known].astype(np.int32)).sum())
+    _log(f"Niche assignment: {niche_changed:,} video(s) changed niche, "
+         f"{new_videos:,} newly mapped (cold_start={cold_start}).")
     if reset_labels:
         # Force a full re-naming: cluster ids stay aligned to the previous build
         # (saved niche-filtered analyses survive) but every name is regenerated.
@@ -1012,8 +1034,28 @@ def build_niche_map(
     # Build provenance — a separate file (NICHES_FILE consumers assume every
     # key there is a niche id). Lets the UI label the map with the embedding
     # model that built it and detect a backend switch as staleness.
+    # A content fingerprint of the (item_id, niche) assignment, order-independent.
+    # The parquet itself is rewritten on every build (fresh 2D coordinates, a new
+    # built_at), so a file stat cannot tell a real re-clustering from a re-layout;
+    # the study-cache freshness check reads THIS instead.
+    try:
+        _row_hashes = pd.util.hash_pandas_object(
+            pd.Series(labels.astype(np.int64), index=pd.Index(item_ids, dtype="string")),
+            index=True).to_numpy()
+        _row_hashes.sort()
+        niche_assignment_hash = hashlib.blake2b(
+            _row_hashes.tobytes(), digest_size=16).hexdigest()
+    except Exception as exc:
+        _log(f"Could not fingerprint the niche assignment ({exc}); "
+             f"study caches will fall back to the file stat.")
+        niche_assignment_hash = None
+
     meta_payload = {
         "embedding_model": embed_model,
+        "niche_assignment_hash": niche_assignment_hash,
+        "niche_changed": int(niche_changed),
+        "new_videos": int(new_videos),
+        "cold_start": bool(cold_start),
         "dim": int(matrix.shape[1]),
         "n_vectors": int(n),
         "naming_mode": naming_mode,
@@ -1025,4 +1067,6 @@ def build_niche_map(
 
     _log(f"Saved {MAP_FILE} ({len(map_df):,} rows), {NICHES_FILE} ({len(niche_meta)} niches) "
          f"and {MAP_META_FILE} (model={embed_model}, naming={naming_mode}).")
-    return {"videos": n, "niches": len(niche_meta), "mapped": int(len(sample_idx))}
+    return {"videos": n, "niches": len(niche_meta), "mapped": int(len(sample_idx)),
+            "niche_changed": int(niche_changed), "new_videos": int(new_videos),
+            "cold_start": bool(cold_start)}

@@ -413,6 +413,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
                 reporter.log("Another sessions refresh appears to be running "
                              "— skipping this (chained) run.")
                 reporter.update_progress(100, "Skipped — refresh already running")
+                reporter.emit_data({"sessions_mode": "skipped_busy"})
                 return None
         params = {**session_explorer.default_params(), **overrides}
         collections = None
@@ -517,6 +518,10 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         if plan["mode"] == "noop":
             reporter.update_progress(100, "Up to date")
             reporter.log("Sessions artifacts are up to date — nothing to do.")
+            # The chart says "up to date" rather than implying work happened:
+            # the pipeline dispatches this step on a maybe, and the worker's own
+            # fingerprints are the final word.
+            reporter.emit_data({"sessions_mode": "noop"})
             return None
 
         counts = dict(discovered)
@@ -539,6 +544,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
                 expected={}, meta=meta, trend_cols=trend_cols,
                 reporter=reporter, covered_collections=0)
             reporter.update_progress(100, "Done")
+            reporter.emit_data({"sessions_mode": "drop_only"})
             reporter.log(f"Dropped {len(plan['drop'])} collection(s) that left "
                          "every study; nothing to segment.")
             return None
@@ -551,6 +557,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
                 reporter=reporter, params=overrides or None,
                 coverage=coverage)
             reporter.update_progress(100, "Done")
+            reporter.emit_data({"sessions_mode": "empty"})
             reporter.log("No covered collections with in-window play rows; "
                          "wrote empty artifacts.")
             return None if not meta.get("cancelled") else None
@@ -784,6 +791,7 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
                    filename=_progress_filename(run_id))
 
     reporter.update_progress(100, "Done")
+    reporter.emit_data({"sessions_mode": "rebuilt"})
     _t_run = time.perf_counter() - _t_run_start
     reporter.log(
         f"[TIMING] sessions_refresh link={chunk} wall={_t_run:.2f}s "

@@ -126,6 +126,8 @@ def __getattr__(name: str):
 # fingerprint guards study-cache freshness.
 _VIDEO_MAP_LOCATION = "recoded"
 _VIDEO_MAP_FILE = "video_map.parquet"
+# Written by build_niche_map beside the map; carries niche_assignment_hash.
+_VIDEO_MAP_META_FILE = "video_map_meta.json"
 _NICHE_COLUMNS = ("niche", "niche_name", "typicality_pct", "niche_isolation_pct")
 _NICHE_UNMAPPED = "unmapped"
 # Backfill dtype + value per joined column, for rows the map does not cover and
@@ -206,17 +208,50 @@ def compute_study_config_hash(study_name: str) -> str:
 
 
 
+def _video_map_fingerprint():
+    """The niche map's fingerprint: its ASSIGNMENT, not its file stat.
+
+    ``build_niche_map`` rewrites video_map.parquet on every run — fresh t-SNE
+    coordinates and a new ``built_at`` — so a file stat reports "changed" after a
+    rebuild that moved no video between niches, and every study would rebuild
+    for a join whose result is byte-identical. The map's meta file carries a
+    hash over its ``(item_id, niche)`` pairs; that is the thing a study cache
+    actually depends on. Falls back to the stat for a map written before the
+    hash existed, or when the meta file cannot be read — a spurious rebuild is
+    the safe failure here, a skipped one is not.
+    """
+    fallback = data_io.stat(storage_location=_VIDEO_MAP_LOCATION,
+                            filename=_VIDEO_MAP_FILE)
+    if fallback is None:
+        return None
+    try:
+        if not data_io.exists(storage_location=_VIDEO_MAP_LOCATION,
+                              filename=_VIDEO_MAP_META_FILE):
+            return fallback
+        meta = data_io.load_json(storage_location=_VIDEO_MAP_LOCATION,
+                                 filename=_VIDEO_MAP_META_FILE) or {}
+        digest = meta.get("niche_assignment_hash")
+        if digest:
+            return {"niche_assignment_hash": str(digest)}
+    except Exception:
+        pass
+    return fallback
+
+
 def compute_input_fingerprints() -> dict:
     """Stat each core input parquet and return a dict of fingerprint dicts.
 
     A missing file maps to None in the returned dict so callers can distinguish
-    "file not present" from "file unchanged".
+    "file not present" from "file unchanged". The niche map is fingerprinted by
+    content rather than by stat — see :func:`_video_map_fingerprint`.
     """
 
-    return {
+    fps = {
         key: data_io.stat(storage_location=loc, filename=fn)
         for key, (loc, fn) in _fingerprint_input_files().items()
     }
+    fps["video_map_fp"] = _video_map_fingerprint()
+    return fps
 
 
 

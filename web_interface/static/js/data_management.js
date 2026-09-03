@@ -2740,12 +2740,10 @@ function renderConsolidationImpact(impact, partial = null) {
 }
 
 function startCascadeRefresh(impact, btn) {
-    // Run the SAME downstream pipeline the consolidate auto-refresh uses
-    // (embeddings → video_map → recode → {meta ‖ pca ‖ timelines}) against the
-    // stored impact. The backend builds + dispatches it and records the
-    // pipeline_plan; we then poll the shared pipeline status — so the step list
-    // and the niche steps (embeddings/video_map) that the old per-button
-    // cascade skipped are now both covered.
+    // Start the same refresh run a consolidation with auto-refresh would, against
+    // the stored impact. The backend plans it, prunes what has not changed and
+    // dispatches the first step; we then poll the shared run status, so the
+    // chart narrates it exactly as it narrates a consolidation's own run.
     if (btn) {
         btn.disabled = true;
         btn.textContent = 'Starting…';
@@ -3042,14 +3040,15 @@ function fetchEnrichmentStats() {
                 );
             }
 
-            // Persistent + live per-step pipeline list (updates every tick).
-            renderPipelineSteps(data.pipeline_steps);
+            // Persistent + live refresh-run chart (updates every tick).
+            renderPipelineSteps(data.pipeline_steps, data.refresh_run);
 
-            // Button state (armed / workers-running / idle)
+            // Button state (armed / workers-running / idle) and the card lock.
             applyConsolidateButtonState(data);
+            applyRefreshCardState(data);
 
-            // If a pipeline step is running (e.g. after page reload mid-run),
-            // kick off the poll so the UI shows live stage progress.
+            // If a run is in flight (e.g. after a page reload mid-run), kick off
+            // the poll so the chart shows live progress.
             if (!_consolidatePollActive && data.consolidate_pipeline_active) {
                 pollConsolidationStatus();
             }
@@ -3374,11 +3373,11 @@ function emptyQueue(queueType, platform) {
 // periodic fetchEnrichmentStats refreshes don't start a second polling loop.
 let _consolidatePollActive = false;
 
-// Downstream pipeline steps in dispatch order; used to identify the
-// currently-running step during the consolidate pipeline. Must include the
-// embeddings/video_map spine steps or the live poll can't surface progress for
-// the slowest (and most failure-prone) part of the chain.
-const _PIPELINE_STEPS = [
+// The refresh pipeline's steps and labels, server-rendered from the registry
+// (window.PIPELINE_REGISTRY) so this file cannot drift from the planner. The
+// literals are the fallback for a cached page served before the injection.
+const _PIPELINE_REGISTRY = window.PIPELINE_REGISTRY || {};
+const _PIPELINE_STEPS = _PIPELINE_REGISTRY.order || [
     "consolidate_enrichment",
     "embeddings_refresh",
     "video_map_refresh",
@@ -3389,9 +3388,9 @@ const _PIPELINE_STEPS = [
     "sessions_refresh",
 ];
 
-// Short human labels for pipeline steps — mirrors _PIPELINE_STAGE_LABELS on the
-// backend. Used to humanize the failed-at step name in the impact panel note.
-const _PIPELINE_STEP_LABELS = {
+// Short human labels, used to humanize a step name in prose (the chart's rows
+// use the long labels the server puts on each row).
+const _PIPELINE_STEP_LABELS = _PIPELINE_REGISTRY.short_labels || {
     consolidate_enrichment: "Consolidate enrichment data",
     embeddings_refresh: "Semantic embeddings",
     video_map_refresh: "Semantic map",
@@ -3415,6 +3414,7 @@ function _humanizePipelineSteps(csv) {
 // The pipeline chart re-renders from this cache once a second while any step
 // is live, so a running bar grows between polls instead of jumping.
 let _pipelineStepsCache = null;
+let _pipelineRunCache = null;
 let _pipelineTicker = null;
 
 function _fmtDuration(seconds) {
@@ -3447,17 +3447,70 @@ function _stopPipelineTicker() {
     _pipelineTicker = null;
 }
 
-function renderPipelineSteps(steps) {
-    // The last (or running) refresh pipeline as a timeline. One row per step in
+function _renderRunHeader(run, steps) {
+    // "Started from Semantic Map by patrik at 14:02 — finished in 12 min:
+    // nothing downstream needed refreshing." A run can start from any card now,
+    // so the chart has to say which one, or a reader has no way to tell a
+    // map rebuild's cascade from a consolidation's.
+    const el = document.getElementById('pipeline-run-header');
+    if (!el) return;
+    if (!run || !run.origin) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = '';
+    const started = run.started_ts ? Date.parse(run.started_ts) : NaN;
+    const parts = [`Started from <strong>${escapeHtml(run.origin_label || run.origin)}</strong>`];
+    if (run.started_by) parts.push(`by ${escapeHtml(run.started_by)}`);
+    if (Number.isFinite(started)) parts.push(`at ${escapeHtml(fypFmtTime(started))}`);
+    let tail = '';
+    if (run.in_flight) {
+        tail = ' — running';
+    } else if (run.finished_ts && Number.isFinite(started)) {
+        const secs = (Date.parse(run.finished_ts) - started) / 1000;
+        tail = Number.isFinite(secs) ? ` — finished in ${escapeHtml(_fmtDuration(secs))}` : ' — finished';
+    } else if (run.finished_ts) {
+        tail = ' — finished';
+    }
+    let summary = '';
+    if (!run.in_flight && run.summary) {
+        summary = `<span class="${run.partial ? 'text-warning' : 'text-muted'}">`
+            + escapeHtml(run.summary) + '</span>';
+    }
+    el.innerHTML = `<span class="text-xs">${parts.join(' ')}${tail}</span>`
+        + (summary ? `<span class="text-xs"> ${summary}</span>` : '');
+}
+
+function applyRefreshCardState(data) {
+    // One refresh run at a time: two would interleave writes to the same caches.
+    // The server refuses a second start with a 423, and this is the half the
+    // operator can see — every refresh card's button disabled, saying which run
+    // holds the pipeline. Stored on window because setStatus() in main.js
+    // rebuilds these buttons on every status poll and re-applies the lock.
+    const run = (data && data.refresh_run) || null;
+    const active = !!(data && data.consolidate_pipeline_active);
+    if (active && run && run.in_flight) {
+        window._refreshRunLock = {
+            origin: run.origin,
+            label: run.origin_label || run.origin,
+            reason: `A refresh run started from ${run.origin_label || run.origin} is in progress`,
+        };
+    } else {
+        window._refreshRunLock = null;
+    }
+    if (typeof applyRefreshRunLock === 'function') applyRefreshRunLock();
+}
+
+function renderPipelineSteps(steps, run) {
+    // The last (or running) refresh run as a timeline. One row per step in
     // dispatch order; each bar is placed by the step's start and sized by its
     // duration on a shared wall-clock axis anchored at the earliest start — so
     // bars measure TIME, not progress. Live steps grow to "now" and pulse;
     // queued leaves show a dashed wait from the moment they were queued; a
-    // dashed guideline marks where the study definitions finished, which is
-    // where the leaves fork. Every step is always listed, so a step this run
-    // never planned still gets a row — greyed, bar-less, and worded in the
-    // right column. With no plan recorded the empty-state line shows.
+    // dashed guideline marks where the run forked. Every step is always listed,
+    // so a step outside this run still gets a row — greyed, bar-less, and
+    // worded in the right column, which is where a skipped step says WHY it was
+    // skipped. With no run recorded the empty-state line shows.
     _pipelineStepsCache = steps || null;
+    if (run !== undefined) _pipelineRunCache = run || null;
+    run = _pipelineRunCache;
     const chart = document.getElementById('pipeline-gantt');
     const note = document.getElementById('pipeline-steps-note');
     const empty = document.getElementById('pipeline-gantt-empty');
@@ -3475,8 +3528,12 @@ function renderPipelineSteps(steps) {
     if (empty) empty.style.display = 'none';
     if (legend) legend.style.display = '';
     chart.style.display = '';
-    // While the plan is the dispatch-time forecast, say so — the consolidation
-    // greys out the steps its impact turns out not to need.
+    // Who started this run and how it ended. Without it the chart silently
+    // implies every run is a consolidation, which is exactly what stopped being
+    // true when any card started planning its own dependents.
+    _renderRunHeader(run, steps);
+    // While the plan is the one made at dispatch, say so — the run greys out
+    // the steps it turns out not to need as it learns what actually changed.
     if (note) note.style.display = steps.some(s => s.provisional) ? '' : 'none';
 
     const now = Date.now();
@@ -3504,9 +3561,12 @@ function renderPipelineSteps(steps) {
     const pct = ms => Math.min(100, Math.max(0, ((ms - t0) / spanMs) * 100));
     const haveAxis = Number.isFinite(t0);
 
-    // The fork: where the study definitions finished, if they have.
-    const recode = steps.find(s => s.step === 'recode_refresh_studies');
-    const forkAt = recode ? parse(recode.ended_at) : NaN;
+    // The fork: where the step that fanned the leaves out finished. Which step
+    // that is depends on the run — a consolidation whose studies were untouched
+    // forks straight from the consolidate row.
+    const forkStep = (run && run.fork_at) || 'recode_refresh_studies';
+    const forkRow = steps.find(s => s.step === forkStep);
+    const forkAt = forkRow ? parse(forkRow.ended_at) : NaN;
     const markers = (haveAxis ? (
         (Number.isFinite(forkAt) ? `<span class="gantt-fork" style="left:${pct(forkAt)}%"></span>` : '')
         + (anyLive ? `<span class="gantt-now" style="left:${pct(now)}%"></span>` : '')
@@ -3516,15 +3576,26 @@ function renderPipelineSteps(steps) {
         const state = s.state || 'pending';
         const a = parse(s.started_at), e = parse(s.ended_at), q = parse(s.queued_at);
         let bar = '', dur = '', title = '';
-        if (state === 'not_planned') {
-            // Never in this run's plan: no bar, and a word that says which kind
-            // of "no". Checked before the axis guard so it reads right even in
-            // the first poll of a run, before anything has reported a start.
+        if (state === 'pruned') {
+            // Planned, then skipped because nothing upstream changed. This is
+            // the ordinary outcome of a quiet run and the most useful thing the
+            // chart says, so the reason goes in the empty track where the bar
+            // would have been — not into a tooltip nobody hovers.
+            dur = 'not needed';
+            const why = s.reason || 'nothing upstream changed';
+            bar = `<span class="gantt-msg gantt-msg--reason text-xxs" style="left:0">${escapeHtml(why)}</span>`;
+            title = `Skipped \u2014 ${why}`;
+        } else if (state === 'upstream') {
+            dur = 'not in this run';
+            title = 'Runs before this step \u2014 not part of this run';
+        } else if (state === 'not_planned') {
+            // Nothing in this run feeds it. Checked before the axis guard so it
+            // reads right even in the first poll, before anything has started.
             const only = s.plan_mode === 'consolidate_only';
             dur = only ? 'not requested' : 'not needed';
             title = only
                 ? 'Not requested \u2014 this run consolidated without the refresh pipeline'
-                : "Not needed \u2014 this run's changes did not affect it";
+                : "Not needed \u2014 nothing in this run feeds it";
         } else if (!haveAxis) {
             dur = state;
         } else if (state === 'running' && Number.isFinite(a)) {
@@ -3548,13 +3619,14 @@ function renderPipelineSteps(steps) {
             title = `${fypFmtTime(a)} → ${fypFmtTime(e)}`
                 + (state === 'failed' ? ' — failed' : '');
         } else if (state === 'skipped') {
-            // Planned work that never happened — an anomaly, unlike not_planned.
+            // Planned work that never happened — an anomaly, unlike "pruned".
             dur = 'skipped';
-            title = 'Planned but never ran \u2014 the pipeline ended before reaching it';
+            title = 'Planned but never ran \u2014 the run ended before reaching it';
         } else {
             dur = state === 'failed' ? 'failed' : 'pending';
         }
-        return `<div class="gantt-row gantt-row--${state}" title="${escapeHtml(title)}">`
+        const originCls = s.is_origin ? ' gantt-row--origin' : '';
+        return `<div class="gantt-row gantt-row--${state}${originCls}" title="${escapeHtml(title)}">`
             + `<span class="gantt-label text-xs">${escapeHtml(s.label || s.step)}</span>`
             + `<span class="gantt-track">${markers}${bar}</span>`
             + `<span class="gantt-dur text-xs">${escapeHtml(dur)}</span>`
@@ -3805,8 +3877,11 @@ function pollConsolidationStatus() {
             fetch('/api/manage/enrichment/stats').then(r => r.json()),
         ])
             .then(([data, estats]) => {
-                // Keep the per-step list live during the run.
-                if (estats) renderPipelineSteps(estats.pipeline_steps);
+                // Keep the chart and the card lock live during the run.
+                if (estats) {
+                    renderPipelineSteps(estats.pipeline_steps, estats.refresh_run);
+                    applyRefreshCardState(estats);
+                }
 
                 const active = _activePipelineStep(data);
                 if (active) {
@@ -3826,21 +3901,29 @@ function pollConsolidationStatus() {
                     return;
                 }
 
-                // No step is currently "running". If the pipeline is still
-                // flagged as in-flight, we're in the gap between steps — keep
-                // polling. The step list carries that state on its own.
+                // No step is currently "running". If the run is still flagged
+                // as in-flight, we're in the gap between steps — keep polling.
+                // The chart carries that state on its own.
                 if (estats && estats.consolidate_pipeline_active) return;
 
-                // Pipeline fully settled. Check the consolidate step's outcome.
-                const consolidate = data.consolidate_enrichment;
-                const outcome = consolidate && consolidate.last_run_outcome;
-                if (!outcome) {
-                    // Dispatcher may still be in flight — keep polling briefly.
-                    return;
+                // Settled. The run record is what says so — a run started from
+                // a worker card never touches the consolidate step, so waiting
+                // for a consolidate outcome would poll forever.
+                const run = estats && estats.refresh_run;
+                if (run && run.in_flight) return;
+                if (!run) {
+                    // No run recorded at all (a bare worker start): fall back to
+                    // the consolidate outcome so an old dispatch still settles.
+                    const consolidate = data.consolidate_enrichment;
+                    if (!(consolidate && consolidate.last_run_outcome)) return;
                 }
+                const failed = run ? run.partial
+                    : (data.consolidate_enrichment || {}).last_run_outcome !== 'Success';
 
                 clearInterval(interval);
                 _consolidatePollActive = false;
+                window._refreshRunLock = null;
+                if (typeof applyRefreshRunLock === 'function') applyRefreshRunLock();
 
                 if (btnC) {
                     btnC.classList.remove('btn-running', 'btn-armed-pulse');
@@ -3851,23 +3934,36 @@ function pollConsolidationStatus() {
                 }
                 _setConsolidateOptionsDisabled(false);
 
-                if (outcome === 'Success') {
-                    // The persistent summary now lives in consolidate_stats
-                    // (written by the orchestrator at pipeline end), so just
-                    // refetching stats is enough — renderConsolidateStatus
-                    // will render the "✓ Refreshed ..." line.
+                if (!failed) {
+                    // The persistent summary lives in consolidate_stats (for a
+                    // consolidation) and in the chart header (for every run), so
+                    // refetching the stats is enough.
                     fetchEnrichmentStats();
                     if (typeof fetchStalenessStatus === 'function') fetchStalenessStatus();
                 } else {
-                    statusEl.textContent = 'Consolidation failed. Check logs.';
-                    statusEl.style.color = 'var(--color-danger)';
-                    renderConsolidationImpact(null);
+                    // This line belongs to the Consolidate card, so only a run
+                    // that card started may write it. A card-started run
+                    // reports through the chart header instead — writing here
+                    // would blame the consolidation for someone else's failure.
+                    const consolidateRun = !run || ['consolidate', 'armed',
+                        'refresh_downstream'].includes(run.origin_kind);
+                    if (statusEl && consolidateRun) {
+                        const where = run && run.failed_at
+                            ? _humanizePipelineSteps(run.failed_at) : '';
+                        statusEl.textContent = where
+                            ? `Refresh run stopped at ${where}. Check logs.`
+                            : 'Refresh run did not finish. Check logs.';
+                        statusEl.style.color = 'var(--color-danger)';
+                    }
+                    fetchEnrichmentStats();
                 }
             })
             .catch(err => {
-                console.error('Error polling consolidation status:', err);
+                console.error('Error polling refresh-run status:', err);
                 clearInterval(interval);
                 _consolidatePollActive = false;
+                window._refreshRunLock = null;
+                if (typeof applyRefreshRunLock === 'function') applyRefreshRunLock();
                 if (btnC) {
                     btnC.className = 'action-btn';
                     btnC.textContent = 'Consolidate';
@@ -3881,7 +3977,7 @@ function pollConsolidationStatus() {
 // Every refresh card that carries a "(N ... need refresh)" badge, i.e. every
 // step of the refresh pipeline. Drives both the render and the clear-all pass,
 // so a card can never be left showing a badge the server no longer reports.
-const _STALE_BADGE_STEPS = [
+const _STALE_BADGE_STEPS = _PIPELINE_REGISTRY.downstream || [
     'embeddings_refresh', 'video_map_refresh', 'recode_refresh_studies',
     'meta_refresh_groups', 'pca_refresh', 'timelines_refresh', 'sessions_refresh',
 ];

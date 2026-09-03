@@ -1,32 +1,40 @@
-"""Unit tests for the cache-refresh auto-pipeline order + fan-out concurrency.
+"""Unit tests for the refresh pipeline: registry, planner, pruning, barrier.
 
 Covers:
-  Order / invariants:
-    1. test_order_lists_in_sync          (_PIPELINE_STEPS_ORDER == PIPELINE_STEPS_ORDER)
-    2. test_dependency_invariants        (embeddings < video_map < recode < the leaves;
-                                          video_map < sessions)
+  Registry invariants (services/refresh_pipeline):
+    1. test_order_lists_in_sync           (registry == the endpoints' liveness set)
+    2. test_dependency_invariants         (every parent precedes its child;
+                                           timelines and sessions read the map)
     3. test_every_step_has_a_stage_label
-    4. test_every_step_has_a_local_script (the bug this fix closed: video_map missing)
+    4. test_every_step_has_a_local_script (the bug this closed: video_map missing)
+    5. test_dependents_of_each_origin
 
-  Candidate builder (_build_downstream_pipeline):
-    5. test_candidate_full_order
-    6. test_video_map_gated_on_new_annotations
-    7. test_sessions_gated_on_changed_data
-    8. test_video_map_uses_empty_task_args   (no auto_refresh → no double-dispatch)
-    9. test_no_candidates_when_impact_empty
+  Planning (plan_run):
+    6. test_consolidate_plans_everything
+    7. test_card_origin_marks_earlier_steps_upstream
+    8. test_leaf_origin_plans_nothing
+    9. test_consolidate_only_plans_nothing
+   10. test_stage_total_is_tree_depth
 
-  Fork chain (build_pipeline_chain):
-    10. test_fork_at_recode
-    11. test_no_fork_without_recode
-    12. test_stage_depth_not_task_count
-    13. test_manual_video_map_path_forks
+  Pruning (next_actions) — the reason a run exists rather than a fixed chain:
+   11. test_map_that_moved_nothing_prunes_everything
+   12. test_map_that_moved_dispatches_recode_for_all_studies
+   13. test_meta_and_pca_scoped_to_changed_studies
+   14. test_unchanged_studies_prune_meta_and_pca
+   15. test_embeddings_that_wrote_nothing_prune_the_map
+   16. test_missing_signal_never_prunes
+   17. test_fork_comes_from_the_last_step_that_ran
+   18. test_collection_only_impact_forks_from_consolidate
 
   Barrier (_maybe_finish_forked_pipeline) — the race-free completion detector:
-    14. test_barrier_fires_when_all_leaves_completed
-    15. test_barrier_waits_for_running_leaf
-    16. test_barrier_ignores_stale_status_before_fork
-    17. test_barrier_marks_partial_on_leaf_failure
-    18. test_barrier_waits_for_missing_status
+   19. test_barrier_fires_when_all_leaves_completed
+   20. test_barrier_waits_for_running_leaf
+   21. test_barrier_ignores_stale_status_before_fork
+   22. test_barrier_marks_partial_on_leaf_failure
+   23. test_barrier_waits_for_missing_status
+   24. test_barrier_kills_queued_leaf_after_grace
+   25. test_barrier_spares_running_leaf_past_grace
+   26. test_barrier_waits_for_queued_leaf_within_grace
 
 Run:
     python tests/unit/test_pipeline_order.py
@@ -43,22 +51,13 @@ project_root = current_dir.parent.parent
 sys.path.insert(0, str(project_root))
 
 import web_interface.routes.process_routes as pr
+import web_interface.services.refresh_pipeline as rp
 from web_interface.process_manager import local_pipeline_script_map
 from web_interface.routes.management_routes import PIPELINE_STEPS_ORDER
-from web_interface.run_consolidate_enrichment import (
-    _FORK_LEAF_TASKS,
-    _FORK_PARENT,
-    _PIPELINE_STAGE_LABELS,
-    _PIPELINE_STEPS_ORDER,
-    _build_downstream_pipeline,
-    build_pipeline_chain,
-)
-from web_interface.run_video_map_refresh import _DOWNSTREAM_PIPELINE
 
 
 PASS = 0
 FAIL = 0
-
 
 
 def _check(name: str, ok: bool, detail: str = ""):
@@ -71,220 +70,250 @@ def _check(name: str, ok: bool, detail: str = ""):
         print(f"  FAIL  {name}  {detail}")
 
 
-
 def _idx(task: str) -> int:
-    return _PIPELINE_STEPS_ORDER.index(task)
+    return rp.STEP_ORDER.index(task)
 
 
-
-def _find_step_args(chain: dict, task: str) -> dict | None:
-    """Return the task_args for ``task`` within a build_pipeline_chain result.
-
-    The fork parent may be the first dispatched task (its args live in
-    next_task_args) or a later spine step (in pipeline_remaining).
-    """
-    nta = chain["next_task_args"]
-    if chain["next_task"] == task:
-        return nta
-    for step in nta.get("pipeline_remaining", []):
-        if step["task"] == task:
-            return step["task_args"]
-    return None
+def _ctx(record: dict, results: dict, impact: dict | None = None) -> rp.RunContext:
+    """A context whose steps are all treated as having finished in this run."""
+    return rp.RunContext(record=record, results=results, impact=impact)
 
 
+def _states(record: dict) -> dict:
+    return {k: v.get("state") for k, v in record["steps"].items()}
 
-# -------- Order / invariants --------
+
+# -------- Registry invariants --------
 
 
 def test_order_lists_in_sync():
     _check(
         "test_order_lists_in_sync",
-        _PIPELINE_STEPS_ORDER == PIPELINE_STEPS_ORDER,
-        f"{_PIPELINE_STEPS_ORDER} != {PIPELINE_STEPS_ORDER}",
+        rp.DOWNSTREAM_ORDER == PIPELINE_STEPS_ORDER,
+        f"{rp.DOWNSTREAM_ORDER} != {PIPELINE_STEPS_ORDER}",
     )
 
 
 def test_dependency_invariants():
-    ok = (
-        _idx("embeddings_refresh") < _idx("video_map_refresh") < _idx("recode_refresh_studies")
-        and _idx("recode_refresh_studies") < _idx("meta_refresh_groups")
-        and _idx("recode_refresh_studies") < _idx("pca_refresh")
-        and _idx("recode_refresh_studies") < _idx("timelines_refresh")
-        # sessions reads the embedding store and the map's trend columns.
-        and _idx("video_map_refresh") < _idx("sessions_refresh")
+    # Every parent must be dispatched before its child, or a step reads a cache
+    # its own input has not written yet.
+    violations = [
+        (step.name, parent)
+        for step in rp.STEPS for parent in step.parents
+        if _idx(parent) >= _idx(step.name)
+    ]
+    # The two multi-parent steps that a fixed chain got wrong: timelines joins
+    # the niche columns (via new_merge), and sessions reads the map's trend
+    # columns, so BOTH depend on the map, not only on the consolidation.
+    reads_map = (
+        "video_map_refresh" in rp.BY_NAME["timelines_refresh"].parents
+        and "video_map_refresh" in rp.BY_NAME["sessions_refresh"].parents
     )
-    _check("test_dependency_invariants", ok, str(_PIPELINE_STEPS_ORDER))
+    _check("test_dependency_invariants", not violations and reads_map,
+           f"violations={violations} reads_map={reads_map}")
 
 
 def test_every_step_has_a_stage_label():
-    missing = [s for s in _PIPELINE_STEPS_ORDER if s not in _PIPELINE_STAGE_LABELS]
+    missing = [s for s in rp.STEP_ORDER if not rp.LABELS.get(s)]
+    missing += [s for s in rp.STEP_ORDER if not rp.SHORT_LABELS.get(s)]
     _check("test_every_step_has_a_stage_label", not missing, f"missing labels: {missing}")
 
 
 def test_every_step_has_a_local_script():
-    # The original bug: video_map_refresh was absent from the local script_map,
-    # so the local-dev pipeline aborted with "Unknown step".
     script_map = local_pipeline_script_map()
-    missing = [s for s in _PIPELINE_STEPS_ORDER if s not in script_map]
-    _check("test_every_step_has_a_local_script", not missing, f"missing scripts: {missing}")
+    missing = [s for s in rp.DOWNSTREAM_ORDER if s not in script_map]
+    extra = [s for s in script_map if s not in rp.DOWNSTREAM_ORDER]
+    _check("test_every_step_has_a_local_script", not missing and not extra,
+           f"missing={missing} extra={extra}")
 
 
-
-# -------- Candidate builder --------
-
-
-def test_candidate_full_order():
-    impact = {
-        "affected_study_names": ["A", "B"],
-        "affected_collection_ids": ["c1"],
-        "new_annotation_item_count": 5,
+def test_dependents_of_each_origin():
+    expected = {
+        "consolidate_enrichment": rp.DOWNSTREAM_ORDER,
+        "embeddings_refresh": ["video_map_refresh", "recode_refresh_studies",
+                               "meta_refresh_groups", "pca_refresh",
+                               "timelines_refresh", "sessions_refresh"],
+        "video_map_refresh": ["recode_refresh_studies", "meta_refresh_groups",
+                              "pca_refresh", "timelines_refresh", "sessions_refresh"],
+        "recode_refresh_studies": ["meta_refresh_groups", "pca_refresh"],
+        "meta_refresh_groups": [],
+        "pca_refresh": [],
+        "timelines_refresh": [],
+        "sessions_refresh": [],
     }
-    got = [p["task"] for p in _build_downstream_pipeline(impact)]
-    _check("test_candidate_full_order", got == _PIPELINE_STEPS_ORDER, str(got))
+    got = {o: rp.dependents_of(o) for o in rp.STEP_ORDER}
+    _check("test_dependents_of_each_origin", got == expected, str(got))
 
 
-def test_video_map_gated_on_new_annotations():
-    # No new annotations → no embeddings + no video_map, even with affected studies.
-    impact = {
-        "affected_study_names": ["A"],
-        "affected_collection_ids": [],
-        "new_annotation_item_count": 0,
-    }
-    got = [p["task"] for p in _build_downstream_pipeline(impact)]
-    ok = "video_map_refresh" not in got and "embeddings_refresh" not in got
-    _check("test_video_map_gated_on_new_annotations", ok, str(got))
+# -------- Planning --------
 
 
-def test_sessions_gated_on_changed_data():
-    # Sessions staleness is driven by in-window play/annotated counts, so it
-    # rides along whenever collections changed or annotations landed — and stays
-    # out when neither did (a studies-only impact).
-    changed = {
-        "affected_study_names": ["A"],
-        "affected_collection_ids": [],
-        "new_annotation_item_count": 3,
-    }
-    unchanged = {
-        "affected_study_names": ["A"],
-        "affected_collection_ids": [],
-        "new_annotation_item_count": 0,
-    }
-    with_sessions = _build_downstream_pipeline(changed)
-    sess = next((p for p in with_sessions if p["task"] == "sessions_refresh"), None)
-    ok = (
-        sess is not None
-        and sess["task_args"] == {"stale_only": True, "skip_if_busy": True}
-        and not any(p["task"] == "sessions_refresh"
-                    for p in _build_downstream_pipeline(unchanged))
-    )
-    _check("test_sessions_gated_on_changed_data", ok, str(sess))
+def test_consolidate_plans_everything():
+    record = rp.plan_run("consolidate_enrichment", kind="consolidate")
+    states = _states(record)
+    ok = (states["consolidate_enrichment"] == "origin"
+          and all(states[s] == "planned" for s in rp.DOWNSTREAM_ORDER))
+    _check("test_consolidate_plans_everything", ok, str(states))
 
 
-def test_video_map_uses_empty_task_args():
-    # video_map must carry NO auto_refresh, or it would dispatch its own
-    # downstream chain on top of the consolidate pipeline (double-dispatch).
-    impact = {
-        "affected_study_names": [],
-        "affected_collection_ids": [],
-        "new_annotation_item_count": 7,
-    }
-    pipe = _build_downstream_pipeline(impact)
-    vm = next((p for p in pipe if p["task"] == "video_map_refresh"), None)
-    ok = vm is not None and vm["task_args"] == {}
-    _check("test_video_map_uses_empty_task_args", ok, str(vm))
+def test_card_origin_marks_earlier_steps_upstream():
+    # A map rebuild does not re-embed. Those rows must read "not part of this
+    # run" rather than "not needed", which would imply a judgement was made.
+    record = rp.plan_run("video_map_refresh", kind="card")
+    states = _states(record)
+    ok = (states["consolidate_enrichment"] == "upstream"
+          and states["embeddings_refresh"] == "upstream"
+          and states["video_map_refresh"] == "origin"
+          and states["recode_refresh_studies"] == "planned"
+          and states["sessions_refresh"] == "planned")
+    _check("test_card_origin_marks_earlier_steps_upstream", ok, str(states))
 
 
-def test_no_candidates_when_impact_empty():
-    ok = _build_downstream_pipeline({}) == [] and _build_downstream_pipeline(None) == []
-    _check("test_no_candidates_when_impact_empty", ok)
+def test_leaf_origin_plans_nothing():
+    record = rp.plan_run("timelines_refresh", kind="card")
+    states = _states(record)
+    ok = (states["timelines_refresh"] == "origin"
+          and not any(v == "planned" for v in states.values())
+          # sessions comes after timelines but reads nothing it writes.
+          and states["sessions_refresh"] == "not_planned")
+    _check("test_leaf_origin_plans_nothing", ok, str(states))
 
 
-def test_meta_refresh_scoped_to_affected_studies():
-    # meta_refresh_groups used to refresh EVERY study on every pipeline run,
-    # even though the impact names exactly which studies changed.
-    impact = {
-        "affected_study_names": ["study_a", "study_b"],
-        "affected_collection_ids": [],
-        "new_annotation_item_count": 0,
-    }
-    pipe = _build_downstream_pipeline(impact)
-    meta = next((p for p in pipe if p["task"] == "meta_refresh_groups"), None)
-    ok = meta is not None and meta["task_args"] == {"studies": "study_a,study_b"}
-    _check("test_meta_refresh_scoped_to_affected_studies", ok, str(meta))
+def test_consolidate_only_plans_nothing():
+    record = rp.plan_run("consolidate_enrichment", kind="consolidate",
+                         mode="consolidate_only")
+    states = _states(record)
+    ok = all(states[s] == "not_planned" for s in rp.DOWNSTREAM_ORDER)
+    _check("test_consolidate_only_plans_nothing", ok, str(states))
 
 
-
-# -------- Fork chain --------
-
-
-def test_fork_at_recode():
-    impact = {
-        "affected_study_names": ["A"],
-        "affected_collection_ids": ["c1"],
-        "new_annotation_item_count": 5,
-    }
-    chain = build_pipeline_chain(_build_downstream_pipeline(impact))
-    recode_args = _find_step_args(chain, _FORK_PARENT)
-    fanout = [c["task"] for c in (recode_args or {}).get("pipeline_fanout", [])]
-    leaves = (recode_args or {}).get("pipeline_leaves")
-    expected = ["meta_refresh_groups", "pca_refresh", "timelines_refresh",
-                "sessions_refresh"]
-    # leaves are not in the linear spine:
-    spine = [chain["next_task"]] + [p["task"] for p in chain["next_task_args"]["pipeline_remaining"]]
-    ok = (
-        fanout == expected
-        and leaves == expected
-        and not any(t in spine for t in _FORK_LEAF_TASKS)
-    )
-    _check("test_fork_at_recode", ok, f"fanout={fanout} leaves={leaves} spine={spine}")
+def test_stage_total_is_tree_depth():
+    # Depth, not task count: the leaves share one stage however many they are.
+    full = rp.plan_run("consolidate_enrichment", kind="consolidate")
+    from_map = rp.plan_run("video_map_refresh", kind="card")
+    from_recode = rp.plan_run("recode_refresh_studies", kind="card")
+    ok = (full["stage_total"] == 5          # consolidate, embeddings, map, recode, leaves
+          and from_map["stage_total"] == 3  # map, recode, leaves
+          and from_recode["stage_total"] == 2)  # recode, leaves
+    _check("test_stage_total_is_tree_depth",
+           ok, f"{full['stage_total']}/{from_map['stage_total']}/{from_recode['stage_total']}")
 
 
-def test_no_fork_without_recode():
-    # collections-only: no recode → no fork parent, so the leaves run as a
-    # linear spine (timelines then sessions) rather than concurrently.
-    impact = {
-        "affected_study_names": [],
-        "affected_collection_ids": ["c1"],
-        "new_annotation_item_count": 0,
-    }
-    chain = build_pipeline_chain(_build_downstream_pipeline(impact))
-    nta = chain["next_task_args"]
-    remaining = [p["task"] for p in nta.get("pipeline_remaining", [])]
-    ok = (
-        chain["next_task"] == "timelines_refresh"
-        and remaining == ["sessions_refresh"]
-        and "pipeline_fanout" not in nta
-        and "pipeline_leaves" not in nta
-    )
-    _check("test_no_fork_without_recode", ok, str(nta))
+# -------- Pruning --------
 
 
-def test_stage_depth_not_task_count():
-    # Full pipeline has 7 tasks but a tree DEPTH of 5 (the 4 leaves share a stage).
-    impact = {
-        "affected_study_names": ["A"],
-        "affected_collection_ids": ["c1"],
-        "new_annotation_item_count": 5,
-    }
-    chain = build_pipeline_chain(_build_downstream_pipeline(impact))
-    depth = chain["next_task_args"]["pipeline_stage_total"]
-    _check("test_stage_depth_not_task_count", depth == 5, f"depth={depth}")
+def test_map_that_moved_nothing_prunes_everything():
+    # The whole point: a warm-started rebuild that moves no video between
+    # niches leaves every downstream cache correct.
+    record = rp.plan_run("video_map_refresh", kind="card")
+    ctx = _ctx(record, {"video_map_refresh": {"map_niche_changed": 0,
+                                              "map_cold_start": False}})
+    action = rp.next_actions(record, ctx)
+    states = _states(record)
+    ok = (action["action"] == "finish"
+          and all(states[s] == "pruned" for s in rp.dependents_of("video_map_refresh"))
+          and "niche" in (action["prunes"].get("recode_refresh_studies") or ""))
+    _check("test_map_that_moved_nothing_prunes_everything", ok,
+           str((action["action"], action["prunes"])))
 
 
-def test_manual_video_map_path_forks():
-    # The manual Rebuild path (run_video_map_refresh._DOWNSTREAM_PIPELINE) must
-    # fork recode → {meta, pca, timelines} too.
-    chain = build_pipeline_chain(list(_DOWNSTREAM_PIPELINE))
-    recode_args = _find_step_args(chain, _FORK_PARENT)
-    fanout = [c["task"] for c in (recode_args or {}).get("pipeline_fanout", [])]
-    ok = chain["next_task"] == "recode_refresh_studies" and fanout == [
-        "meta_refresh_groups", "pca_refresh", "timelines_refresh",
-    ]
-    _check("test_manual_video_map_path_forks", ok, f"first={chain['next_task']} fanout={fanout}")
+def test_map_that_moved_dispatches_recode_for_all_studies():
+    record = rp.plan_run("video_map_refresh", kind="card")
+    ctx = _ctx(record, {"video_map_refresh": {"map_niche_changed": 3120}})
+    action = rp.next_actions(record, ctx)
+    ok = (action["action"] == "spine"
+          and action["step"] == "recode_refresh_studies"
+          # No study filter: a moved partition re-niches every study.
+          and action["task_args"] == {})
+    _check("test_map_that_moved_dispatches_recode_for_all_studies", ok, str(action))
 
 
+def test_meta_and_pca_scoped_to_changed_studies():
+    record = rp.plan_run("video_map_refresh", kind="card")
+    record["steps"]["recode_refresh_studies"] = {"state": "dispatched"}
+    ctx = _ctx(record, {"video_map_refresh": {"map_niche_changed": 10},
+                        "recode_refresh_studies": {"studies_changed": ["a", "b"],
+                                                   "studies_unchanged": ["c"]}})
+    action = rp.next_actions(record, ctx)
+    leaves = dict(action["leaves"])
+    ok = (action["action"] == "fork"
+          and leaves.get("meta_refresh_groups") == {"studies": "a,b"}
+          and leaves.get("pca_refresh") == {"studies": "a,b"})
+    _check("test_meta_and_pca_scoped_to_changed_studies", ok, str(action["leaves"]))
 
-# -------- Barrier (race-free completion detector) --------
+
+def test_unchanged_studies_prune_meta_and_pca():
+    record = rp.plan_run("video_map_refresh", kind="card")
+    record["steps"]["recode_refresh_studies"] = {"state": "dispatched"}
+    ctx = _ctx(record, {"video_map_refresh": {"map_niche_changed": 10},
+                        "recode_refresh_studies": {"studies_changed": []}})
+    action = rp.next_actions(record, ctx)
+    leaves = dict(action["leaves"])
+    states = _states(record)
+    ok = (states["meta_refresh_groups"] == "pruned"
+          and states["pca_refresh"] == "pruned"
+          # timelines and sessions still run: they read the map, not the studies.
+          and "timelines_refresh" in leaves and "sessions_refresh" in leaves)
+    _check("test_unchanged_studies_prune_meta_and_pca", ok, str((states, list(leaves))))
+
+
+def test_embeddings_that_wrote_nothing_prune_the_map():
+    record = rp.plan_run("consolidate_enrichment", kind="consolidate")
+    record["steps"]["consolidate_enrichment"] = {"state": "origin"}
+    record["steps"]["embeddings_refresh"] = {"state": "dispatched"}
+    ctx = _ctx(record,
+               {"consolidate_enrichment": {}, "embeddings_refresh": {"embeddings_embedded_run": 0}},
+               {"new_annotation_item_count": 40, "affected_study_names": [],
+                "affected_collection_ids": []})
+    rp.next_actions(record, ctx)
+    _check("test_embeddings_that_wrote_nothing_prune_the_map",
+           _states(record)["video_map_refresh"] == "pruned", str(_states(record)))
+
+
+def test_missing_signal_never_prunes():
+    # A worker that reports nothing means "unknown", and unknown always runs: a
+    # wasted refresh costs minutes, a wrongly skipped one leaves a stale cache.
+    record = rp.plan_run("video_map_refresh", kind="card")
+    action = rp.next_actions(record, _ctx(record, {"video_map_refresh": {}}))
+    ok = action["action"] == "spine" and action["step"] == "recode_refresh_studies"
+    _check("test_missing_signal_never_prunes", ok, str(action))
+
+
+def test_fork_comes_from_the_last_step_that_ran():
+    # recode pruned, but the map moved — the leaves that read the map still run,
+    # and they fan out from the map rather than from a step that never ran.
+    record = rp.plan_run("embeddings_refresh", kind="card")
+    record["steps"]["embeddings_refresh"] = {"state": "origin"}
+    record["steps"]["video_map_refresh"] = {"state": "dispatched"}
+    ctx = _ctx(record, {"embeddings_refresh": {"embeddings_embedded_run": 900},
+                        "video_map_refresh": {"map_niche_changed": 7}})
+    # recode would run here (the map moved), so prune it by hand to isolate the
+    # fan-out rule: with no spine step left, the leaves go together.
+    record["steps"]["recode_refresh_studies"] = {"state": "pruned"}
+    action = rp.next_actions(record, ctx)
+    leaves = [n for n, _ in action["leaves"]]
+    ok = (action["action"] == "fork"
+          and leaves == ["timelines_refresh", "sessions_refresh"]
+          and _states(record)["meta_refresh_groups"] == "pruned")
+    _check("test_fork_comes_from_the_last_step_that_ran", ok, str((action["action"], leaves)))
+
+
+def test_collection_only_impact_forks_from_consolidate():
+    record = rp.plan_run("consolidate_enrichment", kind="consolidate")
+    record["steps"]["consolidate_enrichment"] = {"state": "origin"}
+    ctx = _ctx(record, {"consolidate_enrichment": {}},
+               {"new_annotation_item_count": 0, "affected_study_names": [],
+                "affected_collection_ids": ["c1", "c2"]})
+    action = rp.next_actions(record, ctx)
+    leaves = dict(action["leaves"])
+    ok = (action["action"] == "fork"
+          and leaves.get("timelines_refresh") == {"collections": "c1,c2"}
+          and "sessions_refresh" in leaves
+          and _states(record)["embeddings_refresh"] == "pruned")
+    _check("test_collection_only_impact_forks_from_consolidate", ok, str(action))
+
+
+# -------- Barrier --------
 
 
 class _BarrierHarness:
@@ -292,40 +321,32 @@ class _BarrierHarness:
 
     def __init__(self, statuses: dict):
         self._statuses = statuses
-        self.in_flight_calls: list = []
         self.summary_calls: list = []
         self.stamp_calls: list = []
-        self.fork_cleared = False
 
     def __enter__(self):
         self._orig_read = pr.read_task_status
-        self._orig_flag = pr._set_pipeline_in_flight
-        self._orig_summary = pr._write_pipeline_summary_cloud
+        self._orig_finish = rp.finish_run
+        self._orig_publish = pr._publish_run_summary
         self._orig_stamp = pr.stamp_task_status
-        self._orig_clear = pr._clear_pipeline_fork
         pr.read_task_status = lambda name: self._statuses.get(name)
-        pr._set_pipeline_in_flight = lambda v: self.in_flight_calls.append(v)
-        pr._write_pipeline_summary_cloud = (
-            lambda partial=False, failed_at=None: self.summary_calls.append(
-                {"partial": partial, "failed_at": failed_at}
-            )
-        )
+
+        def _finish(partial=False, failed_at=None, reason=None, prunes=None, run_id=None):
+            self.summary_calls.append({"partial": partial, "failed_at": failed_at})
+            return {"partial": partial, "failed_at": failed_at}
+        rp.finish_run = _finish
+        pr._publish_run_summary = lambda record: None
 
         def _stamp(name, state, message="", error=None, stage=None):
             self.stamp_calls.append({"name": name, "state": state, "message": message})
         pr.stamp_task_status = _stamp
-
-        def _clear():
-            self.fork_cleared = True
-        pr._clear_pipeline_fork = _clear
         return self
 
     def __exit__(self, *a):
         pr.read_task_status = self._orig_read
-        pr._set_pipeline_in_flight = self._orig_flag
-        pr._write_pipeline_summary_cloud = self._orig_summary
+        rp.finish_run = self._orig_finish
+        pr._publish_run_summary = self._orig_publish
         pr.stamp_task_status = self._orig_stamp
-        pr._clear_pipeline_fork = self._orig_clear
 
     def stamped_failed(self, name: str) -> bool:
         return any(c["name"] == name and c["state"] == "failed" for c in self.stamp_calls)
@@ -348,8 +369,8 @@ def test_barrier_fires_when_all_leaves_completed():
     statuses = {l: {"state": "completed", "updated_at": _ts(0)} for l in _LEAVES}
     with _BarrierHarness(statuses) as h:
         pr._maybe_finish_forked_pipeline(_LEAVES, fork_ts=fork)
-    ok = h.fired and h.summary_calls[0]["partial"] is False and h.in_flight_calls == [False]
-    _check("test_barrier_fires_when_all_leaves_completed", ok, str((h.summary_calls, h.in_flight_calls)))
+    ok = h.fired and h.summary_calls[0]["partial"] is False
+    _check("test_barrier_fires_when_all_leaves_completed", ok, str(h.summary_calls))
 
 
 def test_barrier_waits_for_running_leaf():
@@ -423,7 +444,6 @@ def test_barrier_kills_queued_leaf_after_grace():
         and h.stamped_failed("timelines_refresh")
         and call.get("partial") is True
         and "timelines_refresh" in (call.get("failed_at") or "")
-        and h.fork_cleared
     )
     _check("test_barrier_kills_queued_leaf_after_grace", ok, str((h.summary_calls, h.stamp_calls)))
 
@@ -457,21 +477,25 @@ def test_barrier_waits_for_queued_leaf_within_grace():
     _check("test_barrier_waits_for_queued_leaf_within_grace", ok, str(h.summary_calls))
 
 
-
 TESTS = [
     test_order_lists_in_sync,
     test_dependency_invariants,
     test_every_step_has_a_stage_label,
     test_every_step_has_a_local_script,
-    test_candidate_full_order,
-    test_video_map_gated_on_new_annotations,
-    test_sessions_gated_on_changed_data,
-    test_video_map_uses_empty_task_args,
-    test_no_candidates_when_impact_empty,
-    test_fork_at_recode,
-    test_no_fork_without_recode,
-    test_stage_depth_not_task_count,
-    test_manual_video_map_path_forks,
+    test_dependents_of_each_origin,
+    test_consolidate_plans_everything,
+    test_card_origin_marks_earlier_steps_upstream,
+    test_leaf_origin_plans_nothing,
+    test_consolidate_only_plans_nothing,
+    test_stage_total_is_tree_depth,
+    test_map_that_moved_nothing_prunes_everything,
+    test_map_that_moved_dispatches_recode_for_all_studies,
+    test_meta_and_pca_scoped_to_changed_studies,
+    test_unchanged_studies_prune_meta_and_pca,
+    test_embeddings_that_wrote_nothing_prune_the_map,
+    test_missing_signal_never_prunes,
+    test_fork_comes_from_the_last_step_that_ran,
+    test_collection_only_impact_forks_from_consolidate,
     test_barrier_fires_when_all_leaves_completed,
     test_barrier_waits_for_running_leaf,
     test_barrier_ignores_stale_status_before_fork,
@@ -483,9 +507,8 @@ TESTS = [
 ]
 
 
-
 def main():
-    print(f"\nRunning {len(TESTS)} pipeline-order tests...\n")
+    print(f"\nRunning {len(TESTS)} refresh-pipeline tests...\n")
     for t in TESTS:
         try:
             t()
@@ -496,7 +519,6 @@ def main():
             traceback.print_exc()
     print(f"\nSummary: {PASS} passed, {FAIL} failed\n")
     return 0 if FAIL == 0 else 1
-
 
 
 if __name__ == "__main__":

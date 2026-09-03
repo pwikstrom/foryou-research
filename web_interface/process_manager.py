@@ -354,10 +354,9 @@ def monitor_process_completion(name, proc):
     outcome = "Success" if proc.returncode == 0 else "Fail"
     study_name = processes[name].get("study_name")
 
-    # Capture the task_args + emitted data BEFORE we tear down the in-memory
-    # process entry below — the auto-refresh orchestrator needs both.
+    # Capture the task_args BEFORE we tear down the in-memory process entry
+    # below — the failure ledger records them.
     completed_task_args = dict(processes[name].get("data", {}).get("task_args", {}) or {})
-    completed_emitted_data = dict(processes[name].get("data", {}) or {})
 
     # Reload from GCS before merging so we don't clobber task-runner writes
     load_process_stats()
@@ -398,94 +397,38 @@ def monitor_process_completion(name, proc):
     processes[name]["start_time"] = None
     processes[name]["study_name"] = None
 
-    # Local-mode pipeline auto-dispatch. After the consolidate subprocess
-    # completes successfully, if it was requested with auto_refresh=True and
-    # emitted a non-empty impact, sequentially fire the stale downstream
-    # refresh subprocesses. Cloud Run runs this via the Cloud Tasks chain in
-    # _run_task_with_stats — this local path covers `python web_interface/
-    # fyp_data_hub.py` dev runs.
-    if (
-        name == "consolidate_enrichment"
-        and outcome == "Success"
-        and not is_cloud_run()
-        and bool(completed_task_args.get("auto_refresh"))
-    ):
-        impact = completed_emitted_data.get("consolidation_impact")
-        if impact:
-            t = threading.Thread(
-                target=_run_local_downstream_pipeline,
-                args=(impact,),
-                daemon=True,
-            )
-            t.start()
+    # Local-mode refresh run. On Cloud Run the task runner advances the run
+    # when a step's task finishes; in subprocess dev the web process is the only
+    # thing that knows a worker exited, so it drives the run from here. The run
+    # record was seeded by whichever endpoint started the origin, so a worker
+    # started outside a run (or one belonging to a run that already ended)
+    # simply finds nothing to advance.
+    if not is_cloud_run():
+        try:
+            from web_interface.services import refresh_pipeline
 
-    # After a local video-map rebuild requested with auto_refresh, refresh all
-    # study caches so the new niches reach the analysis tabs (Cloud Run does
-    # this via the Cloud Tasks chain returned by run_video_map_refresh).
-    if (
-        name == "video_map_refresh"
-        and outcome == "Success"
-        and not is_cloud_run()
-        and bool(completed_task_args.get("auto_refresh"))
-    ):
-        t = threading.Thread(
-            target=_run_local_video_map_downstream,
-            daemon=True,
-        )
-        t.start()
-
-
-def _run_local_downstream_pipeline(impact: dict) -> None:
-    """Sequentially dispatch stale downstream refreshes after a consolidate.
-
-    Used only in local dev mode — Cloud Run chains via Cloud Tasks in
-    _run_task_with_stats.
-    """
-    from web_interface.run_consolidate_enrichment import (
-        _build_downstream_pipeline,
-        build_pipeline_summary,
-    )
-
-    pipeline = _build_downstream_pipeline(impact)
-    if not pipeline:
-        return
-
-    def _summary(steps_ran: list[str], aborted_at: str | None) -> str:
-        if aborted_at:
-            return (
-                f"Pipeline aborted at '{aborted_at}'. "
-                + (build_pipeline_summary(impact, steps_ran) if steps_ran else "No steps completed.")
-            )
-        return build_pipeline_summary(impact, steps_ran)
-
-    _run_local_pipeline(pipeline, summary_owner="consolidate_enrichment", summary_fn=_summary)
-
-
-def _run_local_video_map_downstream() -> None:
-    """Refresh all study caches after a local video-map rebuild.
-
-    A rebuild remaps every video's niche, so every study/collection is refreshed
-    (no filter). Used only in local dev mode — Cloud Run chains via Cloud Tasks.
-    """
-    from web_interface.run_video_map_refresh import _DOWNSTREAM_PIPELINE
-
-    def _summary(steps_ran: list[str], aborted_at: str | None) -> str:
-        if aborted_at:
-            return f"Niche refresh aborted at '{aborted_at}' ({len(steps_ran)} step(s) completed)."
-        return f"Refreshed all study caches with the rebuilt niches ({len(steps_ran)} step(s))."
-
-    _run_local_pipeline(
-        list(_DOWNSTREAM_PIPELINE), summary_owner="video_map_refresh", summary_fn=_summary
-    )
+            record = refresh_pipeline.load_run()
+            if (record and record.get("in_flight")
+                    and name in refresh_pipeline.STEP_ORDER
+                    and (record.get("steps", {}).get(name) or {}).get("state")
+                    in ("origin", "dispatched")):
+                threading.Thread(
+                    target=run_local_refresh_run,
+                    args=(record["run_id"],),
+                    kwargs={"finished": name, "outcome": outcome},
+                    daemon=True,
+                ).start()
+        except Exception as exc:
+            print(f"[{name}] Local refresh-run advance skipped: {exc}")
 
 
 def local_pipeline_script_map() -> dict:
     """Map each downstream pipeline task name to its subprocess script path.
 
-    Used by the local-dev sequential orchestrator (:func:`_run_local_pipeline`).
-    Every task that can appear in the consolidate or video-map downstream
-    pipeline must have an entry here, or the local pipeline aborts with
-    "Unknown step". Exposed at module level so the invariant is unit-testable.
+    Used by the local-dev sequential run driver (:func:`run_local_refresh_run`).
+    Every dispatchable step of the refresh pipeline must have an entry here, or
+    the local run aborts with "Unknown step". Exposed at module level so the
+    invariant is unit-testable against the registry.
     """
     from fyp.fyp_config import (
         EMBEDDINGS_REFRESH_SCRIPT,
@@ -508,129 +451,141 @@ def local_pipeline_script_map() -> dict:
     }
 
 
-def _run_local_pipeline(pipeline: list, summary_owner: str, summary_fn) -> None:
-    """Run a downstream refresh pipeline as sequential subprocesses (local dev).
+def run_local_refresh_run(run_id: str, finished: str | None = None,
+                          outcome: str = "Success") -> None:
+    """Drive a refresh run to completion as sequential subprocesses (local dev).
 
-    Sets process_stats['consolidate_enrichment']['pipeline_in_flight'] so the UI
-    poll keeps showing stage progress between steps (the semantic-space banner
-    and consolidate panel both read that flag), and clears it when done. Writes
-    the final summary into ``summary_owner``'s stats entry.
+    Same planner and the same pruning as Cloud Run; the only difference is the
+    schedule. There is one CPU here, so the leaves that fan out in parallel on
+    Cloud Run are run one after another — the decisions are identical, and the
+    chart draws them as consecutive bars rather than overlapping ones.
 
     Args:
-        pipeline: Ordered list of ``{"task", "task_args"}`` steps.
-        summary_owner: process_stats key to receive the final summary.
-        summary_fn: ``(steps_ran, aborted_at) -> str`` summary builder.
+        run_id: The run to advance. A mismatch means the run was replaced while
+            this thread was waiting, and it does nothing.
+        finished: The step whose completion triggered this, for the log line.
+        outcome: That step's outcome. A failure stops the run here.
     """
+    from web_interface.services import refresh_pipeline
+
+    record = refresh_pipeline.load_run()
+    if not record or record.get("run_id") != run_id or not record.get("in_flight"):
+        return
+
+    if finished and outcome != "Success":
+        print(f"[refresh-run] {finished} failed; stopping the run.")
+        refresh_pipeline.finish_run(partial=True, failed_at=finished, run_id=run_id)
+        _publish_local_run_summary(run_id)
+        return
+
     script_map = local_pipeline_script_map()
 
-    total_stages = 1 + len(pipeline)  # the trigger task itself was stage 1
-    _set_pipeline_in_flight(True)
-    steps_ran: list[str] = []
-    aborted_at: str | None = None
+    while True:
+        record = refresh_pipeline.load_run()
+        if not record or record.get("run_id") != run_id or not record.get("in_flight"):
+            return
+        action = refresh_pipeline.next_actions(record)
+        prunes = action["prunes"]
+        for step, reason in prunes.items():
+            print(f"[refresh-run] Skipping {step} — {reason}.")
 
-    try:
-        for i, step in enumerate(pipeline):
-            step_name = step["task"]
-            step_args = step.get("task_args") or {}
+        if action["action"] == "finish":
+            refresh_pipeline.finish_run(partial=False, prunes=prunes, run_id=run_id)
+            _publish_local_run_summary(run_id)
+            return
+
+        targets = ([(action["step"], action["task_args"])] if action["action"] == "spine"
+                   else list(action["leaves"]))
+        stage_total = refresh_pipeline.stage_total(record["steps"])
+        stage_index = refresh_pipeline.next_stage_index(record["steps"])
+        fork_at = None
+        if action["action"] == "fork":
+            fork_at = next((n for n in reversed(refresh_pipeline.STEP_ORDER)
+                            if (record["steps"].get(n) or {}).get("state")
+                            in ("origin", "dispatched")), None)
+
+        dispatched: dict[str, dict] = {}
+        failed_at = None
+        for step_name, step_args in targets:
             script_path = script_map.get(step_name)
             if script_path is None:
-                print(f"[pipeline] Unknown step {step_name}; aborting.")
+                print(f"[refresh-run] Unknown step {step_name}; stopping.")
+                failed_at = step_name
                 break
-
-            # Build CLI args for the subprocess from task_args.
-            cli_args: list = []
-            if step_args.get("studies"):
-                cli_args += ["--studies", str(step_args["studies"])]
-            if step_args.get("collections"):
-                cli_args += ["--collections", str(step_args["collections"])]
-            if step_args.get("stale_only"):
-                cli_args.append("--stale-only")
-            if step_args.get("skip_if_busy"):
-                cli_args.append("--skip-if-busy")
-
-            stage_index = i + 2  # stage 1 was the trigger task
-
             success, msg = start_process(
-                step_name, script_path, args=cli_args,
-                started_by=f"auto-pipeline (after {summary_owner})")
+                step_name, script_path,
+                args=_task_args_to_cli(step_name, step_args),
+                started_by=f"auto-pipeline (after {record.get('origin')})")
             if not success:
-                print(f"[pipeline] Failed to start {step_name}: {msg}")
+                print(f"[refresh-run] Failed to start {step_name}: {msg}")
+                failed_at = step_name
                 break
-
-            # Seed stage info AFTER start_process (which resets progress={}).
-            # Subprocess ::PROGRESS:: lines only .update() specific keys, so
-            # these stage fields persist until the step finishes.
+            # Seed the stage framing AFTER start_process, which resets progress
+            # to {}. Subprocess ::PROGRESS:: lines only update named keys, so
+            # these survive until the step finishes.
             if step_name in processes:
                 processes[step_name]["progress"].update({
                     "stage_index": stage_index,
-                    "stage_total": total_stages,
+                    "stage_total": stage_total,
                     "stage_name": step_name,
                 })
+            dispatched[step_name] = {}
 
-            # Wait for monitor_process_completion to fully tear the process
-            # down (proc handle cleared) rather than racing with it on
-            # proc.wait(). Once proc is None, stats have been written.
+            # Wait for monitor_process_completion to finish tearing the process
+            # down; once proc is None its stats have been written.
             import time as _t
             while processes.get(step_name, {}).get("proc") is not None:
                 _t.sleep(0.5)
 
-            outcome = process_stats.get(step_name, {}).get("last_run_outcome")
-            if outcome != "Success":
-                print(f"[pipeline] Step {step_name} outcome={outcome}; aborting pipeline.")
-                aborted_at = step_name
+            if process_stats.get(step_name, {}).get("last_run_outcome") != "Success":
+                print(f"[refresh-run] Step {step_name} failed; stopping the run.")
+                failed_at = step_name
                 break
-            steps_ran.append(step_name)
-    finally:
-        # Write the final pipeline summary so the UI has a persistent statement
-        # of what the pipeline actually did.
-        from datetime import datetime as _dt
-        load_process_stats()
-        entry = process_stats.get(summary_owner, {})
-        entry["last_pipeline_summary"] = summary_fn(steps_ran, aborted_at)
-        entry["last_pipeline_summary_ts"] = _dt.now(UTC).isoformat()
-        # Structured outcome (mirrors _write_pipeline_summary_cloud) so the UI
-        # styles the summary and impact panel correctly in local dev too.
-        entry["last_pipeline_partial"] = bool(aborted_at)
-        entry["last_pipeline_failed_at"] = aborted_at
-        # A fully-successful consolidate downstream pipeline resolves the stored
-        # impact — clear it so "Refresh All Affected" stops being offered.
-        if not aborted_at and summary_owner == "consolidate_enrichment":
-            entry.pop("consolidation_impact", None)
-        process_stats[summary_owner] = entry
-        save_process_stats()
 
-        # Keep the in-memory ::DATA:: copy in sync with the authoritative entry.
-        # The enrichment-stats / step-view endpoints overlay it on top of
-        # process_stats, so a lingering consolidation_impact (or stale pipeline
-        # flags) here would re-show the impact panel after the pipeline cleared
-        # it. No-op on Cloud Run (no in-process subprocess data).
-        mem = processes.get(summary_owner, {}).get("data")
-        if isinstance(mem, dict):
-            mem["last_pipeline_summary"] = entry["last_pipeline_summary"]
-            mem["last_pipeline_summary_ts"] = entry["last_pipeline_summary_ts"]
-            mem["last_pipeline_partial"] = entry["last_pipeline_partial"]
-            mem["last_pipeline_failed_at"] = entry["last_pipeline_failed_at"]
-            if not aborted_at and summary_owner == "consolidate_enrichment":
-                mem.pop("consolidation_impact", None)
-
-        _set_pipeline_in_flight(False)
+        refresh_pipeline.record_dispatch(run_id, dispatched, prunes=prunes,
+                                         fork_at=fork_at)
+        if failed_at:
+            refresh_pipeline.finish_run(partial=True, failed_at=failed_at,
+                                        run_id=run_id)
+            _publish_local_run_summary(run_id)
+            return
 
 
-def _set_pipeline_in_flight(value: bool) -> None:
-    """Flip the pipeline_in_flight flag in process_stats (local-mode helper).
+def _publish_local_run_summary(run_id: str) -> None:
+    """Mirror a finished local run onto the Consolidate card and the memory copy.
 
-    Mirrors _set_pipeline_in_flight in process_routes.py (the Cloud Tasks
-    path). Kept here so the subprocess monitor can set it without importing
-    the routes module (which would create a circular import).
+    Local dev overlays ``processes[...]["data"]`` on top of process_stats when
+    it renders the consolidate entry, so a summary written only to the stats
+    file would be shadowed by the worker's last ``::DATA::`` emission.
     """
+    from web_interface.services import refresh_pipeline
+
+    record = refresh_pipeline.load_run()
+    if not record or record.get("run_id") != run_id:
+        return
+    if record.get("origin_kind") not in ("consolidate", "armed", "refresh_downstream"):
+        return
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
-    if value:
-        entry["pipeline_in_flight"] = True
-    else:
-        entry.pop("pipeline_in_flight", None)
+    entry["last_pipeline_summary"] = record.get("summary") or ""
+    entry["last_pipeline_summary_ts"] = record.get("finished_ts")
+    entry["last_pipeline_partial"] = bool(record.get("partial"))
+    entry["last_pipeline_failed_at"] = record.get("failed_at")
+    if not record.get("partial"):
+        entry.pop("consolidation_impact", None)
     process_stats["consolidate_enrichment"] = entry
     save_process_stats()
+
+    mem = processes.get("consolidate_enrichment", {}).get("data")
+    if isinstance(mem, dict):
+        mem["last_pipeline_summary"] = entry["last_pipeline_summary"]
+        mem["last_pipeline_summary_ts"] = entry["last_pipeline_summary_ts"]
+        mem["last_pipeline_partial"] = entry["last_pipeline_partial"]
+        mem["last_pipeline_failed_at"] = entry["last_pipeline_failed_at"]
+        if not record.get("partial"):
+            mem.pop("consolidation_impact", None)
+
+
 
 def _dispatch_cloud_task(name: str, task_args: dict,
                          dispatch_deadline_seconds: int | None = None,
@@ -778,7 +733,8 @@ def _drain_lease_conflict(name: str) -> str | None:
 
 
 def start_process(name: str, script_path, args: list = [], study_name: str | None = None,
-                  task_args: dict | None = None, started_by: str = "") -> tuple[bool, str]:
+                  task_args: dict | None = None, started_by: str = "",
+                  extra_task_args: dict | None = None) -> tuple[bool, str]:
     """Start a background process. Uses Cloud Tasks on Cloud Run for eligible processes,
     otherwise falls back to subprocess.
 
@@ -791,6 +747,11 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         started_by: Username of the admin who launched it. Recorded in the run
             log's banner — this layer is the only one that knows who clicked,
             so the attribution is stamped here rather than inside the worker.
+        extra_task_args: Keys merged into the Cloud Tasks payload after it is
+            built, for context the CLI has no flag for — the refresh run's id
+            and stage framing. Ignored in subprocess mode, where the web process
+            that seeded the run also observes the completion and needs no
+            round-trip.
     """
 
     # A local scrape-queue drain (laptop, FYP_FORCE_GCS) holds a lease on the
@@ -879,6 +840,8 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         # Build task args from the CLI args list
         if task_args is None:
             task_args = _cli_args_to_dict(name, args, study_name)
+        if extra_task_args:
+            task_args = {**task_args, **extra_task_args}
 
         # Attribution and run identity ride along in task_args so the worker —
         # running in the other Cloud Run service — writes into the run this

@@ -27,12 +27,18 @@ WIDE = [["1970-01-01", "2100-01-01"]]
 class _Reporter:
     def __init__(self):
         self.messages = []
+        self.data = {}
 
     def log(self, msg):
         self.messages.append(str(msg))
 
     def update_progress(self, percent, message):
         pass
+
+    def emit_data(self, data):
+        # The worker reports what it changed here; the refresh pipeline reads it
+        # to decide whether anything downstream needs rebuilding.
+        self.data.update(data)
 
     def check_cancelled(self):
         return False

@@ -18,33 +18,23 @@ sys.path.append(str(project_root))
 from web_interface.task_status import TaskStatusReporter
 
 
-# Downstream refreshes dispatched after a map rebuild when auto_refresh is set.
-# A rebuild remaps every video's niche, so every study/collection is affected —
-# we refresh all of them (no filter). embeddings_refresh is excluded: the map is
-# built FROM the embeddings, so re-embedding here would invert the dependency.
-_DOWNSTREAM_PIPELINE = [
-    {"task": "recode_refresh_studies", "task_args": {}},
-    {"task": "meta_refresh_groups", "task_args": {}},
-    {"task": "pca_refresh", "task_args": {}},
-    {"task": "timelines_refresh", "task_args": {}},
-]
-
-
 def run_video_map_refresh(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
     """Build the niche map from the embedding store.
 
-    When ``task_args.auto_refresh`` is True and the map was rebuilt over a
-    non-empty corpus, returns a chain dict that dispatches a full recode →
-    meta → pca → timelines refresh so the niche columns reach every study cache.
+    Emits how far the partition actually moved (``map_niche_changed``,
+    ``map_new_videos``, ``map_cold_start``). The refresh pipeline reads those to
+    decide whether the study, timeline and session caches need rebuilding: a
+    warm-started append that moves no video between niches leaves every
+    downstream cache correct, and the whole cascade is skipped.
 
     Args:
         reporter: Status reporter (GCS or local).
         task_args: Optional ``n_niches``, ``map_sample``, ``pca_dim``,
-            ``auto_refresh``, ``reset_labels``.
+            ``reset_labels``. ``auto_refresh`` is accepted and ignored — the
+            downstream refresh is planned by the pipeline, not by this worker.
 
     Returns:
-        A chain dict (Cloud Tasks pipeline) when ``auto_refresh`` triggers the
-        downstream refresh, else ``None``.
+        None. Dispatch of the dependent steps is the pipeline's business.
     """
     from fyp.video_map import (
         DEFAULT_MAP_SAMPLE,
@@ -57,7 +47,6 @@ def run_video_map_refresh(reporter: TaskStatusReporter, task_args: dict | None =
     n_niches = int(task_args.get("n_niches") or DEFAULT_N_NICHES)
     map_sample = int(task_args.get("map_sample") or DEFAULT_MAP_SAMPLE)
     pca_dim = int(task_args.get("pca_dim") or DEFAULT_PCA_DIM)
-    auto_refresh = bool(task_args.get("auto_refresh"))
     reset_labels = bool(task_args.get("reset_labels"))
 
     reporter.log(
@@ -72,6 +61,11 @@ def run_video_map_refresh(reporter: TaskStatusReporter, task_args: dict | None =
         "map_videos": result["videos"],
         "map_niches": result["niches"],
         "map_mapped": result["mapped"],
+        # The pipeline's change signals. A missing key reads as "unknown" and
+        # refreshes everything downstream, so always emit them.
+        "map_niche_changed": int(result.get("niche_changed") or 0),
+        "map_new_videos": int(result.get("new_videos") or 0),
+        "map_cold_start": bool(result.get("cold_start")),
     })
     reporter.update_progress(100, "Done")
     reporter.log(
@@ -79,20 +73,10 @@ def run_video_map_refresh(reporter: TaskStatusReporter, task_args: dict | None =
         f"{result['niches']} niches, {result['mapped']:,} mapped."
     )
 
-    # Chain the downstream refresh so the new niche assignments propagate into
-    # every study cache. recode runs first, then fans out to the concurrent
-    # leaves (meta ‖ pca ‖ timelines) — see build_pipeline_chain. Cloud Tasks
-    # consumes this via _run_task_with_stats; local subprocess mode dispatches
-    # the same pipeline sequentially in monitor_process_completion.
-    if auto_refresh and result.get("videos", 0) > 0:
-        from web_interface.run_consolidate_enrichment import build_pipeline_chain
-        chain = build_pipeline_chain(list(_DOWNSTREAM_PIPELINE))
-        reporter.log(
-            f"Auto-refresh: dispatching {chain['next_task']} "
-            f"(stage 2/{chain['next_task_args']['pipeline_stage_total']}); "
-            f"pipeline={[p['task'] for p in _DOWNSTREAM_PIPELINE]}"
-        )
-        return chain
+    reporter.log(
+        f"Niche assignment: {result.get('niche_changed', 0):,} video(s) changed "
+        f"niche, {result.get('new_videos', 0):,} newly mapped."
+    )
     return None
 
 
@@ -109,13 +93,12 @@ if __name__ == "__main__":
             task_args["map_sample"] = args.map_sample
         if args.pca_dim is not None:
             task_args["pca_dim"] = args.pca_dim
-        task_args["auto_refresh"] = bool(args.auto_refresh)
         task_args["reset_labels"] = bool(args.reset_labels)
         return task_args
 
-    # In subprocess mode the chain-dispatch return value is ignored — the
-    # web service's monitor_process_completion handles downstream
-    # orchestration in local dev. Cloud Tasks uses it in _run_task_with_stats.
+    # The dependent steps are dispatched by the refresh pipeline once this
+    # worker finishes (process_routes on Cloud Run, monitor_process_completion
+    # locally) — this script only builds the map.
     run_worker(
         run_video_map_refresh,
         "video_map_refresh",
@@ -124,7 +107,8 @@ if __name__ == "__main__":
             (("--map-sample",), {"type": int, "default": None, "help": "Videos projected to 2D"}),
             (("--pca-dim",), {"type": int, "default": None, "help": "PCA dimensionality"}),
             (("--auto-refresh",), {"action": "store_true",
-                                   "help": "After rebuilding, refresh all study caches so the new niches propagate."}),
+                                   "help": "Accepted for compatibility and ignored — the dependent "
+                                           "refreshes are planned by the refresh pipeline."}),
             (("--reset-labels",), {"action": "store_true",
                                    "help": "Regenerate every niche name from scratch (no carry-over from the previous build)."}),
         ],

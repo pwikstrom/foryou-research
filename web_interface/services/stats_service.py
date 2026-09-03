@@ -1000,10 +1000,12 @@ def _evaluate_consolidation_staleness() -> dict:
 
     # One entry per card on the Dataset Assembly page. ``count`` is how much the
     # step would process and drives both the badge and its visibility; it
-    # mirrors the condition _build_downstream_pipeline uses to decide whether to
-    # dispatch the step at all, so a badge appears exactly when the next
-    # Consolidate & Refresh would run it. ``affected`` stays the concrete
-    # name list where there is one (it is what the impact panel enumerates).
+    # mirrors the predicates in services/refresh_pipeline, so a badge appears
+    # roughly when the next refresh run would dispatch that step. Only roughly:
+    # a run also prunes on what its upstream steps report at the time (no video
+    # changed niche, no study dataset rebuilt), which cannot be known from a
+    # stored impact. ``affected`` stays the concrete name list where there is
+    # one (it is what the impact panel enumerates).
     downstream = {
         "recode_refresh_studies": {
             "label": "Study Definitions",

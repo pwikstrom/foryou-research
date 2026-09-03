@@ -1,42 +1,61 @@
-"""Which store the refresh-pipeline step list reads, and when.
+"""What the refresh-run chart reads, and which rows it refuses to fill in.
 
-Two failure modes are pinned here, both observed on the Dataset Assembly page:
+The chart is built from the run record (``process_stats["refresh_pipeline"]``),
+which any origin writes — a consolidation, a worker card, "Refresh All
+Affected". Three failure modes are pinned here, all observed on the Dataset
+Assembly page:
 
-1. **Per-instance divergence.** ``processes["consolidate_enrichment"]["data"]``
-   is the subprocess ``::DATA::`` mirror. On Cloud Run the consolidate worker
-   runs in the *other* service, so the web service never updates that dict —
-   but the dispatch endpoint used to seed it with the ``steps: []`` marker. The
-   hub instance that served the click then served a one-row list forever while
-   every other instance served the real plan, and the 2s poll flipped between
-   them. The view must ignore the in-memory copy on Cloud Run and honour it
-   locally (where it is the only mid-run source).
+1. **A plan reading as "skipped".** The record seeded at dispatch carries the
+   whole run so the operator sees what is queued. Its steps must stay
+   ``pending`` until the origin that confirms them has finished, including in
+   the gap before any step reports itself running.
 
-2. **A forecast plan reading as "skipped".** The marker seeded at dispatch now
-   carries the whole pipeline so the user sees what is queued. Its steps must
-   stay ``pending`` until the consolidation that confirms them has finished,
-   including in the gap before any step reports itself running.
+2. **Foreign work drawn into a run.** A step that is not part of this run —
+   pruned, upstream of the origin, or unrelated — must read no status file at
+   all. A hand-started refresh or a sessions run chained from a study save can
+   land inside the window, and adopting it would both misreport the run and
+   stretch the chart's shared time axis.
+
+3. **A moving chart.** Every canonical step gets a row every run, so the shape
+   is the same each time and the reader learns what was NOT needed as well as
+   what ran.
 """
 
 import pytest
 
+from web_interface.services import refresh_pipeline as rp
 from web_interface.services import worker_status as ws
 
 
-T0 = "2026-08-16T10:00:00+00:00"   # dispatch — marker seeded
-T1 = "2026-08-16T10:20:00+00:00"   # consolidation done — real plan published
+T0 = "2026-08-16T10:00:00+00:00"   # run seeded
+T1 = "2026-08-16T10:20:00+00:00"   # origin finished
 
-REAL_STEPS = ["embeddings_refresh", "video_map_refresh", "recode_refresh_studies",
-              "meta_refresh_groups", "pca_refresh", "timelines_refresh",
-              "sessions_refresh"]
+REAL_STEPS = list(rp.DOWNSTREAM_ORDER)
+
+
+def _record(origin, *, states=None, mode="refresh", provisional=False,
+            started_ts=T0, in_flight=True, kind="consolidate"):
+    """A run record with every step in a named state (planned by default)."""
+    record = rp.plan_run(origin, kind=kind, mode=mode, provisional=provisional)
+    record["started_ts"] = started_ts
+    record["in_flight"] = in_flight
+    for step, state in (states or {}).items():
+        record["steps"][step] = {**(record["steps"].get(step) or {}), "state": state}
+    return record
 
 
 @pytest.fixture
 def stores(monkeypatch):
-    """Swap both stores for empty ones and hand back a seeding helper."""
+    """Swap every store for an empty one and hand back a seeding helper."""
     state = {"process_stats": {}, "processes": {}, "task_status": {}}
     monkeypatch.setattr(ws, "process_stats", state["process_stats"])
     monkeypatch.setattr(ws, "processes", state["processes"])
     monkeypatch.setattr(ws, "read_task_status", lambda step: state["task_status"].get(step))
+    # load_run reads process_stats through process_manager; point it at the
+    # same dict the view uses so a seeded record is visible to both.
+    monkeypatch.setattr(rp, "load_run",
+                        lambda reload=True: state["process_stats"].get(rp.RUN_KEY))
+    state["seed"] = lambda record: state["process_stats"].__setitem__(rp.RUN_KEY, record)
     return state
 
 
@@ -44,50 +63,16 @@ def _states(view):
     return {row["step"]: row["state"] for row in view}
 
 
-def test_cloud_run_ignores_the_stale_in_memory_marker(stores, monkeypatch):
+def test_no_run_recorded_hides_the_chart(stores, monkeypatch):
+    """Eight greyed rows would assert a run happened and needed nothing."""
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
-    stores["process_stats"]["consolidate_enrichment"] = {
-        "pipeline_plan": {"steps": REAL_STEPS, "started_ts": T1},
-        "last_run_end_time": T1,
-        "last_run_outcome": "Success",
-    }
-    # The marker this instance wrote when it served POST /consolidate.
-    stores["processes"]["consolidate_enrichment"] = {
-        "data": {"pipeline_plan": {"steps": [], "started_ts": T0}}
-    }
-
-    view = ws._build_pipeline_step_view(pipeline_active=True)
-
-    # Every canonical step is listed either way now, so the tell is whether the
-    # steps count as PLANNED: the stale marker's empty plan would mark all seven
-    # "not_planned".
-    assert [row["step"] for row in view] == ["consolidate_enrichment"] + REAL_STEPS
-    assert not any(row["state"] == "not_planned" for row in view), _states(view)
+    assert ws._build_pipeline_step_view(pipeline_active=False) == []
 
 
-def test_local_mode_still_reads_the_in_memory_mirror(stores, monkeypatch):
-    """Locally the worker's plan lands in memory before process_stats has it."""
-    monkeypatch.setattr(ws, "is_cloud_run", lambda: False)
-    stores["process_stats"]["consolidate_enrichment"] = {
-        "pipeline_plan": {"steps": [], "started_ts": T0},
-    }
-    stores["processes"]["consolidate_enrichment"] = {
-        "data": {"pipeline_plan": {"steps": REAL_STEPS, "started_ts": T1}}
-    }
-
-    view = ws._build_pipeline_step_view(pipeline_active=True)
-
-    assert [row["step"] for row in view] == ["consolidate_enrichment"] + REAL_STEPS
-    assert not any(row["state"] == "not_planned" for row in view), _states(view)
-
-
-def test_forecast_plan_is_pending_until_consolidation_finishes(stores, monkeypatch):
-    """The seeded forecast shows every step, pending, from the first poll."""
+def test_plan_is_pending_until_the_origin_finishes(stores, monkeypatch):
+    """The seeded plan shows every step, pending, from the first poll."""
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
-    stores["process_stats"]["consolidate_enrichment"] = {
-        "pipeline_plan": {"steps": REAL_STEPS, "started_ts": T0,
-                          "mode": "refresh", "provisional": True},
-    }
+    stores["seed"](_record("consolidate_enrichment", provisional=True))
 
     # pipeline_active=False is the worst case: the dispatch has landed but no
     # status file has been written yet.
@@ -96,18 +81,16 @@ def test_forecast_plan_is_pending_until_consolidation_finishes(stores, monkeypat
 
     assert len(view) == len(REAL_STEPS) + 1
     assert all(states[step] == "pending" for step in REAL_STEPS), states
-    assert all(row["provisional"] for row in view if row["step"] != "consolidate_enrichment")
+    assert all(row["provisional"] for row in view
+               if row["step"] != "consolidate_enrichment")
 
 
-def test_forecast_steps_go_skipped_once_consolidation_ends_without_a_real_plan(
-        stores, monkeypatch):
-    """A consolidation that died before publishing its plan must not read as pending."""
+def test_planned_steps_go_skipped_once_the_origin_fails(stores, monkeypatch):
+    """An origin that died before reaching them must not leave them pending."""
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
+    stores["seed"](_record("consolidate_enrichment", provisional=True))
     stores["process_stats"]["consolidate_enrichment"] = {
-        "pipeline_plan": {"steps": REAL_STEPS, "started_ts": T0,
-                          "mode": "refresh", "provisional": True},
-        "last_run_end_time": T1,
-        "last_run_outcome": "Fail",
+        "last_run_end_time": T1, "last_run_outcome": "Fail",
     }
 
     states = _states(ws._build_pipeline_step_view(pipeline_active=False))
@@ -116,92 +99,99 @@ def test_forecast_steps_go_skipped_once_consolidation_ends_without_a_real_plan(
     assert all(states[step] == "skipped" for step in REAL_STEPS), states
 
 
-def test_real_plan_clears_the_provisional_flag(stores, monkeypatch):
+def test_a_card_origin_marks_the_steps_before_it_upstream(stores, monkeypatch):
+    """A map rebuild does not re-embed — those rows are not part of the run."""
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
-    stores["process_stats"]["consolidate_enrichment"] = {
-        "pipeline_plan": {"steps": ["embeddings_refresh"], "started_ts": T1},
-        "last_run_end_time": T1,
-        "last_run_outcome": "Success",
-    }
+    stores["seed"](_record("video_map_refresh", kind="card", provisional=True))
 
     view = ws._build_pipeline_step_view(pipeline_active=True)
+    rows = {row["step"]: row for row in view}
 
-    # The narrow plan no longer shortens the list — the six steps it left out
-    # stay on screen as "not_planned".
     assert [row["step"] for row in view] == ["consolidate_enrichment"] + REAL_STEPS
-    assert not any(row["provisional"] for row in view)
-    states = _states(view)
-    assert states["embeddings_refresh"] != "not_planned", states
-    assert all(states[s] == "not_planned" for s in REAL_STEPS[1:]), states
+    assert rows["consolidate_enrichment"]["state"] == "upstream"
+    assert rows["embeddings_refresh"]["state"] == "upstream"
+    assert rows["video_map_refresh"]["is_origin"] is True
+    assert rows["recode_refresh_studies"]["state"] == "pending"
 
 
-# -------- Every step, every run --------
-#
-# The chart used to draw only the steps a run planned, so its row count moved
-# with whatever the consolidation happened to touch and an absent step was
-# indistinguishable from a step that does not exist. The view now emits the
-# whole canonical order every time and marks the ones this run's plan left out.
-
-
-def test_every_canonical_step_gets_a_row_with_unplanned_ones_marked(stores, monkeypatch):
+def test_upstream_rows_carry_no_timing_even_with_a_fresh_terminal_record(
+        stores, monkeypatch):
+    """An earlier step that ran recently is still not part of THIS run."""
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
-    planned = ["recode_refresh_studies", "meta_refresh_groups"]
-    stores["process_stats"]["consolidate_enrichment"] = {
-        "pipeline_plan": {"steps": planned, "started_ts": T0, "mode": "refresh"},
-        "last_run_end_time": T1, "last_run_outcome": "Success",
+    stores["seed"](_record("video_map_refresh", kind="card"))
+    stores["process_stats"]["embeddings_refresh"] = {
+        "last_run_end_time": T1, "last_run_duration": 99.0, "last_run_outcome": "Success",
     }
 
-    view = ws._build_pipeline_step_view(pipeline_active=False)
-    states = _states(view)
+    rows = {row["step"]: row for row in
+            ws._build_pipeline_step_view(pipeline_active=True)}
 
-    assert [row["step"] for row in view] == ["consolidate_enrichment"] + list(
-        ws.PIPELINE_STEPS_ORDER)
-    assert all(states[s] == "not_planned"
-               for s in ws.PIPELINE_STEPS_ORDER if s not in planned), states
-    # A planned step that never ran is "skipped" — a different thing, kept apart.
-    assert all(states[s] == "skipped" for s in planned), states
-    assert all(row["plan_mode"] == "refresh" for row in view)
+    row = rows["embeddings_refresh"]
+    assert row["state"] == "upstream", row
+    assert all(row[k] is None for k in
+               ("started_at", "ended_at", "queued_at", "duration_s",
+                "ran_at", "percent", "message")), row
 
 
-def test_unplanned_rows_carry_no_timing_even_with_a_fresh_terminal_record(stores, monkeypatch):
-    """An unplanned row is inert: it must not adopt work that ran outside the run.
-
-    A hand-started Timelines refresh (or a sessions run self-chained from a
-    study save) can land inside the pipeline's window. Reading its status into
-    an unplanned row would draw foreign work as part of this pipeline and, worse,
-    stretch the chart's shared time axis.
-    """
+def test_pruned_rows_are_inert_and_carry_their_reason(stores, monkeypatch):
+    """A skipped step says WHY, and adopts no work that ran outside the run."""
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
-    stores["process_stats"]["consolidate_enrichment"] = {
-        "pipeline_plan": {"steps": ["recode_refresh_studies"], "started_ts": T0,
-                          "mode": "refresh"},
-        "last_run_end_time": T1, "last_run_outcome": "Success",
-    }
-    # Ran during the window, but this pipeline never planned it.
+    record = _record("video_map_refresh", kind="card", in_flight=False)
+    record["steps"]["timelines_refresh"] = {
+        "state": "pruned", "reason": "no video changed niche"}
+    stores["seed"](record)
+    # Ran during the window, but this run deliberately skipped it.
     stores["process_stats"]["timelines_refresh"] = {
         "last_run_end_time": T1, "last_run_duration": 99.0, "last_run_outcome": "Success",
     }
+
+    rows = {row["step"]: row for row in
+            ws._build_pipeline_step_view(pipeline_active=False)}
+
+    row = rows["timelines_refresh"]
+    assert row["state"] == "pruned", row
+    assert row["reason"] == "no video changed niche"
+    assert all(row[k] is None for k in
+               ("started_at", "ended_at", "queued_at", "duration_s",
+                "ran_at", "percent", "message")), row
+
+
+def test_unplanned_rows_carry_no_timing_even_when_running_now(stores, monkeypatch):
+    """A sessions run chained from a study save must not be drawn into the run."""
+    monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
+    stores["seed"](_record("recode_refresh_studies", kind="card"))
     stores["task_status"]["sessions_refresh"] = {
         "state": "running", "start_time": T1, "updated_at": T1,
         "progress": {"percent": 40, "message": "segmenting"},
     }
 
-    rows = {row["step"]: row for row in ws._build_pipeline_step_view(pipeline_active=True)}
+    rows = {row["step"]: row for row in
+            ws._build_pipeline_step_view(pipeline_active=True)}
 
-    for step in ("timelines_refresh", "sessions_refresh"):
-        row = rows[step]
-        assert row["state"] == "not_planned", row
-        assert all(row[k] is None for k in
-                   ("started_at", "ended_at", "queued_at", "duration_s",
-                    "ran_at", "percent", "message")), row
+    row = rows["sessions_refresh"]
+    assert row["state"] == "not_planned", row
+    assert all(row[k] is None for k in
+               ("started_at", "ended_at", "queued_at", "duration_s",
+                "ran_at", "percent", "message")), row
+
+
+def test_every_canonical_step_gets_a_row(stores, monkeypatch):
+    """The chart's shape never moves with what a run happened to need."""
+    monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
+    stores["seed"](_record("recode_refresh_studies", kind="card", in_flight=False))
+
+    view = ws._build_pipeline_step_view(pipeline_active=False)
+
+    assert [row["step"] for row in view] == ["consolidate_enrichment"] + list(
+        ws.PIPELINE_STEPS_ORDER)
 
 
 def test_consolidate_only_run_marks_every_refresh_step_not_planned(stores, monkeypatch):
     """Refresh unticked: the steps were not requested, not "not needed"."""
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
+    stores["seed"](_record("consolidate_enrichment", mode="consolidate_only",
+                           in_flight=False))
     stores["process_stats"]["consolidate_enrichment"] = {
-        "pipeline_plan": {"steps": [], "started_ts": T0, "mode": "consolidate_only",
-                          "provisional": False},
         "last_run_end_time": T1, "last_run_outcome": "Success",
     }
 
@@ -215,29 +205,42 @@ def test_consolidate_only_run_marks_every_refresh_step_not_planned(stores, monke
 
 
 def test_a_planned_step_outside_the_canonical_order_still_gets_a_row(stores, monkeypatch):
-    """A plan record is data — a planned step must never lose its row."""
+    """A run record is data — a planned step must never lose its row."""
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
-    stores["process_stats"]["consolidate_enrichment"] = {
-        "pipeline_plan": {"steps": ["pca_refresh", "some_future_refresh"],
-                          "started_ts": T0, "mode": "refresh"},
-        "last_run_end_time": T1, "last_run_outcome": "Success",
-    }
+    record = _record("consolidate_enrichment", in_flight=False)
+    record["steps"]["some_future_refresh"] = {"state": "planned"}
+    stores["seed"](record)
 
     view = ws._build_pipeline_step_view(pipeline_active=False)
 
     assert [row["step"] for row in view] == (
-        ["consolidate_enrichment"] + list(ws.PIPELINE_STEPS_ORDER) + ["some_future_refresh"])
+        ["consolidate_enrichment"] + list(ws.PIPELINE_STEPS_ORDER)
+        + ["some_future_refresh"])
     assert _states(view)["some_future_refresh"] != "not_planned"
 
 
-def test_unplanned_rows_are_never_provisional(stores, monkeypatch):
-    """The forecast lists every step, so "provisional" and "not_planned" can't collide."""
+def test_inert_rows_are_never_provisional(stores, monkeypatch):
+    """A plan lists every step, so "provisional" and the inert states can't collide."""
     monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
-    stores["process_stats"]["consolidate_enrichment"] = {
-        "pipeline_plan": {"steps": ["pca_refresh"], "started_ts": T0,
-                          "mode": "refresh", "provisional": True},
-    }
+    stores["seed"](_record("video_map_refresh", kind="card", provisional=True))
 
     view = ws._build_pipeline_step_view(pipeline_active=True)
 
-    assert not any(row["provisional"] for row in view if row["state"] == "not_planned")
+    assert not any(row["provisional"] for row in view
+                   if row["state"] in ("not_planned", "upstream", "pruned"))
+
+
+def test_run_header_names_its_origin(stores, monkeypatch):
+    """The chart has to say where a run started, or every run reads as a consolidation."""
+    monkeypatch.setattr(ws, "is_cloud_run", lambda: True)
+    record = _record("video_map_refresh", kind="card")
+    record["started_by"] = "patrik"
+    stores["seed"](record)
+
+    run = ws.refresh_run_view()
+
+    assert run["origin"] == "video_map_refresh"
+    assert run["origin_label"] == "Semantic map"
+    assert run["origin_kind"] == "card"
+    assert run["started_by"] == "patrik"
+    assert run["in_flight"] is True

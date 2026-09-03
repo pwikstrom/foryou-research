@@ -216,19 +216,43 @@ Surfaced as the "Methods" panel on each study's row under My stuff → My Studie
 (`GET /api/studies/<study>/methods`); it becomes the bundled README in the
 planned per-study export.
 
-Refresh dependencies (each a background job, chained from the UI):
+Refresh dependencies (each a background job). The graph is declared once, in
+`web_interface/services/refresh_pipeline.py`:
 
 ```
-consolidate → embeddings → video_map (niches) → study definitions → { meta ‖ pca ‖ timelines ‖ sessions }
+consolidate → embeddings → video_map (niches) → study definitions → { meta ‖ pca }
+                                    └────────────────────────────→ { timelines ‖ sessions }
 ```
 
-`sessions_refresh` joins the fan-out as a fourth terminal leaf, in
-`stale_only` mode: it re-segments only the collections whose coverage windows
-or in-window play/annotated counts moved, and returns immediately when none
-did. `skip_if_busy` keeps it off the toes of a sessions run already in flight
-(one is also chained after every study save). It can still be run on its own
-from Data Pipeline → Dataset Assembly, where "Force full rebuild" re-segments
-every covered collection.
+Timelines and sessions both read the niche map — timelines joins the niche
+columns through `new_merge`, sessions reads the map's trend columns — so a map
+rebuild invalidates them even when no study changed. They are scheduled as fork
+leaves regardless, which keeps the dispatch an out-tree with a single fan-out
+and no join to build; the multi-parent dependency lives in their predicates.
+
+**Any** step can start a run, not only a consolidation: starting one from its
+Dataset Assembly card plans the same cascade of dependents. What actually gets
+dispatched is decided one completion at a time from what each finished step
+reports — `map_niche_changed` / `map_cold_start` from the map, `studies_changed`
+from the study refresh, `embeddings_embedded_run` from the embeddings worker.
+A warm-started map rebuild that moves no video between niches therefore runs
+nothing downstream at all. Only a positive "nothing changed" prunes; an absent
+signal is unknown, and unknown always runs.
+
+The niche map's fingerprint for study-cache freshness is a hash over its
+`(item_id, niche)` pairs, not a file stat: `build_niche_map` rewrites the
+parquet on every run (fresh 2D coordinates, a new `built_at`), so a stat would
+report a change after a rebuild that moved nothing and force every study to
+rebuild anyway.
+
+`sessions_refresh` runs in `stale_only` mode: it re-segments only the
+collections whose coverage windows or in-window play/annotated counts moved,
+and returns immediately when none did — a second line of defence behind the
+planner's own decision. `skip_if_busy` keeps it off the toes of a sessions run
+already in flight (one is also chained after every study save, which is a plain
+chain rather than a run). It can still be run on its own from Data Pipeline →
+Dataset Assembly, where "Force full rebuild" re-segments every covered
+collection.
 
 ## Adding a platform — checklist
 

@@ -107,12 +107,18 @@ def test_release_never_clobbers_another_runs_lease(monkeypatch):
 class _Reporter:
     def __init__(self):
         self.messages = []
+        self.data = {}
 
     def log(self, msg):
         self.messages.append(msg)
 
     def update_progress(self, percent, message):
         pass
+
+    def emit_data(self, data):
+        # The worker reports what it changed here; the refresh pipeline reads it
+        # to decide whether anything downstream needs rebuilding.
+        self.data.update(data)
 
     def check_cancelled(self):
         return False

@@ -125,21 +125,46 @@ def test_stale_steps_leave_the_impact_alone(monkeypatch):
     assert not saved
 
 
-def test_stats_endpoint_in_flight_cleanup_reloads_before_saving():
-    """Source-level pin for the second poll-path site (a Flask route, so it is
-    checked by inspection): between reading the stale in-flight flag and saving,
-    the entry must be re-fetched from a fresh load."""
+def test_every_run_record_write_reloads_first():
+    """Source-level pin: each writer of the refresh-run record reloads first.
+
+    ``save_process_stats`` writes the whole of every key that changed since the
+    load, so a writer holding a copy from before someone else's write puts that
+    stale copy back. This is the site where that erased a fresh ``auto_armed``
+    flag; the run record is written from the task runner AND from browser polls,
+    so it has the same exposure.
+    """
     import inspect
+
+    from web_interface.services import refresh_pipeline as rp
+
+    for fn in (rp.seed_run, rp.mutate_run, rp.clear_run):
+        src = inspect.getsource(fn)
+        j = src.index("save_process_stats()")
+        assert "load_process_stats()" in src[:j], (
+            f"{fn.__name__} saves without reloading first")
+
+
+def test_stats_endpoint_in_flight_cleanup_goes_through_the_record():
+    """The poll-path cleanup must not hand-edit the entry.
+
+    Every browser poll runs this, on whichever web instance answers. Clearing
+    an abandoned run through finish_run keeps it inside the one reload-mutate-
+    save window the record's writers all share; a local edit here would be the
+    stale-copy write all over again.
+    """
+    import inspect
+
     from web_interface.routes.management import enrichment as en
 
-    src = inspect.getsource(en)
-    i = src.index('consolidate_entry.get("pipeline_in_flight")')
-    j = src.index("save_process_stats()", i)
+    src = inspect.getsource(en.get_enrichment_stats)
+    i = src.index('flag_in_flight and not any_step_running')
+    j = src.index("pipeline_active = flag_in_flight", i)
     window = src[i:j]
-    assert "load_process_stats()" in window, (
-        "the in-flight cleanup saves the consolidate entry without reloading first")
-    assert 'process_stats.get("consolidate_enrichment"' in window, (
-        "the entry saved must come from the fresh load, not the copy read at the top")
+    assert "refresh_pipeline.finish_run(" in window, (
+        "the abandoned-run cleanup must go through the run record's own writer")
+    assert "save_process_stats()" not in window, (
+        "the cleanup must not write process_stats directly")
 
 
 if __name__ == "__main__":
