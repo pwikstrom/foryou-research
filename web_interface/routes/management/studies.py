@@ -34,6 +34,7 @@ from ...task_status import is_cloud_run
 from ...services.preview_cache import (
     _collections_hash,
     get_preview_cells,
+    preview_cells_warm,
 )
 from ...services.stats_service import (
     _cells_for_selection,
@@ -585,10 +586,15 @@ def prewarm_study_check():
     coalesce on the cells build lock. Warm calls return in ~ms.
     """
 
+    # Sampled before the (possibly blocking) call: the modal shows a "first load"
+    # note when this request is slow, and takes it back when the answer says the
+    # cells were warm all along — i.e. the wait was the network, not a build.
+    was_warm = preview_cells_warm()
+
     cells, _coll = get_preview_cells()
     if cells is None:
-        return jsonify({"status": "noop"}), 200
-    return jsonify({"status": "ready"}), 200
+        return jsonify({"status": "noop", "warm": was_warm}), 200
+    return jsonify({"status": "ready", "warm": was_warm}), 200
 
 
 

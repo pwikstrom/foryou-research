@@ -625,17 +625,9 @@ function _showStudyModal(study, isNew = false, readOnly = false) {
     const accessDropdown = document.getElementById('studyAccessDropdown');
     if (accessDropdown) accessDropdown.style.display = readOnly ? 'none' : '';
 
-    if (isNew) {
-        title.textContent = 'New Study';
-        // Add name input row before the form
-        const nameRow = document.createElement('div');
-        nameRow.style.cssText = 'display: flex; align-items: center; gap: 10px; margin-bottom: 16px;';
-        nameRow.innerHTML = '<label class="font-semibold" style="white-space: nowrap;">Study Name:</label>' +
-            '<input type="text" id="newStudyNameInput" class="control-input" placeholder="Enter a unique name..." style="flex: 1;">';
-        body.appendChild(nameRow);
-    } else {
-        title.textContent = study.STUDY_NAME;
-    }
+    // The name input lives in the template's top strip (shown only for a new
+    // study, via [data-is-new]) so it shares a row with the study report.
+    title.textContent = isNew ? 'New Study' : study.STUDY_NAME;
 
     const template = document.getElementById('study_detail_template');
     const formClone = template.content.cloneNode(true).querySelector('.study-edit-form');
@@ -682,7 +674,9 @@ function _lockStudyForm(row) {
     // A disabled Delete/Save still reads as an offer. Nothing here is
     // actionable from My Studies, so drop the whole action row and the
     // collection search box (there is no list to search).
-    row.querySelectorAll('.study-form-actions, .collection-search-row').forEach(el => {
+    // The top strip holds the name box and the study report, neither of which a
+    // viewer can produce here — /calculate_stats is Data-Management only.
+    row.querySelectorAll('.study-form-actions, .collection-search-row, .study-top-strip').forEach(el => {
         el.style.display = 'none';
     });
 }
@@ -1280,6 +1274,14 @@ function _updateSaveCapState(row) {
         : '';
 }
 
+// A failed estimate must not leave the first-load note standing as if it were
+// still the explanation. The placeholder is left alone — it says nothing wrong.
+function _reportEstimateFailed(row) {
+    if (_studyReportState(row) !== 'note') return;
+    _setStudyReport(row, 'note', 'The study report could not be computed. '
+        + 'Change a setting to try again, or reopen the study.');
+}
+
 function _runStudyEstimate(row) {
     const selected = _getSelectedCollections(row);
     if (!selected.length) {
@@ -1332,9 +1334,13 @@ function _runStudyEstimate(row) {
                 if (cached) cached.stats = stats;   // keep client cache fresh so reopen seeds instantly
             } else if (data.error) {
                 console.error('estimate error:', data.error);
+                _reportEstimateFailed(row);
             }
         })
-        .catch(err => { console.error('estimate request failed', err); })
+        .catch(err => {
+            console.error('estimate request failed', err);
+            if (_studyEstimateSeq.get(row) === seq) _reportEstimateFailed(row);
+        })
         .finally(() => {
             if (_studyEstimateSeq.get(row) === seq) _setStudyVizLoading(row, false);
         });
@@ -1554,16 +1560,60 @@ function _getSelectedCollections(row) {
 }
 
 // Warm the server-side study-estimate frame for the current collection set so the
-// first auto-estimate is fast. Fire-and-forget: the modal calls this on open and on
-// every collection-selection change (via _fetchDailyChart), so the (possibly slow)
-// build / disk-load happens during the user's think-time rather than on the first estimate.
+// first auto-estimate is fast. Nothing awaits it before rendering: the modal calls
+// this on open and on every collection-selection change (via _fetchDailyChart), so
+// the (possibly slow) build / disk-load happens during the user's think-time rather
+// than on the first estimate. The returned promise only feeds the first-load notice.
 function _prewarmStudyCheck(selected, studyName) {
-    if (!Array.isArray(selected) || selected.length === 0) return;
-    fetch('/api/manage/studies/prewarm_check', {
+    if (!Array.isArray(selected) || selected.length === 0) return Promise.resolve(null);
+    return fetch('/api/manage/studies/prewarm_check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         body: JSON.stringify({ SELECTED_COLLECTIONS: selected, STUDY_NAME: studyName })
-    }).catch(() => { /* best-effort warming */ });
+    })
+        .then(res => res.json())
+        .catch(() => null);   /* best-effort warming */
+}
+
+// The corpus preview cells are built once per data change per server instance, and
+// the chart, the mosaic and the report all wait on that build. A warm instance
+// answers the prewarm in milliseconds, so a prewarm still in flight after this long
+// means the user is sitting through the build itself — say so, rather than leaving
+// three spinners to suggest something is stuck.
+const STUDY_FIRST_LOAD_NOTICE_MS = 700;
+const STUDY_FIRST_LOAD_NOTE =
+    '<span class="global-tasks-spinner" style="flex: 0 0 auto; margin-top: 3px;"></span>'
+    + '<span>First load since the data last changed &mdash; building the study preview cache. '
+    + 'This takes a few seconds and nothing is wrong; the chart, mosaic and report fill in '
+    + 'together, and every later check in this session comes back straight away.</span>';
+
+const _studyFirstLoadTimer = new WeakMap();
+
+// Drop a pending notice — the wait it would have explained is over or moot.
+function _cancelStudyFirstLoad(row) {
+    const prev = _studyFirstLoadTimer.get(row);
+    if (prev) clearTimeout(prev);
+    _studyFirstLoadTimer.delete(row);
+}
+
+function _watchStudyFirstLoad(row, prewarm) {
+    _cancelStudyFirstLoad(row);
+    let displaced = null;
+    _studyFirstLoadTimer.set(row, setTimeout(() => {
+        displaced = _captureStudyReport(row);
+        _setStudyReport(row, 'note', STUDY_FIRST_LOAD_NOTE);
+    }, STUDY_FIRST_LOAD_NOTICE_MS));
+
+    prewarm.then(info => {
+        _cancelStudyFirstLoad(row);
+        // Warm all along — the notice was tripped by a slow round trip, not by a
+        // build. Take the claim back and put back whatever it displaced, rather
+        // than leave a wrong explanation up. The estimate still in flight
+        // overwrites it with the real report as soon as it lands.
+        if (info && info.warm === true && displaced && _studyReportState(row) === 'note') {
+            _setStudyReport(row, displaced.state, displaced.html);
+        }
+    });
 }
 
 function _fetchDailyChart(row) {
@@ -1574,6 +1624,9 @@ function _fetchDailyChart(row) {
     if (!selected.length) {
         s.totalPerDay = [];
         s.loading = false;
+        // Nothing is being fetched, so a notice queued by the previous selection
+        // would land with no wait behind it.
+        _cancelStudyFirstLoad(row);
         _renderDailyChart(row);
         return;
     }
@@ -1584,7 +1637,7 @@ function _fetchDailyChart(row) {
     _renderDailyChart(row);
 
     const studyName = row.dataset.studyName || null;
-    _prewarmStudyCheck(selected, studyName);
+    _watchStudyFirstLoad(row, _prewarmStudyCheck(selected, studyName));
     fetch('/api/manage/studies/daily_activities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
@@ -2410,16 +2463,46 @@ function _fitMosaicLabels(viz) {
     });
 }
 
+// --- Study report slot ---
+// The fixed-size box above the mosaic. It shows either the design report, a
+// waiting note, or the placeholder — never nothing, so the form below it never
+// moves when a report arrives, changes or clears.
+
+const STUDY_REPORT_EMPTY_NOTE = 'Select one or more collections to see the study report.';
+
+function _setStudyReport(row, state, html) {
+    const slot = row.querySelector('.study-report');
+    if (!slot) return;
+    const note = slot.querySelector('.study-report-note');
+    const list = slot.querySelector('.study-issues-list');
+    if (state === 'issues') {
+        if (list) list.innerHTML = html;
+    } else {
+        if (note) note.innerHTML = html;
+        if (list) list.innerHTML = '';
+    }
+    slot.dataset.state = state;
+    slot.scrollTop = 0;
+}
+
+function _studyReportState(row) {
+    return row.querySelector('.study-report')?.dataset.state || '';
+}
+
+// What the slot is showing right now, in the shape _setStudyReport takes back.
+function _captureStudyReport(row) {
+    const slot = row.querySelector('.study-report');
+    if (!slot) return null;
+    const state = slot.dataset.state || 'empty';
+    const source = state === 'issues' ? '.study-issues-list' : '.study-report-note';
+    return { state, html: slot.querySelector(source)?.innerHTML || '' };
+}
+
 function _clearStudyIssues(row) {
-    const container = row.querySelector('.study-issues-list');
-    if (!container) return;
-    container.innerHTML = '';
-    container.style.display = 'none';
+    _setStudyReport(row, 'empty', STUDY_REPORT_EMPTY_NOTE);
 }
 
 function _renderStudyIssues(row, issues) {
-    const container = row.querySelector('.study-issues-list');
-    if (!container) return;
     if (!issues || !issues.length) {
         _clearStudyIssues(row);
         return;
@@ -2430,14 +2513,13 @@ function _renderStudyIssues(row, issues) {
         error: 'var(--color-danger)',
     };
     const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    container.innerHTML = issues.map(i => {
+    _setStudyReport(row, 'issues', issues.map(i => {
         const color = colorMap[i.severity] || colorMap.warn;
         return '<div style="display: flex; align-items: center; gap: 6px;">' +
             `<span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${color}; flex: 0 0 auto;"></span>` +
             `<span style="color: var(--color-text-secondary);">${esc(i.message)}</span>` +
             '</div>';
-    }).join('');
-    container.style.display = 'flex';
+    }).join(''));
 }
 
 // --- Modal ---

@@ -4363,7 +4363,12 @@ body.study-range-dragging {
 .study-viz__box {
     display: flex;
     flex: 1 1 auto;
-    height: 84px;
+    /* Kept short enough that the mosaic plus its headline and legend stay
+       under the sampling block beside it (116px), so the metrics row is
+       sized by the controls rather than by the picture. Floor is ~62px: the
+       vertical "what is this?" label runs the full height of the box and
+       clips below that. */
+    height: 66px;
     border: 1px solid var(--study-viz-border);
     border-radius: 4px;
     background: var(--study-viz-eligible-bg);

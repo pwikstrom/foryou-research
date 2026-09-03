@@ -692,6 +692,25 @@ def _restore_cells_dtypes(cells: pd.DataFrame | None) -> pd.DataFrame | None:
 
 
 
+def preview_cells_warm() -> bool:
+    """True when ``get_preview_cells`` would answer straight from memory.
+
+    Cheap by design (one memoised mtime sweep, no disk read and no build), so a
+    caller can tell the user *why* a study modal is slow: a cold call pays for a
+    disk load or a corpus scan, a warm one returns in milliseconds.
+    """
+
+    try:
+        src_mtime = _preview_sources_mtime_cached()
+    except Exception:
+        return False
+    with _preview_cache_lock:
+        hit = _cells_cache.get("cells")
+        return hit is not None and hit[2] >= src_mtime
+
+
+
+
 def get_preview_cells() -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
     """Return the corpus preview cells: memory -> disk -> build (single-flight).
 

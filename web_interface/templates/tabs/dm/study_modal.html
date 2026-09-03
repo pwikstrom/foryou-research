@@ -58,7 +58,20 @@
     <template id="study_detail_template">
         <div class="study-edit-form" data-study-name="">
 
-            <div class="study-issues-list text-xs" style="margin-top: 16px; display: none; flex-direction: column; gap: 3px;"></div>
+            <!-- Top strip: the study name (new studies only) beside the study
+                 report. The report slot is a fixed size, so the mosaic and
+                 everything below it stay put whether or not a report is in it. -->
+            <div class="study-top-strip">
+                <div class="study-name-field">
+                    <label for="newStudyNameInput" class="text-xs font-semibold">Study name</label>
+                    <input type="text" id="newStudyNameInput" class="control-input text-xs"
+                        placeholder="Unique name..." autocomplete="off">
+                </div>
+                <div class="study-report" data-state="empty">
+                    <div class="study-report-note text-xs">Select one or more collections to see the study report.</div>
+                    <div class="study-issues-list text-xs"></div>
+                </div>
+            </div>
 
             <div class="study-metrics-row" style="margin-top: 12px; display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;">
 
@@ -185,6 +198,69 @@ Included videos can still be enriched afterwards, so a wider frame is fine."
 
             <style>
                 /* Scoped styles for this template's use */
+
+                /* Name + study report share one strip above the mosaic. The name
+                   box is deliberately narrow so the report has room beside it. */
+                .study-top-strip {
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 16px;
+                    margin-bottom: 12px;
+                }
+
+                /* Only a new study is named here — an existing one carries its
+                   name in the modal title and is renamed from the Rename button. */
+                .study-name-field {
+                    display: none;
+                    flex: 0 0 auto;
+                    flex-direction: column;
+                    gap: 3px;
+                }
+
+                .study-edit-form[data-is-new="true"] .study-name-field {
+                    display: flex;
+                }
+
+                .study-name-field label {
+                    color: var(--color-text-secondary);
+                }
+
+                .study-name-field .control-input {
+                    width: 190px;
+                }
+
+                /* Fixed height, always present: the report appearing, changing or
+                   clearing must never move the mosaic, chart or collection list.
+                   Sized for three report lines; a longer report scrolls. */
+                .study-report {
+                    flex: 1 1 auto;
+                    min-width: 0;
+                    height: 72px;
+                    overflow-y: auto;
+                    padding: 6px 8px;
+                    border: 1px solid var(--color-border);
+                    border-radius: 4px;
+                    background: var(--color-bg-surface);
+                }
+
+                .study-report .study-issues-list {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 3px;
+                }
+
+                .study-report-note {
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 6px;
+                    color: var(--color-text-tertiary);
+                }
+
+                .study-report[data-state="issues"] .study-report-note,
+                .study-report:not([data-state="issues"]) .study-issues-list {
+                    display: none;
+                }
+
                 .form-group-row {
                     display: flex;
                     justify-content: space-between;
