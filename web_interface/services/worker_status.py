@@ -156,15 +156,27 @@ def consolidate_entry_view() -> dict:
 def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
     """Build an ordered per-step view of the last/active consolidate pipeline.
 
-    Returns one dict per step (``consolidate_enrichment`` plus every step in the
-    persisted ``pipeline_plan``) with keys ``step``, ``label``, ``state``,
-    ``percent``, ``message``, ``ran_at`` and ``provisional``. ``state`` is one of
-    ``running``, ``queued``, ``success``, ``failed``, ``skipped`` or ``pending``.
+    Returns one dict per step — ``consolidate_enrichment`` followed by the whole
+    canonical ``PIPELINE_STEPS_ORDER``, ALWAYS, so the chart keeps the same shape
+    run to run — with keys ``step``, ``label``, ``state``, ``percent``,
+    ``message``, ``ran_at``, ``plan_mode`` and ``provisional``. ``state`` is one
+    of ``running``, ``queued``, ``success``, ``failed``, ``skipped``,
+    ``pending`` or ``not_planned``.
+
+    ``not_planned`` is a step this run's plan never included — it was not needed
+    by the consolidation's impact, or (``plan_mode == "consolidate_only"``) no
+    refresh was requested at all. It is distinct from ``skipped``, which means
+    the step WAS planned and never ran (aborted run, dropped dispatch). An
+    unplanned row is inert: no status file is read for it and every timing field
+    is ``None``, so work that ran outside this pipeline can never be painted
+    into it and it cannot widen the chart's time axis.
+
     Live state comes from each step's GCS status file (Cloud Run); terminal
     outcomes fall back to ``process_stats``. ``provisional`` marks a row that
     belongs to the dispatch-time forecast rather than the plan the consolidation
     computed. Returns ``[]`` when no plan has been recorded so the UI hides the
-    list.
+    list — eight greyed rows would assert that a run happened and needed
+    nothing, when nothing has happened at all.
 
     Args:
         pipeline_active: Whether a consolidate pipeline is currently in flight
@@ -182,12 +194,26 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
     # so the whole list is visible with live pending/running/success from the
     # first poll — the user should not have to wait out the consolidation to
     # learn what is coming. Once the worker computes the real plan it replaces
-    # the forecast and any step this run doesn't need drops off. Only a truly
-    # absent plan hides the list.
+    # the forecast and any step this run doesn't need greys out in place rather
+    # than dropping off. Only a truly absent plan hides the list.
     if not plan:
         return []
-    steps = plan.get("steps") or []
+    plan_steps = plan.get("steps") or []
     provisional = bool(plan.get("provisional"))
+    # "refresh" for every plan the worker publishes (it only records one when a
+    # pipeline follows) and for the dispatch forecast; "consolidate_only" only
+    # when the user ran Consolidate with the refresh box unticked. Older plan
+    # records predate the key and are all refresh-mode.
+    plan_mode = plan.get("mode") or "refresh"
+
+    # Every canonical step gets a row every run — the ones this run did not plan
+    # come back as "not_planned" rather than vanishing, which is what keeps the
+    # chart's shape stable and tells the reader what was NOT needed. A plan step
+    # outside the canonical order (shouldn't happen, but a plan record is data)
+    # is appended so a planned step can never lose its row.
+    planned = set(plan_steps)
+    rows = ["consolidate_enrichment"] + list(PIPELINE_STEPS_ORDER)
+    rows += [s for s in plan_steps if s not in rows]
 
     started_dt = None
     started_ts = plan.get("started_ts")
@@ -214,9 +240,23 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
 
     cloud = is_cloud_run()
     view: list[dict] = []
-    for step in ["consolidate_enrichment"] + steps:
+    for step in rows:
         ps = process_stats.get(step, {})
         label = _PIPELINE_STAGE_LABELS.get(step, step)
+
+        # Not in this run's plan: an inert row. Deliberately no status read and
+        # no process_stats fallback — a step can run outside this pipeline while
+        # it is in flight (a hand-started Timelines refresh, a sessions run
+        # self-chained from a study save) and that foreign work must not be
+        # drawn as part of this run, nor stretch its axis.
+        if step != "consolidate_enrichment" and step not in planned:
+            view.append({
+                "step": step, "label": label, "state": "not_planned",
+                "percent": None, "message": None, "ran_at": None,
+                "started_at": None, "ended_at": None, "queued_at": None,
+                "duration_s": None, "plan_mode": plan_mode, "provisional": False,
+            })
+            continue
 
         # Live status: a fresh running/queued state wins. On Cloud Run this comes
         # from the per-step GCS status file; locally from the in-memory process
@@ -305,6 +345,9 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
             "ended_at": ended_at,
             "queued_at": queued_at,
             "duration_s": duration_s,
+            # Repeated on every row so the renderer can word the unplanned rows
+            # ("not needed" vs "not requested") without an envelope.
+            "plan_mode": plan_mode,
             # True while this row is part of the dispatch-time forecast rather
             # than the plan the consolidation actually computed.
             "provisional": provisional and step != "consolidate_enrichment",

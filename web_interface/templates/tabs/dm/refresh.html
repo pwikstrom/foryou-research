@@ -64,9 +64,9 @@
      chart updates live while workers run and stays as the record afterwards. -->
 <div id="consolidate-pipeline-steps" style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); margin-bottom: 20px;">
     <div class="font-bold" style="margin-bottom: 10px;">Refresh Pipeline{{ card_info(
-        "The last (or currently running) refresh pipeline as a timeline: one bar per step, placed and sized by when it started and how long it ran — bars measure time, not progress. The consolidation comes first; embeddings, the semantic map and the study definitions follow one another; the dashed line marks where the study definitions finished and the four remaining steps started concurrently. A step only appears when that run planned it, so the chart changes with what the consolidation actually touched. While a step runs its bar grows to the present; afterwards the chart stays as the record of the run.") }}</div>
+        "The last (or currently running) refresh pipeline as a timeline: one bar per step, placed and sized by when it started and how long it ran — bars measure time, not progress. The consolidation comes first; embeddings, the semantic map and the study definitions follow one another; the dashed line marks where the study definitions finished and the four remaining steps started concurrently. Every step is always listed in pipeline order, so the chart keeps the same shape run to run: a step this run did not need is greyed out with no bar and says so on the right, and one that was planned but never ran says “skipped”. While a step runs its bar grows to the present; afterwards the chart stays as the record of the run.") }}</div>
     <div id="pipeline-steps-note" class="text-xxs" style="display: none; margin-bottom: 6px; color: var(--color-text-tertiary);">
-        Planned steps. The consolidation narrows this to the steps its impact actually needs.
+        Planned steps. Once the consolidation works out its impact, the steps it does not need are greyed out.
     </div>
     <div id="pipeline-gantt-empty" class="text-xs" style="color: var(--color-text-tertiary);">
         No refresh pipeline recorded yet. Run Consolidate with “Refresh caches afterwards” ticked and the run is charted here.
@@ -77,6 +77,7 @@
         <span class="gantt-key gantt-key--running"></span> running (grows to now) &nbsp;
         <span class="gantt-key gantt-key--queued"></span> queued, waiting for a worker &nbsp;
         <span class="gantt-key gantt-key--failed"></span> failed &nbsp;
+        <span class="gantt-key gantt-key--unplanned"></span> not part of this run &nbsp;
         <span class="gantt-key gantt-key--fork"></span> study definitions done — leaves start
     </div>
 </div>

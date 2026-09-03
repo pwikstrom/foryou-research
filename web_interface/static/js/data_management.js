@@ -3372,7 +3372,9 @@ function renderPipelineSteps(steps) {
     // bars measure TIME, not progress. Live steps grow to "now" and pulse;
     // queued leaves show a dashed wait from the moment they were queued; a
     // dashed guideline marks where the study definitions finished, which is
-    // where the leaves fork. With no plan recorded the empty-state line shows.
+    // where the leaves fork. Every step is always listed, so a step this run
+    // never planned still gets a row — greyed, bar-less, and worded in the
+    // right column. With no plan recorded the empty-state line shows.
     _pipelineStepsCache = steps || null;
     const chart = document.getElementById('pipeline-gantt');
     const note = document.getElementById('pipeline-steps-note');
@@ -3392,7 +3394,7 @@ function renderPipelineSteps(steps) {
     if (legend) legend.style.display = '';
     chart.style.display = '';
     // While the plan is the dispatch-time forecast, say so — the consolidation
-    // narrows it to the steps its impact actually needs, so rows can drop off.
+    // greys out the steps its impact turns out not to need.
     if (note) note.style.display = steps.some(s => s.provisional) ? '' : 'none';
 
     const now = Date.now();
@@ -3432,7 +3434,16 @@ function renderPipelineSteps(steps) {
         const state = s.state || 'pending';
         const a = parse(s.started_at), e = parse(s.ended_at), q = parse(s.queued_at);
         let bar = '', dur = '', title = '';
-        if (!haveAxis) {
+        if (state === 'not_planned') {
+            // Never in this run's plan: no bar, and a word that says which kind
+            // of "no". Checked before the axis guard so it reads right even in
+            // the first poll of a run, before anything has reported a start.
+            const only = s.plan_mode === 'consolidate_only';
+            dur = only ? 'not requested' : 'not needed';
+            title = only
+                ? 'Not requested \u2014 this run consolidated without the refresh pipeline'
+                : "Not needed \u2014 this run's changes did not affect it";
+        } else if (!haveAxis) {
             dur = state;
         } else if (state === 'running' && Number.isFinite(a)) {
             const left = pct(a);
@@ -3455,8 +3466,9 @@ function renderPipelineSteps(steps) {
             title = `${new Date(a).toLocaleTimeString()} → ${new Date(e).toLocaleTimeString()}`
                 + (state === 'failed' ? ' — failed' : '');
         } else if (state === 'skipped') {
+            // Planned work that never happened — an anomaly, unlike not_planned.
             dur = 'skipped';
-            title = 'Not needed by this run';
+            title = 'Planned but never ran \u2014 the pipeline ended before reaching it';
         } else {
             dur = state === 'failed' ? 'failed' : 'pending';
         }
