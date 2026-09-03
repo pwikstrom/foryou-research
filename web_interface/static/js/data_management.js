@@ -3606,8 +3606,13 @@ function pollConsolidationStatus() {
                     // a study save, say) — so name the phase honestly instead
                     // of always claiming a consolidation is under way.
                     if (btnC) {
-                        btnC.textContent = active.name === 'consolidate_enrichment'
-                            ? 'Consolidating...' : 'Refreshing caches...';
+                        // The weekly shadow verification runs under the
+                        // consolidate key too; it is a read-only check, not a
+                        // consolidation, and reads as one otherwise.
+                        const args = (active.state && active.state.task_args) || {};
+                        btnC.textContent = active.name !== 'consolidate_enrichment'
+                            ? 'Refreshing caches...'
+                            : (args.verify_consolidation ? 'Verifying (read-only)...' : 'Consolidating...');
                     }
                     return;
                 }

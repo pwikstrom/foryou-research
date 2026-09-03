@@ -789,6 +789,37 @@ def _chain_run_start(link_start: datetime, status_start: str | None) -> datetime
 
 
 
+def _merge_run_stats(existing: dict, run_data: dict, *, name: str, task_args: dict,
+                     outcome: str, end_time: datetime, duration: float,
+                     study_name: str | None) -> dict:
+    """The process_stats entry for a task after one run of it.
+
+    A run's emitted data is merged over the stored entry and the last-run
+    fields are refreshed — except for the weekly shadow verification, which
+    runs under the consolidate key (so the supervisor's gate serialises it) but
+    is not a consolidation. It records under ``last_verify_*`` instead, so it
+    never becomes the card's "Last: … OK" line (13 min right after a 42 s
+    consolidation read as "fired twice" on 2026-09-03) and never bumps
+    ``last_success``, which staleness checks read as "data consolidated".
+    """
+    merged = {**existing, **run_data}
+    if name == "consolidate_enrichment" and task_args.get("verify_consolidation"):
+        merged.update({
+            "last_verify_end_time": end_time.isoformat(),
+            "last_verify_duration": duration,
+            "last_verify_outcome": outcome,
+        })
+        return merged
+    merged.update({
+        "last_success": end_time.isoformat() if outcome == "Success" else merged.get("last_success"),
+        "last_run_end_time": end_time.isoformat(),
+        "last_run_duration": duration,
+        "last_run_outcome": outcome,
+        "last_run_study": study_name,
+    })
+    return merged
+
+
 def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bool:
     """Execute a task function and update process_stats on completion.
 
@@ -1015,15 +1046,10 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
         start_time, reporter._status.get("start_time"))).total_seconds()
 
     load_process_stats()
-    merged = {**process_stats.get(status_key, {}), **reporter._status.get("data", {})}
-    merged.update({
-        "last_success": end_time.isoformat() if outcome == "Success" else merged.get("last_success"),
-        "last_run_end_time": end_time.isoformat(),
-        "last_run_duration": duration,
-        "last_run_outcome": outcome,
-        "last_run_study": study_name,
-    })
-    process_stats[status_key] = merged
+    process_stats[status_key] = _merge_run_stats(
+        process_stats.get(status_key, {}), reporter._status.get("data", {}),
+        name=name, task_args=task_args, outcome=outcome, end_time=end_time,
+        duration=duration, study_name=study_name)
     save_process_stats()
 
     # ---- Pipeline advance. The downstream pipeline is an out-tree: a linear

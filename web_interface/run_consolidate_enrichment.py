@@ -325,6 +325,11 @@ def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
             f"(interval {_SHADOW_CHECK_INTERVAL_DAYS} d).")
         return None
 
+    # It shares the consolidate card and log, so say plainly what this run is:
+    # on 2026-09-03 the admin read it as "consolidation fired twice".
+    reporter.log("Weekly shadow verification — a read-only check that the incremental "
+                 "artifacts match a full rebuild. Not a consolidation; nothing is written "
+                 "unless a mismatch is found. Takes ~13 min.")
     _progress(5, "Shadow-verifying incremental consolidation…")
     result = verify_consolidation_equivalence(progress_cb=_progress)
     reporter.emit_data({"shadow_check": result})

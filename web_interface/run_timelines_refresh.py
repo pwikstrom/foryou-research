@@ -351,18 +351,28 @@ def _preload_and_slice(reporter: TaskStatusReporter,
     coll_df = all_datasets[COLLECTIONS_LABEL]
     if not coll_df.empty and "item_id" in coll_df.columns:
         item_ids = coll_df["item_id"].dropna().unique().tolist()
-    item_filter = [("item_id", "in", item_ids)] if item_ids else None
+    item_set = set(map(str, item_ids))
 
     reporter.log(f"Filtered collections to {len(coll_df)} rows, {len(item_ids)} unique items.")
 
+    # Whole-file read, then filter in memory. A pyarrow pushdown of
+    # `item_id in <1.5M ids>` makes the reader evaluate a million-element
+    # set-membership predicate per row on every row group — the study refresh
+    # dropped the same pattern for the same reason (_filter_enrichment_data).
+    _t = time.perf_counter()
     for k, f in [(SCRAPES_LABEL, f"{SCRAPES_LABEL}_recoded.parquet"),
                  (MACHINE_ANNOTATIONS_LABEL, f"{MACHINE_ANNOTATIONS_LABEL}_recoded.parquet")]:
         if data_io.exists(storage_location="recoded", filename=f):
-            all_datasets[k] = data_io.load_parquet(
-                storage_location="recoded", filename=f,
-                filters=item_filter, verbose=False)
+            full = data_io.load_parquet(storage_location="recoded", filename=f, verbose=False)
+            if full is not None and not full.empty and item_set and "item_id" in full.columns:
+                all_datasets[k] = full[full["item_id"].astype(str).isin(item_set)].copy()
+            else:
+                all_datasets[k] = full if full is not None else pd.DataFrame()
+            del full
         else:
             all_datasets[k] = pd.DataFrame()
+    reporter.log(f"[TIMING] timelines_preload enrichment_load={time.perf_counter() - _t:.1f}s "
+                 f"items={len(item_set):,}")
 
     giant_df = None
     try:
