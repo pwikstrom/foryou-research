@@ -1148,27 +1148,60 @@ def annotation_items_changed_since(watermark: str | None) -> tuple[set[str] | No
     fn = embeddings.ANNOTATIONS_FILE
     if not data_io.exists(storage_location=embeddings.STORE_LOCATION, filename=fn):
         return (set() if watermark else None), None
-    wm = pd.to_datetime(watermark, utc=True, errors="coerce") if watermark else None
-    if watermark and pd.isna(wm):
-        wm = None
+    wm_s: float | None = None
+    if watermark:
+        try:
+            wm_s = pd.Timestamp(watermark).tz_convert("UTC").timestamp() \
+                if pd.Timestamp(watermark).tzinfo else pd.Timestamp(watermark, tz="UTC").timestamp()
+        except (ValueError, TypeError):
+            wm_s = None
     changed: set[str] = set()
-    max_ts = None
+    max_s: float | None = None
+    # Columns are read straight from Arrow: to_pandas() on this file's batches
+    # trips over the pandas metadata of its list-typed columns even when they
+    # are not selected, and inference_ts is an epoch, not a datetime.
     for rb in data_io.iter_parquet_batches(
             storage_location=embeddings.STORE_LOCATION, filename=fn,
             columns=["item_id", "inference_ts"], batch_size=1_048_576):
-        df = rb.to_pandas()
-        ts = pd.to_datetime(df["inference_ts"], utc=True, errors="coerce")
-        batch_max = ts.max()
-        if pd.notna(batch_max):
-            max_ts = batch_max if max_ts is None else max(max_ts, batch_max)
-        if wm is not None:
-            sel = ts.notna() & (ts > wm)
+        secs = _epoch_seconds(rb.column("inference_ts"))
+        valid = ~np.isnan(secs)
+        if valid.any():
+            batch_max = float(secs[valid].max())
+            max_s = batch_max if max_s is None else max(max_s, batch_max)
+        if wm_s is not None:
+            sel = valid & (secs > wm_s)
             if sel.any():
-                changed.update(df.loc[sel, "item_id"].astype(str).tolist())
-    max_iso = max_ts.isoformat() if max_ts is not None else None
-    if wm is None:
+                ids = rb.column("item_id").to_pylist()
+                changed.update(str(ids[i]) for i in np.flatnonzero(sel) if ids[i] is not None)
+    max_iso = (pd.Timestamp(max_s, unit="s", tz="UTC").isoformat()
+               if max_s is not None else None)
+    if wm_s is None:
         return None, max_iso
     return changed, max_iso
+
+
+def _epoch_seconds(col) -> np.ndarray:
+    """An Arrow column of timestamps as float64 epoch seconds (NaN for null).
+
+    The annotation corpus stores ``inference_ts`` as an int64 Unix epoch in
+    seconds; a timestamp-typed column or a millisecond epoch is handled too.
+    """
+    if pa.types.is_timestamp(col.type):
+        ns = pa_compute.cast(col, pa.timestamp("ns")).cast(pa.int64())
+        arr = np.asarray(ns.to_numpy(zero_copy_only=False), dtype="float64")
+        arr[np.asarray(ns.is_null().to_numpy(zero_copy_only=False))] = np.nan
+        return arr / 1e9
+    if pa.types.is_string(col.type) or pa.types.is_large_string(col.type):
+        parsed = pd.to_datetime(pd.Series(col.to_pylist()), utc=True, errors="coerce")
+        return np.array([t.timestamp() if pd.notna(t) else np.nan for t in parsed],
+                        dtype="float64")
+    arr = np.asarray(col.to_numpy(zero_copy_only=False), dtype="float64")
+    nulls = np.asarray(col.is_null().to_numpy(zero_copy_only=False), dtype=bool)
+    arr[nulls] = np.nan
+    finite = arr[~np.isnan(arr)]
+    if finite.size and np.nanmedian(finite) > 1e11:   # milliseconds
+        arr = arr / 1e3
+    return arr
 
 
 def collections_containing(item_ids: set[str], allow: set[str],
@@ -1189,8 +1222,7 @@ def collections_containing(item_ids: set[str], allow: set[str],
             columns=["collection_id", "item_id"],
             filters=[("item_id", "in", sorted(item_ids))],
             batch_size=1_048_576):
-        df = rb.to_pandas()
-        found.update(df["collection_id"].astype(str).tolist())
+        found.update(str(v) for v in rb.column("collection_id").to_pylist() if v is not None)
     return found & set(allow)
 
 

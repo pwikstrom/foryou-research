@@ -99,11 +99,19 @@ def _batches(monkeypatch, frames_by_file: dict):
                         lambda storage_location="", filename="", **k: filename in frames_by_file)
 
 
+def _epoch(iso: str) -> int:
+    return int(pd.Timestamp(iso).timestamp())
+
+
 def test_changed_annotations_are_those_past_the_watermark(monkeypatch):
+    # inference_ts is an int64 Unix epoch in SECONDS in the real corpus
+    # (2026-09-03: read as nanoseconds it made every row 1970 and the
+    # watermark scan came back empty).
     anno = pd.DataFrame({
         "item_id": ["v1", "v2", "v3", "v4"],
-        "inference_ts": ["2026-09-01T00:00:00+00:00", "2026-09-03T03:20:00+00:00",
-                         None, "2026-09-03T03:25:00+00:00"],
+        "inference_ts": pd.array([_epoch("2026-09-01T00:00:00+00:00"),
+                                  _epoch("2026-09-03T03:20:00+00:00"), None,
+                                  _epoch("2026-09-03T03:25:00+00:00")], dtype="Int64"),
     })
     _batches(monkeypatch, {embeddings.ANNOTATIONS_FILE: anno})
 
@@ -115,6 +123,20 @@ def test_changed_annotations_are_those_past_the_watermark(monkeypatch):
     changed, max_ts = se.annotation_items_changed_since(None)
     assert changed is None and max_ts == "2026-09-03T03:25:00+00:00"
     assert se.annotation_corpus_max_ts() == "2026-09-03T03:25:00+00:00"
+
+
+def test_epoch_seconds_handles_the_column_types_a_corpus_may_carry():
+    secs = _epoch("2026-09-03T03:25:00+00:00")
+    # int seconds, with a null
+    out = se._epoch_seconds(pa.array([secs, None], type=pa.int64()))
+    assert out[0] == secs and np.isnan(out[1])
+    # milliseconds are recognised by magnitude
+    out = se._epoch_seconds(pa.array([secs * 1000], type=pa.int64()))
+    assert out[0] == pytest.approx(secs)
+    # a real timestamp column
+    out = se._epoch_seconds(pa.array([pd.Timestamp(secs, unit="s", tz="UTC")],
+                                     type=pa.timestamp("us", tz="UTC")))
+    assert out[0] == pytest.approx(secs)
 
 
 def test_collections_containing_maps_items_within_the_covered_set(monkeypatch):
