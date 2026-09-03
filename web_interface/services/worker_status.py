@@ -7,7 +7,7 @@ cookie-health caching, and the acting-user lookup.
 
 import threading
 import time as _time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from flask_login import current_user
 
@@ -265,6 +265,35 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
             # otherwise skipped (aborted before reaching it / dropped by a 429).
             state = "pending" if steps_pending else "skipped"
 
+        # Wall-clock bounds for the pipeline chart, which measures time rather
+        # than progress. A live step's start comes from its status file; a
+        # finished step's from its recorded end minus its recorded duration —
+        # for a self-chaining step (timelines, sessions) that duration spans
+        # the whole chain, so the bar does too. A queued leaf has no start yet,
+        # only the moment it was stamped queued at the fork.
+        started_at = None
+        ended_at = None
+        queued_at = None
+        duration_s = None
+        if state == "running":
+            if cloud:
+                started_at = st.get("start_time")
+            else:
+                local_start = (processes.get(step, {}) or {}).get("start_time")
+                started_at = (local_start.isoformat() if hasattr(local_start, "isoformat")
+                              else local_start)
+        elif state == "queued":
+            queued_at = st.get("updated_at") if cloud else None
+        elif ran_this_run:
+            ended_at = end
+            dur = ps.get("last_run_duration")
+            try:
+                duration_s = float(dur) if dur is not None else None
+                if duration_s is not None and end_dt is not None:
+                    started_at = (end_dt - timedelta(seconds=duration_s)).isoformat()
+            except (TypeError, ValueError):
+                duration_s = None
+
         view.append({
             "step": step,
             "label": label,
@@ -272,6 +301,10 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
             "percent": percent if state == "running" else None,
             "message": message if state == "running" else None,
             "ran_at": end if ran_this_run else None,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "queued_at": queued_at,
+            "duration_s": duration_s,
             # True while this row is part of the dispatch-time forecast rather
             # than the plan the consolidation actually computed.
             "provisional": provisional and step != "consolidate_enrichment",

@@ -1051,70 +1051,137 @@ button {
     background: var(--color-bg-elevated);
 }
 
-.pipeline-steps {
-    padding: 10px;
-    background: var(--section-bg);
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
+/* Refresh-pipeline timeline (Dataset Assembly). One grid row per step —
+   label | time track | duration — all rows sharing one wall-clock axis, so a
+   bar's position and width are its start and its length in time, never a
+   percentage of progress. Colours follow the worker status lights: green =
+   ran/running, blue dashed = queued and waiting, red = failed, faded = not
+   part of this run. */
+.pipeline-gantt {
+    font-variant-numeric: tabular-nums;
 }
 
-.pipeline-step {
-    display: flex;
+.gantt-row,
+.gantt-axis {
+    display: grid;
+    grid-template-columns: 11rem minmax(0, 1fr) 6rem;
     align-items: center;
-    gap: 8px;
-    padding: 3px 0;
+    gap: 10px;
 }
 
-.pipeline-step-dot {
-    flex: 0 0 auto;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--color-text-tertiary);
-}
+.gantt-row { padding: 3px 0; }
 
-.pipeline-step-label {
-    flex: 0 0 auto;
+.gantt-label {
     color: var(--color-text-primary);
-}
-
-.pipeline-step-state {
-    flex: 0 0 auto;
-    color: var(--color-text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-}
-
-.pipeline-step-detail {
-    flex: 1 1 auto;
-    min-width: 0;
+    text-align: right;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gantt-track {
+    position: relative;
+    height: 18px;
+    overflow: hidden;
+    background: linear-gradient(var(--color-border), var(--color-border)) center / 100% 1px no-repeat;
+}
+
+.gantt-bar {
+    position: absolute;
+    top: 2px;
+    height: 14px;
+    min-width: 3px;
+    border-radius: 2px;
+    background: var(--status-running);
+}
+.gantt-bar--failed { background: var(--status-error); }
+.gantt-bar--running { animation: gantt-pulse 1.4s ease-in-out infinite; }
+.gantt-bar--queued {
+    background: transparent;
+    border: 1px dashed var(--status-idle);
+    box-sizing: border-box;
+}
+
+/* The running step's live message, riding just past the bar's growing edge. */
+.gantt-msg {
+    position: absolute;
+    top: 0;
+    line-height: 18px;
     white-space: nowrap;
     color: var(--color-text-secondary);
 }
 
-/* Same convention as the worker status lights: green = running/succeeded,
-   blue = standing by (queued/pending), red = failed, grey = not part of
-   this run. */
-.pipeline-step--success .pipeline-step-dot { background: var(--status-running); }
-.pipeline-step--failed .pipeline-step-dot { background: var(--status-error); }
-.pipeline-step--queued .pipeline-step-dot {
-    background: var(--status-idle);
-    animation: pipeline-dot-pulse 1.4s ease-in-out infinite;
+.gantt-dur {
+    color: var(--color-text-tertiary);
+    white-space: nowrap;
 }
-.pipeline-step--pending .pipeline-step-dot { background: var(--status-idle); }
-.pipeline-step--skipped { opacity: 0.55; }
-.pipeline-step--skipped .pipeline-step-dot { background: var(--color-text-tertiary); }
+.gantt-row--failed .gantt-dur { color: var(--status-error); }
+.gantt-row--running .gantt-dur { color: var(--color-text-secondary); }
+.gantt-row--queued .gantt-dur,
+.gantt-row--pending .gantt-dur { font-style: italic; }
+.gantt-row--skipped { opacity: 0.5; }
 
-.pipeline-step--running .pipeline-step-dot {
+/* Guidelines across every track: the fork (dashed) where the study
+   definitions finished and the leaves started, and "now" while live. */
+.gantt-fork,
+.gantt-now {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 0;
+}
+.gantt-fork { border-left: 1px dashed var(--color-text-tertiary); opacity: 0.7; }
+.gantt-now { border-left: 1px solid var(--color-warning); opacity: 0.8; }
+
+.gantt-axis { margin-top: 4px; }
+
+.gantt-axis-track {
+    position: relative;
+    height: 18px;
+    border-top: 1px solid var(--color-border);
+}
+
+.gantt-tick {
+    position: absolute;
+    top: 3px;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    color: var(--color-text-tertiary);
+}
+.gantt-tick--origin { transform: none; }
+.gantt-tick::before {
+    content: "";
+    position: absolute;
+    top: -4px;
+    left: 50%;
+    width: 1px;
+    height: 3px;
+    background: var(--color-border);
+}
+.gantt-tick--origin::before { left: 0; }
+
+/* Legend swatches under the chart. */
+.gantt-key {
+    display: inline-block;
+    width: 14px;
+    height: 8px;
+    border-radius: 2px;
+    vertical-align: middle;
     background: var(--status-running);
-    animation: pipeline-dot-pulse 1.4s ease-in-out infinite;
+}
+.gantt-key--running { animation: gantt-pulse 1.4s ease-in-out infinite; }
+.gantt-key--queued { background: transparent; border: 1px dashed var(--status-idle); box-sizing: border-box; }
+.gantt-key--failed { background: var(--status-error); }
+.gantt-key--fork { width: 0; height: 10px; border-left: 1px dashed var(--color-text-tertiary); border-radius: 0; background: none; }
+
+@keyframes gantt-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
 }
 
-@keyframes pipeline-dot-pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(0.7); }
+@media (max-width: 700px) {
+    .gantt-row,
+    .gantt-axis { grid-template-columns: 7rem minmax(0, 1fr) 4.5rem; }
 }
 
 /* Per-platform cookie-status pill on the enrichment scraper cards. A colored dot

@@ -3330,42 +3330,157 @@ function _humanizePipelineSteps(csv) {
         .join(', ');
 }
 
+// The pipeline chart re-renders from this cache once a second while any step
+// is live, so a running bar grows between polls instead of jumping.
+let _pipelineStepsCache = null;
+let _pipelineTicker = null;
+
+function _fmtDuration(seconds) {
+    if (seconds == null || !isFinite(seconds)) return '';
+    const s = Math.max(0, Math.round(seconds));
+    if (s < 60) return `${s} s`;
+    const m = Math.floor(s / 60), r = s % 60;
+    if (m < 60) return r ? `${m} min ${r} s` : `${m} min`;
+    return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+function _ganttTickStep(spanSeconds) {
+    // The coarsest step that still gives the axis at least four ticks.
+    for (const t of [15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200]) {
+        if (spanSeconds / t <= 6) return t;
+    }
+    return 14400;
+}
+
+function _startPipelineTicker() {
+    if (_pipelineTicker) return;
+    _pipelineTicker = setInterval(() => {
+        if (_pipelineStepsCache) renderPipelineSteps(_pipelineStepsCache);
+    }, 1000);
+}
+
+function _stopPipelineTicker() {
+    if (!_pipelineTicker) return;
+    clearInterval(_pipelineTicker);
+    _pipelineTicker = null;
+}
+
 function renderPipelineSteps(steps) {
-    // Render the persistent + live per-step pipeline list below the consolidate
-    // buttons. Hidden when no plan has been recorded (e.g. after a no-refresh
-    // consolidation). Each step shows a status dot, label, state, and — for the
-    // active step — an inline progress message/percent.
-    const container = document.getElementById('consolidate-pipeline-steps');
-    const list = document.getElementById('pipeline-steps-list');
+    // The last (or running) refresh pipeline as a timeline. One row per step in
+    // dispatch order; each bar is placed by the step's start and sized by its
+    // duration on a shared wall-clock axis anchored at the earliest start — so
+    // bars measure TIME, not progress. Live steps grow to "now" and pulse;
+    // queued leaves show a dashed wait from the moment they were queued; a
+    // dashed guideline marks where the study definitions finished, which is
+    // where the leaves fork. With no plan recorded the empty-state line shows.
+    _pipelineStepsCache = steps || null;
+    const chart = document.getElementById('pipeline-gantt');
     const note = document.getElementById('pipeline-steps-note');
-    if (!container || !list) return;
+    const empty = document.getElementById('pipeline-gantt-empty');
+    const legend = document.getElementById('pipeline-gantt-legend');
+    if (!chart) return;
     if (!steps || !steps.length) {
-        container.style.display = 'none';
-        list.innerHTML = '';
+        chart.innerHTML = '';
+        chart.style.display = 'none';
+        if (empty) empty.style.display = '';
+        if (legend) legend.style.display = 'none';
         if (note) note.style.display = 'none';
+        _stopPipelineTicker();
         return;
     }
+    if (empty) empty.style.display = 'none';
+    if (legend) legend.style.display = '';
+    chart.style.display = '';
     // While the plan is the dispatch-time forecast, say so — the consolidation
     // narrows it to the steps its impact actually needs, so rows can drop off.
-    if (note) {
-        const forecast = steps.some(s => s.provisional);
-        note.style.display = forecast ? '' : 'none';
-    }
-    list.innerHTML = steps.map(s => {
-        const state = s.state || 'pending';
-        let detail = '';
-        if (state === 'running' && (s.message || s.percent != null)) {
-            const pct = (s.percent != null) ? ` ${Math.round(s.percent)}%` : '';
-            detail = `<span class="pipeline-step-detail text-xxs">${escapeHtml(s.message || '')}${pct}</span>`;
+    if (note) note.style.display = steps.some(s => s.provisional) ? '' : 'none';
+
+    const now = Date.now();
+    const parse = v => (v ? Date.parse(v) : NaN);
+    const anyLive = steps.some(s => s.state === 'running' || s.state === 'queued');
+
+    // Axis: from the earliest known start (or queue stamp) to the latest end,
+    // extended to now while anything is live; never narrower than 30 s so a
+    // fresh run is readable.
+    const known = [];
+    for (const s of steps) {
+        for (const v of [s.started_at, s.queued_at]) {
+            const t = parse(v);
+            if (Number.isFinite(t)) known.push(t);
         }
-        return `<div class="pipeline-step pipeline-step--${state}">`
-            + `<span class="pipeline-step-dot" aria-hidden="true"></span>`
-            + `<span class="pipeline-step-label text-xs">${escapeHtml(s.label || s.step)}</span>`
-            + `<span class="pipeline-step-state text-xxs">${escapeHtml(state)}</span>`
-            + detail
+    }
+    const t0 = known.length ? Math.min(...known) : NaN;
+    let tEnd = t0;
+    for (const s of steps) {
+        const e = parse(s.ended_at);
+        if (Number.isFinite(e)) tEnd = Math.max(tEnd, e);
+    }
+    if (anyLive) tEnd = Math.max(tEnd, now);
+    const spanMs = Math.max(tEnd - t0, 30_000);
+    const pct = ms => Math.min(100, Math.max(0, ((ms - t0) / spanMs) * 100));
+    const haveAxis = Number.isFinite(t0);
+
+    // The fork: where the study definitions finished, if they have.
+    const recode = steps.find(s => s.step === 'recode_refresh_studies');
+    const forkAt = recode ? parse(recode.ended_at) : NaN;
+    const markers = (haveAxis ? (
+        (Number.isFinite(forkAt) ? `<span class="gantt-fork" style="left:${pct(forkAt)}%"></span>` : '')
+        + (anyLive ? `<span class="gantt-now" style="left:${pct(now)}%"></span>` : '')
+    ) : '');
+
+    const rows = steps.map(s => {
+        const state = s.state || 'pending';
+        const a = parse(s.started_at), e = parse(s.ended_at), q = parse(s.queued_at);
+        let bar = '', dur = '', title = '';
+        if (!haveAxis) {
+            dur = state;
+        } else if (state === 'running' && Number.isFinite(a)) {
+            const left = pct(a);
+            bar = `<span class="gantt-bar gantt-bar--running" style="left:${left}%;width:${Math.max(pct(now) - left, 0)}%"></span>`;
+            const detail = (s.message ? escapeHtml(s.message) : '')
+                + (s.percent != null ? ` ${Math.round(s.percent)}%` : '');
+            if (detail) bar += `<span class="gantt-msg text-xxs" style="left:calc(${pct(now)}% + 6px)">${detail}</span>`;
+            dur = `${_fmtDuration((now - a) / 1000)} …`;
+            title = `Started ${new Date(a).toLocaleTimeString()}, running`;
+        } else if (state === 'queued') {
+            const from = Number.isFinite(q) ? q : (Number.isFinite(forkAt) ? forkAt : now);
+            const left = pct(from);
+            bar = `<span class="gantt-bar gantt-bar--queued" style="left:${left}%;width:${Math.max(pct(now) - left, 0)}%"></span>`;
+            dur = 'waiting';
+            title = 'Queued — waiting for a worker';
+        } else if ((state === 'success' || state === 'failed') && Number.isFinite(a) && Number.isFinite(e)) {
+            const left = pct(a);
+            bar = `<span class="gantt-bar gantt-bar--${state}" style="left:${left}%;width:${Math.max(pct(e) - left, 0)}%"></span>`;
+            dur = _fmtDuration(s.duration_s != null ? s.duration_s : (e - a) / 1000);
+            title = `${new Date(a).toLocaleTimeString()} → ${new Date(e).toLocaleTimeString()}`
+                + (state === 'failed' ? ' — failed' : '');
+        } else if (state === 'skipped') {
+            dur = 'skipped';
+            title = 'Not needed by this run';
+        } else {
+            dur = state === 'failed' ? 'failed' : 'pending';
+        }
+        return `<div class="gantt-row gantt-row--${state}" title="${escapeHtml(title)}">`
+            + `<span class="gantt-label text-xs">${escapeHtml(s.label || s.step)}</span>`
+            + `<span class="gantt-track">${markers}${bar}</span>`
+            + `<span class="gantt-dur text-xs">${escapeHtml(dur)}</span>`
             + `</div>`;
-    }).join('');
-    container.style.display = '';
+    });
+
+    let axis = '';
+    if (haveAxis) {
+        const spanS = spanMs / 1000;
+        const step = _ganttTickStep(spanS);
+        const ticks = [`<span class="gantt-tick gantt-tick--origin text-xxs" style="left:0%">${escapeHtml(new Date(t0).toLocaleTimeString())}</span>`];
+        for (let t = step; t <= spanS; t += step) {
+            const label = t % 60 === 0 ? `+${t / 60} min` : `+${t} s`;
+            ticks.push(`<span class="gantt-tick text-xxs" style="left:${(t / spanS) * 100}%">${label}</span>`);
+        }
+        axis = `<div class="gantt-axis"><span></span><span class="gantt-axis-track">${ticks.join('')}</span><span></span></div>`;
+    }
+    chart.innerHTML = `<div class="gantt-body">${rows.join('')}</div>${axis}`;
+
+    if (anyLive) _startPipelineTicker(); else _stopPipelineTicker();
 }
 
 function _activePipelineStep(statusData) {
