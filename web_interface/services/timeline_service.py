@@ -421,9 +421,17 @@ def aggregate_timeline_frame(df: pd.DataFrame, viz_vars, collection_id="") -> pd
             extra_cols[f"{var}_counts"] = cells.groupby(group_col).apply(
                 lambda d: json.dumps(dict(zip(d[var], (int(n) for n in d['n'])))),
                 include_groups=False)
-            extra_cols[f"{var}_weighted_counts"] = cells.groupby(group_col).apply(
+            # A tag seen only on zero-weight plays (play_duration 0, a
+            # scroll-past) is a count but carries no attention: the weighted
+            # dict omits it, as the matrix form always did (`if v > 0`).
+            weighted = cells[cells['w'] > 0]
+            wjson = weighted.groupby(group_col).apply(
                 lambda d: json.dumps(dict(zip(d[var], (round(float(w), 2) for w in d['w'])))),
                 include_groups=False)
+            # Days whose every tag was weightless still get a row — an empty
+            # dict, exactly what the matrix form's all-zero row produced.
+            extra_cols[f"{var}_weighted_counts"] = wjson.reindex(
+                extra_cols[f"{var}_counts"].index, fill_value='{}')
 
         # Single merge for all accumulated columns
         if extra_cols:

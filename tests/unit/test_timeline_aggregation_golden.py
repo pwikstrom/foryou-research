@@ -48,6 +48,11 @@ def _frame() -> pd.DataFrame:
         ("2025-01-03", "play",     12.0, 10.0, True,  False, True,  6.0, "c", ["y", "y"],          None),   # capped at duration
         ("2025-01-03", "like",     12.0, 10.0, True,  False, True,  6.0, "c", ["nope"],            None),   # not a play → out
         ("2025-01-03", "play",      7.0, 10.0, False, True,  np.nan, 1.0, "c", ["nope"],           None),   # scrape failed → out
+        # A scroll-past: kept by the universe filter with weight 0. Its tag
+        # "ghost" is counted but must be ABSENT from the weighted dict — the
+        # 2026-09-03 real-data check found the long-format rewrite emitting it
+        # as 0.0 where the matrix form had dropped it.
+        ("2025-01-04", "play",      0.0, 30.0, True,  False, True,  2.0, "d", ["ghost"],           None),
     ]
     df = pd.DataFrame(rows, columns=[
         "local_date", "activity_type", "play_duration", "duration", "scraped_ok",
@@ -96,6 +101,12 @@ def _reference(df: pd.DataFrame) -> dict:
                     continue
                 d.setdefault("tags_counts", defaultdict(int))[t] += 1
                 d.setdefault("tags_w", defaultdict(float))[t] += w
+    # Weighted dicts list only cells with positive weight (the `if v > 0` of
+    # the original matrix form), for categorical and list variables alike.
+    for d in out.values():
+        for key in ("cat_w", "tags_w"):
+            if key in d:
+                d[key] = {k: v for k, v in d[key].items() if v > 0}
     return out
 
 
@@ -112,7 +123,11 @@ def test_aggregation_matches_the_reference():
         assert row["weighted_video_total"] == pytest.approx(d["weighted_video_total"])
         # numeric: weighted mean and counts
         if "score_den" in d:
-            assert row["score_val"] == pytest.approx(d["score_num"] / d["score_den"])
+            if d["score_den"] > 0:
+                assert row["score_val"] == pytest.approx(d["score_num"] / d["score_den"])
+            else:
+                # only weightless plays carried a value: no weighted mean
+                assert pd.isna(row["score_val"])
             assert row["score_valid"] == d["score_valid"]
             assert row["score_weighted_valid"] == pytest.approx(d["score_den"])
         # categorical
@@ -129,6 +144,11 @@ def test_aggregation_matches_the_reference():
                 k: round(v, 2) for k, v in d["tags_w"].items()}
         else:
             assert pd.isna(row["tags_counts"])
+        if row["period"] == "2025-01-04":
+            # the scroll-past day: counted, weightless
+            assert json.loads(row["tags_counts"]) == {"ghost": 1}
+            assert json.loads(row["tags_weighted_counts"]) == {}
+            assert row["tags_weighted_valid"] == 0
         # a list var with no tags anywhere falls back to '{}'
         assert row["notags_counts"] == "{}"
         assert row["notags_weighted_counts"] == "{}"
