@@ -110,7 +110,9 @@ def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
     if impact:
         try:
             from web_interface.services import downstream_refresh
-            downstream_refresh.accumulate_deferred_impact(impact)
+            # System-initiated recovery, not an operator's deferral: this must
+            # not sit waiting for someone to notice it.
+            downstream_refresh.accumulate_deferred_impact(impact, from_plan=True)
             reporter.log("Healed-data impact queued for the next full downstream refresh.")
         except Exception as exc:
             reporter.log(f"Could not record the healed-data impact: {exc}")
@@ -322,9 +324,15 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
         if impact:
             try:
                 from web_interface.services import downstream_refresh
-                downstream_refresh.accumulate_deferred_impact(impact)
+                # plan_deferred is set only by the enrichment supervisor's own
+                # consolidation. Without it this is the operator's deferral and
+                # the loop must not spend it — see accumulate_deferred_impact.
+                from_plan = bool(task_args.get("plan_deferred"))
+                downstream_refresh.accumulate_deferred_impact(impact, from_plan=from_plan)
                 summary = ("Downstream refreshes deferred — the impact is "
-                           "queued for the next full refresh.")
+                           "queued for the next full refresh." if from_plan else
+                           "Downstream refreshes were skipped — use "
+                           "\"Refresh All Affected\" when you want them.")
             except Exception as exc:
                 reporter.log(f"Could not record the deferred impact: {exc}")
         reporter.emit_data({

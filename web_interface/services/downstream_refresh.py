@@ -60,13 +60,27 @@ def get_deferred_impact() -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def accumulate_deferred_impact(impact: dict | None) -> None:
+def accumulate_deferred_impact(impact: dict | None, *,
+                               from_plan: bool = False) -> None:
     """Fold one core-only consolidation's impact into the deferred ledger entry.
 
     Called by the consolidation worker when it ran with ``auto_refresh=False``
     and produced a non-empty impact. ``deferred_since`` marks the first
     deferral (it feeds the finalize backstop), ``runs`` counts how many
     consolidations the debt spans — display only.
+
+    ``from_plan`` records WHOSE debt this is, and it is what lets the
+    supervisor's finalize tell its own work from the operator's. An automatic
+    enrichment plan consolidates with the refresh deferred on purpose and
+    expects the loop to spend that debt at the end of the cycle. An operator
+    who unticks "refresh caches afterwards" is saying the opposite — and until
+    this flag existed both wrote the same ledger entry, so the supervisor spent
+    a manual debt 3.5 minutes after it was created (2026-09-04), overriding the
+    choice with no trace on screen.
+
+    The flag is sticky across a merge: once any plan debt is in the entry the
+    loop owns it, because the plan's own cycle genuinely needs that refresh and
+    it necessarily covers the operator's items too.
     """
     if not impact:
         return
@@ -76,6 +90,7 @@ def accumulate_deferred_impact(impact: dict | None) -> None:
     merged["deferred_since"] = (current or {}).get("deferred_since") \
         or datetime.now(UTC).isoformat()
     merged["runs"] = int((current or {}).get("runs") or 0) + 1
+    merged["from_plan"] = bool((current or {}).get("from_plan")) or bool(from_plan)
     ce.set_meta(DEFERRED_IMPACT_KEY, merged)
 
 

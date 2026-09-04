@@ -72,7 +72,7 @@ def test_accumulate_and_settle_lifecycle(store):
 def test_supervisor_quiet_finalize_dispatches_and_clears(store):
     import web_interface.run_enrichment_supervisor as sup
 
-    dr.accumulate_deferred_impact(IMPACT_A)
+    dr.accumulate_deferred_impact(IMPACT_A, from_plan=True)
     calls = []
 
     class Rep:
@@ -97,7 +97,7 @@ def test_quiet_finalize_requires_idle_workers(store, monkeypatch):
     class Rep:
         def log(self, m): pass
 
-    dr.accumulate_deferred_impact(IMPACT_A)
+    dr.accumulate_deferred_impact(IMPACT_A, from_plan=True)
     monkeypatch.setattr(ws, "_workers_blocking_consolidate",
                         lambda: ["queue_scraper_tiktok"])
     with patch.object(dr, "dispatch_downstream_refresh") as dispatch:
@@ -136,7 +136,7 @@ def test_backstop_fires_only_after_the_window(store):
     stale = (datetime.now(UTC)
              - timedelta(hours=sup.FINALIZE_BACKSTOP_H + 1)).isoformat()
 
-    dr.accumulate_deferred_impact(IMPACT_A)
+    dr.accumulate_deferred_impact(IMPACT_A, from_plan=True)
     ce.set_meta(dr.LAST_FULL_REFRESH_KEY, fresh)
     with patch.object(dr, "dispatch_downstream_refresh") as dispatch:
         assert sup._finalize(Rep(), require_backstop=True) is None
@@ -156,7 +156,7 @@ def test_failed_dispatch_keeps_the_debt(store):
     class Rep:
         def log(self, m): pass
 
-    dr.accumulate_deferred_impact(IMPACT_A)
+    dr.accumulate_deferred_impact(IMPACT_A, from_plan=True)
     with patch.object(dr, "dispatch_downstream_refresh",
                       return_value=("error", "boom")):
         assert sup._finalize(Rep()) is None
@@ -171,7 +171,7 @@ def test_noop_dispatch_settles_an_unrefreshable_debt(store):
     class Rep:
         def log(self, m): pass
 
-    dr.accumulate_deferred_impact(IMPACT_A)
+    dr.accumulate_deferred_impact(IMPACT_A, from_plan=True)
     with patch.object(dr, "dispatch_downstream_refresh",
                       return_value=("noop", "nothing")):
         assert sup._finalize(Rep()) is None
@@ -186,3 +186,46 @@ def test_core_only_consolidation_accumulates_via_the_worker_path(store):
     deferred = dr.get_deferred_impact()
     assert deferred["new_annotation_item_count"] == 200
     assert deferred["affected_study_names"] == ["s1"]
+
+
+def test_an_operators_deferral_is_not_the_loops_to_spend(tmp_path, monkeypatch):
+    """Unticking "refresh caches afterwards" must mean it.
+
+    2026-09-04: the operator consolidated with the refresh unticked, and the
+    supervisor's finalize spent the deferred debt 3.5 minutes later — the full
+    pipeline ran unrequested, with no browser poll watching, so the only trace
+    was in the logs. Both the loop's own consolidation and the operator's wrote
+    the same ledger entry, so finalize could not tell them apart.
+    """
+    from web_interface.services import downstream_refresh as dr
+
+    store = {}
+    monkeypatch.setattr(dr, "get_deferred_impact", lambda: store.get("d"))
+    monkeypatch.setattr(dr, "_set_deferred", lambda v: store.__setitem__("d", v),
+                        raising=False)
+    import web_interface.services.collection_enrichment as ce
+    monkeypatch.setattr(ce, "set_meta", lambda k, v: store.__setitem__("d", v))
+
+    impact = {"changed_item_count": 50, "affected_study_names": ["s1"],
+              "affected_collection_ids": ["c1"]}
+    dr.accumulate_deferred_impact(impact)                       # operator
+    assert store["d"]["from_plan"] is False, "an operator's deferral is theirs"
+
+    dr.accumulate_deferred_impact(impact, from_plan=True)       # then the loop
+    assert store["d"]["from_plan"] is True, (
+        "once the loop defers too, its cycle needs the refresh and it covers "
+        "the operator's items as well")
+
+
+def test_plan_debt_stays_the_loops_to_spend(tmp_path, monkeypatch):
+    """The Edit Collections auto-enrichment loop must be unaffected."""
+    from web_interface.services import downstream_refresh as dr
+
+    store = {}
+    monkeypatch.setattr(dr, "get_deferred_impact", lambda: store.get("d"))
+    import web_interface.services.collection_enrichment as ce
+    monkeypatch.setattr(ce, "set_meta", lambda k, v: store.__setitem__("d", v))
+
+    dr.accumulate_deferred_impact(
+        {"changed_item_count": 10, "affected_study_names": ["s1"]}, from_plan=True)
+    assert store["d"]["from_plan"] is True

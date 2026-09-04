@@ -457,7 +457,11 @@ def _settle(reporter) -> dict | None:
         return {"action": "waiting_consolidate", "after": kind,
                 "blocking": blocking,
                 "message": f"Waiting for {', '.join(blocking)} before consolidating."}
-    ok, msg = _start("consolidate_enrichment", {"auto_refresh": False})
+    # plan_deferred marks this debt as the LOOP's, so _finalize may spend it.
+    # An operator's own consolidate-without-refresh writes the same ledger entry
+    # without the flag and is left alone.
+    ok, msg = _start("consolidate_enrichment",
+                     {"auto_refresh": False, "plan_deferred": True})
     reporter.log(f"Consolidating after {kind} (downstream refresh deferred): {msg}")
     return {"action": "consolidate", "after": kind, "auto_refresh": False,
             "started": ok, "message": f"Consolidating after {kind}."}
@@ -488,6 +492,12 @@ def _finalize(reporter, require_backstop: bool = False) -> dict | None:
 
     deferred = downstream_refresh.get_deferred_impact()
     if not deferred:
+        return None
+    if not deferred.get("from_plan"):
+        # The operator consolidated and chose not to refresh. That choice is
+        # theirs to reverse with "Refresh All Affected"; spending it here
+        # overrode it silently 3.5 minutes later (2026-09-04). The impact panel
+        # keeps the debt visible, so nothing is lost by waiting.
         return None
     if not require_backstop:
         # "Quiet" means the LOOP is quiet, not merely this tick: a tick where

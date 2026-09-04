@@ -587,16 +587,25 @@ def test_tick_storm_blocks_the_platform_plans(tick):
 
 def test_tick_settles_core_only_after_either_worker(tick):
     """Every supervisor consolidation is core-only now — the downstream chain
-    is deferred to finalize (the one-full-refresh-per-plan design)."""
+    is deferred to finalize (the one-full-refresh-per-plan design).
+
+    plan_deferred marks the debt as the LOOP's, which is what entitles finalize
+    to spend it. An operator's own consolidate-without-refresh writes the same
+    ledger entry without the flag and is left alone (2026-09-04: the supervisor
+    spent a manual debt 3.5 min after it was created, overriding the operator's
+    explicit choice).
+    """
     tick["plans"] = {"c1": _entry()}
     tick["unconsolidated"] = "scrape"
     tick["run"]()
-    assert tick["started"] == [("consolidate_enrichment", {"auto_refresh": False})]
+    assert tick["started"] == [
+        ("consolidate_enrichment", {"auto_refresh": False, "plan_deferred": True})]
 
     tick["started"].clear()
     tick["unconsolidated"] = "annotate"
     tick["run"]()
-    assert tick["started"] == [("consolidate_enrichment", {"auto_refresh": False})]
+    assert tick["started"] == [
+        ("consolidate_enrichment", {"auto_refresh": False, "plan_deferred": True})]
 
 
 def test_tick_handoff_is_the_boundary_move(tick):
