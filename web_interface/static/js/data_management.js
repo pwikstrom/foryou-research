@@ -2762,13 +2762,42 @@ function startCascadeRefresh(impact, btn) {
                 renderConsolidationImpact(null);
                 pollConsolidationStatus();
             } else {
+                // Answer where the click happened. This used to write only to
+                // the Consolidate card's status line, which is a different part
+                // of the page — so a "nothing to refresh" verdict was invisible
+                // and the button read as dead. It is a legitimate verdict: the
+                // supervisor's deferred refresh may already have done this work.
+                const noop = resp.status === 'noop';
+                const msg = resp.message || 'Could not start refresh.';
+                const actionsEl = document.getElementById('impact-actions');
+                if (actionsEl) {
+                    let line = document.getElementById('impact-action-note');
+                    if (!line) {
+                        line = document.createElement('span');
+                        line.id = 'impact-action-note';
+                        line.className = 'text-xxs';
+                        line.style.marginLeft = '8px';
+                        actionsEl.appendChild(line);
+                    }
+                    line.textContent = msg;
+                    line.style.color = noop
+                        ? 'var(--color-text-secondary)' : 'var(--color-danger)';
+                }
                 const statusEl = document.getElementById('consolidate-status');
                 if (statusEl) {
-                    statusEl.textContent = resp.message || 'Could not start refresh.';
-                    statusEl.style.color = (resp.status === 'noop')
+                    statusEl.textContent = msg;
+                    statusEl.style.color = noop
                         ? 'var(--color-text-secondary)' : 'var(--color-danger)';
                 }
                 if (btn) { btn.disabled = false; btn.textContent = 'Refresh All Affected'; btn.className = 'action-btn text-xs'; }
+                // Nothing to refresh means this panel is showing work that has
+                // already been done — usually by the supervisor, minutes after
+                // the consolidation, with no browser poll running to notice.
+                // Re-read so the panel and the badges correct themselves.
+                if (noop) {
+                    if (typeof fetchEnrichmentStats === 'function') fetchEnrichmentStats();
+                    if (typeof fetchStalenessStatus === 'function') fetchStalenessStatus();
+                }
             }
         })
         .catch(err => {
@@ -4322,6 +4351,31 @@ const _STALE_BADGE_STEPS = _PIPELINE_REGISTRY.downstream || [
     'meta_refresh_groups', 'pca_refresh', 'timelines_refresh', 'sessions_refresh',
 ];
 
+let _refreshPageIdleTimer = null;
+
+//: How often the Dataset Assembly refresh page re-reads server state while it
+//: is open and nothing is known to be running. The fast 2s poll only exists
+//: during a run this browser started; a run the SERVER starts — the enrichment
+//: supervisor's deferred refresh fires minutes after a consolidation — has no
+//: browser watching it, so the page sat on a stale impact panel offering work
+//: that had already been done, and the button that answered "nothing to
+//: refresh" looked broken. 30s is well below the shortest step.
+const REFRESH_PAGE_IDLE_MS = 30000;
+
+function _setRefreshPageIdlePoll(on) {
+    if (_refreshPageIdleTimer) {
+        clearInterval(_refreshPageIdleTimer);
+        _refreshPageIdleTimer = null;
+    }
+    if (!on) return;
+    _refreshPageIdleTimer = setInterval(() => {
+        // The run poll owns the page while it is active, and a hidden tab has
+        // nobody reading it.
+        if (_consolidatePollActive || document.hidden) return;
+        fetchEnrichmentStats();
+    }, REFRESH_PAGE_IDLE_MS);
+}
+
 function fetchStalenessStatus() {
     return fetch('/api/manage/refresh/staleness')
         .then(res => res.json())
@@ -4423,6 +4477,7 @@ function openDataManagementPage(pageId, clickedItem) {
             updateCascadeRefreshPageLock(true);
         }
     }
+    _setRefreshPageIdlePoll(pageId === 'dm-page-refresh');
 
     // Populate the annotation-version dropdown on first visit to the
     // Annotation page.
