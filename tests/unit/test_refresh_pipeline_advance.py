@@ -271,6 +271,66 @@ def test_a_consolidation_started_without_auto_refresh_plans_no_cascade(runner):
     assert rp.load_run()["in_flight"] is False
 
 
+def test_a_consolidate_only_run_keeps_the_impact_it_never_refreshed(runner):
+    """The impact panel is the only record of what a skipped refresh still owes.
+
+    Prod, 2026-09-04: a 50-video annotation run was consolidated with the
+    refresh unticked. The consolidation wrote a real impact — 7 studies, 7
+    collections — and deferred it correctly, but the run then finished and the
+    finish path dropped ``consolidation_impact`` as "consumed". Nothing had
+    consumed it: the run deliberately refreshed nothing. The operator was left
+    with no impact panel, no "Refresh All Affected", and a summary claiming
+    nothing needed refreshing.
+    """
+    record = runner.seed("consolidate_enrichment", kind="consolidate",
+                         mode="consolidate_only")
+    impact = {"new_annotation_item_count": 50,
+              "affected_study_names": ["standard_study", "scraped_ones"],
+              "affected_collection_ids": ["c1", "c2"]}
+    runner.finish("consolidate_enrichment", {"consolidation_impact": impact})
+
+    pr._advance_refresh_run("consolidate_enrichment",
+                            {"pipeline_run_id": record["run_id"]}, "Success")
+
+    entry = pm.process_stats["consolidate_enrichment"]
+    assert entry.get("consolidation_impact") == impact, (
+        "a run that refreshed nothing has consumed nothing")
+    # And it must not tell the operator the opposite of what the ledger says.
+    assert "Nothing downstream needed refreshing" not in (
+        rp.load_run().get("summary") or "")
+
+
+def test_a_run_that_refreshed_something_does_consume_the_impact(runner):
+    """The flip side, so the fix above cannot become "never consume it".
+
+    A run that actually dispatched a downstream step HAS rebuilt those caches,
+    so the impact is spent and "Refresh All Affected" must stop being offered.
+    """
+    runner.seed("consolidate_enrichment", kind="consolidate")
+    impact = {"new_annotation_item_count": 50,
+              "affected_study_names": ["standard_study"],
+              "affected_collection_ids": ["c1"]}
+    pm.load_process_stats()
+    pm.process_stats["consolidate_enrichment"] = {"consolidation_impact": impact}
+    pm.save_process_stats()
+
+    finished = {
+        "origin_kind": "consolidate",
+        "mode": "refresh",
+        "summary": "Refreshed study definitions.",
+        "finished_ts": "2026-09-04T01:00:00+00:00",
+        "partial": False,
+        "failed_at": None,
+        "steps": {"recode_refresh_studies": {"state": "dispatched"}},
+    }
+    assert rp.run_refreshed_anything(finished) is True
+    pr._publish_run_summary(finished)
+
+    entry = pm.process_stats["consolidate_enrichment"]
+    assert "consolidation_impact" not in entry
+    assert entry["last_pipeline_summary"] == "Refreshed study definitions."
+
+
 def test_an_outstanding_fan_out_is_not_declared_abandoned(runner, monkeypatch):
     """The 60s abandoned-run sweep must not race the fork's own 600s grace.
 

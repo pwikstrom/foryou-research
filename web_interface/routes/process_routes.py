@@ -1468,15 +1468,24 @@ def _publish_run_summary(record: dict | None) -> None:
     if not record or record.get("origin_kind") not in (
             "consolidate", "armed", "refresh_downstream"):
         return
+    refreshed = refresh_pipeline.run_refreshed_anything(record)
     load_process_stats()
     entry = process_stats.get("consolidate_enrichment", {})
-    entry["last_pipeline_summary"] = record.get("summary") or ""
-    entry["last_pipeline_summary_ts"] = record.get("finished_ts")
-    entry["last_pipeline_partial"] = bool(record.get("partial"))
-    entry["last_pipeline_failed_at"] = record.get("failed_at")
-    # A completed refresh has consumed the impact; a partial one leaves it so
-    # "Refresh All Affected" stays offered.
-    if not record.get("partial"):
+    # A consolidate-only run already wrote its own summary, and that one knows
+    # something this record does not: whether there was an impact to defer. The
+    # generic "nothing needed refreshing" would overwrite it with a claim the
+    # deferred ledger contradicts.
+    if record.get("mode") != "consolidate_only":
+        entry["last_pipeline_summary"] = record.get("summary") or ""
+        entry["last_pipeline_summary_ts"] = record.get("finished_ts")
+        entry["last_pipeline_partial"] = bool(record.get("partial"))
+        entry["last_pipeline_failed_at"] = record.get("failed_at")
+    # Only a run that actually rebuilt something has consumed the impact. A
+    # partial run leaves it so "Refresh All Affected" stays offered — and so
+    # does a run that refreshed nothing at all, whether because it was told not
+    # to (consolidate-only) or because every step was pruned. Dropping it there
+    # threw away the operator's only record of what still needs rebuilding.
+    if refreshed and not record.get("partial"):
         entry.pop("consolidation_impact", None)
     process_stats["consolidate_enrichment"] = entry
     save_process_stats()

@@ -786,6 +786,12 @@ def summarize(record: dict) -> str:
         return "Refresh run did not finish."
 
     if not ran:
+        # "Nothing needed refreshing" is a claim about the DATA, and it is only
+        # true when the run actually looked. A consolidate-only run was told not
+        # to look: its impact goes to the deferred ledger for the next refresh,
+        # and saying nothing was needed would flatly contradict that.
+        if record.get("mode") == "consolidate_only":
+            return f"{origin_label} finished. Downstream refreshes were skipped."
         return f"{origin_label} finished. Nothing downstream needed refreshing."
     labels = [SHORT_LABELS.get(n, n).lower() for n in ran]
     if len(labels) == 1:
@@ -796,6 +802,18 @@ def summarize(record: dict) -> str:
               if (steps.get(n) or {}).get("state") == "pruned"]
     tail = f" {len(pruned)} step(s) were not needed." if pruned else ""
     return f"Refreshed {listed}.{tail}"
+
+
+def run_refreshed_anything(record: dict | None) -> bool:
+    """Did this run actually dispatch a downstream step?
+
+    False for a consolidate-only run and for one whose every step was pruned —
+    in both cases nothing downstream was rebuilt, so whatever needed refreshing
+    still does.
+    """
+    steps = (record or {}).get("steps") or {}
+    return any((steps.get(n) or {}).get("state") == "dispatched"
+               for n in DOWNSTREAM_ORDER)
 
 
 def finish_run(*, partial: bool = False, failed_at: str | None = None,
