@@ -19,6 +19,14 @@
 #
 # Keep --max-attempts >= process_routes.MAX_APP_RETRIES; the smaller of the two
 # bounds is what actually applies.
+#
+# --log-sampling-ratio makes Cloud Tasks log its own DELIVERY ATTEMPTS. Without
+# it the queue records nothing: on 2026-09-04 a refresh step was dispatched at
+# 04:32 and not delivered until 04:55, and the cause could not be established
+# because the only trace of the task anywhere was our own "Dispatched" line.
+# This is a diagnostic, not a fix — it changes no behaviour, it just means the
+# next unexplained delay is answerable. Ratio 1.0 because this queue carries
+# tens of tasks a day, not millions.
 
 set -euo pipefail
 
@@ -34,11 +42,12 @@ gcloud tasks queues update "${QUEUE}" \
   --max-attempts=4 \
   --min-backoff=60s \
   --max-backoff=600s \
-  --max-retry-duration=3600s
+  --max-retry-duration=3600s \
+  --log-sampling-ratio=1.0
 
 echo
 echo "Current configuration:"
 gcloud tasks queues describe "${QUEUE}" \
   --location="${LOCATION}" \
   --project="${PROJECT}" \
-  --format="yaml(name, rateLimits, retryConfig)"
+  --format="yaml(name, rateLimits, retryConfig, stackdriverLoggingConfig)"

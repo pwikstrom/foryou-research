@@ -105,6 +105,7 @@ def test_every_worker_deadline_is_honoured_on_initial_dispatch(dispatched):
 @pytest.mark.parametrize("name", ["sessions_refresh", "timelines_refresh",
                                   "embeddings_refresh", "pca_refresh",
                                   "recode_refresh_studies",
+                                  "video_map_refresh", "meta_refresh_groups",
                                   "consolidate_enrichment"])
 def test_known_long_runners_exceed_the_600s_default(dispatched, name):
     process_manager.start_process(name, None, task_args={})
@@ -113,6 +114,24 @@ def test_known_long_runners_exceed_the_600s_default(dispatched, name):
         f"{name} would take Cloud Tasks' 600s default and loop")
 
 
+
+
+def test_every_refresh_step_has_an_explicit_deadline():
+    """No pipeline step may fall through to Cloud Tasks' 600s default.
+
+    A hand-maintained list of "known long runners" is exactly how two steps
+    were missed: video_map_refresh and meta_refresh_groups were the only
+    members of the refresh graph without an entry, and nobody noticed until a
+    map task was dispatched at 04:32 and delivered at 04:55 (2026-09-04). The
+    graph is the source of truth, so assert against the graph — a step added
+    to the registry now fails here until it declares a deadline.
+    """
+    from web_interface.services.refresh_pipeline import STEP_ORDER
+
+    missing = [n for n in STEP_ORDER
+               if process_manager.dispatch_deadline_for(n, {}) is None]
+    assert not missing, (
+        f"these refresh steps would take the 600s default: {missing}")
 
 
 def test_consolidate_enrichment_covers_the_shadow_verification():

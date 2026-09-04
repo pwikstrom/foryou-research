@@ -138,6 +138,15 @@ _LONG_RUNNING_DEADLINES = {
     "timelines_refresh": 1800,
     "embeddings_refresh": 1800,
     "queue_annotator_batch": 1800,
+    # The last two pipeline steps still on the 600s default, found 2026-09-04
+    # while investigating a map task dispatched at 04:32 and not delivered
+    # until 04:55. That delay was never traced to a cause — the queue logged no
+    # attempts — but these two were the only steps in the refresh graph
+    # without an entry, and the map runs ~300s: half the default, on a budget
+    # that grows with the corpus. Every sibling already had one; the
+    # inconsistency was the bug, whatever the delay turns out to have been.
+    "video_map_refresh": 1800,
+    "meta_refresh_groups": 1800,
     # A consolidation is normally ~2 min, but two of its modes are not: a
     # force rebuild over the whole corpus, and the weekly shadow verification
     # (which rebuilds scrapes AND annotations, then signature-compares three
