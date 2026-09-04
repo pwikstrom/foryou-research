@@ -821,6 +821,44 @@ def summarize(record: dict) -> str:
     return f"Refreshed {listed}.{tail}"
 
 
+def last_activity_ts(record: dict | None) -> str | None:
+    """The most recent sign of life from this run, for the abandoned-run check.
+
+    NOT simply ``updated_ts``: the record is written when a step is dispatched
+    and then left alone while that step works, so a step running longer than the
+    abandonment window leaves the record "stale" the whole time it is busy. The
+    moment it completes — before the task runner's advance lands, a fraction of a
+    second later — the run looks exactly like one whose server died: flag set,
+    nothing running, record untouched for over a minute.
+
+    That race killed a real run on 2026-09-04: embeddings took 61.8s, the record
+    had not been written for 61.8s, and the sweep finished the run 0.29s before
+    the advance would have dispatched the semantic map. Counting each step's own
+    completion as activity closes it, while a genuinely dead run still goes
+    quiet on both measures and is still swept.
+    """
+    from web_interface.process_manager import process_stats
+
+    if not record:
+        return None
+    started_dt = _parse_ts(record.get("started_ts"))
+    latest = _parse_ts(record.get("updated_ts")) or started_dt
+    for name in STEP_ORDER:
+        state = (record.get("steps", {}).get(name) or {}).get("state")
+        if state not in ("origin", "dispatched"):
+            continue
+        end_dt = _parse_ts((process_stats.get(name) or {}).get("last_run_end_time"))
+        if end_dt is None:
+            continue
+        # Only this run's own work counts; an older run's end time must not keep
+        # a dead run looking alive.
+        if started_dt is not None and end_dt < started_dt:
+            continue
+        if latest is None or end_dt > latest:
+            latest = end_dt
+    return latest.isoformat() if latest else None
+
+
 def run_refreshed_anything(record: dict | None) -> bool:
     """Did this run actually dispatch a downstream step?
 

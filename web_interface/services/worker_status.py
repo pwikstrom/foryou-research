@@ -149,12 +149,29 @@ def refresh_run_view() -> dict | None:
     "Started from Semantic Map by patrik" rather than implying every run is a
     consolidation.
     """
-    from .refresh_pipeline import SHORT_LABELS, load_run
+    from .refresh_pipeline import SHORT_LABELS, build_context, load_run
 
     record = load_run(reload=False)
     if not record:
         return None
+    # What the consolidation said needs doing, resolved the same way the
+    # planner resolves it (the worker's own union wins over the raw impact).
+    # Counts only: the chart uses them to say what a step is waiting to do,
+    # and the full id lists are long and of no use to a tooltip.
+    impact = {}
+    try:
+        found = build_context(record).impact or {}
+        impact = {
+            "new_annotations": int(found.get("new_annotation_item_count") or 0),
+            "studies": len(found.get("affected_study_names") or []),
+            "collections": len(found.get("affected_collection_ids") or []),
+        }
+        if not any(impact.values()):
+            impact = {}
+    except Exception:
+        impact = {}
     return {
+        "impact": impact,
         "run_id": record.get("run_id"),
         "origin": record.get("origin"),
         "origin_label": record.get("origin_label") or SHORT_LABELS.get(

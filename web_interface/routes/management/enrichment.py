@@ -294,7 +294,12 @@ def get_enrichment_stats():
     # that window with its own (much longer) grace. Clearing the run here at 60s
     # would declare a run failed that is about to finish normally.
     if flag_in_flight and not any_step_running and not refresh_run.get("fork"):
-        touched = refresh_run.get("updated_ts") or refresh_run.get("started_ts")
+        # Not updated_ts alone: a step working for longer than the window leaves
+        # the record untouched while it runs, so the instant it completes the
+        # run looks abandoned for the fraction of a second before the task
+        # runner advances it. last_activity_ts counts step completions too.
+        touched = (refresh_pipeline.last_activity_ts(refresh_run)
+                   or refresh_run.get("updated_ts") or refresh_run.get("started_ts"))
         stale = False
         if touched:
             try:

@@ -3040,6 +3040,14 @@ function fetchEnrichmentStats() {
                 );
             }
 
+            // The staleness badges on the cards ("N new embeddings to map") are
+            // computed from the consolidated data, so they only change when a
+            // run does. Refresh them when this poll first sees a run finish —
+            // otherwise the numbers a consolidation just produced sit stale
+            // until the operator reloads the page, which is how they were
+            // being read before.
+            _noteRefreshRunTransition(data.refresh_run);
+
             // Persistent + live refresh-run chart (updates every tick).
             renderPipelineSteps(data.pipeline_steps, data.refresh_run, {
                 armed: !!data.consolidate_auto_armed,
@@ -3482,6 +3490,22 @@ function _renderRunHeader(run, steps) {
         + (summary ? `<span class="text-xs"> ${summary}</span>` : '');
 }
 
+let _lastSeenRunSignature = null;
+
+function _noteRefreshRunTransition(run) {
+    // Fire the staleness refetch once per run-state change, not on every poll:
+    // the endpoint reads the consolidated stores and is far too costly for a
+    // 2s loop. run_id + in_flight is enough to catch "a run finished" and
+    // "a new run started", including runs the server started on its own (an
+    // armed consolidate), which no browser poll was watching.
+    const sig = run ? `${run.run_id}:${run.in_flight ? 1 : 0}` : 'none';
+    if (sig === _lastSeenRunSignature) return;
+    const first = _lastSeenRunSignature === null;
+    _lastSeenRunSignature = sig;
+    if (first) return;              // page load already fetches staleness
+    if (typeof fetchStalenessStatus === 'function') fetchStalenessStatus();
+}
+
 function applyRefreshCardState(data) {
     // One refresh run at a time: two would interleave writes to the same caches.
     // The server refuses a second start with a 423, and this is the half the
@@ -3680,6 +3704,37 @@ async function _startRefreshStep(step, args) {
     else if (step === 'sessions_refresh') body = args.force ? {} : { stale_only: true };
     else if (step === 'recode_refresh_studies') body = { force_full_rebuild: true };
     await startProcess(step, body);
+}
+
+function _pendingWork(step, impact) {
+    // What this step is waiting to do, from the consolidation's own impact.
+    // A bare "pending" says only that the run has not reached it; the operator
+    // wants to know what it will find when it gets there.
+    if (!impact) return '';
+    const n = (v) => Number(v || 0);
+    const plural = (c, one, many) => `${c.toLocaleString()} ${c === 1 ? one : many}`;
+    switch (step) {
+        case 'embeddings_refresh':
+            return n(impact.new_annotations)
+                ? `${plural(n(impact.new_annotations), 'new annotation', 'new annotations')} to embed`
+                : '';
+        case 'video_map_refresh':
+            return n(impact.new_annotations)
+                ? 'Re-clusters the niches once the new videos are embedded' : '';
+        case 'recode_refresh_studies':
+        case 'meta_refresh_groups':
+        case 'pca_refresh':
+            return n(impact.studies)
+                ? `${plural(n(impact.studies), 'study', 'studies')} affected` : '';
+        case 'timelines_refresh':
+            return n(impact.collections)
+                ? `${plural(n(impact.collections), 'collection', 'collections')} affected` : '';
+        case 'sessions_refresh':
+            return n(impact.collections)
+                ? `${plural(n(impact.collections), 'collection', 'collections')} to re-check` : '';
+        default:
+            return '';
+    }
 }
 
 function _stepHelpText(step) {
@@ -3885,6 +3940,14 @@ function renderPipelineSteps(steps, run, armed) {
             title = 'Planned but never ran \u2014 the run ended before reaching it';
         } else {
             dur = state === 'failed' ? 'failed' : 'pending';
+            const work = _pendingWork(s.step, run && run.impact);
+            if (work) {
+                title = `Waiting to run — ${work}`;
+                bar = `<span class="gantt-msg gantt-msg--reason text-xxs" style="left:0">`
+                    + escapeHtml(work) + '</span>';
+            } else {
+                title = 'Planned — waiting for the steps before it';
+            }
         }
         const originCls = s.is_origin ? ' gantt-row--origin' : '';
         const isArmed = armedSteps.has(s.step);

@@ -331,6 +331,55 @@ def test_a_run_that_refreshed_something_does_consume_the_impact(runner):
     assert entry["last_pipeline_summary"] == "Refreshed study definitions."
 
 
+def test_a_step_working_longer_than_the_window_is_not_abandonment(runner):
+    """The abandoned-run sweep must not fire in a step's completion gap.
+
+    Prod, 2026-09-04: the record is written when a step is DISPATCHED and then
+    left alone while it works, so embeddings running for 61.8s left it "stale"
+    for the whole batch. The instant embeddings completed — nothing running any
+    more, record untouched for 61.8s — the hub's sweep declared the run
+    abandoned and finished it, 0.29s before the task runner's advance would have
+    dispatched the semantic map. Every remaining step came out "skipped" and the
+    refresh silently stopped after one step.
+
+    Any step slower than the window could do this, which is most of them.
+    """
+    record = {
+        "run_id": "r1",
+        "started_ts": "2026-09-04T02:54:59.768561+00:00",
+        "updated_ts": "2026-09-04T02:56:56.940875+00:00",   # embeddings dispatch
+        "steps": {"consolidate_enrichment": {"state": "origin"},
+                  "embeddings_refresh": {"state": "dispatched"},
+                  "video_map_refresh": {"state": "planned"}},
+    }
+    pm.load_process_stats()
+    pm.process_stats["embeddings_refresh"] = {
+        "last_run_end_time": "2026-09-04T02:57:58.778672+00:00"}
+    pm.save_process_stats()
+
+    assert rp.last_activity_ts(record) == "2026-09-04T02:57:58.778672+00:00", (
+        "a step's own completion is activity; counting only record writes makes "
+        "every step slower than the window look like a dead run")
+
+
+def test_a_run_with_nothing_running_and_no_progress_is_still_abandoned(runner):
+    """The flip side: the fix must not make a genuinely dead run immortal."""
+    record = {
+        "run_id": "r2",
+        "started_ts": "2026-09-04T01:59:00+00:00",
+        "updated_ts": "2026-09-04T02:00:00+00:00",
+        "steps": {"consolidate_enrichment": {"state": "origin"}},
+    }
+    pm.load_process_stats()
+    # Only an OLDER run's end time exists — it must not count as this run's life.
+    pm.process_stats["consolidate_enrichment"] = {
+        "last_run_end_time": "2026-09-04T01:00:00+00:00"}
+    pm.save_process_stats()
+
+    assert rp.last_activity_ts(record) == "2026-09-04T02:00:00+00:00", (
+        "a dead run must fall back to its last record write and still be swept")
+
+
 def test_an_outstanding_fan_out_is_not_declared_abandoned(runner, monkeypatch):
     """The 60s abandoned-run sweep must not race the fork's own 600s grace.
 
