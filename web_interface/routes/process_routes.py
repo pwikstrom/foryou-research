@@ -1386,7 +1386,18 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str,
             print(f"[{name}] Refresh run: advanced to {next_name}: {msg}")
             run_logs.open_run(next_name, run_id=next_args["log_run_id"],
                               started_by=actor, task_args=next_args, mode="cloud")
-            refresh_pipeline.record_dispatch(run_id, {next_name: {}}, prunes=prunes)
+            # Record the scope this step was actually given, and why. The
+            # consolidation's impact is only the floor: a map that moved videos
+            # between niches widens recode and timelines to everything, and
+            # without this the chart kept promising the impact's narrower
+            # numbers while the run rebuilt far more.
+            refresh_pipeline.record_dispatch(
+                run_id,
+                {next_name: {
+                    "scope": refresh_pipeline.scope_note(next_name, action["task_args"]),
+                    "reason": (action.get("reasons") or {}).get(next_name, ""),
+                }},
+                prunes=prunes)
         else:
             print(f"[{name}] Refresh run: advance to {next_name} failed: {msg}")
             record = refresh_pipeline.finish_run(partial=True, failed_at=next_name,
@@ -1403,6 +1414,7 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str,
     leaf_stage = {"stage_index": stage_index, "stage_total": stage_total}
     dispatched: dict[str, dict] = {}
     any_failed = False
+    reasons = action.get("reasons") or {}
     for leaf, leaf_args in action["leaves"]:
         child_args = _child_args(leaf, leaf_args)
         child_args["pipeline_leaves"] = leaf_names
@@ -1420,7 +1432,10 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str,
             print(f"[{name}] Refresh run: forked {leaf}: {msg}")
             run_logs.open_run(leaf, run_id=child_args["log_run_id"],
                               started_by=actor, task_args=child_args, mode="cloud")
-            dispatched[leaf] = {}
+            dispatched[leaf] = {
+                "scope": refresh_pipeline.scope_note(leaf, leaf_args),
+                "reason": reasons.get(leaf, ""),
+            }
         else:
             print(f"[{name}] Refresh run: fork of {leaf} failed: {msg}")
             stamp_task_status(

@@ -173,7 +173,10 @@ def dispatch_downstream_refresh(impact: dict | None = None, *,
                 # debt is deliberately left in place for a later retry.
                 refresh_pipeline.clear_run()
                 return "error", f"Dispatch failed: {msg}"
-            dispatched[task] = {}
+            dispatched[task] = {
+                "scope": refresh_pipeline.scope_note(task, task_args),
+                "reason": (action.get("reasons") or {}).get(task, ""),
+            }
         if leaf_names:
             fork = {"leaves": leaf_names, "fork_ts": fork_ts}
         refresh_pipeline.record_dispatch(

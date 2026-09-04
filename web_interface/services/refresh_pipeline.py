@@ -672,6 +672,36 @@ def build_context(record: dict) -> RunContext:
                       inherited=set(record.get("inherited") or ()))
 
 
+#: What an empty task_args means for each step — i.e. what "no filter" widens to.
+_UNSCOPED_MEANING = {
+    "recode_refresh_studies": "all studies",
+    "meta_refresh_groups": "all studies",
+    "pca_refresh": "all studies",
+    "timelines_refresh": "all collections",
+    "sessions_refresh": "every stale collection",
+}
+
+
+def scope_note(step: str, task_args: dict | None) -> str:
+    """How wide this dispatch actually is, in words.
+
+    The consolidation's impact is only the FLOOR of a run's scope: a semantic
+    map that moved videos between niches invalidates the niche columns of every
+    study and every collection, not just the ones the consolidation touched, so
+    those steps are dispatched unfiltered. Saying "8 studies affected" and then
+    rebuilding 13 is correct behaviour reported dishonestly — this is what lets
+    the chart state the scope it really ran with.
+    """
+    ta = task_args or {}
+    for key, one, many in (("studies", "study", "studies"),
+                           ("collections", "collection", "collections")):
+        raw = ta.get(key)
+        if raw:
+            n = len([x for x in str(raw).split(",") if x.strip()])
+            return f"{n} {one}" if n == 1 else f"{n} {many}"
+    return _UNSCOPED_MEANING.get(step, "")
+
+
 def next_actions(record: dict, ctx: RunContext | None = None) -> dict:
     """Decide what this run does next, given everything that has run so far.
 
@@ -696,6 +726,7 @@ def next_actions(record: dict, ctx: RunContext | None = None) -> dict:
     """
     ctx = ctx or build_context(record)
     prunes: dict[str, str] = {}
+    reasons: dict[str, str] = {}
     steps = record.setdefault("steps", {})
 
     def _state(name: str) -> str:
@@ -707,7 +738,8 @@ def next_actions(record: dict, ctx: RunContext | None = None) -> dict:
         verdict = BY_NAME[name].needs(ctx)
         if verdict.run:
             return {"action": "spine", "step": name,
-                    "task_args": verdict.task_args, "leaves": [], "prunes": prunes}
+                    "task_args": verdict.task_args, "leaves": [],
+                    "prunes": prunes, "reasons": {name: verdict.reason}}
         prunes[name] = verdict.reason
         steps[name] = {**(steps.get(name) or {}), "state": "pruned",
                        "reason": verdict.reason}
@@ -719,6 +751,7 @@ def next_actions(record: dict, ctx: RunContext | None = None) -> dict:
         verdict = BY_NAME[name].needs(ctx)
         if verdict.run:
             leaves.append((name, verdict.task_args))
+            reasons[name] = verdict.reason
         else:
             prunes[name] = verdict.reason
             steps[name] = {**(steps.get(name) or {}), "state": "pruned",
@@ -726,9 +759,9 @@ def next_actions(record: dict, ctx: RunContext | None = None) -> dict:
 
     if leaves:
         return {"action": "fork", "step": None, "task_args": {},
-                "leaves": leaves, "prunes": prunes}
+                "leaves": leaves, "prunes": prunes, "reasons": reasons}
     return {"action": "finish", "step": None, "task_args": {},
-            "leaves": [], "prunes": prunes}
+            "leaves": [], "prunes": prunes, "reasons": reasons}
 
 
 def next_stage_index(steps: dict) -> int:

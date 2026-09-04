@@ -310,6 +310,9 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
             view.append({
                 "step": step, "label": label, "state": plan_state,
                 "reason": (steps_plan.get(step) or {}).get("reason"),
+            # The scope this step was actually dispatched with, which a
+            # map rebuild can widen well past the consolidation impact.
+            "scope": (steps_plan.get(step) or {}).get("scope"),
                 "is_origin": False,
                 "percent": None, "message": None, "ran_at": None,
                 "started_at": None, "ended_at": None, "queued_at": None,
@@ -398,6 +401,9 @@ def _build_pipeline_step_view(pipeline_active: bool) -> list[dict]:
             "label": label,
             "state": state,
             "reason": (steps_plan.get(step) or {}).get("reason"),
+            # The scope this step was actually dispatched with, which a
+            # map rebuild can widen well past the consolidation impact.
+            "scope": (steps_plan.get(step) or {}).get("scope"),
             "is_origin": step == origin,
             "percent": percent if state == "running" else None,
             "message": message if state == "running" else None,

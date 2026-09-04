@@ -3706,6 +3706,16 @@ async function _startRefreshStep(step, args) {
     await startProcess(step, body);
 }
 
+function _scopeNote(s) {
+    // What this step was actually dispatched with, and why it is what it is.
+    // The consolidation's impact is only the floor: a semantic map that moved
+    // videos between niches invalidates the niche columns of every study and
+    // every collection, so those steps run unfiltered. Without this the chart
+    // kept showing the impact's narrower numbers while the run rebuilt more.
+    if (!s || !s.scope) return '';
+    return s.reason ? `${s.scope} — ${s.reason}` : s.scope;
+}
+
 function _pendingWork(step, impact) {
     // What this step is waiting to do, from the consolidation's own impact.
     // A bare "pending" says only that the run has not reached it; the operator
@@ -3919,7 +3929,9 @@ function renderPipelineSteps(steps, run, armed) {
                     + escapeHtml(s.message) + '</span>';
             }
             dur = `${_fmtDuration((now - a) / 1000)} …`;
-            title = `Started ${fypFmtTime(a)}, running`;
+            const runScope = _scopeNote(s);
+            title = `Started ${fypFmtTime(a)}, running`
+                + (runScope ? ` — ${runScope}` : '');
         } else if (state === 'queued') {
             const from = Number.isFinite(q) ? q : (Number.isFinite(forkAt) ? forkAt : now);
             const left = pct(from);
@@ -3932,8 +3944,10 @@ function renderPipelineSteps(steps, run, armed) {
             const left = pct(a);
             bar = `<span class="gantt-bar gantt-bar--${state}" style="left:${left}%;width:${Math.max(pct(e) - left, 0)}%"></span>`;
             dur = _fmtDuration(s.duration_s != null ? s.duration_s : (e - a) / 1000);
+            const doneScope = _scopeNote(s);
             title = `${fypFmtTime(a)} → ${fypFmtTime(e)}`
-                + (state === 'failed' ? ' — failed' : '');
+                + (state === 'failed' ? ' — failed' : '')
+                + (doneScope ? ` — ${doneScope}` : '');
         } else if (state === 'skipped') {
             // Planned work that never happened — an anomaly, unlike "pruned".
             dur = 'skipped';
@@ -3942,7 +3956,14 @@ function renderPipelineSteps(steps, run, armed) {
             dur = state === 'failed' ? 'failed' : 'pending';
             const work = _pendingWork(s.step, run && run.impact);
             if (work) {
-                title = `Waiting to run — ${work}`;
+                // "at least": a map rebuild ahead of this step can widen it to
+                // every study or collection, and saying so up front is better
+                // than the number silently growing when the run gets here.
+                const widens = ['recode_refresh_studies', 'meta_refresh_groups',
+                                'pca_refresh', 'timelines_refresh'].includes(s.step);
+                title = widens
+                    ? `Waiting to run — at least ${work}; a rebuilt semantic map widens this to all of them`
+                    : `Waiting to run — ${work}`;
                 bar = `<span class="gantt-msg gantt-msg--reason text-xxs" style="left:0">`
                     + escapeHtml(work) + '</span>';
             } else {

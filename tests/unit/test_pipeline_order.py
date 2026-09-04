@@ -530,6 +530,55 @@ def test_a_replayed_refresh_scopes_to_what_actually_changed():
     )
 
 
+def test_a_moved_map_widens_the_scope_past_the_consolidation_impact():
+    """A run may legitimately rebuild more than the impact named — and say so.
+
+    Prod, 2026-09-04: the impact reported 8 studies and 36 collections, and the
+    run rebuilt 13 studies and 114 collections. That is CORRECT: the semantic
+    map moved 15,371 videos between niches, and the niche columns live in every
+    study dataset and every timeline, so scoping to the consolidation's list
+    would leave the rest stale. What was wrong is that nothing recorded the
+    widening, so the chart kept showing the impact's narrower numbers.
+    """
+    record = rp.plan_run("consolidate_enrichment", kind="armed",
+                         impact={"new_annotation_item_count": 202,
+                                 "affected_study_names": ["s%d" % i for i in range(8)],
+                                 "affected_collection_ids": ["c%d" % i for i in range(36)]})
+    for step in ("consolidate_enrichment", "embeddings_refresh", "video_map_refresh"):
+        record["steps"][step]["state"] = "dispatched"
+    ctx = _ctx(record,
+               {"consolidate_enrichment": {}, "embeddings_refresh": {},
+                "video_map_refresh": {"map_niche_changed": 15371, "map_cold_start": False}},
+               impact=record["impact"])
+
+    verdict = rp.BY_NAME["recode_refresh_studies"].needs(ctx)
+    widened = verdict.run and not (verdict.task_args or {}).get("studies")
+    _check("test_a_moved_map_widens_the_scope_past_the_consolidation_impact",
+           widened and "15,371" in verdict.reason
+           and rp.scope_note("recode_refresh_studies", verdict.task_args) == "all studies",
+           f"task_args={verdict.task_args} reason={verdict.reason!r}")
+
+
+def test_an_unmoved_map_keeps_the_consolidations_scope():
+    """The flip side: without a niche change the impact's list is honoured."""
+    record = rp.plan_run("consolidate_enrichment", kind="armed",
+                         impact={"new_annotation_item_count": 202,
+                                 "affected_study_names": ["s1", "s2"],
+                                 "affected_collection_ids": ["c1"]})
+    for step in ("consolidate_enrichment", "embeddings_refresh", "video_map_refresh"):
+        record["steps"][step]["state"] = "dispatched"
+    ctx = _ctx(record,
+               {"consolidate_enrichment": {}, "embeddings_refresh": {},
+                "video_map_refresh": {"map_niche_changed": 0, "map_cold_start": False}},
+               impact=record["impact"])
+
+    verdict = rp.BY_NAME["recode_refresh_studies"].needs(ctx)
+    _check("test_an_unmoved_map_keeps_the_consolidations_scope",
+           verdict.run and (verdict.task_args or {}).get("studies") == "s1,s2"
+           and rp.scope_note("recode_refresh_studies", verdict.task_args) == "2 studies",
+           f"task_args={verdict.task_args}")
+
+
 TESTS = [
     test_order_lists_in_sync,
     test_dependency_invariants,
@@ -559,6 +608,8 @@ TESTS = [
     test_barrier_waits_for_queued_leaf_within_grace,
     test_a_replayed_refresh_acts_on_the_impact_it_inherits,
     test_a_replayed_refresh_scopes_to_what_actually_changed,
+    test_a_moved_map_widens_the_scope_past_the_consolidation_impact,
+    test_an_unmoved_map_keeps_the_consolidations_scope,
 ]
 
 
