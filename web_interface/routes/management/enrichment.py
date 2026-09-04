@@ -190,6 +190,13 @@ def _annotation_cost_estimate(n_items: int) -> dict | None:
 
 
 
+# How long a refresh run may show no sign of life before the hub declares it
+# abandoned. Matches FORK_START_GRACE_SECONDS: the same worst case (a Cloud Run
+# 429 redelivered minutes later) applies to any step's dispatch, not only a
+# fork's leaves.
+ABANDONED_RUN_SECONDS = 600
+
+
 @management_bp.route('/api/manage/enrichment/stats', methods=['GET'])
 @permission_required('tab.data_management.scrape', 'tab.data_management.annotation', 'tab.data_management.refresh')
 @login_required
@@ -286,9 +293,12 @@ def get_enrichment_stats():
 
     # Stale-flag cleanup: a server restart mid-run leaves the flag set with
     # nothing left to advance it. If the flag is on, nothing is running, and
-    # the run has not been touched for >60s (longer than any plausible
-    # inter-step gap), treat it as abandoned — otherwise every card stays
-    # locked forever.
+    # the run has shown no life for ABANDONED_RUN_SECONDS, treat it as
+    # abandoned — otherwise every card stays locked forever. The window is
+    # deliberately long: the costs are asymmetric. A crash leaves the cards
+    # locked for ten minutes; a false positive kills a healthy run in the
+    # sub-second gap between one step completing and the next dispatching,
+    # which is what a 60 s window did twice on 2026-09-04.
     # An outstanding fan-out is NOT abandoned: a leaf dropped by a 429 is
     # redelivered by the queue minutes later, and resolve_forked_pipeline owns
     # that window with its own (much longer) grace. Clearing the run here at 60s
@@ -304,7 +314,7 @@ def get_enrichment_stats():
         if touched:
             try:
                 touched_dt = datetime.fromisoformat(touched)
-                if (datetime.now(UTC) - touched_dt).total_seconds() > 60:
+                if (datetime.now(UTC) - touched_dt).total_seconds() > ABANDONED_RUN_SECONDS:
                     stale = True
             except (ValueError, TypeError):
                 stale = True

@@ -331,38 +331,59 @@ def test_a_run_that_refreshed_something_does_consume_the_impact(runner):
     assert entry["last_pipeline_summary"] == "Refreshed study definitions."
 
 
-def test_a_step_working_longer_than_the_window_is_not_abandonment(runner):
+def _status_files(monkeypatch, files: dict):
+    """Stand in for the workers' GCS status files — the single-writer record
+    the sweep must trust, not the hub's lazily-loaded process_stats."""
+    import web_interface.task_status as ts
+    monkeypatch.setattr(ts, "read_task_status", lambda name: files.get(name))
+
+
+_RUN = {
+    "run_id": "r1",
+    "started_ts": "2026-09-04T03:33:28.937522+00:00",
+    "updated_ts": "2026-09-04T03:35:36.988890+00:00",   # embeddings dispatch
+    "steps": {"consolidate_enrichment": {"state": "origin"},
+              "embeddings_refresh": {"state": "dispatched"},
+              "video_map_refresh": {"state": "planned"}},
+}
+
+
+def test_a_step_working_longer_than_the_window_is_not_abandonment(runner, monkeypatch):
     """The abandoned-run sweep must not fire in a step's completion gap.
 
-    Prod, 2026-09-04: the record is written when a step is DISPATCHED and then
-    left alone while it works, so embeddings running for 61.8s left it "stale"
-    for the whole batch. The instant embeddings completed — nothing running any
-    more, record untouched for 61.8s — the hub's sweep declared the run
-    abandoned and finished it, 0.29s before the task runner's advance would have
-    dispatched the semantic map. Every remaining step came out "skipped" and the
-    refresh silently stopped after one step.
+    Prod, 2026-09-04, twice: the record is written when a step is DISPATCHED
+    and left alone while it works, so embeddings running 62 s left it "stale"
+    for the whole batch. The instant embeddings completed — nothing running,
+    record untouched for 62 s — the hub declared the run abandoned, a fraction
+    of a second before the runner would have dispatched the semantic map.
 
-    Any step slower than the window could do this, which is most of them.
+    The worker's status file is written the moment it completes and is what
+    the sweep must read.
     """
-    record = {
-        "run_id": "r1",
-        "started_ts": "2026-09-04T02:54:59.768561+00:00",
-        "updated_ts": "2026-09-04T02:56:56.940875+00:00",   # embeddings dispatch
-        "steps": {"consolidate_enrichment": {"state": "origin"},
-                  "embeddings_refresh": {"state": "dispatched"},
-                  "video_map_refresh": {"state": "planned"}},
-    }
+    _status_files(monkeypatch, {"embeddings_refresh": {
+        "state": "completed", "updated_at": "2026-09-04T03:36:38.430245+00:00"}})
+    assert rp.last_activity_ts(_RUN) == "2026-09-04T03:36:38.430245+00:00"
+
+
+def test_the_hub_must_not_trust_its_stale_process_stats(runner, monkeypatch):
+    """The first version of this fix read process_stats and still lost the run.
+
+    The hub never reloads process_stats before sweeping, so its copy held the
+    PREVIOUS run's embeddings end time — older than started_ts, ignored — and
+    the sweep fell back to the stale record. With a fresh status file the
+    activity is found regardless of what process_stats says.
+    """
     pm.load_process_stats()
     pm.process_stats["embeddings_refresh"] = {
-        "last_run_end_time": "2026-09-04T02:57:58.778672+00:00"}
+        "last_run_end_time": "2026-09-04T02:57:58.778672+00:00"}   # last run
     pm.save_process_stats()
+    _status_files(monkeypatch, {"embeddings_refresh": {
+        "state": "completed", "updated_at": "2026-09-04T03:36:38.430245+00:00"}})
+    assert rp.last_activity_ts(_RUN) == "2026-09-04T03:36:38.430245+00:00", (
+        "a stale hub-side process_stats must not hide a step that just completed")
 
-    assert rp.last_activity_ts(record) == "2026-09-04T02:57:58.778672+00:00", (
-        "a step's own completion is activity; counting only record writes makes "
-        "every step slower than the window look like a dead run")
 
-
-def test_a_run_with_nothing_running_and_no_progress_is_still_abandoned(runner):
+def test_a_run_with_nothing_running_and_no_progress_is_still_abandoned(runner, monkeypatch):
     """The flip side: the fix must not make a genuinely dead run immortal."""
     record = {
         "run_id": "r2",
@@ -370,14 +391,14 @@ def test_a_run_with_nothing_running_and_no_progress_is_still_abandoned(runner):
         "updated_ts": "2026-09-04T02:00:00+00:00",
         "steps": {"consolidate_enrichment": {"state": "origin"}},
     }
+    # Only an OLDER run's timestamps exist anywhere — none may count.
+    _status_files(monkeypatch, {"consolidate_enrichment": {
+        "state": "completed", "updated_at": "2026-09-04T01:00:00+00:00"}})
     pm.load_process_stats()
-    # Only an OLDER run's end time exists — it must not count as this run's life.
     pm.process_stats["consolidate_enrichment"] = {
         "last_run_end_time": "2026-09-04T01:00:00+00:00"}
     pm.save_process_stats()
-
-    assert rp.last_activity_ts(record) == "2026-09-04T02:00:00+00:00", (
-        "a dead run must fall back to its last record write and still be swept")
+    assert rp.last_activity_ts(record) == "2026-09-04T02:00:00+00:00"
 
 
 def test_an_outstanding_fan_out_is_not_declared_abandoned(runner, monkeypatch):

@@ -827,35 +827,49 @@ def last_activity_ts(record: dict | None) -> str | None:
     NOT simply ``updated_ts``: the record is written when a step is dispatched
     and then left alone while that step works, so a step running longer than the
     abandonment window leaves the record "stale" the whole time it is busy. The
-    moment it completes — before the task runner's advance lands, a fraction of a
-    second later — the run looks exactly like one whose server died: flag set,
-    nothing running, record untouched for over a minute.
+    moment it completes — before the task runner's advance lands — the run looks
+    exactly like one whose server died: flag set, nothing running, record
+    untouched for over a minute. That race killed a real run twice on 2026-09-04.
 
-    That race killed a real run on 2026-09-04: embeddings took 61.8s, the record
-    had not been written for 61.8s, and the sweep finished the run 0.29s before
-    the advance would have dispatched the semantic map. Counting each step's own
-    completion as activity closes it, while a genuinely dead run still goes
-    quiet on both measures and is still swept.
+    The activity signal is each in-run step's own STATUS FILE ``updated_at``,
+    not its ``process_stats`` end time. The status file is single-writer and
+    written by the worker the instant it completes; ``process_stats`` is written
+    a moment later by the runner and read lazily by the hub, whose in-memory
+    copy can still hold the PREVIOUS run's end time — which is how the first
+    version of this fix read a stale value, ignored it, and let the sweep fire
+    anyway. ``process_stats`` remains a fallback only.
     """
     from web_interface.process_manager import process_stats
+    from web_interface.task_status import read_task_status
 
     if not record:
         return None
     started_dt = _parse_ts(record.get("started_ts"))
     latest = _parse_ts(record.get("updated_ts")) or started_dt
+
+    def _consider(ts: str | None) -> None:
+        nonlocal latest
+        dt = _parse_ts(ts)
+        if dt is None:
+            return
+        # Only this run's own work counts; an older run's timestamps must not
+        # keep a dead run looking alive.
+        if started_dt is not None and dt < started_dt:
+            return
+        if latest is None or dt > latest:
+            latest = dt
+
     for name in STEP_ORDER:
         state = (record.get("steps", {}).get(name) or {}).get("state")
         if state not in ("origin", "dispatched"):
             continue
-        end_dt = _parse_ts((process_stats.get(name) or {}).get("last_run_end_time"))
-        if end_dt is None:
-            continue
-        # Only this run's own work counts; an older run's end time must not keep
-        # a dead run looking alive.
-        if started_dt is not None and end_dt < started_dt:
-            continue
-        if latest is None or end_dt > latest:
-            latest = end_dt
+        try:
+            st = read_task_status(name) or {}
+        except Exception:
+            st = {}
+        _consider(st.get("updated_at"))
+        _consider(st.get("end_time"))
+        _consider((process_stats.get(name) or {}).get("last_run_end_time"))
     return latest.isoformat() if latest else None
 
 
