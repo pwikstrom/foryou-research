@@ -172,6 +172,16 @@ Edit Collections modal, the site-wide switch is the
 `auto_enrichment_enabled` admin setting (ships **off**), and the triggers
 are worker completions, the end of each consolidation, and an hourly Cloud
 Scheduler heartbeat on `/internal/run-task/enrichment_supervisor`. The
+loop's consolidations run with the downstream refresh **deferred**
+(`auto_refresh=False`, tagged `plan_deferred`); the impact accumulates in the
+ledger's `deferred_impact` entry with `from_plan` set, and the supervisor's
+finalize spends it once per cycle when the loop goes quiet, or after a 24 h
+backstop. **That is the only deferred debt the supervisor may spend.** An
+operator's own consolidate-without-refresh writes the same entry without
+`from_plan`, and the finalize leaves it alone — it waits on the Dataset
+Assembly page for "Refresh All Affected". A plan deferral landing on top of
+an operator's makes the merged entry the loop's (the flag is sticky), since
+the plan's cycle needs that refresh and it covers the operator's items too. The
 annotate-side eligibility predicate is shared with the manual queue builder
 (`collection_enrichment.annotation_eligible`) so the "never annotate-queue
 unscraped items" rule has exactly one implementation; the plan's

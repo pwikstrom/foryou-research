@@ -204,11 +204,40 @@ wall-clock Gantt above the cards, with a header naming its origin, and each
 skipped step stating why. Only one run happens at a time: the other cards grey
 out while one is in flight and `/api/start` refuses with 423.
 
-The Consolidate card is one origin among several, with a "Refresh caches
-afterwards" checkbox (plan a run for exactly what the consolidation touched)
-plus "Force full rebuild"; its own summary line still reports the outcome of a
-run it started. `sessions_refresh` is also chained after every study save,
-which is a private chain rather than a run and stays out of the chart.
+The Consolidate card is one origin among several. Its start dialog carries
+"Refresh caches afterwards" plus "Force full rebuild"; its own summary line
+still reports the outcome of a run it started. **Scope:** a run is planned for
+exactly what the consolidation touched — its affected studies and collections
+are the scope of recode, metadata, correlations and timelines, and that scope
+wins even when the semantic map moved videos between niches. (Widening to
+every study whenever the map moved was tried and reverted: a warm-started
+rebuild moves a couple of percent of the corpus on almost every run, so it
+turned every run into a full refresh.) The only unscoped run is one started
+from the Semantic Map card, which never consolidated and so has no impact to
+scope by. Each step records the scope it was actually dispatched with and why;
+hovering its bar shows it, and a pending map-dependent step states the
+impact's number as a floor.
+
+**Unticking "Refresh caches afterwards" means it.** The consolidation still
+computes and reports its impact, and that impact stays on the card offering
+"Refresh All Affected" until the operator presses it. It is never spent by the
+enrichment supervisor: the deferred-impact ledger records whose debt it is
+(`from_plan`), the supervisor's own consolidations are tagged `plan_deferred`,
+and its finalize spends only those — see the enrichment loop in
+`pipeline.md`. Before this distinction existed the supervisor spent a manual
+deferral 3.5 minutes after it was created, with no browser poll watching.
+
+**Liveness.** The hub's abandoned-run sweep closes a run only when nothing is
+running, nothing has completed, and no dispatched step is still awaiting
+delivery, for `ABANDONED_RUN_SECONDS` (600). Activity is read from the
+workers' own status files, not from the hub's lazily-loaded `process_stats`,
+and a spine dispatch is stamped `queued` exactly as fork leaves are, so a task
+the queue holds back (a 429, redelivered on backoff) keeps its run alive for
+the queue's full retry window (`QUEUED_DELIVERY_GRACE_SECONDS` = the queue's
+maxRetryDuration, 3600 s). The Dataset Assembly page re-reads server state
+every 30 s while open, so a run the server starts on its own is noticed.
+`sessions_refresh` is also chained after every study save, which is a private
+chain rather than a run and stays out of the chart.
 
 **Study modal.** The edit-study modal's footer groups
 Delete | Rename | Duplicate: delete and rename have their own endpoints
