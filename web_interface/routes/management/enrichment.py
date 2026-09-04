@@ -303,7 +303,8 @@ def get_enrichment_stats():
     # redelivered by the queue minutes later, and resolve_forked_pipeline owns
     # that window with its own (much longer) grace. Clearing the run here at 60s
     # would declare a run failed that is about to finish normally.
-    if flag_in_flight and not any_step_running and not refresh_run.get("fork"):
+    awaiting = refresh_pipeline.awaiting_delivery(refresh_run) if flag_in_flight else None
+    if flag_in_flight and not any_step_running and not refresh_run.get("fork") and not awaiting:
         # Not updated_ts alone: a step working for longer than the window leaves
         # the record untouched while it runs, so the instant it completes the
         # run looks abandoned for the fraction of a second before the task

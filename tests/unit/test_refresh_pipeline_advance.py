@@ -383,7 +383,49 @@ def test_the_hub_must_not_trust_its_stale_process_stats(runner, monkeypatch):
         "a stale hub-side process_stats must not hide a step that just completed")
 
 
-def test_a_run_with_nothing_running_and_no_progress_is_still_abandoned(runner, monkeypatch):
+def test_a_queued_undelivered_step_keeps_the_run_alive(runner, monkeypatch):
+    """Prod, 2026-09-04 04:54: the semantic map was dispatched at 04:32 but the
+    queue (no free runner instance) did not deliver it until 04:55. Nothing was
+    running, nothing had completed, so the sweep called the run dead at the
+    600 s mark — twenty seconds before the task woke. The queue's own
+    maxRetryDuration is 3600 s: a fresh "queued" stamp means a delivery is
+    still owed, and the run is alive."""
+    from datetime import UTC, datetime, timedelta
+    record = {"run_id": "r3", "started_ts": "2026-09-04T04:28:40+00:00",
+              "steps": {"consolidate_enrichment": {"state": "origin"},
+                        "video_map_refresh": {"state": "dispatched"}}}
+    recent = (datetime.now(UTC) - timedelta(minutes=23)).isoformat()
+    _status_files(monkeypatch, {"video_map_refresh": {"state": "queued", "updated_at": recent}})
+    assert rp.awaiting_delivery(record) == "video_map_refresh"
+
+
+def test_a_queued_stamp_older_than_the_queue_can_redeliver_is_lost(runner, monkeypatch):
+    """Past maxRetryDuration the queue has given up; the sweep may proceed."""
+    from datetime import UTC, datetime, timedelta
+    record = {"run_id": "r4", "started_ts": "2026-09-04T00:00:00+00:00",
+              "steps": {"video_map_refresh": {"state": "dispatched"}}}
+    stale = (datetime.now(UTC) - timedelta(seconds=rp.QUEUED_DELIVERY_GRACE_SECONDS + 60)).isoformat()
+    _status_files(monkeypatch, {"video_map_refresh": {"state": "queued", "updated_at": stale}})
+    assert rp.awaiting_delivery(record) is None
+
+
+def test_a_spine_dispatch_is_stamped_queued(runner, monkeypatch):
+    """The fork leaves were always stamped; the spine was not, which is why a
+    delayed map was invisible. Every dispatch must leave a definitive mark."""
+    stamped = []
+    monkeypatch.setattr(pr, "stamp_task_status", lambda n, st, *a, **k: stamped.append((n, st)))
+    record = runner.seed("consolidate_enrichment", kind="armed")
+    runner.finish("consolidate_enrichment", {"consolidation_impact": {
+        "new_annotation_item_count": 50, "affected_study_names": ["s1"],
+        "affected_collection_ids": ["c1"]}, "pipeline_impact": {
+        "new_annotation_item_count": 50, "affected_study_names": ["s1"],
+        "affected_collection_ids": ["c1"]}})
+    pr._advance_refresh_run("consolidate_enrichment",
+                            {"pipeline_run_id": record["run_id"]}, "Success")
+    assert ("embeddings_refresh", "queued") in stamped, stamped
+
+
+
     """The flip side: the fix must not make a genuinely dead run immortal."""
     record = {
         "run_id": "r2",

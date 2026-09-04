@@ -821,6 +821,45 @@ def summarize(record: dict) -> str:
     return f"Refreshed {listed}.{tail}"
 
 
+#: How long a dispatched-but-not-yet-started step may sit "queued" before it is
+#: treated as lost. Equal to the Cloud Tasks queue's maxRetryDuration (3600 s):
+#: with maxAttempts=4 and 60 s→600 s backoff, a task dropped by a 429 (no free
+#: runner instance) is redelivered for up to an hour and then never again. Any
+#: shorter grace declares a run dead while its next step is still on its way —
+#: on 2026-09-04 the semantic map was delivered 23 minutes after dispatch and
+#: the run had been swept at minute 10, twenty seconds before it woke.
+QUEUED_DELIVERY_GRACE_SECONDS = 3600
+
+
+def awaiting_delivery(record: dict | None) -> str | None:
+    """The name of an in-run step whose task is dispatched but not yet started,
+    or None. A fresh ``queued`` stamp means the queue still owes us a delivery;
+    the run is alive even though nothing is running and nothing has completed.
+    """
+    from web_interface.task_status import read_task_status
+
+    if not record:
+        return None
+    started_dt = _parse_ts(record.get("started_ts"))
+    now = datetime.now(UTC)
+    for name in STEP_ORDER:
+        state = (record.get("steps", {}).get(name) or {}).get("state")
+        if state != "dispatched":
+            continue
+        try:
+            st = read_task_status(name) or {}
+        except Exception:
+            continue
+        if (st.get("state") or "").lower() != "queued":
+            continue
+        stamped = _parse_ts(st.get("updated_at"))
+        if stamped is None or (started_dt is not None and stamped < started_dt):
+            continue
+        if (now - stamped).total_seconds() <= QUEUED_DELIVERY_GRACE_SECONDS:
+            return name
+    return None
+
+
 def last_activity_ts(record: dict | None) -> str | None:
     """The most recent sign of life from this run, for the abandoned-run check.
 

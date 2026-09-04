@@ -57,7 +57,10 @@ process_bp = Blueprint('process_bp', __name__)
 # 60s, doubling), so a leaf can legitimately boot several minutes late. Declaring
 # it failed earlier than that would write a "pipeline aborted" summary for a run
 # that then goes on to succeed.
-FORK_START_GRACE_SECONDS = 600
+# One constant with the sweep's queued-delivery grace: both answer "how long
+# may a dispatched task go undelivered before we call it lost", and the
+# queue's own maxRetryDuration is the only honest answer to either.
+from ..services.refresh_pipeline import QUEUED_DELIVERY_GRACE_SECONDS as FORK_START_GRACE_SECONDS  # noqa: E402
 
 
 # Tasks that are safe for the QUEUE to retry after a failed attempt: pure
@@ -1367,6 +1370,15 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str,
     if action["action"] == "spine":
         next_name = action["step"]
         next_args = _child_args(next_name, action["task_args"])
+        # Stamp "queued" BEFORE dispatch, as the fork leaves already are. Without
+        # it a spine task the queue holds back (a 429 with no free runner,
+        # redelivered minutes later) is invisible to every liveness check —
+        # nothing running, nothing completed, record untouched — and the
+        # abandoned-run sweep kills the run while its next step is on its way.
+        stamp_task_status(
+            next_name, "queued", "Queued — waiting for a worker…",
+            stage={"stage_index": stage_index, "stage_total": stage_total},
+        )
         success, msg = _dispatch_cloud_task(
             next_name, next_args,
             dispatch_deadline_seconds=dispatch_deadline_for(next_name, next_args))
