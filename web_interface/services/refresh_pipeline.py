@@ -140,8 +140,13 @@ def _needs_video_map(ctx: RunContext) -> Need:
 
 
 def _needs_recode(ctx: RunContext) -> Need:
-    if ctx.map_moved():
-        return _run({}, ctx.map_reason())
+    # The consolidation's scope WINS when there is one. A map rebuild does move
+    # niche values outside that scope, and an earlier version of this predicate
+    # widened to every study because of it — but a warm-started rebuild routinely
+    # moves a few thousand videos, so that fired on essentially every run and
+    # quietly turned the whole point of this planner (refresh only what changed)
+    # back into a full refresh. Precision is the feature; the map's leftovers
+    # are a separate, narrower problem than "rebuild everything, every time".
     if ctx.ran("consolidate_enrichment"):
         studies = ctx.impact_list("affected_study_names")
         if studies is None:
@@ -151,6 +156,11 @@ def _needs_recode(ctx: RunContext) -> Need:
             return _run({"studies": ",".join(studies)},
                         f"{len(studies)} study(ies) affected by the consolidation")
         return _skip("no study was affected")
+    # No consolidation in this run — a rebuild started from the Semantic Map
+    # card, say. There is no impact to scope by, so the map's own verdict is
+    # all there is.
+    if ctx.map_moved():
+        return _run({}, ctx.map_reason())
     return _skip(ctx.no_change_reason())
 
 
@@ -168,10 +178,10 @@ def _needs_study_consumer(ctx: RunContext) -> Need:
 
 def _needs_timelines(ctx: RunContext) -> Need:
     # Timelines joins the niche columns (run_timelines_refresh -> new_merge ->
-    # _join_niche_columns), so a map that moved invalidates every collection's
-    # cache, not only the ones the consolidation touched.
-    if ctx.map_moved():
-        return _run({}, ctx.map_reason())
+    # _join_niche_columns), so a map that moved does leave niche values stale in
+    # collections the consolidation never touched. That is NOT a reason to
+    # rebuild all 114 every time: see _needs_recode — the consolidation's scope
+    # wins whenever there is one.
     if ctx.ran("consolidate_enrichment"):
         collections = ctx.impact_list("affected_collection_ids")
         if collections is None:
@@ -180,6 +190,9 @@ def _needs_timelines(ctx: RunContext) -> Need:
             return _run({"collections": ",".join(collections)},
                         f"{len(collections)} collection(s) affected by the consolidation")
         return _skip("no collection was affected")
+    # A map-origin run has no consolidation impact to scope by.
+    if ctx.map_moved():
+        return _run({}, ctx.map_reason())
     return _skip(ctx.no_change_reason())
 
 

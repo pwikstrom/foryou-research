@@ -530,15 +530,19 @@ def test_a_replayed_refresh_scopes_to_what_actually_changed():
     )
 
 
-def test_a_moved_map_widens_the_scope_past_the_consolidation_impact():
-    """A run may legitimately rebuild more than the impact named — and say so.
+def test_the_consolidations_scope_survives_a_moved_map():
+    """The consolidation's list is the scope, even when the map moved videos.
 
-    Prod, 2026-09-04: the impact reported 8 studies and 36 collections, and the
-    run rebuilt 13 studies and 114 collections. That is CORRECT: the semantic
-    map moved 15,371 videos between niches, and the niche columns live in every
-    study dataset and every timeline, so scoping to the consolidation's list
-    would leave the rest stale. What was wrong is that nothing recorded the
-    widening, so the chart kept showing the impact's narrower numbers.
+    Regression, 2026-09-04: an earlier version of _needs_recode widened to
+    every study whenever the map reported ANY niche change, on the theory that
+    niche columns elsewhere go stale. A warm-started rebuild routinely moves a
+    couple of percent of the corpus (15,371 videos on the run that exposed
+    this), so it fired on essentially every run and turned the whole planner
+    back into a full refresh — 13 studies and 114 collections rebuilt when the
+    consolidation had named 8 and 36. Precision is the point of this module;
+    the map's leftovers are a narrower problem than rebuilding everything
+    hourly, and the code before this planner existed always scoped to the
+    impact too.
     """
     record = rp.plan_run("consolidate_enrichment", kind="armed",
                          impact={"new_annotation_item_count": 202,
@@ -551,12 +555,34 @@ def test_a_moved_map_widens_the_scope_past_the_consolidation_impact():
                 "video_map_refresh": {"map_niche_changed": 15371, "map_cold_start": False}},
                impact=record["impact"])
 
-    verdict = rp.BY_NAME["recode_refresh_studies"].needs(ctx)
-    widened = verdict.run and not (verdict.task_args or {}).get("studies")
-    _check("test_a_moved_map_widens_the_scope_past_the_consolidation_impact",
-           widened and "15,371" in verdict.reason
-           and rp.scope_note("recode_refresh_studies", verdict.task_args) == "all studies",
-           f"task_args={verdict.task_args} reason={verdict.reason!r}")
+    recode = rp.BY_NAME["recode_refresh_studies"].needs(ctx)
+    timelines = rp.BY_NAME["timelines_refresh"].needs(ctx)
+    _check("test_the_consolidations_scope_survives_a_moved_map",
+           rp.scope_note("recode_refresh_studies", recode.task_args) == "8 studies"
+           and rp.scope_note("timelines_refresh", timelines.task_args) == "36 collections",
+           f"recode={recode.task_args} timelines={timelines.task_args}")
+
+
+def test_a_map_origin_run_has_no_impact_so_it_refreshes_everything():
+    """The one case the widening was really for.
+
+    A run started from the Semantic Map card never consolidated, so there is no
+    impact to scope by — the map's own verdict is all there is, and scoping to
+    an absent impact would refresh nothing at all.
+    """
+    record = rp.plan_run("video_map_refresh", kind="card")
+    record["steps"]["video_map_refresh"]["state"] = "dispatched"
+    ctx = _ctx(record,
+               {"video_map_refresh": {"map_niche_changed": 15371, "map_cold_start": False}},
+               impact=None)
+
+    recode = rp.BY_NAME["recode_refresh_studies"].needs(ctx)
+    timelines = rp.BY_NAME["timelines_refresh"].needs(ctx)
+    _check("test_a_map_origin_run_has_no_impact_so_it_refreshes_everything",
+           recode.run and not (recode.task_args or {}).get("studies")
+           and timelines.run and not (timelines.task_args or {}).get("collections")
+           and "15,371" in recode.reason,
+           f"recode={recode.task_args} reason={recode.reason!r}")
 
 
 def test_an_unmoved_map_keeps_the_consolidations_scope():
@@ -608,7 +634,8 @@ TESTS = [
     test_barrier_waits_for_queued_leaf_within_grace,
     test_a_replayed_refresh_acts_on_the_impact_it_inherits,
     test_a_replayed_refresh_scopes_to_what_actually_changed,
-    test_a_moved_map_widens_the_scope_past_the_consolidation_impact,
+    test_the_consolidations_scope_survives_a_moved_map,
+    test_a_map_origin_run_has_no_impact_so_it_refreshes_everything,
     test_an_unmoved_map_keeps_the_consolidations_scope,
 ]
 
