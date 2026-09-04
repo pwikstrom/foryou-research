@@ -885,12 +885,41 @@ function _showAlreadyRunningDialog(name, extraBody) {
 
 
 
+// What a graceful stop actually waits for, per worker. A worker that never
+// reads the cancel sentinel (consolidate, the semantic map) cannot honour one
+// at all, so it must not be offered a button that silently does nothing. The
+// rest finish the unit named here first — which for a refresh worker is a study
+// or a collection, not the "batch" the scrapers count in.
+const _STOP_BOUNDARIES = (window.PIPELINE_REGISTRY && window.PIPELINE_REGISTRY.stop_boundaries) || {};
+
+function _stopBoundary(name) {
+    if (name in _STOP_BOUNDARIES) return _STOP_BOUNDARIES[name];
+    // Everything outside the refresh graph — scrapers, annotators — works in
+    // batches and has always offered the graceful stop.
+    return _REFRESH_RUN_STEPS.includes(name) ? null : 'batch';
+}
+
 function showStopConfirm(name) {
     _pendingStopProcess = name;
-    const btn = document.getElementById(`${name}-toggle`);
-    const label = btn ? btn.getAttribute('data-start-label') : name;
-    const shortName = label.replace(/^(Start |Recalculate )/, '').replace(/\(.*\)/, '').trim();
+    // Name the worker, not its button. Four refresh cards are all labelled
+    // "Refresh", and the consolidate card has no -toggle at all, so reading the
+    // button gave "Stop Refresh?" or the raw process name — neither of which
+    // says which worker is about to stop. That matters now the stop button also
+    // lives on a chart row, away from its card.
+    let shortName = (typeof _PIPELINE_STEP_LABELS !== 'undefined' && _PIPELINE_STEP_LABELS[name]) || '';
+    if (!shortName) {
+        const btn = document.getElementById(`${name}-toggle`);
+        const label = btn ? btn.getAttribute('data-start-label') : name;
+        shortName = (label || name).replace(/^(Start |Recalculate )/, '').replace(/\(.*\)/, '').trim();
+    }
     document.getElementById('stop-confirm-text').innerText = `Stop ${shortName}?`;
+
+    const boundary = _stopBoundary(name);
+    const gracefulBtn = document.getElementById('stop-confirm-graceful-btn');
+    if (gracefulBtn) {
+        gracefulBtn.style.display = boundary ? '' : 'none';
+        if (boundary) gracefulBtn.innerText = `Stop after this ${boundary}`;
+    }
     document.getElementById('stop-confirm-overlay').classList.add('visible');
 }
 

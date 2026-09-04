@@ -92,6 +92,10 @@ class Step:
             a prune verdict carrying the reason shown in the chart.
         self_chaining: The worker dispatches itself repeatedly and only its
             last link reaches the advance logic.
+        stop_boundary: The unit of work this worker finishes before it acts on a
+            graceful stop — "batch", "study", "collection". ``None`` means it
+            never reads the cancel sentinel, so a graceful stop would do nothing
+            and the UI must not offer one.
     """
 
     name: str
@@ -101,6 +105,7 @@ class Step:
     tier: str
     needs: Callable[[RunContext], Need]
     self_chaining: bool = False
+    stop_boundary: str | None = None
 
 
 # --- Predicates ------------------------------------------------------------
@@ -222,26 +227,28 @@ STEPS: list[Step] = [
          lambda ctx: _skip("consolidation is never a downstream step")),
     Step("embeddings_refresh", "Refreshing semantic embeddings",
          "Semantic embeddings", ("consolidate_enrichment",), TIER_SPINE,
-         _needs_embeddings, self_chaining=True),
+         _needs_embeddings, self_chaining=True, stop_boundary="batch"),
     Step("video_map_refresh", "Rebuilding semantic map",
          "Semantic map", ("embeddings_refresh",), TIER_SPINE,
          _needs_video_map),
     Step("recode_refresh_studies", "Refreshing study definitions",
          "Study definitions", ("consolidate_enrichment", "video_map_refresh"),
-         TIER_SPINE, _needs_recode),
+         TIER_SPINE, _needs_recode, stop_boundary="study"),
     Step("meta_refresh_groups", "Refreshing explore metadata",
          "Explore metadata", ("recode_refresh_studies",), TIER_LEAF,
-         _needs_study_consumer),
+         _needs_study_consumer, stop_boundary="study"),
     Step("pca_refresh", "Refreshing correlations",
          "Correlations", ("recode_refresh_studies",), TIER_LEAF,
-         _needs_study_consumer),
+         _needs_study_consumer, stop_boundary="study"),
     Step("timelines_refresh", "Refreshing timelines",
          "Timelines", ("consolidate_enrichment", "video_map_refresh"),
-         TIER_LEAF, _needs_timelines, self_chaining=True),
+         TIER_LEAF, _needs_timelines, self_chaining=True,
+         stop_boundary="collection"),
     Step("sessions_refresh", "Rebuilding session index",
          "Sessions",
          ("consolidate_enrichment", "embeddings_refresh", "video_map_refresh"),
-         TIER_LEAF, _needs_sessions, self_chaining=True),
+         TIER_LEAF, _needs_sessions, self_chaining=True,
+         stop_boundary="batch"),
 ]
 
 BY_NAME: dict[str, Step] = {s.name: s for s in STEPS}
@@ -269,6 +276,10 @@ def registry_for_js() -> dict:
         # Best-effort by definition: the run prunes a step whose upstream turns
         # out to have changed nothing, which the dialog says.
         "dependents": {s.name: dependents_of(s.name) for s in STEPS},
+        # What a graceful stop would wait for, per worker. Absent = the worker
+        # never reads the cancel sentinel, so the UI offers no graceful stop
+        # rather than a button that silently does nothing.
+        "stop_boundaries": {s.name: s.stop_boundary for s in STEPS if s.stop_boundary},
     }
 
 

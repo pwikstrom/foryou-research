@@ -3041,7 +3041,10 @@ function fetchEnrichmentStats() {
             }
 
             // Persistent + live refresh-run chart (updates every tick).
-            renderPipelineSteps(data.pipeline_steps, data.refresh_run);
+            renderPipelineSteps(data.pipeline_steps, data.refresh_run, {
+                armed: !!data.consolidate_auto_armed,
+                autoRefresh: !!data.consolidate_auto_armed_auto_refresh,
+            });
 
             // Button state (armed / workers-running / idle) and the card lock.
             applyConsolidateButtonState(data);
@@ -3415,6 +3418,7 @@ function _humanizePipelineSteps(csv) {
 // is live, so a running bar grows between polls instead of jumping.
 let _pipelineStepsCache = null;
 let _pipelineRunCache = null;
+let _pipelineArmedCache = null;
 let _pipelineTicker = null;
 
 function _fmtDuration(seconds) {
@@ -3554,27 +3558,42 @@ function _renderRefreshStartPlan() {
     const estEl = document.getElementById('refresh-start-estimate');
     if (!planEl) return;
     const steps = _refreshPlannedSteps(_refreshStartStep);
-    let total = 0, unknown = 0;
+    const leafSet = new Set(_PIPELINE_REGISTRY.leaves || []);
+
+    // Wall-clock, not effort. The run is a chain of steps that each wait for the
+    // one before, EXCEPT the leaves, which are dispatched together and run
+    // concurrently — so they cost the slowest of them, not their sum. Adding
+    // them up overstated a full run by minutes.
+    let serial = 0, slowestLeaf = 0, unknown = 0, leafCount = 0;
     planEl.innerHTML = steps.map((st, i) => {
         const secs = _refreshTypicalSeconds(st);
-        if (secs == null) unknown++; else total += secs;
+        const isLeaf = leafSet.has(st);
+        if (secs == null) unknown++;
+        else if (isLeaf) slowestLeaf = Math.max(slowestLeaf, secs);
+        else serial += secs;
+        if (isLeaf) leafCount++;
         const when = secs == null ? 'not run before' : _fmtDuration(secs);
-        const cls = st === _refreshStartStep ? ' refresh-plan-row--origin' : '';
+        const cls = (st === _refreshStartStep ? ' refresh-plan-row--origin' : '')
+            + (isLeaf ? ' refresh-plan-row--parallel' : '');
         return `<div class="refresh-plan-row${cls}">`
-            + `<span class="refresh-plan-num text-xxs">${i + 1}</span>`
+            + `<span class="refresh-plan-num text-xxs">${isLeaf ? '' : i + 1}</span>`
             + `<span class="refresh-plan-name text-xs">${escapeHtml(_refreshStepLabel(st))}</span>`
             + `<span class="refresh-plan-time text-xxs">${escapeHtml(when)}</span>`
             + `</div>`;
     }).join('');
+
+    const total = serial + slowestLeaf;
     if (estEl) {
-        if (steps.length === 1 && total === 0 && unknown) {
+        if (!total && unknown) {
             estEl.textContent = 'No previous run to estimate from.';
-        } else {
-            const base = `Roughly ${_fmtDuration(total)} in total, based on each step's last run`;
-            estEl.textContent = unknown
-                ? `${base} — ${unknown} step${unknown > 1 ? 's have' : ' has'} never run, so the real time will be longer.`
-                : `${base}.`;
+            return;
         }
+        let txt = `Roughly ${_fmtDuration(total)} in total, based on each step's last run`;
+        if (leafCount > 1) txt += `; the last ${leafCount} run at the same time, so they cost the slowest of them`;
+        txt += unknown
+            ? ` — ${unknown} step${unknown > 1 ? 's have' : ' has'} never run, so the real time will be longer.`
+            : '.';
+        estEl.textContent = txt;
     }
 }
 
@@ -3600,11 +3619,22 @@ function openRefreshStartModal(step) {
 
     const optEl = document.getElementById('refresh-start-options');
     const opts = REFRESH_START_OPTIONS[step] || [];
-    optEl.innerHTML = opts.map(o => `<label class="refresh-opt">`
-        + `<input type="checkbox" id="refresh-opt-${o.key}"${o.checked ? ' checked' : ''}>`
-        + `<span class="text-sm"${o.danger ? ' style="color: var(--color-warning);"' : ''}>${escapeHtml(o.label)}</span>`
-        + `<span class="refresh-opt-help text-xxs">${escapeHtml(o.help)}</span>`
-        + `</label>`).join('');
+    // A forced reconsolidation needs every scraper and annotator idle; the
+    // server refuses it otherwise. Say so where the choice is made, and take
+    // the option away rather than let the start bounce.
+    const blocking = ((window._lastEnrichmentStats || {}).workers_blocking_consolidate) || [];
+    optEl.innerHTML = opts.map(o => {
+        const blocked = (step === 'consolidate_enrichment' && o.key === 'force' && blocking.length > 0);
+        const help = blocked
+            ? `Needs ${blocking.join(', ')} to finish first.`
+            : o.help;
+        return `<label class="refresh-opt${blocked ? ' refresh-opt--blocked' : ''}">`
+            + `<input type="checkbox" id="refresh-opt-${o.key}"${o.checked && !blocked ? ' checked' : ''}`
+            + `${blocked ? ' disabled' : ''}>`
+            + `<span class="text-sm"${o.danger ? ' style="color: var(--color-warning);"' : ''}>${escapeHtml(o.label)}</span>`
+            + `<span class="refresh-opt-help text-xxs">${escapeHtml(help)}</span>`
+            + `</label>`;
+    }).join('');
     // Only the consolidate options change what the run will do, so only they
     // need to redraw the plan.
     opts.forEach(o => {
@@ -3672,7 +3702,7 @@ function _stepLogLink(step, label) {
         + ` onclick="openLogModal(&#39;${step}&#39;, &#39;${arg}&#39;)">View Log</a>`;
 }
 
-function _stepRunButton(step, state) {
+function _stepRunButton(step, state, isArmed) {
     // The card's own Start/Stop, repeated on the row: play while the worker is
     // idle, stop while it runs — the transport controls anyone recognises, so
     // the chart is somewhere you act from and not only somewhere you read.
@@ -3688,15 +3718,17 @@ function _stepRunButton(step, state) {
     // While a run holds the pipeline every other worker's start is refused
     // server-side, so show that here rather than let the click bounce.
     const locked = !!window._refreshRunLock;
-    const title = locked ? window._refreshRunLock.reason : 'Start this step and everything downstream of it';
-    return `<button type="button" class="gantt-run gantt-run--play"${locked ? ' disabled' : ''}`
+    let title = locked ? window._refreshRunLock.reason : 'Start this step and everything downstream of it';
+    if (isArmed) title = 'Armed — runs automatically when the scraper and annotator finish';
+    const armedCls = isArmed ? ' gantt-run--armed' : '';
+    return `<button type="button" class="gantt-run gantt-run--play${armedCls}"${locked ? ' disabled' : ''}`
         + ` title="${escapeHtml(title)}" aria-label="Start"`
         + ` onclick="openRefreshStartModal(&#39;${step}&#39;)">`
         + '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2l7 4-7 4z"/></svg>'
         + '</button>';
 }
 
-function renderPipelineSteps(steps, run) {
+function renderPipelineSteps(steps, run, armed) {
     // The last (or running) refresh run as a timeline. One row per step in
     // dispatch order; each bar is placed by the step's start and sized by its
     // duration on a shared wall-clock axis anchored at the earliest start — so
@@ -3709,6 +3741,20 @@ function renderPipelineSteps(steps, run) {
     _pipelineStepsCache = steps || null;
     if (run !== undefined) _pipelineRunCache = run || null;
     run = _pipelineRunCache;
+    if (armed !== undefined) _pipelineArmedCache = armed || null;
+    armed = _pipelineArmedCache;
+    // An armed Consolidate is a run that WILL happen once the scraper or
+    // annotator finishes. Mark every step it will set off, so the block shows
+    // what is queued up rather than looking idle until it fires.
+    const armedSteps = new Set();
+    if (armed && armed.armed) {
+        armedSteps.add('consolidate_enrichment');
+        if (armed.autoRefresh) {
+            for (const d of ((_PIPELINE_REGISTRY.dependents || {})['consolidate_enrichment'] || [])) {
+                armedSteps.add(d);
+            }
+        }
+    }
     const chart = document.getElementById('pipeline-gantt');
     const note = document.getElementById('pipeline-steps-note');
     const empty = document.getElementById('pipeline-gantt-empty');
@@ -3841,6 +3887,8 @@ function renderPipelineSteps(steps, run) {
             dur = state === 'failed' ? 'failed' : 'pending';
         }
         const originCls = s.is_origin ? ' gantt-row--origin' : '';
+        const isArmed = armedSteps.has(s.step);
+        const armedCls = isArmed ? ' gantt-row--armed' : '';
         const label = s.label || s.step;
         // The worker's own description, on its name. The row's timing title
         // stays on the track instead of the whole row, so hovering the name
@@ -3851,9 +3899,9 @@ function renderPipelineSteps(steps, run) {
             ? `<span class="gantt-label gantt-label--help meta-tooltip tooltip-wide text-xs"`
                 + ` tabindex="0" data-tooltip="${escapeHtml(help)}">${escapeHtml(label)}</span>`
             : `<span class="gantt-label text-xs">${escapeHtml(label)}</span>`;
-        return `<div class="gantt-row gantt-row--${state}${originCls}">`
+        return `<div class="gantt-row gantt-row--${state}${originCls}${armedCls}">`
             + _stepLogLink(s.step, label)
-            + _stepRunButton(s.step, state)
+            + _stepRunButton(s.step, state, isArmed)
             + labelCell
             + `<span class="gantt-track" title="${escapeHtml(title)}">${markers}${bar}</span>`
             + `<span class="gantt-dur text-xs">${escapeHtml(dur)}</span>`
@@ -4021,16 +4069,13 @@ function applyConsolidateButtonState(data) {
     btn.classList.add('action-btn');
     btn.classList.remove('btn-running', 'btn-armed-pulse');
 
-    // A forced rebuild is refused server-side while a worker runs or the
-    // pipeline is in flight — disable rather than let the click 409. The
-    // incremental modes stay clickable: they arm instead of firing.
-    const force = forceBox ? !!forceBox.checked : false;
+    // The button no longer knows whether this run will be a forced rebuild —
+    // that is chosen in the start dialog, which is also where the "needs every
+    // worker idle" warning belongs now. So the button only reflects what is
+    // true regardless of the choice.
     if (pipelineActive) {
         btn.disabled = true;
         btn.title = 'Wait for the refresh pipeline to finish.';
-    } else if (force && workersRunning) {
-        btn.disabled = true;
-        btn.title = `A full rebuild needs ${blocking.join(', ')} to finish first.`;
     } else {
         btn.disabled = false;
         btn.title = workersRunning
@@ -4089,7 +4134,10 @@ function pollConsolidationStatus(originStep) {
             .then(([data, estats]) => {
                 // Keep the chart and the card lock live during the run.
                 if (estats) {
-                    renderPipelineSteps(estats.pipeline_steps, estats.refresh_run);
+                    renderPipelineSteps(estats.pipeline_steps, estats.refresh_run, {
+                        armed: !!estats.consolidate_auto_armed,
+                        autoRefresh: !!estats.consolidate_auto_armed_auto_refresh,
+                    });
                     applyRefreshCardState(estats);
                 }
 

@@ -1100,10 +1100,31 @@ button {
     cursor: pointer;
 }
 .gantt-run svg { width: 11px; height: 11px; fill: currentColor; }
-.gantt-run:hover:not(:disabled) { background: var(--color-border); color: var(--color-text-primary); }
+.gantt-run:hover:not(:disabled) { background: var(--color-border); }
+/* Go and stop, coloured as the transport controls they are. A disabled play
+   drops to grey — the colour is what says "you can start this", so it must not
+   survive into a state where you cannot. */
+.gantt-run--play { color: var(--status-running); }
 .gantt-run--stop { color: var(--status-error); }
-.gantt-run:disabled { opacity: 0.35; cursor: not-allowed; }
+.gantt-run:disabled {
+    color: var(--color-text-tertiary);
+    opacity: 0.5;
+    cursor: not-allowed;
+}
 span.gantt-run { cursor: default; }
+
+/* Armed: a run that WILL happen as soon as the scraper and annotator finish.
+   The play icon and every step the arm will set off pulse together, so the
+   block shows the queued run instead of looking idle until it fires. */
+.gantt-run--armed:not(:disabled) { animation: gantt-pulse 1.4s ease-in-out infinite; }
+/* Two classes deep, to beat the state rules further down the file that are
+   also two classes deep (.gantt-row--idle .gantt-label): an armed row is
+   usually an idle one, and equal specificity would hand the colour to
+   whichever rule happens to come later. */
+.gantt-row.gantt-row--armed .gantt-label {
+    color: var(--color-warning);
+    animation: gantt-pulse 1.4s ease-in-out infinite;
+}
 
 .gantt-label {
     color: var(--color-text-primary);
@@ -1278,6 +1299,9 @@ span.gantt-run { cursor: default; }
     margin-bottom: 10px;
     cursor: pointer;
 }
+.refresh-opt--blocked { cursor: not-allowed; opacity: 0.6; }
+.refresh-opt--blocked .refresh-opt-help { color: var(--color-warning); }
+
 .refresh-opt-help {
     grid-column: 2;
     color: var(--color-text-tertiary);
@@ -1299,6 +1323,14 @@ span.gantt-run { cursor: default; }
 }
 .refresh-plan-row:first-child { border-top: none; }
 .refresh-plan-row--origin { background: var(--section-bg); }
+/* The leaves are dispatched together and run concurrently, so they are not
+   numbered steps in a queue and their times do not add up. */
+.refresh-plan-row--parallel .refresh-plan-name { padding-left: 10px; }
+.refresh-plan-row--parallel .refresh-plan-name::before {
+    content: "\21B3";
+    margin-right: 6px;
+    color: var(--color-text-tertiary);
+}
 .refresh-plan-row--origin .refresh-plan-name { font-weight: var(--weight-bold); }
 .refresh-plan-num { color: var(--color-text-tertiary); }
 .refresh-plan-time { color: var(--color-text-secondary); white-space: nowrap; }

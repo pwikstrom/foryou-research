@@ -278,7 +278,7 @@
     // source: web_interface/services/refresh_pipeline.
     window.PIPELINE_REGISTRY = {{ pipeline_registry | tojson }};
 </script>
-<script src="{{ url_for('static', filename='main.js') }}?v=22"></script>
+<script src="{{ url_for('static', filename='main.js') }}?v=23"></script>
 <script src="{{ url_for('static', filename='js/variable_prefs.js') }}"></script>
 <script src="{{ url_for('static', filename='study_state.js') }}?v=6"></script>
 <script src="{{ url_for('static', filename='filter_value_search.js') }}?v=1"></script>
@@ -305,6 +305,6 @@
    actually see, so any role may take it. #}
 <script src="{{ url_for('static', filename='js/hub_tour.js') }}?v=3"></script>
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
-<script src="{{ url_for('static', filename='js/data_management.js') }}?v=50"></script>
+<script src="{{ url_for('static', filename='js/data_management.js') }}?v=51"></script>
 {% endif %}
 {% endblock %}
