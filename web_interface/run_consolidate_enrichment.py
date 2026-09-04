@@ -121,6 +121,49 @@ def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
     return None
 
 
+def _journal_consolidation(task_args: dict, impact: dict | None,
+                           had_new_data: bool, auto_refresh: bool) -> None:
+    """The consolidation's one history line: what it folded in, for whom, and
+    whether the analyses follow now or later. Never raises."""
+    try:
+        from web_interface.services import enrichment_journal as journal
+
+        actor = (task_args or {}).get("started_by") or None
+        from_plan = bool((task_args or {}).get("plan_deferred"))
+        impact = impact or {}
+        if not had_new_data:
+            journal.record("consolidate.finished",
+                           "Consolidated — nothing new to fold in",
+                           actor=actor, had_new_data=False)
+            return
+        new_scrapes = int(impact.get("new_scrape_item_count") or 0)
+        new_annos = int(impact.get("new_annotation_item_count") or 0)
+        collections = impact.get("affected_collection_ids") or []
+        studies = impact.get("affected_study_names") or []
+        parts = []
+        if new_scrapes:
+            parts.append(f"{new_scrapes:,} new scrape(s)")
+        if new_annos:
+            parts.append(f"{new_annos:,} new annotation(s)")
+        if not parts:
+            parts.append(f"{int(impact.get('changed_item_count') or 0):,} changed item(s)")
+        message = "Consolidated — " + ", ".join(parts)
+        message += f"; {len(collections):,} collection(s), {len(studies):,} study/studies"
+        if auto_refresh:
+            message += "; analyses refresh follows"
+        elif from_plan:
+            message += "; analyses refresh deferred to the end of the plan"
+        else:
+            message += "; analyses refresh skipped (Refresh All Affected when wanted)"
+        journal.record("consolidate.finished", message, actor=actor,
+                       collection_ids=collections, new_scrapes=new_scrapes,
+                       new_annotations=new_annos, studies=len(studies),
+                       changed=int(impact.get("changed_item_count") or 0),
+                       auto_refresh=bool(auto_refresh), from_plan=from_plan)
+    except Exception:
+        pass
+
+
 def _maybe_schedule_shadow_check(reporter: TaskStatusReporter, incremental: bool) -> None:
     """Dispatch the weekly shadow verification when it is due. Never raises.
 
@@ -284,6 +327,7 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
         f"had_new_data={had_new_data}"
     )
     reporter.log("Consolidation finished.")
+    _journal_consolidation(task_args, impact, had_new_data, auto_refresh)
 
     # Recruitment funnel: consolidation is the moment new annotations become
     # visible in enrichment_status.parquet, so check whether any participant's

@@ -42,6 +42,11 @@
                 <span id="enrich_scrape_targets_{{ platform }}"
                     class="font-bold" style="color: var(--color-success-light); margin-left: 5px;">-</span><span>
                     pending</span>
+                <!-- Set by renderArmedPlanNotes() when an armed enrichment plan
+                     shares this queue: it will drain whatever is queued here on
+                     its next tick, whoever queued it. -->
+                <span id="enrich_scrape_plan_note_{{ platform }}" class="text-xs dm-plan-note"
+                    style="display: none;"></span>
                 <span id="cookie-health-{{ platform }}" class="cookie-pill cookie-pill--unknown meta-tooltip"
                     data-tooltip="Checking scraper health…">Scraper: …</span>
             </div>

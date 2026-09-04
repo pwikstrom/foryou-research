@@ -36,6 +36,31 @@ MAX_BATCH_SIZE = 1000
 _DISPATCH_DEADLINE = 1800
 
 
+def _journal_scrape_finished(*, platform: str, reason: str, ok: int, permanent: int,
+                             transient: int, given_up: int, queue_remaining: int,
+                             batches: int, started_by: str | None) -> None:
+    """One history line per finished scraper run. Never raises."""
+    try:
+        from web_interface.services import enrichment_journal as journal
+
+        message = (f"{journal.platform_label(platform)} scrape finished — "
+                   f"{ok:,} OK, {permanent:,} failed for good")
+        if transient:
+            message += f", {transient:,} left for another try"
+        if given_up:
+            message += f", {given_up:,} given up on"
+        message += f"; {queue_remaining:,} still queued" if queue_remaining else "; queue empty"
+        if reason:
+            message += f" ({reason})"
+        journal.record("scrape.finished", message, platform=platform,
+                       actor=started_by or None, worker=f"queue_scraper_{platform}",
+                       ok=ok, permanent=permanent, transient=transient,
+                       given_up=given_up, queue_remaining=queue_remaining,
+                       batches=batches, reason=reason or None)
+    except Exception:
+        pass
+
+
 def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
     """Process one batch of scraping and optionally return chain info.
 
@@ -214,11 +239,13 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     batch_aborted = any(results_df.attrs.get(k) for k in (
         'circuit_breaker_tripped', 'permanent_storm_tripped',
         'transient_storm_tripped', 'memory_stop'))
+    given_up: list[str] = []
     if pruned_this_batch > 0:
         scrape_queues.clear_zero_progress(platform)
     elif transient_failed and not batch_aborted:
         exhausted = scrape_queues.charge_zero_progress(platform, transient_failed)
         if exhausted:
+            given_up = list(exhausted)
             record_failed_scrapes(
                 [{"item_id": v, "category": "permanent:retry_exhausted"}
                  for v in exhausted])
@@ -234,6 +261,21 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
                 f"remaining."
             )
 
+    def _finish(reason: str) -> None:
+        """The run's one history line, whichever exit the chain takes.
+
+        Written here, in the last link, because only it knows the job-wide
+        totals (carried in ``cumulative_*``) and how the queue was left.
+        """
+        _journal_scrape_finished(
+            platform=platform, reason=reason,
+            ok=cumulative_ok + len(good_ids),
+            permanent=cumulative_fail + len(permanent_failed),
+            transient=len(transient_failed), given_up=len(given_up),
+            queue_remaining=queue_remaining, batches=chunk_index + 1,
+            started_by=task_args.get("started_by"))
+        return None
+
     # ---- Check whether to chain ----
     if results_df.attrs.get('circuit_breaker_tripped'):
         reporter.log(
@@ -242,7 +284,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
             "queue. Re-run the scraper later."
         )
         reporter.emit_data({"rate_limit_abort": True})
-        return None
+        return _finish("stopped by the rate-limit circuit breaker")
 
     if results_df.attrs.get('permanent_storm_tripped'):
         reporter.log(
@@ -254,7 +296,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
             f"enrichment page — revise the scraper before re-running."
         )
         reporter.emit_data({"permanent_storm_abort": True})
-        return None
+        return _finish("stopped by a permanent-failure storm")
 
     if results_df.attrs.get('transient_storm_tripped'):
         reporter.log(
@@ -267,20 +309,20 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
             f"scraper (or wait for an upstream fix) before re-running."
         )
         reporter.emit_data({"transient_storm_abort": True})
-        return None
+        return _finish("stopped by a transient-failure storm")
 
     if reporter.check_cancelled():
         reporter.log("Cancellation requested. Stopping after this batch.")
-        return None
+        return _finish("stopped by request")
 
     next_chunk = chunk_index + 1
     if max_batches is not None and next_chunk >= max_batches:
         reporter.log(f"Reached max_batches limit ({max_batches}).")
-        return None
+        return _finish(f"reached the {max_batches}-batch limit")
 
     if queue_remaining == 0:
         reporter.log("Queue exhausted.")
-        return None
+        return _finish("")
 
     # Safety: if this batch pruned nothing (e.g. every item was a transient
     # failure), chaining would re-process the exact same head slice and loop
@@ -291,7 +333,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
             f"No items pruned from this batch ({len(transient_failed)} transient). "
             f"Stopping chain to avoid an infinite retry loop."
         )
-        return None
+        return _finish("stopped — nothing in the last batch could be resolved")
 
     next_task_args = {
         "platform": platform,

@@ -269,15 +269,17 @@ Not armed - no plan yet. Pick a target and press Arm.
 Running - the collection is picked up automatically, about once an hour and whenever a job finishes. While a step is in flight the line names it - scraping, annotating, or consolidating - with the worker's own latest progress note; between steps it says what the next tick will do.
 Paused - nothing new starts; work already queued still finishes.
 Idle - the annotation target is met (or nothing processable is left), so there is nothing to do. Raise the target and arm to continue.
-Needs attention - the plan queued work repeatedly without a single new scrape landing, so it stopped rather than keep spending; the reason is shown beside the status. Fix the cause, then arm it again.
+Needs attention - the plan queued work repeatedly without a single new scrape landing, or its scraper was held off, or a shared queue stopped draining; the reason is shown beside the status. Fix the cause, then arm it again.
 
-This line is a summary and refreshes itself while work is in flight. The full live logs are elsewhere: scraping and annotation on their own Data pages (the worker cards), consolidation under Dataset Assembly.") }}
+This line is a summary and refreshes itself while work is in flight. What happened before - each cycle's scrapes, annotations and consolidations, with their numbers - is under History below. The full live logs are elsewhere: scraping and annotation on their own Data pages (the worker cards), consolidation under Dataset Assembly.") }}
                 </div>
                 <div style="margin-top: 8px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <span class="meta-tooltip tooltip-wide" id="dm-enrich-arm-wrap"
                         data-tooltip="Arm hands this collection to the loop: it gets picked up automatically from then on, and keeps going until the annotation target is met or there is nothing left to process. Arming always saves the settings above first - there is no separate save step on this path.
 
 There is only ever ONE plan per collection - if a colleague armed it already, this updates that same plan rather than starting a second one, and the last person to save wins on the settings.
+
+The scrape queue is shared by everything that scrapes on this platform, and the annotation queue by everyone; the loop drains them before it can do its own work. If either holds videos queued elsewhere (a study's Build scrape queue, say), a dialog shows how many and whose, and asks whether to drain them first or empty them now.
 
 While the plan runs the button reads Pause: nothing new starts, anything already queued still finishes. On a paused plan it reads Resume. On a finished plan it reads Arm again - raise the annotation target first, or there is nothing for it to do."><button
                         type="button" class="action-btn text-sm" id="dm-enrich-arm-btn"
@@ -295,6 +297,22 @@ Changing a setting does not undo work already done - it applies from the next cy
 Hover again once the panel has loaded - this tip then says what a cycle would actually do for this collection."><button
                         type="button" class="btn-discreet text-xs" id="dm-enrich-tick-btn"
                         onclick="dmEnrichTick()">Run a cycle now</button></span>
+                </div>
+
+                <!-- The collection's slice of the enrichment history: its
+                     plan's own events plus the scraper, annotator and
+                     consolidation runs the plan shares. Loaded on open. -->
+                <div style="margin-top: 12px; display: flex; align-items: baseline; gap: 6px;">
+                    <button type="button" class="dm-enrich-advanced-toggle" id="dm-enrich-history-toggle"
+                        onclick="dmEnrichHistoryToggle()"><span class="caret">&#9656;</span>History</button>{{ card_info(
+                    "What happened to this collection, newest first: the plan armed, paused or parked; each slice queued to scrape; each handoff to annotation; and every scraper, annotator and consolidation run the plan shares with the rest of the site - including runs someone started by hand, and queues built elsewhere that the loop drained first.
+
+One line per event with the numbers that matter (how many scraped OK and failed for good, how many annotated, what a consolidation folded in). It is the durable record: worker logs keep only the last few runs, this keeps weeks.
+
+The full history for every collection, with a collection filter, is under Data Management -> Dataset Assembly -> Enrichment History.") }}
+                </div>
+                <div id="dm-enrich-history" style="display: none; margin-top: 8px;">
+                    <div id="dm-enrich-history-list" class="dm-history-box"></div>
                 </div>
             </div>
         </div>

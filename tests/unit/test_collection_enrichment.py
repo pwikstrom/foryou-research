@@ -783,6 +783,108 @@ def test_tick_parks_a_stalled_plan(tick):
     assert tick["scrape_queues"] == {}           # nothing enqueued
 
 
+def test_productive_handoff_clears_the_stall_counter_across_the_boundary_tick(tick, monkeypatch):
+    """Regression pin for the 2026-09-04 false park.
+
+    The handoff persisted ``stall_count: 0`` and the boundary tick's _plan,
+    reading the in-memory entry snapshotted BEFORE the handoff, wrote
+    ``stale + 1`` over it — so a healthy plan's counter climbed by one every
+    cycle and the fourth productive cycle was parked with "no scrape progress
+    in 3 cycles" (and, the fingerprint, ``stall_count: 0`` in the ledger).
+    """
+    # In prod get_plan reads the ledger the handoff just wrote; the fixture's
+    # default stub returns the stale snapshot, which is exactly the bug's input.
+    monkeypatch.setattr(ce, "get_plan",
+                        lambda cid: (tick["store"].get(ce.LEDGER_FILENAME) or {}).get(cid))
+    tick["plans"] = {"c1": {**_entry(), "platform": "tiktok", "stall_count": 0}}
+    for cycle in range(ce.MAX_STALLS + 2):
+        # Each cycle's scrape and annotation drained, as prod's logs showed.
+        tick["scrape_queues"] = {}
+        tick["store"].pop(ce.ANNOTATE_QUEUE_FILENAME, None)
+        (tick["store"].get(ce.LEDGER_FILENAME) or {}).pop("__meta__", None)
+        tick["handoff"] = {"c1": [f"ready-{cycle}-{n}" for n in range(3)]}   # productive
+        rep = tick["run"]()
+        entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+        assert entry.get("state") != ce.STATE_BLOCKED, f"parked on cycle {cycle + 1}: {entry}"
+        assert entry["stall_count"] <= 1, entry          # reset by the handoff, +1 by the slice
+        assert rep.data[-1]["action"] == "annotate"
+        tick["plans"] = {"c1": {**_entry(), **entry, "state": ce.STATE_RUNNING}}
+
+
+def test_tick_settles_results_owed_after_the_plan_stopped(tick):
+    """The 85 annotations of 2026-09-04: a batch the loop started finished after
+    its plan was parked, and with nothing armed no tick ever consolidated it —
+    the analysis refresh an hour later ran without those results."""
+    import web_interface.run_enrichment_supervisor as sup
+
+    tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
+    tick["scrape_queues"] = {"tiktok": 12}
+    tick["run"]()
+    assert tick["started"] == [("queue_scraper_tiktok", {})]
+    assert ce.get_meta(sup.SETTLE_OWED_KEY)             # the loop now owes a consolidation
+
+    # The plan stops while the job runs; the job's results then await consolidation.
+    tick["plans"] = {}
+    tick["scrape_queues"] = {}
+    tick["unconsolidated"] = "scrape"
+    tick["started"].clear()
+    rep = tick["run"]()
+    assert rep.data[-1]["action"] == "consolidate"
+    assert tick["started"] == [("consolidate_enrichment",
+                                {"auto_refresh": False, "plan_deferred": True})]
+    assert ce.get_meta(sup.SETTLE_OWED_KEY) is None      # debt paid
+
+    # Nothing left to fold in: a later no-plans tick is idle, not a second consolidation.
+    tick["unconsolidated"] = None
+    tick["started"].clear()
+    rep = tick["run"]()
+    assert rep.data[-1]["action"] == "idle"
+    assert tick["started"] == []
+
+
+def test_settle_owed_is_forgotten_when_someone_consolidated_by_hand(tick):
+    import web_interface.run_enrichment_supervisor as sup
+
+    ce.set_meta(sup.SETTLE_OWED_KEY, {"after": "annotate"})
+    tick["plans"] = {}
+    tick["unconsolidated"] = None                     # an operator's consolidation covered it
+    rep = tick["run"]()
+    assert rep.data[-1]["action"] == "idle"
+    assert tick["started"] == []
+    assert ce.get_meta(sup.SETTLE_OWED_KEY) is None
+
+
+def test_settle_owed_waits_for_a_busy_worker(tick):
+    import web_interface.run_enrichment_supervisor as sup
+
+    ce.set_meta(sup.SETTLE_OWED_KEY, {"after": "scrape"})
+    tick["plans"] = {}
+    tick["unconsolidated"] = "scrape"
+    tick["consolidate_blockers"] = ["queue_annotator_batch"]
+    rep = tick["run"]()
+    assert rep.data[-1]["action"] == "waiting_consolidate"
+    assert tick["started"] == []
+    assert ce.get_meta(sup.SETTLE_OWED_KEY)             # still owed
+
+
+def test_tick_writes_the_enrichment_history(tick):
+    """The boundary move leaves its story in the journal: the handoff, the
+    next slice, and the worker starts with the queue split."""
+    import web_interface.services.enrichment_journal as journal
+
+    tick["plans"] = {"c1": {**_entry(), "spent_items": 10, "platform": "tiktok"}}
+    tick["handoff"] = {"c1": ["x1", "x2"]}
+    tick["run"]()
+    events = (tick["store"].get(journal.JOURNAL_FILENAME) or {}).get("events") or []
+    kinds = [e["kind"] for e in events]
+    assert "handoff" in kinds and "slice.queued" in kinds
+    assert kinds.count("queue.drained") == 2          # the annotator, then the scraper
+    handoff = next(e for e in events if e["kind"] == "handoff")
+    assert handoff["collection_id"] == "c1" and handoff["detail"]["queued"] == 2
+    parked = [e for e in events if e["kind"] == "plan.blocked"]
+    assert not parked
+
+
 # --------------------------------------------------------------------------- #
 # Tick reporting — a no-op tick has to be visible in the modal
 # --------------------------------------------------------------------------- #
@@ -954,6 +1056,7 @@ def test_enrichment_panel_buttons_keep_their_handlers():
         "dm-enrich-save-btn": "dmEnrichSave",
         "dm-enrich-tick-btn": "dmEnrichTick",
         "dm-enrich-advanced-toggle": "dmEnrichToggleAdvanced",
+        "dm-enrich-history-toggle": "dmEnrichHistoryToggle",
     }
     for element_id, handler in expected.items():
         attrs = parser.by_id.get(element_id)

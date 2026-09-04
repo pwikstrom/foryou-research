@@ -186,6 +186,31 @@ annotate-side eligibility predicate is shared with the manual queue builder
 (`collection_enrichment.annotation_eligible`) so the "never annotate-queue
 unscraped items" rule has exactly one implementation; the plan's
 `in_flight` ledger list records queued scrapes for stall detection only.
+Three facts about the loop's relationship with the queues, learned the hard
+way on 2026-09-04: (1) **the drain step serves the platform queue whoever
+filled it** — `_drain` filters by platform, not by who queued the items, so
+arming a plan adopts a colleague's *Build scrape queue* and runs it first;
+the Edit Collections panel therefore asks (`queue_preview`) before *Arm* /
+*Resume* / *Run a cycle now* when a queue holds videos that are not the
+collection's own, offering to drain them first or empty them. (2) **The
+stall counter is reset by every productive handoff**: `_plan` reloads the
+plan entry immediately before its read-modify-write, because the handoff
+earlier in the same boundary tick resets `stall_count` and prunes
+`in_flight`, and the snapshotted entry would put the stale values back (a
+healthy plan was parked on its fourth cycle that way). (3) **A job the loop
+started owes a consolidation** (`__meta__.settle_owed`, set when the loop
+starts a scraper or annotator, cleared when it consolidates): a plan parked
+or finished while its job still runs leaves results that no tick would
+otherwise fold in, so the no-plans path settles that debt before the quiet
+finalize. Every one of these decisions is written to the **enrichment
+history** (`services/enrichment_journal.py`, `cache/enrichment_journal.json`,
+a bounded ring): plans armed/paused/parked, queues built/emptied/drained
+(with the split between the armed plans' own slices and everything else),
+slices, handoffs, and every scraper, annotator, consolidation and refresh
+run with its totals — written by the supervisor, the queue endpoints,
+`start_process` (hand-started workers) and the workers' terminal exits.
+Dataset Assembly shows the whole history; a collection's Edit Collections
+panel shows its slice.
 
 ## 5. Analysis & studies
 

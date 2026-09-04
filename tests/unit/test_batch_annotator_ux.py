@@ -42,6 +42,23 @@ def test_download_and_ingest_does_not_need_machine_prompt_key(monkeypatch):
     assert isinstance(fn, str) and fn == saved["filename"]
 
 
+def test_finished_run_writes_its_totals_to_the_enrichment_history(monkeypatch):
+    """The batch worker's one history line carries the job-wide totals and who
+    started it — the numbers the Edit Collections History renders."""
+    import web_interface.services.enrichment_journal as journal
+
+    seen = []
+    monkeypatch.setattr(journal, "record",
+                        lambda kind, message, **kw: seen.append((kind, message, kw)))
+    worker._journal_finished({"total_ok": 85, "total_fail": 5, "chunk_index": 1,
+                              "started_by": "enrichment_supervisor"},
+                             0, "Queue is now empty.")
+    kind, message, kw = seen[0]
+    assert kind == "annotate.finished"
+    assert "85 annotated, 5 failed" in message and "queue empty" in message
+    assert kw["actor"] == "enrichment_supervisor" and kw["ok"] == 85 and kw["fail"] == 5
+
+
 def test_active_prompt_label_is_config_free():
     # active_prompt_label() is the value download_and_ingest now uses; it must be
     # a stable label that needs no [machine].prompt config.

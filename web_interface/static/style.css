@@ -7387,3 +7387,60 @@ body:has(.public-page) {
     .dm-enrich-armed-pulse { animation: none; outline: 2px solid var(--color-success); }
 }
 
+/* The queue dialog shown before a cycle starts: one row per non-empty queue,
+   with whose work it is and the empty-first tick box. */
+.dm-enrich-queue-row {
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg-elevated);
+}
+.dm-enrich-queue-row .who { color: var(--color-text-tertiary); margin-top: 2px; }
+.dm-enrich-queue-row label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+}
+
+/* Enrichment history (the Dataset Assembly card and the Edit Collections
+   panel's History disclosure): a compact table, one row per event, coloured
+   by the event's family. */
+.dm-history-box {
+    max-height: 360px;
+    overflow: auto;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+}
+.dm-history { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
+.dm-history td {
+    padding: 4px 8px;
+    vertical-align: top;
+    border-top: 1px solid var(--color-border);
+}
+.dm-history tr:first-child td { border-top: none; }
+.dm-history-when { white-space: nowrap; width: 1%; color: var(--color-text-tertiary); }
+.dm-history-kind { white-space: nowrap; width: 1%; }
+.dm-history-chip {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: var(--text-xxs);
+    font-weight: var(--weight-bold);
+    background: var(--color-bg-subtle, rgba(128, 128, 128, 0.15));
+    color: var(--color-text-secondary);
+}
+.dm-history--queue .dm-history-chip { background: color-mix(in srgb, var(--color-info) 18%, transparent); color: var(--color-info); }
+.dm-history--worker .dm-history-chip { background: color-mix(in srgb, var(--color-accent) 18%, transparent); color: var(--color-accent); }
+.dm-history--consolidate .dm-history-chip { background: color-mix(in srgb, var(--color-success) 18%, transparent); color: var(--color-success); }
+.dm-history--refresh .dm-history-chip { background: color-mix(in srgb, var(--color-link) 18%, transparent); color: var(--color-link); }
+.dm-history--attention .dm-history-chip { background: color-mix(in srgb, var(--color-danger) 18%, transparent); color: var(--color-danger); }
+.dm-history-msg { color: var(--color-text-secondary); }
+.dm-history-coll { font-weight: var(--weight-bold); margin-right: 6px; color: var(--color-text-primary); }
+
+/* "An armed plan drains this queue" beside the queue counters. */
+.dm-plan-note { color: var(--color-warning-text); margin-left: 8px; }
+

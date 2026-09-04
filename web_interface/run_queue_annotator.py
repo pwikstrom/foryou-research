@@ -51,6 +51,24 @@ def _dispatch_deadline_for(batch_size: int) -> int:
     return 3600 if batch_size > 1000 else 1800
 
 
+def _journal_annotate_finished(*, reason: str, ok: int, fail: int, queue_remaining: int,
+                               batches: int, started_by: str | None) -> None:
+    """One history line per finished annotator run. Never raises."""
+    try:
+        from web_interface.services import enrichment_journal as journal
+
+        message = (f"Annotation finished — {ok:,} annotated, {fail:,} failed "
+                   f"across {batches:,} batch(es)")
+        message += f"; {queue_remaining:,} still queued" if queue_remaining else "; queue empty"
+        if reason:
+            message += f" ({reason})"
+        journal.record("annotate.finished", message, actor=started_by or None,
+                       worker="queue_annotator", ok=ok, fail=fail, batches=batches,
+                       queue_remaining=queue_remaining, reason=reason or None)
+    except Exception:
+        pass
+
+
 def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
     """Process one batch of annotation and optionally return chain info.
 
@@ -181,19 +199,27 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
         f"Queue: {queue_remaining:,} remaining."
     )
 
+    def _finish(reason: str) -> None:
+        """The run's one history line, whichever exit the chain takes."""
+        _journal_annotate_finished(
+            reason=reason, ok=cumulative_ok + len(ok_ids),
+            fail=cumulative_fail + len(fail_ids), queue_remaining=queue_remaining,
+            batches=chunk_index + 1, started_by=task_args.get("started_by"))
+        return None
+
     # ---- Check whether to chain ----
     if reporter.check_cancelled():
         reporter.log("Cancellation requested. Stopping after this batch.")
-        return None
+        return _finish("stopped by request")
 
     next_chunk = chunk_index + 1
     if max_batches is not None and next_chunk >= max_batches:
         reporter.log(f"Reached max_batches limit ({max_batches}).")
-        return None
+        return _finish(f"reached the {max_batches}-batch limit")
 
     if queue_remaining == 0:
         reporter.log("Queue exhausted.")
-        return None
+        return _finish("")
 
     # Safety: if this batch pruned nothing (e.g. refinement failed for the
     # whole batch), chaining would re-process the same head slice and loop.
@@ -203,7 +229,7 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
             "No items pruned from this batch (refinement failure?). "
             "Stopping chain to avoid an infinite retry loop."
         )
-        return None
+        return _finish("stopped — nothing in the last batch could be resolved")
 
     # More work remains — request a chain dispatch
     next_task_args = {

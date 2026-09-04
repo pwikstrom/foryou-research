@@ -216,6 +216,31 @@
         </div>
     </div>
 
+    <!-- Queue-aware confirmation before an enrichment cycle starts (Edit
+         Collections modal). Filled by data_management.js from the plan's
+         queue_preview: what the shared queues hold, whose work it is, and the
+         choice between draining it first and emptying it. Shown only when
+         some of it is NOT this collection's own. -->
+    <div id="dm-enrich-queue-overlay" class="stop-confirm-overlay">
+        <div class="stop-confirm-card" style="max-width: 560px;">
+            <p class="text-sm font-bold" style="margin: 0 0 6px 0;">The queues are not empty</p>
+            <p class="text-xs" style="margin: 0 0 12px 0; color: var(--color-text-secondary);">
+                The loop drains a queue before it can scrape or annotate anything of its
+                own, so whatever is queued below runs first &mdash; however it got there.
+            </p>
+            <div id="dm-enrich-queue-rows"></div>
+            <p id="dm-enrich-queue-note" class="text-xs" style="margin: 10px 0 0 0; color: var(--color-text-tertiary);"></p>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap;">
+                <button type="button" class="btn-discreet" id="dm-enrich-queue-cancel"
+                    onclick="_dmEnrichQueueResolve(null)">Cancel</button>
+                <button type="button" class="btn-stop" id="dm-enrich-queue-empty"
+                    onclick="_dmEnrichQueueResolve('empty')">Empty the ticked queues, then Arm</button>
+                <button type="button" class="action-btn" id="dm-enrich-queue-drain"
+                    onclick="_dmEnrichQueueResolve('drain')">Arm and drain them first</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Log Modal -->
     <div id="log-modal-overlay" class="stop-confirm-overlay" style="align-items: flex-start; padding-top: 8vh;"
          onclick="_logModalBackdropClick(event)">

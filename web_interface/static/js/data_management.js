@@ -3038,6 +3038,11 @@ function fetchEnrichmentStats() {
                 }
             }
 
+            // Which armed plans will drain each queue, for the notes beside
+            // the counters and for the Empty Queue confirm.
+            _lastEnrichmentStats = data;
+            renderArmedPlanNotes(data);
+
             // Per-card health pills (scrapers + annotation), combining the last
             // system-health check with the fresh cookie status. Also cached
             // globally so main.js's startProcess can warn before starting a
@@ -3390,8 +3395,31 @@ async function queueVideosForAnnotation(btnElement) {
         });
 }
 
-function emptyQueue(queueType, platform) {
+async function emptyQueue(queueType, platform) {
     if (!queueType) return;
+
+    // Name what is about to be dropped — and whose plan is about to lose its
+    // current slice, since an armed plan's cursors have already moved past
+    // the days it queued and it will not revisit them.
+    const stats = _lastEnrichmentStats || {};
+    const armedAll = Object.values(stats.armed_plans_by_platform || {}).flat();
+    const armed = queueType === 'scrape'
+        ? ((stats.armed_plans_by_platform || {})[platform] || []) : armedAll;
+    const queued = queueType === 'scrape'
+        ? ((stats.scrape_queues || {})[platform] || 0) : (stats.annotate_queue_len || 0);
+    const own = queueType === 'scrape' ? ((stats.queue_plan_items_by_platform || {})[platform] || 0) : 0;
+    const which = queueType === 'scrape' ? `${_dmPlatformLabel(platform)} scrape` : 'annotation';
+    let msg = `Empty the ${which} queue? ${queued.toLocaleString()} queued video(s) will be dropped.`;
+    if (armed.length) {
+        const many = armed.length > 1;
+        msg += `\n\nArmed plan${many ? 's' : ''} ${_armedPlanLabel(armed)} ${many ? 'share' : 'shares'} this queue`;
+        if (own) {
+            msg += `; ${own.toLocaleString()} of the queued videos are its current slice, and the plan will not revisit those days`;
+        }
+        msg += '.';
+    }
+    const ok = await showAppConfirm(msg, { okLabel: 'Empty the queue', danger: true });
+    if (!ok) return;
 
     fetch(`/api/manage/enrichment/empty_queue/${queueType}`, {
         method: 'POST',
@@ -4373,6 +4401,7 @@ function _setRefreshPageIdlePoll(on) {
         // nobody reading it.
         if (_consolidatePollActive || document.hidden) return;
         fetchEnrichmentStats();
+        dmHistoryLoad();
     }, REFRESH_PAGE_IDLE_MS);
 }
 
@@ -4473,6 +4502,7 @@ function openDataManagementPage(pageId, clickedItem) {
     // Fetch staleness status when entering the refresh page + apply cascade lock
     if (pageId === 'dm-page-refresh') {
         fetchStalenessStatus();
+        dmHistoryLoad();
         if (_cascadeRefresh) {
             updateCascadeRefreshPageLock(true);
         }
@@ -6780,6 +6810,7 @@ const DM_ENRICH_ACTIVITY_LABELS = {
     scraping: 'scraping now',
     annotating: 'annotating now',
     consolidating: 'consolidating results now',
+    refreshing: 'analyses refreshing now — the loop waits for it',
 };
 
 // Mirrors the supervisor's auto-cycle cap (MAX_CONCURRENT_JOBS x the
@@ -7013,7 +7044,8 @@ function dmEnrichTickTooltip(armed, state, progress) {
                + 'does not arm anything, and one click advances the loop by '
                + 'exactly one step: queue the next batch of videos to scrape, '
                + 'start the scraper or the annotator, or fold finished results '
-               + 'back in.';
+               + 'back in. If the shared queues hold videos queued elsewhere, '
+               + 'a dialog shows them first — the loop drains those before its own.';
     if (!armed) {
         return 'Disabled: this collection has no plan yet, so a cycle has '
              + 'nothing to run. Press Arm (or edit a setting and save) first.';
@@ -7452,6 +7484,8 @@ function dmEnrichScheduleRefresh(data) {
 function dmEnrichResetPanel() {
     const statusEl = document.getElementById('dm-enrich-status-line');
     if (statusEl) statusEl.textContent = 'Loading enrichment plan\u2026';
+    const historyEl = document.getElementById('dm-enrich-history-list');
+    if (historyEl) historyEl.innerHTML = '';
     const progEl = document.getElementById('dm-enrich-progress');
     if (progEl) progEl.textContent = '';
     for (const id of ['dm-enrich-target', 'dm-enrich-target-pct',
@@ -7504,6 +7538,7 @@ function dmEnrichLoad(collectionId) {
             if (dmEnrichCollectionId !== collectionId) return; // modal moved on
             if (data.error) { dmEnrichMsg(data.error, true); return; }
             dmEnrichRender(data);
+            if (dmEnrichHistoryOpen) dmEnrichHistoryLoad();
         })
         .catch(err => dmEnrichMsg(`Could not load the enrichment plan: ${err}`, true));
 }
@@ -7538,9 +7573,21 @@ function dmEnrichSave() {
     });
 }
 
-function dmEnrichToggleArmed() {
+async function dmEnrichToggleArmed() {
     const next = (dmEnrichArmed && dmEnrichState === 'running') ? 'paused' : 'running';
-    dmEnrichPost({ state: next, settings: dmEnrichReadSettings() },
+    const extra = {};
+    if (next === 'running') {
+        // Arming hands the loop whatever is already in the shared queues —
+        // ask first when any of it is not this collection's own work.
+        const verb = dmEnrichState === 'paused' ? 'Resume' : 'Arm';
+        const gate = await dmEnrichQueueGate(verb);
+        if (!gate || gate.choice === null) { dmEnrichMsg('Cancelled — nothing changed.'); return; }
+        const foreign = _dmEnrichForeignCount(gate.preview);
+        if (gate.choice === 'empty') await _dmEnrichEmptyTicked(gate.preview);
+        extra.queue_choice = gate.choice;
+        extra.foreign_queued = foreign;
+    }
+    dmEnrichPost({ state: next, settings: dmEnrichReadSettings(), ...extra },
                  next === 'running' ? 'Arming...' : 'Pausing...')
         .then(d => { if (d) dmEnrichMsg(next === 'running' ? 'Armed.' : 'Paused.', 'ok'); });
 }
@@ -7606,9 +7653,305 @@ function dmEnrichPollTick(cid, prevStart, attempt = 0) {
         });
 }
 
+// ---- Queue-aware confirmation before a cycle starts ----------------------
+// The scrape queue is one file per platform and the annotation queue one file
+// for everyone; the loop drains whatever is in them before it can do its own
+// work. On 2026-09-04 that was 4,696 videos another study had queued the day
+// before — the plan's whole first hour, with nothing saying so. Before Arm /
+// Resume / Run a cycle now, ask the server what the queues hold and, when any
+// of it is not this collection's, show it and let the operator choose: drain
+// it first (the default) or empty it now.
+let _dmEnrichQueueResolver = null;
+
+function _dmEnrichForeignCount(preview) {
+    if (!preview) return 0;
+    return ((preview.scrape || {}).foreign || 0) + ((preview.annotate || {}).foreign || 0);
+}
+
+// The platforms' own spellings ("TikTok", not "Tiktok"); unknown ones capitalised.
+const _DM_PLATFORM_LABELS = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube' };
+function _dmPlatformLabel(platform) {
+    const key = String(platform || '').toLowerCase();
+    return _DM_PLATFORM_LABELS[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : '');
+}
+
+// Resolves {choice: 'drain' | 'empty' | null, preview}. A preview that cannot
+// be fetched resolves 'drain': the gate is information, never a lock on Arm.
+function dmEnrichQueueGate(verb) {
+    const cid = dmEnrichCollectionId;
+    if (!cid) return Promise.resolve({ choice: 'drain', preview: null });
+    dmEnrichMsg('Checking the queues...');
+    return fetch(`/api/manage/collections/${encodeURIComponent(cid)}/enrichment/queue_preview`)
+        .then(r => r.json())
+        .then(preview => {
+            dmEnrichMsg('');
+            if (!preview || preview.error || !_dmEnrichForeignCount(preview)) {
+                return { choice: 'drain', preview: preview && !preview.error ? preview : null };
+            }
+            return _dmEnrichQueueDialog(verb, preview).then(choice => ({ choice, preview }));
+        })
+        .catch(() => { dmEnrichMsg(''); return { choice: 'drain', preview: null }; });
+}
+
+function _dmEnrichQueueRowHtml(key, q, label, platform, canEmpty) {
+    const foreign = q.foreign || 0;
+    let who;
+    if (q.breakdown === false) {
+        who = 'too many to attribute';
+    } else {
+        const parts = [`${(q.this_collection || 0).toLocaleString()} from this collection`];
+        const others = (q.others || []).map(o =>
+            `${escapeHtml(o.display_id || o.collection_id)} (${(o.n || 0).toLocaleString()})`);
+        if (others.length) {
+            parts.push(`from other collections: ${others.join(', ')}`
+                     + (q.more ? ` and ${q.more.toLocaleString()} more` : ''));
+        }
+        if (q.unattributed) parts.push(`${q.unattributed.toLocaleString()} in no collection`);
+        who = parts.join(' · ');
+    }
+    let cost = '';
+    if (key === 'annotate' && q.cost_estimate && q.cost_estimate.est_cost_usd) {
+        cost = ` — ≈ $${q.cost_estimate.est_cost_usd.toLocaleString()} to annotate`
+             + ` (${escapeHtml(q.cost_estimate.model || q.cost_estimate.backend || '')})`;
+    }
+    const tick = canEmpty
+        ? `<label><input type="checkbox" class="dm-enrich-queue-empty" data-queue="${key}"`
+          + ` data-platform="${escapeHtml(platform)}"${foreign ? ' checked' : ''}>`
+          + ` Empty this queue first (${q.total.toLocaleString()} video(s) dropped)</label>`
+        : '';
+    return `<div class="dm-enrich-queue-row">
+        <div class="text-sm"><b>${escapeHtml(label)}:</b> ${q.total.toLocaleString()} video(s) queued,
+            <b>${foreign.toLocaleString()}</b> not this collection's${cost}</div>
+        <div class="text-xs who">${who}</div>${tick}</div>`;
+}
+
+function _dmEnrichQueueDialog(verb, preview) {
+    const overlay = document.getElementById('dm-enrich-queue-overlay');
+    const rows = document.getElementById('dm-enrich-queue-rows');
+    if (!overlay || !rows) return Promise.resolve('drain');
+    const platform = preview.platform || 'tiktok';
+    const platformLabel = _dmPlatformLabel(platform);
+    const canEmpty = !!preview.can_empty;
+    let html = '';
+    const scrape = { ...(preview.scrape || {}), breakdown: preview.breakdown };
+    const annotate = { ...(preview.annotate || {}), breakdown: preview.breakdown };
+    if (scrape.total) html += _dmEnrichQueueRowHtml('scrape', scrape, `${platformLabel} scrape queue`, platform, canEmpty);
+    if (annotate.total) html += _dmEnrichQueueRowHtml('annotate', annotate, 'Annotation queue', platform, canEmpty);
+    rows.innerHTML = html;
+
+    const note = document.getElementById('dm-enrich-queue-note');
+    if (note) {
+        const armed = (preview.armed_elsewhere || []).map(p => p.display_id || p.collection_id);
+        let text = canEmpty
+            ? 'Emptying drops the queued videos for everyone: whoever queued them re-queues from their study if they still want them.'
+            : 'You cannot empty queues from here (that needs the Scrape or Annotation page permission).';
+        if (armed.length) {
+            text += ` Also armed on ${platformLabel}: ${armed.join(', ')} — the plans take turns, one slice each.`;
+        }
+        note.textContent = text;
+    }
+
+    const emptyBtn = document.getElementById('dm-enrich-queue-empty');
+    const drainBtn = document.getElementById('dm-enrich-queue-drain');
+    const refreshButtons = () => {
+        const ticked = rows.querySelectorAll('.dm-enrich-queue-empty:checked').length;
+        if (emptyBtn) {
+            emptyBtn.style.display = canEmpty && ticked ? '' : 'none';
+            emptyBtn.textContent = `Empty ${ticked > 1 ? 'the ticked queues' : 'it'}, then ${verb}`;
+        }
+        if (drainBtn) drainBtn.textContent = `${verb} and drain ${ticked > 1 || (scrape.total && annotate.total) ? 'them' : 'it'} first`;
+    };
+    rows.querySelectorAll('.dm-enrich-queue-empty').forEach(cb => cb.addEventListener('change', refreshButtons));
+    refreshButtons();
+
+    overlay.classList.add('visible');
+    setTimeout(() => { try { if (drainBtn) drainBtn.focus(); } catch (_) { } }, 50);
+    return new Promise(resolve => { _dmEnrichQueueResolver = resolve; });
+}
+
+function _dmEnrichQueueResolve(value) {
+    const overlay = document.getElementById('dm-enrich-queue-overlay');
+    if (overlay) overlay.classList.remove('visible');
+    if (_dmEnrichQueueResolver) {
+        const r = _dmEnrichQueueResolver;
+        _dmEnrichQueueResolver = null;
+        r(value);
+    }
+}
+
+// Empty the queues ticked in the dialog (the existing Empty Queue endpoint,
+// one call per queue). Resolves when every call has answered.
+async function _dmEnrichEmptyTicked(preview) {
+    const rows = document.getElementById('dm-enrich-queue-rows');
+    if (!rows) return;
+    const ticked = [...rows.querySelectorAll('.dm-enrich-queue-empty:checked')];
+    if (!ticked.length) return;
+    dmEnrichMsg('Emptying the queue(s)...');
+    const reason = `before arming ${dmEnrichCollectionId}`;
+    for (const cb of ticked) {
+        const type = cb.dataset.queue;
+        const body = type === 'scrape' ? { platform: cb.dataset.platform, reason } : { reason };
+        try {
+            const res = await fetch(`/api/manage/enrichment/empty_queue/${type}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify(body),
+            }).then(r => r.json());
+            if (res && res.error) dmEnrichMsg(`Could not empty the ${type} queue: ${res.error}`, true);
+        } catch (err) {
+            dmEnrichMsg(`Could not empty the ${type} queue: ${err}`, true);
+        }
+    }
+    if (typeof fetchEnrichmentStats === 'function') fetchEnrichmentStats();
+}
+
+
+// ---- Enrichment history ----------------------------------------------------
+// One durable, high-level record of what the machinery did — read from the
+// journal the supervisor, the workers and the queue endpoints write. The panel
+// shows one collection's slice; Dataset Assembly shows everything.
+let dmEnrichHistoryOpen = false;
+
+function _dmHistoryRowHtml(e) {
+    const when = (typeof fypFmtDateTimeShort === 'function' && e.ts) ? fypFmtDateTimeShort(e.ts) : (e.ts || '');
+    const coll = e.display_id
+        ? `<span class="dm-history-coll">${escapeHtml(e.display_id)}</span>` : '';
+    const tagged = e.display_ids || [];
+    const more = (e.collection_ids || []).length - tagged.length;
+    const tip = tagged.length
+        ? ` title="${escapeHtml(tagged.join(', '))}${more > 0 ? `, and ${more} more` : ''}"` : '';
+    return `<tr class="dm-history-row dm-history--${escapeHtml(e.family || 'plan')}">
+        <td class="dm-history-when">${escapeHtml(when)}</td>
+        <td class="dm-history-kind"><span class="dm-history-chip">${escapeHtml(e.label || e.kind || '')}</span></td>
+        <td class="dm-history-msg"${tip}>${coll}${escapeHtml(e.message || '')}</td></tr>`;
+}
+
+function _dmHistoryRender(container, events, emptyText) {
+    if (!container) return;
+    if (!events || !events.length) {
+        container.innerHTML = `<div class="text-xs" style="padding: 8px 10px; color: var(--color-text-tertiary);">${escapeHtml(emptyText)}</div>`;
+        return;
+    }
+    container.innerHTML = `<table class="dm-history"><tbody>${events.map(_dmHistoryRowHtml).join('')}</tbody></table>`;
+}
+
+function dmEnrichHistoryToggle() {
+    dmToggleAdvanced('dm-enrich-history', 'dm-enrich-history-toggle');
+    const panel = document.getElementById('dm-enrich-history');
+    dmEnrichHistoryOpen = !!panel && panel.style.display !== 'none';
+    if (dmEnrichHistoryOpen) dmEnrichHistoryLoad();
+}
+
+function dmEnrichHistoryLoad() {
+    const cid = dmEnrichCollectionId;
+    const box = document.getElementById('dm-enrich-history-list');
+    if (!cid || !box) return;
+    if (!box.innerHTML) box.innerHTML = '<div class="text-xs" style="padding: 8px 10px; color: var(--color-text-tertiary);">Loading…</div>';
+    fetch(`/api/manage/enrichment/history?collection_id=${encodeURIComponent(cid)}&limit=40`)
+        .then(r => r.json())
+        .then(data => {
+            if (dmEnrichCollectionId !== cid) return;
+            _dmHistoryRender(box, data.events,
+                'Nothing recorded for this collection yet — the history starts with the next plan action or worker run.');
+        })
+        .catch(() => {});
+}
+
+// The Dataset Assembly card: everything, or one collection via the filter.
+function dmHistoryLoad() {
+    const box = document.getElementById('dm-history-list');
+    if (!box) return;
+    const sel = document.getElementById('dm-history-filter');
+    const cid = sel && sel.value ? sel.value : '';
+    const url = `/api/manage/enrichment/history?limit=100${cid ? `&collection_id=${encodeURIComponent(cid)}` : ''}`;
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            _dmHistoryRender(box, data.events,
+                'Nothing recorded yet — the history starts with the next plan action, queue build or worker run.');
+            if (sel && Array.isArray(data.collections)) {
+                const current = sel.value;
+                const known = new Set([...sel.options].map(o => o.value));
+                for (const c of data.collections) {
+                    if (known.has(c.collection_id)) continue;
+                    const opt = document.createElement('option');
+                    opt.value = c.collection_id;
+                    opt.textContent = c.display_id || c.collection_id;
+                    sel.appendChild(opt);
+                }
+                sel.value = current;
+            }
+            const stamp = document.getElementById('dm-history-stamp');
+            if (stamp) {
+                const n = (data.events || []).length;
+                // An epoch instant: the shared helper renders it in the viewer's zone.
+                stamp.textContent = `${n} event(s)${cid ? ' for this collection' : ''} · as of `
+                    + fypFmtTime(Date.now());
+            }
+        })
+        .catch(() => {});
+}
+
+
+// ---- Armed plans on the queue pages ----------------------------------------
+// The Scrape/Annotation pages show which armed plan will drain a queue on its
+// next tick, and how much of the queue is that plan's own slice — before an
+// operator builds or empties a queue under it.
+let _lastEnrichmentStats = null;
+
+function _armedPlanLabel(plans) {
+    return plans.map(p => p.display_id || p.collection_id).join(', ');
+}
+
+function renderArmedPlanNotes(data) {
+    const armed = data.armed_plans_by_platform || {};
+    const own = data.queue_plan_items_by_platform || {};
+    for (const el of document.querySelectorAll('[id^="enrich_scrape_plan_note_"]')) {
+        const platform = el.id.slice('enrich_scrape_plan_note_'.length);
+        const plans = armed[platform] || [];
+        if (!plans.length) { el.style.display = 'none'; el.textContent = ''; continue; }
+        const queued = (data.scrape_queues || {})[platform] || 0;
+        const mine = own[platform] || 0;
+        const many = plans.length > 1;
+        let text = `Armed plan${many ? 's' : ''} ${_armedPlanLabel(plans)} drain${many ? '' : 's'} this queue on `
+                 + `${many ? 'their' : 'its'} next tick`;
+        if (queued) {
+            text += mine
+                ? ` — ${mine.toLocaleString()} of the ${queued.toLocaleString()} queued are the plan's own slice`
+                : ` — none of the ${queued.toLocaleString()} queued are the plan's own`;
+        }
+        el.textContent = text;
+        el.style.display = '';
+    }
+    const annNote = document.getElementById('enrich_annotate_plan_note');
+    if (annNote) {
+        const all = Object.values(armed).flat();
+        if (!all.length) {
+            annNote.style.display = 'none';
+            annNote.textContent = '';
+        } else {
+            const many = all.length > 1;
+            annNote.textContent = `Armed plan${many ? 's' : ''} ${_armedPlanLabel(all)} drain${many ? '' : 's'} this queue `
+                + 'on the next tick — anything queued here is annotated (and paid for) by the loop';
+            annNote.style.display = '';
+        }
+    }
+}
+
+
 function dmEnrichTick() {
     const cid = dmEnrichCollectionId;
     if (!cid) return;
+    _dmEnrichTickAfterGate(cid);
+}
+
+async function _dmEnrichTickAfterGate(cid) {
+    // A manual cycle drains the shared queues exactly like an automatic one
+    // (2026-09-04's hour of someone else's backlog started on this button).
+    const gate = await dmEnrichQueueGate('Run a cycle');
+    if (!gate || gate.choice === null) { dmEnrichMsg('Cancelled — nothing started.'); return; }
+    if (gate.choice === 'empty') await _dmEnrichEmptyTicked(gate.preview);
+    if (dmEnrichCollectionId !== cid) return;
     const btn = document.getElementById('dm-enrich-tick-btn');
     dmEnrichTickInFlight = true;
     if (btn) btn.disabled = true;

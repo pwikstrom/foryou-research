@@ -98,6 +98,7 @@ python scripts/gen_route_inventory.py
 | management_bp | `/api/manage/collections` | GET | `management_bp.list_collections` |
 | management_bp | `/api/manage/collections/<collection_id>/enrichment` | GET | `management_bp.get_collection_enrichment` |
 | management_bp | `/api/manage/collections/<collection_id>/enrichment` | POST | `management_bp.save_collection_enrichment` |
+| management_bp | `/api/manage/collections/<collection_id>/enrichment/queue_preview` | GET | `management_bp.preview_collection_enrichment_queues` |
 | management_bp | `/api/manage/collections/<collection_id>/enrichment/tick` | POST | `management_bp.tick_collection_enrichment` |
 | management_bp | `/api/manage/collections/affected_studies` | GET | `management_bp.affected_studies_for_collection` |
 | management_bp | `/api/manage/collections/coverage` | GET | `management_bp.collections_coverage` |
@@ -114,6 +115,7 @@ python scripts/gen_route_inventory.py
 | management_bp | `/api/manage/enrichment/consolidate` | POST | `management_bp.api_consolidate_enrichment` |
 | management_bp | `/api/manage/enrichment/consolidate/disarm` | POST | `management_bp.api_consolidate_disarm` |
 | management_bp | `/api/manage/enrichment/empty_queue/<queue_type>` | POST | `management_bp.empty_enrichment_queue` |
+| management_bp | `/api/manage/enrichment/history` | GET | `management_bp.get_enrichment_history` |
 | management_bp | `/api/manage/enrichment/queue_voted` | POST | `management_bp.queue_voted_videos` |
 | management_bp | `/api/manage/enrichment/refresh-downstream` | POST | `management_bp.api_refresh_downstream` |
 | management_bp | `/api/manage/enrichment/scraper_alert/dismiss` | POST | `management_bp.dismiss_scraper_alert` |
@@ -195,4 +197,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-184 routes total.
+186 routes total.

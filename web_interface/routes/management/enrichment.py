@@ -105,6 +105,63 @@ def _log_dm(action: str, target: str = "", details: dict | None = None) -> None:
     )
 
 
+def _journal(kind: str, message: str, **fields) -> None:
+    """Record an operator's queue action in the enrichment history.
+
+    The per-user activity log above is the audit trail; this is the shared
+    story every operator reads (an armed plan drains whatever a colleague
+    queued, so the colleague's build belongs in the plan's history too).
+    """
+    from ...services import enrichment_journal as journal
+
+    journal.record(kind, message, actor=getattr(current_user, "username", "") or None,
+                   **fields)
+
+
+def _collection_display_ids() -> dict[str, str]:
+    """``{collection_id: display id}`` from the collections sidecar; the id
+    itself where no display id is set."""
+    try:
+        from ...collection_accounts import _load_tags_fresh
+        tags = _load_tags_fresh()
+    except Exception:
+        return {}
+    out = {}
+    for cid, entry in (tags or {}).items():
+        disp = entry.get("display_collection_id") if isinstance(entry, dict) else None
+        out[str(cid)] = str(disp) if disp else str(cid)
+    return out
+
+
+def _armed_queue_view(scrape_queues_by_platform: dict) -> tuple[dict, dict]:
+    """What the Scrape/Annotation pages need to say "an armed plan will drain
+    this queue": the running plans per platform, and how much of each platform
+    queue is those plans' own work (the rest is whatever else was queued).
+    """
+    armed_by_platform: dict[str, list[dict]] = {}
+    plan_items_by_platform: dict[str, int] = {}
+    try:
+        names = _collection_display_ids()
+        plans = collection_enrichment.armed_plans()
+        own_by_platform: dict[str, set[str]] = {}
+        for cid, entry in plans.items():
+            platform = str(entry.get("platform") or "")
+            if not platform:
+                continue
+            armed_by_platform.setdefault(platform, []).append(
+                {"collection_id": cid, "display_id": names.get(cid, cid)})
+            own_by_platform.setdefault(platform, set()).update(
+                str(i) for i in (entry.get("in_flight") or []))
+        for platform, count in (scrape_queues_by_platform or {}).items():
+            if not count or platform not in own_by_platform:
+                continue
+            queued = {str(i) for i in scrape_queues.load_scrape_queue(platform)}
+            plan_items_by_platform[platform] = len(queued & own_by_platform[platform])
+    except Exception as exc:
+        print(f"[stats] armed-queue view failed: {exc}")
+    return armed_by_platform, plan_items_by_platform
+
+
 
 
 
@@ -336,6 +393,12 @@ def get_enrichment_stats():
 
     pipeline_active = flag_in_flight or any_step_running
 
+    # Which armed plans share each platform queue, and how much of the queue
+    # is their own work — so the queue pages can say "an armed plan will drain
+    # this on its next tick" before someone builds or empties a queue under it.
+    armed_plans_by_platform, queue_plan_items_by_platform = \
+        _armed_queue_view(scrape_queues_by_platform)
+
     cookie_health = {
         p: _cached_cookie_health(p)
         for p in scrape_queues.registered_platforms()
@@ -386,6 +449,10 @@ def get_enrichment_stats():
                              "reason": annotation_reason}),
         "annotate_queue_len": annotate_queue_len,
         "annotate_claimed_len": annotate_claimed_len,
+        # {platform: [{collection_id, display_id}]} of RUNNING plans, and
+        # {platform: n} of the queue that is those plans' own slices.
+        "armed_plans_by_platform": armed_plans_by_platform,
+        "queue_plan_items_by_platform": queue_plan_items_by_platform,
         # Fresh local-drain leases (laptop draining a queue against the shared
         # bucket) — the matching scraper start and consolidation are blocked
         # while one is held. {platform: {host, user, started_at, ...}}.
@@ -429,6 +496,44 @@ def get_enrichment_stats():
 
 
 
+
+
+@management_bp.route('/api/manage/enrichment/history', methods=['GET'])
+@permission_required('tab.data_management.edit_collections', 'tab.data_management.scrape',
+                     'tab.data_management.annotation', 'tab.data_management.refresh')
+@login_required
+def get_enrichment_history():
+    """The enrichment history, newest first — all of it, or one collection's view.
+
+    Query: ``collection_id`` (optional) and ``limit`` (default 100, max 300).
+    A collection's view is its own events plus the platform-lane events its
+    plan shares (see ``enrichment_journal.read``). Display ids are resolved
+    here so both surfaces render the same names.
+    """
+    from ...services import enrichment_journal as journal
+
+    cid = (request.args.get("collection_id") or "").strip() or None
+    try:
+        limit = max(1, min(int(request.args.get("limit") or 100), 300))
+    except (TypeError, ValueError):
+        limit = 100
+    platform = None
+    if cid:
+        entry = collection_enrichment.get_plan(cid) or {}
+        platform = str(entry.get("platform") or "") or None
+    events = journal.read(collection_id=cid, platform=platform, limit=limit)
+    names = _collection_display_ids()
+    for event in events:
+        own = event.get("collection_id")
+        event["display_id"] = names.get(own, own) if own else None
+        tagged = event.get("collection_ids") or []
+        event["display_ids"] = [names.get(c, c) for c in tagged[:12]]
+        event["actor_label"] = journal.actor_label(event.get("actor"))
+    collections = [{"collection_id": c, "display_id": names.get(c, c)}
+                   for c in journal.collection_ids_present()]
+    collections.sort(key=lambda c: c["display_id"].lower())
+    return jsonify({"events": events, "collections": collections,
+                    "collection_id": cid, "platform": platform})
 
 
 @management_bp.route('/api/manage/annotation/backends', methods=['GET'])
@@ -545,7 +650,15 @@ def empty_enrichment_queue(queue_type):
             requested = body.get("platform")
             targets = [requested] if requested else scrape_queues.registered_platforms()
             for platform in targets:
+                dropped = len(scrape_queues.load_scrape_queue(platform))
                 scrape_queues.remove_scrape_queue(platform)
+                if dropped:
+                    from ...services.enrichment_journal import platform_label
+                    _journal("queue.emptied",
+                             f"{platform_label(platform)} scrape queue emptied by {_actor()} — "
+                             f"{dropped:,} queued video(s) dropped",
+                             platform=platform, queue="scrape", dropped=dropped,
+                             reason=body.get("reason") or None)
             load_process_stats()
             stats_changed = False
             for platform in targets:
@@ -561,7 +674,16 @@ def empty_enrichment_queue(queue_type):
                 save_process_stats()
         elif queue_type == "annotate":
             if data_io.exists(storage_location='cache', filename='to_annotate.json'):
+                queued = data_io.load_json(storage_location='cache', filename='to_annotate.json')
+                dropped = len(queued) if isinstance(queued, list) else 0
                 data_io.remove(storage_location='cache', filename='to_annotate.json')
+                if dropped:
+                    body = request.get_json(silent=True) or {}
+                    _journal("queue.emptied",
+                             f"Annotation queue emptied by {_actor()} — "
+                             f"{dropped:,} queued video(s) dropped",
+                             queue="annotate", dropped=dropped,
+                             reason=body.get("reason") or None)
             load_process_stats()
             if "annotate_queue_len" in process_stats.get("queue_annotator", {}):
                 process_stats["queue_annotator"]["annotate_queue_len"] = 0
@@ -902,6 +1024,15 @@ def calculate_to_scrape():
                          "retry_failed": retry_failed,
                          "retry_missing_media": retry_missing_media,
                          **cap_info})
+        for platform, n in sorted(queue_len_by_platform.items()):
+            added = len(by_platform.get(platform) or [])
+            if not added:
+                continue
+            _journal("queue.built",
+                     f"Scrape queue built from study '{study_name}' by {_actor()} — "
+                     f"{added:,} {platform} video(s) added, {n:,} now queued",
+                     platform=platform, study=study_name, added=added, queued=n,
+                     retry_failed=retry_failed, retry_missing_media=retry_missing_media)
 
         return jsonify({
             "status": "success",
@@ -1096,6 +1227,13 @@ def calculate_to_annotate():
 
         _log_dm("build_annotation_queue", target=study_name,
                 details={"newly_queued": len(unannotated_videos), **cap_info})
+        if unannotated_videos:
+            _journal("queue.built",
+                     f"Annotation queue built from study '{study_name}' by {_actor()} — "
+                     f"{len(unannotated_videos):,} video(s) added, "
+                     f"{len(current_queue):,} now queued",
+                     study=study_name, added=len(unannotated_videos),
+                     queued=len(current_queue), cost_estimate=cost)
 
         return jsonify({
             "status": "success",
@@ -1218,6 +1356,13 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
 
     _log_dm("build_annotation_queue", target=f"reannotation:{selection_mode}",
             details={"newly_queued": len(selected_ids), **cap_info})
+    if selected_ids:
+        _journal("queue.built",
+                 f"Annotation queue built for re-annotation ({selection_mode}) by "
+                 f"{_actor()} — {len(selected_ids):,} video(s) added, "
+                 f"{len(current_queue):,} now queued",
+                 mode=selection_mode, added=len(selected_ids),
+                 queued=len(current_queue), cost_estimate=cost)
 
     return jsonify({
         "status": "success",

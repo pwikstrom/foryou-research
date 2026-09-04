@@ -514,9 +514,170 @@ def save_collection_enrichment(collection_id):
                 ({"settings": patch["settings"]} if "settings" in patch else {}),
     )
     entry = ce.get_plan(cid)
+    _journal_plan_save(cid, patch, (existing or {}).get("state"), entry or {},
+                       queue_choice=data.get("queue_choice"),
+                       foreign_queued=data.get("foreign_queued"))
     return jsonify({"status": "success", "armed": entry is not None,
                     "settings": (entry or {}).get("settings"),
                     "progress": ce.progress(cid, entry)})
+
+
+def _journal_plan_save(cid: str, patch: dict, prev_state, entry: dict, *,
+                       queue_choice=None, foreign_queued=None) -> None:
+    """One history line per Arm / Pause / Resume / settings save. Never raises."""
+    try:
+        from ...services import enrichment_journal as journal
+        from ...services import collection_enrichment as ce
+
+        settings = {**ce.DEFAULT_SETTINGS, **(entry.get("settings") or {})}
+        target = int(settings.get("annotation_target") or 0)
+        actor = _actor()
+        state = patch.get("state")
+        platform = entry.get("platform") or None
+        if state == ce.STATE_RUNNING:
+            if prev_state == ce.STATE_PAUSED:
+                kind, verb = "plan.resumed", "Resumed"
+            elif prev_state in (ce.STATE_DONE, ce.STATE_BLOCKED):
+                kind, verb = "plan.armed", "Armed again"
+            else:
+                kind, verb = "plan.armed", "Armed"
+            message = f"{verb} by {actor} — target {target:,} unique videos annotated"
+            if settings.get("cycle_items_auto"):
+                message += ", cycles sized automatically"
+            else:
+                message += f", {int(settings.get('cycle_items') or 0):,} videos per cycle"
+            try:
+                n_foreign = int(foreign_queued or 0)
+            except (TypeError, ValueError):
+                n_foreign = 0
+            if queue_choice == "empty" and n_foreign:
+                message += (f"; {n_foreign:,} video(s) queued elsewhere were emptied "
+                            f"from the queues first")
+            elif queue_choice == "drain" and n_foreign:
+                message += (f"; {n_foreign:,} video(s) queued elsewhere will be "
+                            f"drained before the plan's own work")
+        elif state == ce.STATE_PAUSED:
+            kind = "plan.paused"
+            message = f"Paused by {actor} — work already queued still finishes"
+        elif "settings" in patch:
+            kind = "plan.settings"
+            message = f"Settings changed by {actor} — target {target:,} unique videos annotated"
+        else:
+            return
+        journal.record(kind, message, collection_id=cid, platform=platform, actor=actor,
+                       target=target, prev_state=prev_state,
+                       cycle_items_auto=bool(settings.get("cycle_items_auto")),
+                       queue_choice=queue_choice, foreign_queued=foreign_queued)
+    except Exception:
+        pass
+
+
+@management_bp.route('/api/manage/collections/<collection_id>/enrichment/queue_preview', methods=['GET'])
+@permission_required('tab.data_management.edit_collections')
+@login_required
+def preview_collection_enrichment_queues(collection_id):
+    """What the shared queues hold right now, split by whose work it is.
+
+    The scrape queue is one file per platform and the annotation queue is one
+    file for everyone; a plan's drain takes whatever is in them. Before Arm or
+    Run a cycle now, the panel asks this so the operator sees that a colleague's
+    4,700-video build is about to run first — and can choose to empty it.
+
+    Returns per queue: ``total``, ``this_collection``, ``others`` (top
+    collections by count, with display ids), ``more`` (the rest, in videos),
+    ``unattributed`` (ids in no collection) and ``foreign`` (everything not
+    this collection's); ``breakdown`` is False when the queues were too big to
+    attribute. No parquet read when both queues are empty.
+    """
+    from fyp.scrape import scrape_queues
+    from flask_login import current_user
+
+    from ...permissions import user_has_permission
+    from ...services import collection_enrichment as ce
+    from .enrichment import _annotation_cost_estimate, _collection_display_ids
+
+    cid = str(collection_id)
+    entry = ce.get_plan(cid) or {}
+    platform = str(entry.get("platform") or "")
+    if not platform:
+        activity = ce.load_activity(cid)
+        platform = ce.collection_platform(activity) if activity is not None else ""
+    platform = platform or scrape_queues.default_platform()
+
+    scrape_ids = [str(i) for i in scrape_queues.load_scrape_queue(platform)]
+    annotate_raw = data_io.load_json(storage_location="cache",
+                                     filename=ce.ANNOTATE_QUEUE_FILENAME) or []
+    annotate_ids = [str(i) for i in annotate_raw] if isinstance(annotate_raw, list) else []
+
+    def _empty(total):
+        return {"total": total, "this_collection": 0, "others": [], "more": 0,
+                "unattributed": 0, "foreign": 0}
+
+    payload = {
+        "platform": platform,
+        "scrape": _empty(len(scrape_ids)),
+        "annotate": _empty(len(annotate_ids)),
+        "breakdown": True,
+        "armed_elsewhere": [],
+        "can_empty": bool(user_has_permission(current_user, "tab.data_management.scrape")
+                          or user_has_permission(current_user, "tab.data_management.annotation")),
+    }
+
+    ids = list(dict.fromkeys(scrape_ids + annotate_ids))
+    if ids and len(ids) <= 20_000:
+        names = _collection_display_ids()
+        try:
+            frame = data_io.load_parquet_selective(
+                storage_location="recoded", filename=f"{COLLECTIONS_LABEL}_recoded.parquet",
+                columns=["collection_id", "item_id"],
+                filters=[("item_id", "in", ids)],
+            )
+        except Exception:
+            frame = None
+        members: dict[str, set[str]] = {}
+        if frame is not None and not frame.empty:
+            pairs = frame[["collection_id", "item_id"]].drop_duplicates()
+            for coll, item in zip(pairs["collection_id"].astype(str),
+                                  pairs["item_id"].astype(str)):
+                members.setdefault(item, set()).add(coll)
+
+        def _split(queue_ids: list[str]) -> dict:
+            mine = 0
+            by_other: dict[str, int] = {}
+            unattributed = 0
+            for item in queue_ids:
+                colls = members.get(item)
+                if not colls:
+                    unattributed += 1
+                    continue
+                if cid in colls:
+                    mine += 1
+                for coll in colls:
+                    if coll != cid:
+                        by_other[coll] = by_other.get(coll, 0) + 1
+            ranked = sorted(by_other.items(), key=lambda kv: (-kv[1], kv[0]))
+            top = [{"collection_id": c, "display_id": names.get(c, c), "n": n}
+                   for c, n in ranked[:8]]
+            return {"total": len(queue_ids), "this_collection": mine, "others": top,
+                    "more": len(ranked) - len(top), "unattributed": unattributed,
+                    "foreign": len(queue_ids) - mine}
+
+        payload["scrape"] = _split(scrape_ids)
+        payload["annotate"] = _split(annotate_ids)
+    elif ids:
+        payload["breakdown"] = False
+        payload["scrape"]["foreign"] = len(scrape_ids)
+        payload["annotate"]["foreign"] = len(annotate_ids)
+
+    payload["annotate"]["cost_estimate"] = (
+        _annotation_cost_estimate(payload["annotate"]["foreign"])
+        if payload["annotate"]["foreign"] else None)
+    names = _collection_display_ids()
+    payload["armed_elsewhere"] = [
+        {"collection_id": other, "display_id": names.get(other, other)}
+        for other, e in ce.armed_plans().items()
+        if other != cid and str(e.get("platform") or "") == platform]
+    return jsonify(payload)
 
 
 @management_bp.route('/api/manage/collections/<collection_id>/enrichment/tick', methods=['POST'])
@@ -540,6 +701,13 @@ def tick_collection_enrichment(collection_id):
     activity_log.record(
         actor=_actor(), category=activity_log.CATEGORY_DATA_MANAGEMENT,
         action="collection.enrichment.tick", target=cid)
+    try:
+        from ...services import enrichment_journal as journal
+        journal.record("plan.tick", f"Cycle requested by {_actor()}",
+                       collection_id=cid, actor=_actor(),
+                       platform=(ce.get_plan(cid) or {}).get("platform") or None)
+    except Exception:
+        pass
 
     if is_cloud_run():
         # What the supervisor's status file said BEFORE this dispatch. The tick

@@ -972,6 +972,16 @@ def activity(platform: str | None = None) -> dict:
                 if isinstance(status.get("progress"), dict) else None
             return {"kind": kind, "worker": name, "message": progress_msg,
                     "started_at": status.get("start_time")}
+        # A downstream refresh run (embeddings, map, studies…) gates every
+        # tick just like a worker does, but no single worker names it —
+        # without this the strip read "waiting for the next tick" for the
+        # whole of a 15-minute pipeline (2026-09-04).
+        from web_interface.services import refresh_pipeline
+        if refresh_pipeline.run_in_flight():
+            run = refresh_pipeline.load_run(reload=False) or {}
+            return {"kind": "refreshing", "worker": "refresh_pipeline",
+                    "message": run.get("origin_label") or None,
+                    "started_at": run.get("started_ts")}
     except Exception as exc:
         logger.error(f"collection_enrichment.activity failed: {exc}")
     return {"kind": "waiting", "worker": None, "message": None,

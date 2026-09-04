@@ -12,6 +12,27 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Added
 
+- **Enrichment History.** One durable, high-level record of what the
+  enrichment machinery did, newest first: plans armed, paused or parked (and
+  why), scrape queues built from a study, queues emptied, a queue handed to
+  a worker split into the armed plans' own slices and everything else, and
+  every scraper, annotator, consolidation and analysis refresh that finished
+  with its totals — written by the supervisor, the queue endpoints, the
+  process starter and the workers' terminal exits into a bounded ring
+  (`cache/enrichment_journal.json`). Shown as a card on Dataset Assembly
+  (with a collection filter) and, per collection, under a *History*
+  disclosure in the Edit Collections panel. Worker logs keep only their
+  last few runs and the supervisor's own log is flushed by its hourly
+  heartbeat; this keeps weeks.
+- **A queue check before a cycle starts.** The platform scrape queue and
+  the annotation queue are one file each for the whole site, and the loop
+  drains them before it can do its own work — so *Arm*, *Resume* and *Run
+  a cycle now* first ask the server what the queues hold; when any of it is
+  not the collection's own, a dialog shows how many videos, which
+  collections they belong to and the annotation cost, and offers to drain
+  them first or empty them now. The Scrape and Annotation pages also say
+  which armed plan will drain a queue on its next tick, and *Empty Queue*
+  now confirms, naming any armed plan whose current slice it would drop.
 - **Automatic per-collection enrichment (the supervisor loop).** An armed
   collection scrapes and annotates itself unattended: a conductor worker
   (`enrichment_supervisor`) ticks one action at a time — start a queue
@@ -80,6 +101,19 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Fixed
 
+- **A healthy enrichment plan was parked after three productive cycles.**
+  The handoff reset the plan's stall counter, but the boundary tick's
+  planning step read the plan entry snapshotted before the handoff and
+  wrote the stale count plus one back over the reset, so the counter climbed
+  by one every cycle regardless of progress; the fourth cycle stopped with
+  "no scrape progress in 3 cycles". The planning step now reloads the entry
+  immediately before its read-modify-write.
+- **Results from a job the loop started were stranded when its plan stopped
+  first.** An annotation batch that finished after its plan was parked had
+  no armed plan left to consolidate it, and the deferred analysis refresh
+  ran without it. The loop now records a consolidation as owed whenever it
+  starts a scraper or annotator, and settles that debt on its next tick even
+  with nothing armed.
 - **Queueing videos for annotation crashed on any study with a missing video
   duration** ("float() argument must be a string or a real number, not
   'NAType'"): study frames load with the pyarrow dtype backend, so an absent

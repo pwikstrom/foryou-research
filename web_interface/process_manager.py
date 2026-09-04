@@ -741,6 +741,49 @@ def _drain_lease_conflict(name: str) -> str | None:
 
 
 
+def _journal_worker_started(name: str, started_by: str, task_args: dict | None) -> None:
+    """Record a hand-started enrichment worker in the enrichment history.
+
+    Only the workers the enrichment loop shares — the scrapers, the annotators
+    and the consolidation — and only when a person (or a pipeline) started
+    them: the loop's own starts are recorded by the supervisor, which also
+    knows how much of the queue was its own work. Never raises.
+    """
+    try:
+        if started_by == "enrichment_supervisor":
+            return
+        if not (name.startswith("queue_scraper_")
+                or name in ("queue_annotator", "queue_annotator_batch",
+                            "consolidate_enrichment")):
+            return
+        from web_interface.services import enrichment_journal as journal
+
+        ta = task_args or {}
+        platform = name[len("queue_scraper_"):] if name.startswith("queue_scraper_") else None
+        if platform:
+            what = f"{journal.platform_label(platform)} scraper"
+        elif name.startswith("queue_annotator"):
+            what = "Annotator"
+        else:
+            what = "Consolidation"
+        extras = []
+        if ta.get("batch_size"):
+            extras.append(f"batch size {ta['batch_size']}")
+        if ta.get("max_batches"):
+            extras.append(f"at most {ta['max_batches']} batch(es)")
+        if name == "consolidate_enrichment" and "auto_refresh" in ta:
+            extras.append("with the analysis refresh" if ta.get("auto_refresh")
+                          else "without the analysis refresh")
+        message = f"{what} started by {journal.actor_label(started_by)}"
+        if extras:
+            message += f" ({', '.join(extras)})"
+        journal.record("worker.started", message, platform=platform,
+                       actor=started_by or None, worker=name,
+                       batch_size=ta.get("batch_size"), max_batches=ta.get("max_batches"))
+    except Exception:
+        pass
+
+
 def start_process(name: str, script_path, args: list = [], study_name: str | None = None,
                   task_args: dict | None = None, started_by: str = "",
                   extra_task_args: dict | None = None) -> tuple[bool, str]:
@@ -865,6 +908,7 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
             run_logs.open_run(status_key, run_id=task_args["log_run_id"],
                               started_by=task_args["started_by"],
                               task_args=task_args, mode="cloud")
+            _journal_worker_started(name, task_args["started_by"], task_args)
             # Write an immediate "running" status so the UI shows feedback
             # before the task-runner instance starts up and writes its own status.
             from web_interface.task_status import GCSStatusReporter
@@ -931,6 +975,7 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         # is the run's first line and nothing the worker prints races ahead of it.
         run_logs.open_run(name, started_by=started_by, task_args=_ta,
                           mode="subprocess")
+        _journal_worker_started(name, started_by, _ta)
 
         # Start logging thread
         t = threading.Thread(target=enqueue_output, args=(proc.stdout, processes[name]["logs"], processes[name], name))

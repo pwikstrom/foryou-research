@@ -477,6 +477,13 @@
   ]
  ],
  [
+  "/api/manage/collections/<collection_id>/enrichment/queue_preview",
+  "management_bp.preview_collection_enrichment_queues",
+  [
+   "GET"
+  ]
+ ],
+ [
   "/api/manage/collections/<collection_id>/enrichment/tick",
   "management_bp.tick_collection_enrichment",
   [
@@ -586,6 +593,13 @@
   "management_bp.empty_enrichment_queue",
   [
    "POST"
+  ]
+ ],
+ [
+  "/api/manage/enrichment/history",
+  "management_bp.get_enrichment_history",
+  [
+   "GET"
   ]
  ],
  [

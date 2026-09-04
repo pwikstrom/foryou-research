@@ -83,7 +83,11 @@ Hard-won robustness around that job framework, all mode-agnostic:
   trap above; progress instead comes from three idempotent triggers (a
   terminal worker completion, the end of a consolidation, and an hourly
   Cloud Scheduler heartbeat). Every tick re-reads the world and defers while
-  any enrichment or pipeline step is running.
+  any enrichment or pipeline step is running. What it and the workers do is
+  written to the **enrichment history** (`services/enrichment_journal.py`,
+  a bounded ring in `cache/enrichment_journal.json`) — the one durable,
+  high-level record of how a cycle unfolded, shown on Dataset Assembly and,
+  per collection, in the Edit Collections panel.
 - **The `ops_report` worker** — a daily operational health report
   (`web_interface/run_ops_report.py` + `services/ops_report.py`): checks
   across the whole system, an AI-written assessment, and an emailed copy;

@@ -18,6 +18,10 @@
             <span id="enrich_annotate_inflight" class="text-sm meta-tooltip"
                 data-tooltip="These videos have been reserved by the async (batch) annotator and are being processed by Gemini. They have left the pending queue but are not annotated yet — they finish when the batch job completes."
                 style="color: var(--color-text-tertiary); margin-left: 8px; display: none;"></span>
+            <!-- Set by renderArmedPlanNotes() when an enrichment plan is armed:
+                 the loop drains this queue on its next tick, so anything
+                 queued here is annotated (and paid for) by the loop. -->
+            <span id="enrich_annotate_plan_note" class="text-xs dm-plan-note" style="display: none;"></span>
         </div>
         <button type="button" class="btn-stop text-xs" onclick="emptyQueue('annotate')"
             style="padding: 4px 8px;">Empty Queue</button>

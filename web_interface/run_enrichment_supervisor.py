@@ -41,12 +41,21 @@ from datetime import datetime, timezone
 
 import fyp.data_io as data_io
 from web_interface.services import collection_enrichment as ce
+from web_interface.services import enrichment_journal as journal
 from web_interface.task_status import TaskStatusReporter
 
 # Consecutive cycles a collection may enqueue work without a single new scrape
 # landing before its plan parks itself. Named here for the worker's own log copy;
 # the threshold lives with the rest of the plan semantics.
 _MAX_STALLS = ce.MAX_STALLS
+
+# Ledger __meta__ key: set when the loop starts a scraper or annotator, cleared
+# when the loop consolidates. A plan that is parked or finishes while a job it
+# started is still running leaves the job's results with no tick to fold them
+# in — 85 annotations landed that way on 2026-09-04 and were missing from the
+# analysis refresh an hour later. The marker is the loop's own debt, so the
+# no-plans path may settle it; an operator's manual runs never set it.
+SETTLE_OWED_KEY = "settle_owed"
 
 
 def _admin_kill_switch() -> bool:
@@ -233,7 +242,14 @@ def run_enrichment_supervisor(reporter: TaskStatusReporter,
 
     blocking = _hard_gate()
     if blocking or _pipeline_in_flight():
-        reporter.log(f"Busy, nothing to do: {', '.join(blocking) or 'pipeline in flight'}.")
+        why = ', '.join(blocking) or 'pipeline in flight'
+        reporter.log(f"Busy, nothing to do: {why}.")
+        if forced:
+            # Only a person's click is worth a history line here — the hourly
+            # heartbeat waiting behind a long pipeline is not news.
+            journal.record("tick.busy", f"Cycle requested, but the loop had to wait: {why}",
+                           collection_id=forced, actor=task_args.get("started_by"),
+                           blocking=list(blocking))
         reporter.emit_data({"action": "busy", "blocking": blocking})
         return None
 
@@ -251,6 +267,14 @@ def run_enrichment_supervisor(reporter: TaskStatusReporter,
         entry = ce.get_plan(forced)
         plans = {forced: entry} if entry else {}
     if not plans:
+        # A job the loop started may have finished after its plan stopped:
+        # its results are the loop's debt and must be folded in before the
+        # quiet finalize refreshes the analyses without them.
+        owed = _settle_owed(reporter)
+        if owed:
+            reporter.update_progress(100, owed.get("message") or owed["action"])
+            reporter.emit_data(owed)
+            return None
         quiet = _finalize(reporter)
         if quiet:
             reporter.update_progress(100, quiet.get("message") or quiet["action"])
@@ -333,6 +357,12 @@ def _queue_stalled(reporter, plans: dict, guard_key: str, queue_len: int,
         for cid in plans:
             ce.save_plan(cid, {"state": ce.STATE_BLOCKED,
                                "last_error": f"{label} queue not draining"})
+            journal.record("plan.blocked",
+                           f"Needs attention — the {label} queue is not draining "
+                           f"({queue_len:,} item(s) unchanged across {strikes + 1} runs); "
+                           f"every plan sharing it is parked",
+                           collection_id=cid, actor="enrichment_supervisor",
+                           reason=f"{label} queue not draining", queued=queue_len)
         ce.set_meta(guard_key, None)
         return True
     ce.set_meta(guard_key, {"len": queue_len, "strikes": strikes})
@@ -385,6 +415,12 @@ def _drain(reporter, plans: dict, lanes: tuple = ("scrape", "annotate")) -> dict
                     if str(entry.get("platform") or "") == platform:
                         ce.save_plan(cid, {"state": ce.STATE_BLOCKED,
                                            "last_error": f"scraper {tripped}"})
+                        journal.record("plan.blocked",
+                                       f"Needs attention — the {journal.platform_label(platform)} "
+                                       f"scraper is held off ({tripped.replace('_', ' ')}); "
+                                       f"clear the alert on the Scrape page, then arm again",
+                                       collection_id=cid, platform=platform,
+                                       actor="enrichment_supervisor", reason=tripped)
                 continue
             platform_plans = {cid: e for cid, e in plans.items()
                               if str(e.get("platform") or "") == platform}
@@ -395,6 +431,9 @@ def _drain(reporter, plans: dict, lanes: tuple = ("scrape", "annotate")) -> dict
                         "message": f"The {platform} scrape queue is not draining; plans parked."}
             ok, msg = _start(f"queue_scraper_{platform}")
             reporter.log(f"Scraping {count} queued {platform} item(s): {msg}")
+            if ok:
+                _note_settle_owed("scrape")
+                _journal_scrape_drain(platform, count, platform_plans)
             scrape_outcome = {"action": "scrape", "platform": platform, "queued": count,
                               "started": ok, "message": f"Started the {platform} scraper."}
             break
@@ -414,6 +453,13 @@ def _drain(reporter, plans: dict, lanes: tuple = ("scrape", "annotate")) -> dict
                 name = _annotator_process()
                 ok, msg = _start(name)
                 reporter.log(f"Annotating {len(queue)} queued item(s) via {name}: {msg}")
+                if ok:
+                    _note_settle_owed("annotate")
+                    journal.record("queue.drained",
+                                   f"Annotator started on the annotation queue — "
+                                   f"{len(queue):,} video(s) queued",
+                                   actor="enrichment_supervisor", worker=name,
+                                   queued=len(queue))
                 annotate_outcome = {"action": "annotate", "queued": len(queue),
                                     "started": ok, "message": f"Started {name}."}
         else:
@@ -425,6 +471,81 @@ def _drain(reporter, plans: dict, lanes: tuple = ("scrape", "annotate")) -> dict
         return {**scrape_outcome,
                 "message": f"{scrape_outcome['message']} {annotate_outcome['message']}"}
     return scrape_outcome or annotate_outcome
+
+
+def _note_settle_owed(after: str) -> None:
+    """Mark that a worker the loop just started owes a consolidation."""
+    try:
+        ce.set_meta(SETTLE_OWED_KEY, {"after": after, "since": ce.now_iso()})
+    except Exception:
+        pass
+
+
+def _journal_scrape_drain(platform: str, count: int, platform_plans: dict) -> None:
+    """Record a scraper start with how much of the queue was the plans' own.
+
+    The platform queue is shared by everything that scrapes — an armed plan's
+    slices, a study's "Build scrape queue", a participant's first batch — and
+    the drain takes all of it. Splitting the count between the armed plans'
+    recorded slices and everything else is what lets the history say "53
+    minutes of this cycle went to someone else's backlog" (2026-09-04).
+    """
+    try:
+        from fyp.scrape import scrape_queues
+        queued = {str(i) for i in scrape_queues.load_scrape_queue(platform)}
+        own: set[str] = set()
+        for entry in platform_plans.values():
+            own |= {str(i) for i in (entry.get("in_flight") or [])}
+        plan_items = len(queued & own)
+        other = max(0, count - plan_items)
+        message = (f"{journal.platform_label(platform)} scraper started on its queue — "
+                   f"{count:,} queued: {plan_items:,} from armed plans")
+        message += (f", {other:,} queued elsewhere (drained first)" if other
+                    else "")
+        journal.record("queue.drained", message, platform=platform,
+                       actor="enrichment_supervisor", queued=count,
+                       plan_items=plan_items, other_items=other,
+                       plan_collections=sorted(platform_plans))
+    except Exception:
+        pass
+
+
+def _settle_owed(reporter) -> dict | None:
+    """Fold in results from a job the loop started before its last plan stopped.
+
+    Reached only when nothing is armed. The consolidation is the same
+    core-only one ``_settle`` runs; its completion ticks the loop again, and
+    the quiet finalize then spends the deferred refresh with these results in.
+    """
+    owed = ce.get_meta(SETTLE_OWED_KEY)
+    if not owed:
+        return None
+    kind = _unconsolidated()
+    if not kind:
+        # Consolidated by hand in the meantime — nothing left to fold in.
+        ce.set_meta(SETTLE_OWED_KEY, None)
+        return None
+    from web_interface.services.worker_status import _workers_blocking_consolidate
+    blocking = _workers_blocking_consolidate()
+    if blocking:
+        reporter.log(f"Results from {kind} await consolidation (no plan armed); "
+                     f"waiting for {', '.join(blocking)} to finish first.")
+        return {"action": "waiting_consolidate", "after": kind, "blocking": blocking,
+                "message": f"Waiting for {', '.join(blocking)} before consolidating."}
+    ok, msg = _start("consolidate_enrichment",
+                     {"auto_refresh": False, "plan_deferred": True})
+    reporter.log(f"Folding in results from a {kind} job the loop started before its "
+                 f"plan stopped: {msg}")
+    if ok:
+        ce.set_meta(SETTLE_OWED_KEY, None)
+        journal.record("results.settled",
+                       f"Consolidating {kind} results from a job the loop started "
+                       f"before its plan stopped — nothing armed, so this is the "
+                       f"loop's last step",
+                       actor="enrichment_supervisor", after=kind,
+                       owed_since=(owed.get("since") if isinstance(owed, dict) else None))
+    return {"action": "consolidate", "after": kind, "auto_refresh": False,
+            "started": ok, "message": f"Consolidating {kind} results owed by the loop."}
 
 
 # --------------------------------------------------------------------------- #
@@ -463,6 +584,12 @@ def _settle(reporter) -> dict | None:
     ok, msg = _start("consolidate_enrichment",
                      {"auto_refresh": False, "plan_deferred": True})
     reporter.log(f"Consolidating after {kind} (downstream refresh deferred): {msg}")
+    if ok:
+        # The debt the drain step recorded is being paid.
+        try:
+            ce.set_meta(SETTLE_OWED_KEY, None)
+        except Exception:
+            pass
     return {"action": "consolidate", "after": kind, "auto_refresh": False,
             "started": ok, "message": f"Consolidating after {kind}."}
 
@@ -525,6 +652,15 @@ def _finalize(reporter, require_backstop: bool = False) -> dict | None:
     if status == "started":
         reporter.log(f"Deferred downstream refresh dispatched "
                      f"(impact spanned {deferred.get('runs', '?')} consolidation(s)).")
+        journal.record("finalize.dispatched",
+                       f"Analysis refresh started — the impact of "
+                       f"{deferred.get('runs', '?')} consolidation(s) deferred since "
+                       f"{str(deferred.get('deferred_since') or '?')[:16].replace('T', ' ')}"
+                       + (" (24h backstop, mid-plan)" if require_backstop else ""),
+                       actor="enrichment_supervisor",
+                       collection_ids=deferred.get("affected_collection_ids") or None,
+                       runs=deferred.get("runs"), backstop=bool(require_backstop),
+                       studies=len(deferred.get("affected_study_names") or []))
         return {"action": "finalize",
                 "message": "Started the deferred analysis refresh."}
     if status == "noop":
@@ -571,15 +707,24 @@ def _handoff(reporter, plans: dict) -> dict | None:
             # or permanently failed) must leave it even on a no-op handoff.
             if result["in_flight"] != list(entry.get("in_flight") or []):
                 ce.save_plan(cid, {"in_flight": result["in_flight"]})
+                plans[cid] = {**entry, "in_flight": result["in_flight"]}
             continue
         n = ce.queue_for_annotation(ready)
-        ce.save_plan(cid, {
+        patch = {
             "spent_items": int(entry.get("spent_items") or 0) + n,
             "in_flight": result["in_flight"],
             "stall_count": 0,
             "last_error": None,
-        })
+        }
+        ce.save_plan(cid, patch)
+        # The boundary tick calls _plan on this same dict next: it must see
+        # the reset counter and the pruned in-flight set, not the snapshot.
+        plans[cid] = {**entry, **patch}
         reporter.log(f"{cid}: {n} scraped item(s) handed to annotation.")
+        journal.record("handoff", f"{n:,} scraped video(s) handed to annotation",
+                       collection_id=cid, platform=entry.get("platform"),
+                       actor="enrichment_supervisor", queued=n,
+                       skipped_in_flight=len(result["ready"]) - len(ready))
         total += n
         served.append(cid)
     if not total:
@@ -635,13 +780,21 @@ def _plan(reporter, plans: dict) -> dict | None:
     # progress together instead of the first one monopolising the loop.
     order = sorted(plans.items(), key=lambda kv: str(kv[1].get("last_cycle_at") or ""))
 
-    for cid, entry in order:
+    for cid, snapshot in order:
         try:
+            # Reload immediately before the read-modify-write below. The
+            # handoff earlier in this same tick resets stall_count and prunes
+            # in_flight, and `plans` was snapshotted before it ran: on
+            # 2026-09-04 three productive cycles parked a healthy plan because
+            # this loop incremented the stale counter over the reset.
+            entry = ce.get_plan(cid) or snapshot
             activity = ce.load_activity(cid)
             if activity is None or activity.empty:
                 ce.save_plan(cid, {"state": ce.STATE_DONE,
                                    "last_error": "no viewing activity"})
                 reporter.log(f"{cid}: no viewing activity; plan closed.")
+                journal.record("plan.done", "Idle — the collection has no viewing activity",
+                               collection_id=cid, actor="enrichment_supervisor")
                 continue
 
             platform = ce.collection_platform(activity)
@@ -649,6 +802,10 @@ def _plan(reporter, plans: dict) -> dict | None:
                 ce.save_plan(cid, {"state": ce.STATE_BLOCKED, "platform": platform,
                                    "last_error": f"no scraper registered for '{platform}'"})
                 reporter.log(f"{cid}: no scraper for '{platform}'; plan blocked.")
+                journal.record("plan.blocked",
+                               f"Needs attention — no scraper is registered for '{platform}'",
+                               collection_id=cid, platform=platform,
+                               actor="enrichment_supervisor", reason="no scraper")
                 continue
             if _scrape_lane_busy(platform):
                 # The platform's scraper is mid-run; cutting another slice now
@@ -683,17 +840,31 @@ def _plan(reporter, plans: dict) -> dict | None:
                                    "b_cursor": result["b_cursor"],
                                    "finished_at": ce.now_iso()})
                 reporter.log(f"{cid}: nothing left to enrich; plan complete.")
+                journal.record("plan.done",
+                               "Idle — the annotation target is met, or nothing "
+                               "processable is left",
+                               collection_id=cid, platform=platform,
+                               actor="enrichment_supervisor",
+                               target=int(settings.get("annotation_target") or 0))
                 _notify_owner(reporter, cid, entry)
                 continue
 
             # A cycle that enqueues work but never produces a scrape is chasing
             # something unscrapeable (a bot wall, deleted posts). Park it rather
-            # than let it spend forever.
+            # than let it spend forever. (The counter is reset by every
+            # productive handoff, so only consecutive empty cycles reach it.)
             stalls = int(entry.get("stall_count") or 0)
             if stalls >= _MAX_STALLS:
                 ce.save_plan(cid, {"state": ce.STATE_BLOCKED,
                                    "last_error": f"no scrape progress in {stalls} cycles"})
                 reporter.log(f"{cid}: no scrape progress in {stalls} cycles; plan blocked.")
+                journal.record("plan.blocked",
+                               f"Needs attention — {stalls} cycles queued scrapes without "
+                               f"a single new one landing; parked rather than keep spending",
+                               collection_id=cid, platform=platform,
+                               actor="enrichment_supervisor",
+                               reason=f"no scrape progress in {stalls} cycles",
+                               stalls=stalls)
                 continue
 
             scrape_queues.append_to_scrape_queue(platform, items)
@@ -720,6 +891,17 @@ def _plan(reporter, plans: dict) -> dict | None:
             reporter.log(f"{cid}: queued {len(items)} item(s) to scrape "
                          f"({result['b']} deep-dive, {result['a']} spread); "
                          f"back to {result['b_cursor']} / {result['a_cursor']}.")
+            journal.record("slice.queued",
+                           f"Next slice queued — {len(items):,} video(s) to scrape "
+                           f"({result['b']:,} deep dive, {result['a']:,} spread); "
+                           f"deep dive back to {result['b_cursor'] or '—'}, "
+                           f"spread to {result['a_cursor'] or '—'}",
+                           collection_id=cid, platform=platform,
+                           actor="enrichment_supervisor", queued=len(items),
+                           deep_dive=result["b"], spread=result["a"],
+                           b_cursor=result["b_cursor"], a_cursor=result["a_cursor"],
+                           auto_items=auto_items,
+                           cycle=int(entry.get("cycles") or 0) + 1)
             return {"action": "plan", "collection_id": cid, "queued": len(items),
                     "a": result["a"], "b": result["b"], "platform": platform,
                     "message": f"Queued {len(items)} item(s) for {cid}."}

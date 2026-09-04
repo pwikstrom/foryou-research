@@ -425,7 +425,17 @@ live under *Advanced*); an amber warning appears when the settings cannot
 reach the chosen target. The target is a running total: to continue a
 finished (Idle) plan, raise the target and press *Arm again*. Automatic
 ticking also requires the site-wide switch in Admin → Site Settings;
-*Run a cycle now* works regardless. Deletion removes the participant-linked rows and archives
+*Run a cycle now* works regardless. Before *Arm*, *Resume* or *Run a cycle
+now* the panel checks the shared queues: the platform's scrape queue and
+the annotation queue are one file each for the whole site, and the loop
+drains them before it can do its own work — so if either holds videos
+queued elsewhere (a study's *Queue videos for scraping*, say), a dialog
+shows how many and whose, and asks whether to drain them first or empty
+them now. A **History** disclosure under the status line lists what
+happened to the collection, newest first: the plan armed, paused or parked
+(and why), each slice queued, each handoff to annotation, and every
+scraper, annotator and consolidation run the plan shares, with their
+numbers. Deletion removes the participant-linked rows and archives
 (not destroys) the raw uploads — participants can also withdraw their own
 collections from My Collections, with a 30-day restore window; see the
 deletion section of
@@ -470,6 +480,14 @@ Data** card is the normal entry point: it consolidates new enrichment output,
 reports its impact (which collections and studies changed), and — with
 "Refresh caches afterwards" ticked — dispatches the downstream refresh
 pipeline for exactly what changed, showing each planned step's live state.
+The **Enrichment History** card below the pipeline chart is the durable,
+high-level record of what the enrichment machinery did, newest first —
+plans armed, paused or parked (and why), scrape queues built from a study,
+queues emptied, a queue handed to a worker split into the armed plans' own
+slices and everything else, and every scraper, annotator, consolidation
+and analysis refresh that finished, with its totals and who started it.
+Filter it by collection to read one plan's story; the same view is under
+*History* in that collection's Edit Collections panel.
 Below it, the **Rebuild Downstream Datasets** cards run any single step by
 hand, ordered as the pipeline dispatches them: Semantic Embeddings → Semantic
 Map → Study Definitions → then, in parallel, 'Explore' Metadata,

@@ -1004,4 +1004,38 @@ def finish_run(*, partial: bool = False, failed_at: str | None = None,
         record["stage_total"] = stage_total(record.get("steps") or {})
         return None
 
-    return mutate_run(_apply)
+    finished = mutate_run(_apply)
+    if finished:
+        _journal_finished_run(finished)
+    return finished
+
+
+def _journal_finished_run(record: dict) -> None:
+    """One history line per finished refresh run. Never raises."""
+    try:
+        from web_interface.services import enrichment_journal as journal
+
+        impact = record.get("impact") or {}
+        summary = str(record.get("summary") or "").rstrip(".")
+        if record.get("failed_at"):
+            message = (f"Analysis refresh stopped at "
+                       f"{SHORT_LABELS.get(record['failed_at'], record['failed_at'])}"
+                       + (f" — {summary}" if summary else ""))
+        elif record.get("partial"):
+            message = f"Analysis refresh finished partially — {summary}"
+        else:
+            message = f"Analyses refreshed — {summary}" if summary else "Analyses refreshed"
+        origin = record.get("origin_label") or SHORT_LABELS.get(
+            record.get("origin", ""), record.get("origin"))
+        journal.record("refresh.finished", message,
+                       actor=record.get("started_by") or None,
+                       collection_ids=impact.get("affected_collection_ids") or None,
+                       run_id=record.get("run_id"), origin=origin,
+                       partial=bool(record.get("partial")),
+                       failed_at=record.get("failed_at"),
+                       studies=len(impact.get("affected_study_names") or []),
+                       started_ts=record.get("started_ts"))
+    except Exception as exc:
+        from fyp.logging_setup import get_logger
+        get_logger(__name__).warning(
+            f"refresh_pipeline: could not journal the finished run: {exc}")

@@ -322,6 +322,26 @@ def _submit_more_jobs(reporter, run, batch, data_io) -> None:
             _notify(run, "submitted", n_items=len(submitted_ids))
 
 
+def _journal_finished(run: dict, remaining: int, reason: str) -> None:
+    """The run's one history line, written where its totals are final."""
+    try:
+        from web_interface.services import enrichment_journal as journal
+
+        ok, fail = int(run.get("total_ok") or 0), int(run.get("total_fail") or 0)
+        batches = int(run.get("chunk_index") or 0)
+        message = (f"Annotation finished — {ok:,} annotated, {fail:,} failed "
+                   f"across {batches:,} batch job(s)")
+        message += f"; {remaining:,} still queued" if remaining else "; queue empty"
+        if reason and not reason.lower().startswith("queue is now empty"):
+            message += f" ({reason})"
+        journal.record("annotate.finished", message,
+                       actor=run.get("started_by") or None, worker="queue_annotator_batch",
+                       ok=ok, fail=fail, batches=batches, queue_remaining=remaining,
+                       reason=reason)
+    except Exception:
+        pass
+
+
 def _run_phase(reporter, task_args, batch, data_io):
     """One chain link of the job-table state machine.
 
@@ -381,6 +401,8 @@ def _run_phase(reporter, task_args, batch, data_io):
         _log(reporter, "Stopping: no job in flight and the submit is failing "
                        f"({run['_submit_error']}).")
         _notify(run, "failed", error=f"Batch submit failed: {run['_submit_error']}")
+        _journal_finished(run, len(remaining),
+                          f"stopped — the batch submit is failing ({run['_submit_error']})")
         _clear_job_state(data_io)
         return None
 
@@ -406,6 +428,7 @@ def _run_phase(reporter, task_args, batch, data_io):
             # The per-job "failed" mails already covered a run with no results.
             if total_ok or total_fail:
                 _notify(run, "completed", total_ok=total_ok, total_fail=total_fail)
+            _journal_finished(run, len(remaining), terminal_reason.rstrip("."))
             _clear_job_state(data_io)
             return None
 
