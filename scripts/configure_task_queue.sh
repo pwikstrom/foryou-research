@@ -27,6 +27,21 @@
 # This is a diagnostic, not a fix — it changes no behaviour, it just means the
 # next unexplained delay is answerable. Ratio 1.0 because this queue carries
 # tens of tasks a day, not millions.
+#
+# Verified working 2026-09-04 05:26 by putting one idempotent task through the
+# queue: the setting alone proves nothing, and an empty log query before that
+# was explained by no task having been dispatched (the hourly scheduler POSTs
+# the runner directly, bypassing the queue).
+#
+# Each attempt writes TWO entries to the log
+# "cloudtasks.googleapis.com/task_operations_log":
+#   jsonPayload.attemptDispatchLog  - queue hands the task over (.dispatchReason)
+#   jsonPayload.attemptResponseLog  - .status (OK/...), .dispatchCount
+# A task's full delivery history:
+#   gcloud logging read 'logName:"cloudtasks" AND jsonPayload.task:"<task-id>"' \
+#     --format='value(timestamp,jsonPayload.attemptResponseLog.status,jsonPayload.attemptResponseLog.dispatchCount)'
+# dispatchCount > 1 on the delivery that finally succeeds is the signature of
+# the 2026-09-04 delay: earlier attempts were made and failed silently.
 
 set -euo pipefail
 
