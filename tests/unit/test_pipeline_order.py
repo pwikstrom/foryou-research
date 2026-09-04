@@ -61,13 +61,21 @@ FAIL = 0
 
 
 def _check(name: str, ok: bool, detail: str = ""):
+    """Record a check — and FAIL the test when it does not hold.
+
+    This used to only print, which meant every test in this file passed under
+    pytest no matter what it found: the script runner read the counters, and
+    pytest read nothing. A check that cannot fail is not a test, and this file
+    is where the pipeline's dependency invariants are supposed to be pinned.
+    """
     global PASS, FAIL
     if ok:
         PASS += 1
         print(f"  PASS  {name}")
-    else:
-        FAIL += 1
-        print(f"  FAIL  {name}  {detail}")
+        return
+    FAIL += 1
+    print(f"  FAIL  {name}  {detail}")
+    raise AssertionError(f"{name}: {detail}")
 
 
 def _idx(task: str) -> int:
@@ -477,6 +485,51 @@ def test_barrier_waits_for_queued_leaf_within_grace():
     _check("test_barrier_waits_for_queued_leaf_within_grace", ok, str(h.summary_calls))
 
 
+def test_a_replayed_refresh_acts_on_the_impact_it_inherits():
+    """A deferred/replayed refresh must dispatch, not evaporate.
+
+    Prod, 2026-09-04: the enrichment supervisor's finalize called
+    dispatch_downstream_refresh(None) for a real deferred debt — 50 annotated
+    items, 7 collections, 7 studies. plan_run(origin_ran=False) marked all seven
+    steps "planned", then next_actions returned "finish" and dispatched nothing:
+    every predicate gates on "did my upstream run in THIS run?", and a replayed
+    run does not re-run the consolidation it is catching up on. The supervisor
+    read that as "noop" and SETTLED the debt — dropping the work entirely, not
+    merely deferring it again.
+    """
+    impact = {
+        "new_annotation_item_count": 50,
+        "affected_collection_ids": ["c1", "c2"],
+        "affected_study_names": ["standard_study", "scraped_ones"],
+    }
+    record = rp.plan_run("consolidate_enrichment", kind="refresh_downstream",
+                         started_by="supervisor", impact=impact, origin_ran=False)
+    action = rp.next_actions(record)
+    _check(
+        "test_a_replayed_refresh_acts_on_the_impact_it_inherits",
+        action["action"] != "finish",
+        "a replayed refresh dispatched nothing, so its debt would be dropped",
+    )
+
+
+def test_a_replayed_refresh_scopes_to_what_actually_changed():
+    """Inheriting the consolidation must not mean rebuilding everything: a debt
+    of collections only has no study to recode and no annotation to embed."""
+    record = rp.plan_run(
+        "consolidate_enrichment", kind="refresh_downstream", origin_ran=False,
+        impact={"new_annotation_item_count": 0,
+                "affected_collection_ids": ["c1"],
+                "affected_study_names": []})
+    action = rp.next_actions(record)
+    leaves = [s for s, _ in action.get("leaves", [])]
+    _check(
+        "test_a_replayed_refresh_scopes_to_what_actually_changed",
+        action["action"] == "fork" and "timelines_refresh" in leaves
+        and "recode_refresh_studies" not in leaves,
+        f"expected a timelines-side fork, got {action['action']} {leaves}",
+    )
+
+
 TESTS = [
     test_order_lists_in_sync,
     test_dependency_invariants,
@@ -504,6 +557,8 @@ TESTS = [
     test_barrier_kills_queued_leaf_after_grace,
     test_barrier_spares_running_leaf_past_grace,
     test_barrier_waits_for_queued_leaf_within_grace,
+    test_a_replayed_refresh_acts_on_the_impact_it_inherits,
+    test_a_replayed_refresh_scopes_to_what_actually_changed,
 ]
 
 

@@ -334,8 +334,16 @@ class RunContext:
     record: dict
     results: dict[str, dict] = field(default_factory=dict)
     impact: dict | None = None
+    #: Steps whose work this run inherits instead of doing — the consolidation
+    #: a replayed refresh is catching up on. They count as having run.
+    inherited: set[str] = field(default_factory=set)
 
     def ran(self, step: str) -> bool:
+        # Inherited steps ran before this run started (a replayed consolidation),
+        # so they have no per-step results here — the impact on the record is
+        # what they contributed, and that is what the predicates read next.
+        if step in self.inherited:
+            return True
         state = (self.record.get("steps", {}).get(step) or {}).get("state")
         return state in ("origin", "dispatched") and step in self.results
 
@@ -590,6 +598,13 @@ def plan_run(origin: str, *, kind: str = "card", started_by: str = "",
         else:
             steps[name] = {"state": "not_planned"}
 
+    # A replayed run (the deferred debt, "Refresh All Affected") does not run
+    # its origin — that consolidation already happened and its impact is handed
+    # to us. The row reads "upstream" because it is not part of THIS run, but
+    # the predicates must still see it as having run: they gate on "did my
+    # upstream produce anything", and the answer is yes, just earlier.
+    inherited = [] if origin_ran else [origin]
+
     return {
         "run_id": new_run_id(),
         "origin": origin,
@@ -601,6 +616,7 @@ def plan_run(origin: str, *, kind: str = "card", started_by: str = "",
         "mode": mode,
         "provisional": bool(provisional),
         "impact": dict(impact) if impact else None,
+        "inherited": inherited,
         "origin_task_args": dict(origin_task_args or {}),
         "steps": steps,
         "stage_total": stage_total(steps),
@@ -652,7 +668,8 @@ def build_context(record: dict) -> RunContext:
         impact = consolidate.get("pipeline_impact") or consolidate.get(
             "consolidation_impact") or impact
     return RunContext(record=record, results=results,
-                      impact=impact if isinstance(impact, dict) else None)
+                      impact=impact if isinstance(impact, dict) else None,
+                      inherited=set(record.get("inherited") or ()))
 
 
 def next_actions(record: dict, ctx: RunContext | None = None) -> dict:
