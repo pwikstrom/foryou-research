@@ -3498,6 +3498,160 @@ function applyRefreshCardState(data) {
     if (typeof applyRefreshRunLock === 'function') applyRefreshRunLock();
 }
 
+// ── Start dialog ────────────────────────────────────────────────────────────
+// A card start no longer runs one worker: it plans that worker plus everything
+// downstream of it. So every start goes through one dialog that states what is
+// about to run, roughly how long that has taken before, and carries the options
+// that used to sit as loose checkboxes beside three of the buttons.
+
+const REFRESH_START_OPTIONS = {
+    consolidate_enrichment: [
+        { key: 'auto_refresh', label: 'Refresh caches afterwards', checked: true,
+          help: 'Follow the consolidation with the downstream refresh pipeline. Untick to consolidate the new enrichment files only.' },
+        { key: 'force', label: 'Force full rebuild',
+          help: 'Reconsolidate every scrape and annotation file from scratch instead of folding in only the new ones. Slow; needs every worker idle.' },
+    ],
+    video_map_refresh: [
+        { key: 'reset_labels', label: 'Reset all labels', danger: true,
+          help: 'Regenerate every niche name from scratch instead of carrying stable ones over. Cluster ids are kept, so saved niche-filtered analyses still point at the same clusters.' },
+    ],
+    sessions_refresh: [
+        { key: 'force', label: 'Force full rebuild',
+          help: 'Re-segment every covered collection. The default re-segments only collections whose data or date window moved.' },
+    ],
+};
+
+let _refreshStartStep = null;
+
+function _refreshStepLabel(step) {
+    return (_PIPELINE_STEP_LABELS && _PIPELINE_STEP_LABELS[step]) || step;
+}
+
+function _refreshTypicalSeconds(step) {
+    // What this step cost last time, straight from /api/status. A measured
+    // number beats an invented one, and when a step has never run we say so
+    // rather than guessing.
+    const st = (window._lastStatusData || {})[step];
+    const d = st && st.last_run_duration;
+    return (typeof d === 'number' && isFinite(d) && d > 0) ? d : null;
+}
+
+function _refreshPlannedSteps(step) {
+    // The origin plus everything that reads what it writes. With "Refresh
+    // caches afterwards" unticked a consolidation runs alone.
+    const deps = (_PIPELINE_REGISTRY.dependents || {})[step] || [];
+    if (step === 'consolidate_enrichment' && !_refreshOptionChecked('auto_refresh')) return [step];
+    return [step, ...deps];
+}
+
+function _refreshOptionChecked(key) {
+    const el = document.getElementById(`refresh-opt-${key}`);
+    return !!(el && el.checked);
+}
+
+function _renderRefreshStartPlan() {
+    const planEl = document.getElementById('refresh-start-plan');
+    const estEl = document.getElementById('refresh-start-estimate');
+    if (!planEl) return;
+    const steps = _refreshPlannedSteps(_refreshStartStep);
+    let total = 0, unknown = 0;
+    planEl.innerHTML = steps.map((st, i) => {
+        const secs = _refreshTypicalSeconds(st);
+        if (secs == null) unknown++; else total += secs;
+        const when = secs == null ? 'not run before' : _fmtDuration(secs);
+        const cls = st === _refreshStartStep ? ' refresh-plan-row--origin' : '';
+        return `<div class="refresh-plan-row${cls}">`
+            + `<span class="refresh-plan-num text-xxs">${i + 1}</span>`
+            + `<span class="refresh-plan-name text-xs">${escapeHtml(_refreshStepLabel(st))}</span>`
+            + `<span class="refresh-plan-time text-xxs">${escapeHtml(when)}</span>`
+            + `</div>`;
+    }).join('');
+    if (estEl) {
+        if (steps.length === 1 && total === 0 && unknown) {
+            estEl.textContent = 'No previous run to estimate from.';
+        } else {
+            const base = `Roughly ${_fmtDuration(total)} in total, based on each step's last run`;
+            estEl.textContent = unknown
+                ? `${base} — ${unknown} step${unknown > 1 ? 's have' : ' has'} never run, so the real time will be longer.`
+                : `${base}.`;
+        }
+    }
+}
+
+function openRefreshStartModal(step) {
+    const overlay = document.getElementById('refresh-start-overlay');
+    if (!overlay) { _startRefreshStep(step, {}); return; }   // markup absent: just start
+    if (window._refreshRunLock) {
+        showAppAlert(window._refreshRunLock.reason, { title: 'Refresh run in progress' });
+        return;
+    }
+    // An armed Consolidate uses the same button to cancel the arm. That is a
+    // stop, not a start, so it must not open a dialog offering to run it.
+    if (step === 'consolidate_enrichment') {
+        const cbtn = document.getElementById('btn-consolidate');
+        if (cbtn && cbtn.dataset.armed === '1') { consolidateEnrichmentData(cbtn); return; }
+    }
+    _refreshStartStep = step;
+    document.getElementById('refresh-start-title').textContent = _refreshStepLabel(step);
+    const deps = (_PIPELINE_REGISTRY.dependents || {})[step] || [];
+    document.getElementById('refresh-start-sub').textContent = deps.length
+        ? 'Starts this step and everything that depends on it.'
+        : 'Nothing downstream depends on this step.';
+
+    const optEl = document.getElementById('refresh-start-options');
+    const opts = REFRESH_START_OPTIONS[step] || [];
+    optEl.innerHTML = opts.map(o => `<label class="refresh-opt">`
+        + `<input type="checkbox" id="refresh-opt-${o.key}"${o.checked ? ' checked' : ''}>`
+        + `<span class="text-sm"${o.danger ? ' style="color: var(--color-warning);"' : ''}>${escapeHtml(o.label)}</span>`
+        + `<span class="refresh-opt-help text-xxs">${escapeHtml(o.help)}</span>`
+        + `</label>`).join('');
+    // Only the consolidate options change what the run will do, so only they
+    // need to redraw the plan.
+    opts.forEach(o => {
+        const el = document.getElementById(`refresh-opt-${o.key}`);
+        if (el) el.onchange = _renderRefreshStartPlan;
+    });
+
+    _renderRefreshStartPlan();
+    document.getElementById('refresh-start-cancel-btn').onclick = closeRefreshStartModal;
+    document.getElementById('refresh-start-ok-btn').onclick = _confirmRefreshStart;
+    overlay.onclick = (e) => { if (e.target === overlay) closeRefreshStartModal(); };
+    document.addEventListener('keydown', _refreshStartKeydown);
+    overlay.classList.add('visible');
+}
+
+function closeRefreshStartModal() {
+    const overlay = document.getElementById('refresh-start-overlay');
+    if (overlay) overlay.classList.remove('visible');
+    document.removeEventListener('keydown', _refreshStartKeydown);
+    _refreshStartStep = null;
+}
+
+function _refreshStartKeydown(e) {
+    if (e.key === 'Escape') closeRefreshStartModal();
+}
+
+async function _confirmRefreshStart() {
+    const step = _refreshStartStep;
+    const args = {};
+    for (const o of (REFRESH_START_OPTIONS[step] || [])) args[o.key] = _refreshOptionChecked(o.key);
+    closeRefreshStartModal();
+    await _startRefreshStep(step, args);
+}
+
+async function _startRefreshStep(step, args) {
+    if (step === 'consolidate_enrichment') {
+        consolidateEnrichmentData(document.getElementById('btn-consolidate'), args);
+        return;
+    }
+    // The card buttons' own argument shapes, now fed from the dialog.
+    let body = {};
+    if (step === 'video_map_refresh') body = { reset_labels: !!args.reset_labels };
+    else if (step === 'sessions_refresh') body = args.force ? {} : { stale_only: true };
+    else if (step === 'recode_refresh_studies') body = { force_full_rebuild: true };
+    await startProcess(step, body);
+}
+
 function _stepHelpText(step) {
     // The (i) tooltip from this worker's card in "Rebuild Downstream Datasets",
     // reused verbatim on its row here. Harvested from the DOM rather than
@@ -3516,6 +3670,30 @@ function _stepLogLink(step, label) {
     const arg = escapeHtml(String(label).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
     return `<a class="gantt-log text-xxs view-log-link"`
         + ` onclick="openLogModal(&#39;${step}&#39;, &#39;${arg}&#39;)">View Log</a>`;
+}
+
+function _stepRunButton(step, state) {
+    // The card's own Start/Stop, repeated on the row: play while the worker is
+    // idle, stop while it runs — the transport controls anyone recognises, so
+    // the chart is somewhere you act from and not only somewhere you read.
+    // Admin-only, matching the cards' own gating.
+    if (!window.USER_IS_ADMIN) return '<span class="gantt-run"></span>';
+    const running = state === 'running' || state === 'queued';
+    if (running) {
+        return `<button type="button" class="gantt-run gantt-run--stop" title="Stop this worker"`
+            + ` aria-label="Stop" onclick="showStopConfirm(&#39;${step}&#39;)">`
+            + '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1"/></svg>'
+            + '</button>';
+    }
+    // While a run holds the pipeline every other worker's start is refused
+    // server-side, so show that here rather than let the click bounce.
+    const locked = !!window._refreshRunLock;
+    const title = locked ? window._refreshRunLock.reason : 'Start this step and everything downstream of it';
+    return `<button type="button" class="gantt-run gantt-run--play"${locked ? ' disabled' : ''}`
+        + ` title="${escapeHtml(title)}" aria-label="Start"`
+        + ` onclick="openRefreshStartModal(&#39;${step}&#39;)">`
+        + '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2l7 4-7 4z"/></svg>'
+        + '</button>';
 }
 
 function renderPipelineSteps(steps, run) {
@@ -3675,6 +3853,7 @@ function renderPipelineSteps(steps, run) {
             : `<span class="gantt-label text-xs">${escapeHtml(label)}</span>`;
         return `<div class="gantt-row gantt-row--${state}${originCls}">`
             + _stepLogLink(s.step, label)
+            + _stepRunButton(s.step, state)
             + labelCell
             + `<span class="gantt-track" title="${escapeHtml(title)}">${markers}${bar}</span>`
             + `<span class="gantt-dur text-xs">${escapeHtml(dur)}</span>`
@@ -3700,7 +3879,7 @@ function renderPipelineSteps(steps, run) {
             ticks.push(`<span class="gantt-tick text-xxs" style="left:${at}%">${label}</span>`);
         }
         if (endLabel) ticks.push(endLabel);
-        axis = `<div class="gantt-axis"><span></span><span></span><span class="gantt-axis-track">${ticks.join('')}</span><span></span></div>`;
+        axis = `<div class="gantt-axis"><span></span><span></span><span></span><span class="gantt-axis-track">${ticks.join('')}</span><span></span></div>`;
     }
     chart.innerHTML = `<div class="gantt-body">${rows.join('')}</div>${axis}`;
 
@@ -3720,27 +3899,14 @@ function _activePipelineStep(statusData) {
 // The two option checkboxes next to the Consolidate button. They replace the
 // former three buttons: "Consolidate & Refresh" = refresh ticked, "Consolidate
 // Only" = refresh unticked, "Force Reconsolidate" = force ticked.
-function _consolidateOptions() {
-    const refreshBox = document.getElementById('consolidate-auto-refresh');
-    const forceBox = document.getElementById('consolidate-force');
-    return {
-        autoRefresh: refreshBox ? !!refreshBox.checked : true,
-        force: forceBox ? !!forceBox.checked : false,
-    };
-}
 
-// Re-render the button when an option is toggled: a forced rebuild cannot be
-// armed, so ticking Force while a worker runs must disable the button rather
-// than let the click 409.
-function onConsolidateOptionChange() {
-    if (window._lastEnrichmentStats) {
-        applyConsolidateButtonState(window._lastEnrichmentStats);
-    }
-}
 
-function consolidateEnrichmentData(btn) {
+function consolidateEnrichmentData(btn, opts) {
     const statusEl = document.getElementById('consolidate-status');
-    const { autoRefresh, force } = _consolidateOptions();
+    // Options come from the start dialog now. A caller without them (the disarm
+    // click, or any older entry point) falls back to the defaults.
+    const autoRefresh = opts ? !!opts.auto_refresh : true;
+    const force = opts ? !!opts.force : false;
 
     // Both options are sent explicitly — auto_refresh server-side defaults to
     // "not force", which is not what the checkboxes mean.
@@ -3785,7 +3951,6 @@ function consolidateEnrichmentData(btn) {
             if (data.status === 'started') {
                 btn.textContent = 'Consolidating...';
                 btn.className = 'btn-running';
-                _setConsolidateOptionsDisabled(true);
                 // Same optimistic flip every other card gets on Start: turns the
                 // dot green and the bar to "Starting…" through the dispatch +
                 // task-runner boot gap, and guards it from a poll that still
@@ -3820,13 +3985,6 @@ function consolidateEnrichmentData(btn) {
         });
 }
 
-function _setConsolidateOptionsDisabled(disabled) {
-    ['consolidate-auto-refresh', 'consolidate-force'].forEach(id => {
-        const box = document.getElementById(id);
-        if (box) box.disabled = disabled;
-    });
-}
-
 function applyConsolidateButtonState(data) {
     // Drive the Consolidate button + its two option checkboxes off the latest
     // enrichment-stats response. Called from fetchEnrichmentStats every tick.
@@ -3845,17 +4003,6 @@ function applyConsolidateButtonState(data) {
         // Polling loop owns the button text/state during an active run.
         return;
     }
-
-    const refreshBox = document.getElementById('consolidate-auto-refresh');
-    const forceBox = document.getElementById('consolidate-force');
-    // While armed, the checkboxes must show what is actually armed — the server
-    // stored the refresh choice at arm time, and a forced rebuild can never be
-    // armed (it needs every worker idle).
-    if (armed) {
-        if (refreshBox) refreshBox.checked = !!data.consolidate_auto_armed_auto_refresh;
-        if (forceBox) forceBox.checked = false;
-    }
-    _setConsolidateOptionsDisabled(pipelineActive || armed);
 
     if (armed) {
         btn.dataset.armed = '1';
@@ -3892,12 +4039,16 @@ function applyConsolidateButtonState(data) {
     }
 }
 
-function pollConsolidationStatus() {
-    // Poll for the consolidate pipeline. Considers consolidate_enrichment and
-    // all downstream refresh steps as part of the same logical operation —
-    // as long as any one of them is running, the UI stays in the "running"
-    // state. Only exits when none are running AND the consolidate step has a
-    // completion outcome.
+function pollConsolidationStatus(originStep) {
+    // Poll for the refresh run. Considers consolidate_enrichment and all
+    // downstream refresh steps as part of the same logical operation — as long
+    // as any one of them is running, the UI stays in the "running" state. Only
+    // exits when none are running AND the run is no longer in flight.
+    //
+    // originStep names the step whose start opened this poll, so the button
+    // says the right thing from the first frame. The loop below corrects the
+    // label every tick anyway, but a run started from a card used to read
+    // "Consolidating..." until that first tick landed.
     if (_consolidatePollActive) return;
     _consolidatePollActive = true;
 
@@ -3906,11 +4057,12 @@ function pollConsolidationStatus() {
     if (btnC) {
         btnC.disabled = true;
         btnC.dataset.armed = '';
-        btnC.textContent = 'Consolidating...';
+        btnC.textContent = (originStep && originStep !== 'consolidate_enrichment')
+            ? 'Refreshing caches...'
+            : 'Consolidating...';
         btnC.classList.add('action-btn', 'btn-running');
         btnC.classList.remove('btn-armed-pulse', 'btn-has-pending');
     }
-    _setConsolidateOptionsDisabled(true);
 
     // Hide the "scraper/annotator completed after last consolidation" warning
     // as soon as the run starts. fetchEnrichmentStats isn't called every tick
@@ -3990,7 +4142,6 @@ function pollConsolidationStatus() {
                     btnC.disabled = false;
                     btnC.dataset.armed = '';
                 }
-                _setConsolidateOptionsDisabled(false);
 
                 if (!failed) {
                     // The persistent summary lives in consolidate_stats (for a
@@ -4027,7 +4178,6 @@ function pollConsolidationStatus() {
                     btnC.textContent = 'Consolidate';
                     btnC.disabled = false;
                 }
-                _setConsolidateOptionsDisabled(false);
             });
     }, 2000);
 }

@@ -264,6 +264,11 @@ def registry_for_js() -> dict:
         "short_labels": dict(SHORT_LABELS),
         "spine": list(SPINE),
         "leaves": list(LEAVES),
+        # What each step would set off, so the start dialog can tell the
+        # operator what a click actually commits to before they confirm.
+        # Best-effort by definition: the run prunes a step whose upstream turns
+        # out to have changed nothing, which the dialog says.
+        "dependents": {s.name: dependents_of(s.name) for s in STEPS},
     }
 
 

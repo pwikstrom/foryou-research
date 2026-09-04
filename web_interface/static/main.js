@@ -626,6 +626,18 @@ async function startProcess(name, extraBody = {}) {
         console.error(e);
     }
 
+    // A refresh step's start plans a run server-side before it dispatches, so
+    // the chart can show it immediately. Without this the block sat on the
+    // previous run until the next stats poll — or a page reload.
+    if (started && _REFRESH_RUN_STEPS.includes(name)) {
+        try {
+            if (typeof fetchEnrichmentStats === 'function') fetchEnrichmentStats();
+            if (typeof pollConsolidationStatus === 'function') pollConsolidationStatus(name);
+        } catch (e) {
+            console.warn('Could not refresh the pipeline chart after start:', e);
+        }
+    }
+
     // Auto-start Monitor if Downloader is starting and checkbox is checked
     if (name === 'downloader') {
         const autoStart = document.getElementById('monitor-auto-start');
@@ -639,34 +651,17 @@ async function startProcess(name, extraBody = {}) {
     return started;
 }
 
-// Rebuild the Semantic Space niche map. When "Reset all labels" is ticked, every
-// niche is renamed from scratch (no carry-over); otherwise stable labels are
-// preserved (default). Reset is destructive, so confirm first; once a run has
-// actually started, untick the box so a later Rebuild click doesn't silently
-// re-run a reset.
-async function rebuildNicheMap() {
-    const box = document.getElementById('video_map_reset-labels');
-    const reset = !!(box && box.checked);
-    if (reset && !(await showAppConfirm(
-        'Reset: regenerate all niche labels from scratch?\n\n' +
-        'Existing labels will NOT be preserved. Cluster IDs are kept, so saved ' +
-        'niche-filtered analyses still point at the same clusters.',
-        { title: 'Reset niche labels', okLabel: 'Reset', danger: true }
-    ))) return;
-    const started = await startProcess('video_map_refresh', { reset_labels: reset });
-    if (started && reset && box) box.checked = false;
+// Rebuild the Semantic Space niche map, and re-segment the session index. Both
+// used to read a checkbox sitting beside their button and confirm inline; the
+// option now lives in the start dialog, alongside the list of what the run sets
+// off. Kept as named functions because the card buttons reference them by name
+// (data-start-handler), which setStatus re-applies on every poll.
+function rebuildNicheMap() {
+    openRefreshStartModal('video_map_refresh');
 }
 
-// Sessions refresh: the default is incremental — only collections whose study
-// date windows or in-window scraped/annotated data changed since the last
-// build are re-segmented (and collections that left every study are dropped).
-// "Force full rebuild" re-segments every covered collection; untick after a
-// started run so a later click doesn't silently force again.
-async function startSessionsRefresh() {
-    const box = document.getElementById('sessions_refresh-force');
-    const force = !!(box && box.checked);
-    const started = await startProcess('sessions_refresh', force ? {} : { stale_only: true });
-    if (started && force && box) box.checked = false;
+function startSessionsRefresh() {
+    openRefreshStartModal('sessions_refresh');
 }
 
 // ── Generic pretty dialogs — the app-wide replacement for native alert()/
@@ -1111,6 +1106,9 @@ async function updateStatus() {
     try {
         const res = await fetch('/api/status');
         const data = await res.json();
+        // The refresh start dialog estimates a run from what each step cost
+        // last time, which is already in this payload.
+        window._lastStatusData = data;
 
         setStatus('downloader', data.downloader);
         setStatus('monitor', data.monitor);
@@ -1366,6 +1364,14 @@ function setStatus(name, data) {
                 const handler = toggleBtn.getAttribute('data-start-handler');
                 if (handler && typeof window[handler] === 'function') {
                     window[handler]();
+                    return;
+                }
+                // A refresh step never starts alone any more — it plans
+                // everything downstream of it — so it goes through the start
+                // dialog, which states what that is before committing.
+                if (_REFRESH_RUN_STEPS.includes(name)
+                    && typeof openRefreshStartModal === 'function') {
+                    openRefreshStartModal(name);
                     return;
                 }
                 const extraRaw = toggleBtn.getAttribute('data-start-extra');

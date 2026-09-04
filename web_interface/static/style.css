@@ -1065,7 +1065,7 @@ button {
 .gantt-row,
 .gantt-axis {
     display: grid;
-    grid-template-columns: 4.2rem 11rem minmax(0, 1fr) 6rem;
+    grid-template-columns: 4.2rem 1.4rem 11rem minmax(0, 1fr) 6rem;
     align-items: center;
     gap: 10px;
 }
@@ -1081,6 +1081,29 @@ button {
     white-space: nowrap;
     overflow: hidden;
 }
+
+/* Transport control on each row: play when the worker is idle, stop while it
+   runs. Deliberately small and quiet — the row is a record first and a control
+   second — but a real button, with the square/triangle everyone reads without
+   a legend. */
+.gantt-run {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--color-text-tertiary);
+    cursor: pointer;
+}
+.gantt-run svg { width: 11px; height: 11px; fill: currentColor; }
+.gantt-run:hover:not(:disabled) { background: var(--color-border); color: var(--color-text-primary); }
+.gantt-run--stop { color: var(--status-error); }
+.gantt-run:disabled { opacity: 0.35; cursor: not-allowed; }
+span.gantt-run { cursor: default; }
 
 .gantt-label {
     color: var(--color-text-primary);
@@ -1246,6 +1269,40 @@ button {
 .gantt-key--failed { background: var(--status-error); }
 .gantt-key--unplanned { background: var(--color-text-tertiary); opacity: 0.35; }
 
+/* The start dialog: options, then the run this click actually commits to. */
+.refresh-opt {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 8px;
+    align-items: baseline;
+    margin-bottom: 10px;
+    cursor: pointer;
+}
+.refresh-opt-help {
+    grid-column: 2;
+    color: var(--color-text-tertiary);
+    line-height: var(--leading-normal);
+}
+
+.refresh-start-plan {
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.refresh-plan-row {
+    display: grid;
+    grid-template-columns: 1.6rem 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 5px 10px;
+    border-top: 1px solid var(--color-border);
+}
+.refresh-plan-row:first-child { border-top: none; }
+.refresh-plan-row--origin { background: var(--section-bg); }
+.refresh-plan-row--origin .refresh-plan-name { font-weight: var(--weight-bold); }
+.refresh-plan-num { color: var(--color-text-tertiary); }
+.refresh-plan-time { color: var(--color-text-secondary); white-space: nowrap; }
+
 @keyframes gantt-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.55; }
@@ -1253,7 +1310,7 @@ button {
 
 @media (max-width: 700px) {
     .gantt-row,
-    .gantt-axis { grid-template-columns: 3.4rem 7rem minmax(0, 1fr) 4.5rem; }
+    .gantt-axis { grid-template-columns: 3.4rem 1.3rem 7rem minmax(0, 1fr) 4.5rem; }
 }
 
 /* Per-platform cookie-status pill on the enrichment scraper cards. A colored dot

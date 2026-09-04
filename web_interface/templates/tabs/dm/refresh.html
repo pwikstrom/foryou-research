@@ -17,26 +17,14 @@
      datasets and (optionally) refreshes all affected caches. -->
 <div style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); margin-bottom: 20px;">
     <div class="font-bold" style="margin-bottom: 10px;">Consolidate Scrape and Annotation Data{{ card_info(
-        "Folds newly scraped and newly annotated items into the consolidated datasets every study reads: the scrape and machine-annotation tables plus the per-item enrichment status. It then reports its impact — how many items changed, and which collections and studies they belong to. With \"Refresh caches afterwards\" ticked it goes on to run the downstream pipeline (below) for exactly those studies and collections; each step is skipped when nothing it owns changed.", 'consolidate_enrichment') }}</div>
+        "Folds newly scraped and newly annotated items into the consolidated datasets every study reads: the scrape and machine-annotation tables plus the per-item enrichment status. It then reports its impact — how many items changed, and which collections and studies they belong to. With \"Refresh caches afterwards\" left on in the start dialog it goes on to run the downstream pipeline (below) for exactly those studies and collections; each step is skipped when nothing it owns changed.", 'consolidate_enrichment') }}</div>
     <div class="controls" style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;">
         <span style="display: flex; align-items: center; gap: 6px;">
             <span id="consolidate_enrichment-status" class="status-indicator status-stopped"></span>
             <button type="button" class="action-btn" id="btn-consolidate"
-                onclick="consolidateEnrichmentData(this)"
+                onclick="openRefreshStartModal('consolidate_enrichment')"
                 style="padding: 6px 12px;">Consolidate</button>
         </span>
-        <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-            <input type="checkbox" id="consolidate-auto-refresh" checked
-                onchange="onConsolidateOptionChange()">
-            <span class="meta-tooltip" style="color: var(--color-text-secondary);"
-                data-tooltip="Follow the consolidation with the downstream refresh pipeline (embeddings, semantic map, study definitions, explore metadata, correlations, timelines, sessions). Untick to consolidate the new enrichment files only.">Refresh caches afterwards</span>
-        </label>
-        <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-            <input type="checkbox" id="consolidate-force"
-                onchange="onConsolidateOptionChange()">
-            <span class="meta-tooltip" style="color: var(--color-text-secondary);"
-                data-tooltip="Reconsolidate every scrape and annotation file from scratch instead of folding in only the new ones. Slow; needs every worker idle.">Force full rebuild</span>
-        </label>
     </div>
     <!-- Same chrome as every other worker card, and scoped the same way: the bar
          tracks the consolidate worker itself, never the downstream pipeline —
@@ -69,7 +57,7 @@
      chart updates live while workers run and stays as the record afterwards. -->
 <div id="consolidate-pipeline-steps" style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); margin-bottom: 20px;">
     <div class="font-bold" style="margin-bottom: 10px;">Refresh Pipeline{{ card_info(
-        "The last (or currently running) refresh run as a timeline: one bar per step, placed and sized by when it started and how long it ran — bars measure time, not progress. A run starts whenever you start any of the steps below (or a consolidation), and each step that depends on what it produced follows it; the dashed line marks where the run fanned out into steps that ran concurrently. Every step is always listed in pipeline order, so the chart keeps the same shape run to run. A step whose inputs did not change is greyed out with no bar and says why on the right; one that runs before this run's starting point reads “not in this run”; one that was planned but never ran says “skipped”. While a step runs its bar grows to the present; afterwards the chart stays as the record of the run.") }}</div>
+        "The last (or currently running) refresh run as a timeline: one bar per step, placed and sized by when it started and how long it ran — bars measure time, not progress. A run starts whenever you start any of the steps below (or a consolidation), and each step that depends on what it produced follows it; the dashed line marks where the run fanned out into steps that ran concurrently. Every step is always listed in pipeline order — even on a quiet system, where each row reads Idle — so the chart keeps the same shape run to run, and each row carries that worker's log and its own start/stop control. A step whose inputs did not change is greyed out with no bar and says why on the right; one that runs before this run's starting point reads “not in this run”; one that was planned but never ran says “skipped”. While a step runs its bar grows to the present; afterwards the chart stays as the record of the run.") }}</div>
     <div id="pipeline-run-header" class="text-xs" style="display: none; margin-bottom: 8px; color: var(--color-text-secondary);"></div>
     <div id="pipeline-steps-note" class="text-xxs" style="display: none; margin-bottom: 6px; color: var(--color-text-tertiary);">
         Planned steps. As the run learns what actually changed, the steps it does not need are greyed out with the reason.
@@ -93,7 +81,7 @@
      concurrently (their order among themselves is free). -->
 <div class="refresh-group">
 <div class="font-bold" style="margin-bottom: 10px;">Rebuild Downstream Datasets{{ card_info(
-    "Everything built from the consolidated data, each step as its own card. Starting any card starts a refresh run: the steps that read what it writes follow it automatically, scoped to what actually changed, and the whole run is charted above. So a card is the right way to redo one step after something that bypasses consolidation (a study definition, the hashtag stoplist, an embedding or annotation backend), or after a step failed — you no longer have to remember to run the steps beneath it. Only one refresh run happens at a time, so the other cards are disabled while one is in progress. Embeddings feed the semantic map; the map's niches feed the study definitions, the timelines and the session index; Explore metadata and Correlations are built from the study definitions.") }}</div>
+    "Everything built from the consolidated data, each step as its own card. Starting any card starts a refresh run: the steps that read what it writes follow it automatically, scoped to what actually changed, and the whole run is charted above. So a card is the right way to redo one step after something that bypasses consolidation (a study definition, the hashtag stoplist, an embedding or annotation backend), or after a step failed — you no longer have to remember to run the steps beneath it. Starting one opens a dialog that names every step the run will set off and roughly what it has cost before, so you can see what a click commits to. Only one refresh run happens at a time, so the other cards are disabled while one is in progress. Embeddings feed the semantic map; the map's niches feed the study definitions, the timelines and the session index; Explore metadata and Correlations are built from the study definitions.") }}</div>
 
 <div class="refresh-card-stack">
 
@@ -107,7 +95,7 @@
             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
             <span id="embeddings_refresh-status" class="status-indicator status-stopped"></span>
             <button id="embeddings_refresh-toggle" class="btn-primary" data-start-label="Refresh"
-                onclick="startProcess('embeddings_refresh')" style="padding: 4px 12px;">Refresh</button>
+                onclick="openRefreshStartModal('embeddings_refresh')" style="padding: 4px 12px;">Refresh</button>
         </div>
         <div class="progress-container">
             <div class="progress-bar" id="embeddings_refresh-bar"></div>
@@ -124,7 +112,7 @@
     <!-- 2. Semantic Map -->
     <div class="refresh-card">
         <div class="font-bold" style="margin-bottom: 10px;">Semantic Map{{ card_info(
-            "Rebuilds the Semantic Space map from the embedding store: clusters the vectors into niches, names them, and lays them out in 2D. The niche columns it writes are joined into every study dataset and every timeline, so a rebuild that actually moves videos between niches is followed by a study, timeline and session refresh — and one that moves none is followed by nothing, which the chart above states. Runs automatically after a consolidation in preserve-labels mode, so new videos get niches; niche names stay stable, but the 2D layout still reshuffles each rebuild. Tick \"Reset all labels\" to regenerate every niche name from scratch instead of preserving stable ones.", 'video_map_refresh') }}
+            "Rebuilds the Semantic Space map from the embedding store: clusters the vectors into niches, names them, and lays them out in 2D. The niche columns it writes are joined into every study dataset and every timeline, so a rebuild that actually moves videos between niches is followed by a study, timeline and session refresh — and one that moves none is followed by nothing, which the chart above states. Runs automatically after a consolidation in preserve-labels mode, so new videos get niches; niche names stay stable, but the 2D layout still reshuffles each rebuild. Tick \"Reset all labels\" in the start dialog to regenerate every niche name from scratch instead of preserving stable ones.", 'video_map_refresh') }}
             <span id="video_map_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
         </div>
         <div class="controls"
@@ -132,10 +120,6 @@
             <span id="video_map_refresh-status" class="status-indicator status-stopped"></span>
             <button id="video_map_refresh-toggle" class="btn-primary" data-start-label="Rebuild"
                 data-start-handler="rebuildNicheMap" onclick="rebuildNicheMap()" style="padding: 4px 12px;">Rebuild</button>
-            <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                <input type="checkbox" id="video_map_reset-labels">
-                <span style="color: var(--color-text-secondary);">Reset all labels</span>
-            </label>
         </div>
         <div class="progress-container">
             <div class="progress-bar" id="video_map_refresh-bar"></div>
@@ -160,7 +144,7 @@
             <span id="recode_refresh_studies-status" class="status-indicator status-stopped"></span>
             <button id="recode_refresh_studies-toggle" class="btn-primary" data-start-label="Refresh"
                 data-start-extra='{"force_full_rebuild": true}'
-                onclick="startProcess('recode_refresh_studies', {force_full_rebuild: true})" style="padding: 4px 12px;">Refresh</button>
+                onclick="openRefreshStartModal('recode_refresh_studies')" style="padding: 4px 12px;">Refresh</button>
         </div>
         <div class="progress-container">
             <div class="progress-bar" id="recode_refresh_studies-bar"></div>
@@ -184,7 +168,7 @@
             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
             <span id="meta_refresh_groups-status" class="status-indicator status-stopped"></span>
             <button id="meta_refresh_groups-toggle" class="btn-primary" data-start-label="Refresh"
-                onclick="startProcess('meta_refresh_groups')" style="padding: 4px 12px;">Refresh</button>
+                onclick="openRefreshStartModal('meta_refresh_groups')" style="padding: 4px 12px;">Refresh</button>
         </div>
         <div class="progress-container">
             <div class="progress-bar" id="meta_refresh_groups-bar"></div>
@@ -208,7 +192,7 @@
             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
             <span id="pca_refresh-status" class="status-indicator status-stopped"></span>
             <button id="pca_refresh-toggle" class="btn-primary" data-start-label="Refresh"
-                onclick="startProcess('pca_refresh')" style="padding: 4px 12px;">Refresh</button>
+                onclick="openRefreshStartModal('pca_refresh')" style="padding: 4px 12px;">Refresh</button>
         </div>
         <div class="progress-container">
             <div class="progress-bar" id="pca_refresh-bar"></div>
@@ -232,7 +216,7 @@
             style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
             <span id="timelines_refresh-status" class="status-indicator status-stopped"></span>
             <button id="timelines_refresh-toggle" class="btn-primary" data-start-label="Refresh"
-                onclick="startProcess('timelines_refresh')" style="padding: 4px 12px;">Refresh</button>
+                onclick="openRefreshStartModal('timelines_refresh')" style="padding: 4px 12px;">Refresh</button>
         </div>
         <div class="progress-container">
             <div class="progress-bar" id="timelines_refresh-bar"></div>
@@ -249,7 +233,7 @@
     <!-- 7. Sessions -->
     <div class="refresh-card">
         <div class="font-bold" style="margin-bottom: 10px;">Sessions{{ card_info(
-            "Rebuilds the Sessions tab's session index and focus-episode tables from the embedding store, covering each collection within its studies' date windows — collections in no study are not built at all. By default only collections whose study windows or in-window data changed are re-segmented; tick \"Force full rebuild\" to re-segment everything. Also runs automatically after a study save and as the last step of the Consolidate refresh pipeline.", 'sessions_refresh') }}
+            "Rebuilds the Sessions tab's session index and focus-episode tables from the embedding store, covering each collection within its studies' date windows — collections in no study are not built at all. By default only collections whose study windows or in-window data changed are re-segmented; tick \"Force full rebuild\" in the start dialog to re-segment everything. Also runs automatically after a study save and as the last step of the Consolidate refresh pipeline.", 'sessions_refresh') }}
             <span id="sessions_refresh-stale" class="text-xs" style="color: var(--color-warning); display: none; font-weight: var(--weight-normal); margin-left: 6px;"></span>
         </div>
         <div class="controls"
@@ -257,10 +241,6 @@
             <span id="sessions_refresh-status" class="status-indicator status-stopped"></span>
             <button id="sessions_refresh-toggle" class="btn-primary" data-start-label="Refresh"
                 data-start-handler="startSessionsRefresh" onclick="startSessionsRefresh()" style="padding: 4px 12px;">Refresh</button>
-            <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                <input type="checkbox" id="sessions_refresh-force">
-                <span style="color: var(--color-text-secondary);">Force full rebuild</span>
-            </label>
         </div>
         <div class="progress-container">
             <div class="progress-bar" id="sessions_refresh-bar"></div>
