@@ -571,6 +571,20 @@ def finalize(key: str, state_name: str = STATE_COMPLETED) -> None:
 
 
 
+def abort_run(key: str, reason: str) -> None:
+    """Close a run this process opened but whose task never got dispatched.
+
+    Dispatchers open the run BEFORE creating the Cloud Task (so the worker
+    always finds a record to adopt); when the dispatch then fails there is a
+    running record with no worker behind it. Never raises.
+    """
+    try:
+        append(key, f"Dispatch failed: {reason}")
+        finalize(key, STATE_FAILED)
+    except Exception as e:
+        logger.warning(f"Could not abort process log for '{key}': {e}")
+
+
 def _load(key: str) -> dict:
     """Read a key's store document, returning an empty one when absent."""
     filename = log_filename(key)

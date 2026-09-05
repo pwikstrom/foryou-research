@@ -75,6 +75,46 @@ def dispatched(monkeypatch):
 
 
 
+def test_run_log_is_opened_before_the_task_is_created(monkeypatch):
+    """A hot task runner picks a task up within ~200 ms of its creation. When
+    the dispatcher opened the run log AFTER creating the task, the worker's
+    attach_run found nothing to adopt and opened a duplicate record under the
+    same id, which the dispatcher's record then marked "interrupted" — every
+    third worker run showed twice on 2026-09-05. Open first; abort the record
+    if the dispatch then fails."""
+    import web_interface.task_status as ts
+
+    order: list[tuple] = []
+    monkeypatch.setattr(process_manager, "is_cloud_run", lambda: True)
+    monkeypatch.setattr(process_manager, "read_task_status", lambda key: None)
+    monkeypatch.setattr(process_manager.run_logs, "new_run_id", lambda: "runid")
+    monkeypatch.setattr(process_manager.run_logs, "open_run",
+                        lambda *a, **k: order.append(("open", k.get("run_id"))) or "runid")
+    monkeypatch.setattr(process_manager.run_logs, "abort_run",
+                        lambda key, reason: order.append(("abort", reason)))
+    monkeypatch.setattr(process_manager, "_journal_worker_started", lambda *a, **k: None)
+    monkeypatch.setattr(ts.GCSStatusReporter, "_write_status", lambda self, force=False: None)
+
+    def dispatch_ok(name, task_args, **kw):
+        order.append(("dispatch", task_args.get("log_run_id")))
+        return True, "Task dispatched"
+
+    monkeypatch.setattr(process_manager, "_dispatch_cloud_task", dispatch_ok)
+    ok, _ = process_manager.start_process("queue_annotator_batch", None, task_args={})
+    assert ok and order == [("open", "runid"), ("dispatch", "runid")]
+
+    order.clear()
+
+    def dispatch_fails(name, task_args, **kw):
+        order.append(("dispatch", task_args.get("log_run_id")))
+        return False, "queue refused"
+
+    monkeypatch.setattr(process_manager, "_dispatch_cloud_task", dispatch_fails)
+    ok, _ = process_manager.start_process("queue_annotator_batch", None, task_args={})
+    assert not ok
+    assert order == [("open", "runid"), ("dispatch", "runid"), ("abort", "queue refused")]
+
+
 def test_every_worker_deadline_is_honoured_on_initial_dispatch(dispatched):
     """A worker that declares _DISPATCH_DEADLINE must get >= it when started."""
     declared = _workers_declaring_a_deadline()

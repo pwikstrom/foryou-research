@@ -1415,13 +1415,14 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str,
             next_name, "queued", "Queued — waiting for a worker…",
             stage={"stage_index": stage_index, "stage_total": stage_total},
         )
+        # Run log first, task second — see start_process for the race.
+        run_logs.open_run(next_name, run_id=next_args["log_run_id"],
+                          started_by=actor, task_args=next_args, mode="cloud")
         success, msg = _dispatch_cloud_task(
             next_name, next_args,
             dispatch_deadline_seconds=dispatch_deadline_for(next_name, next_args))
         if success:
             print(f"[{name}] Refresh run: advanced to {next_name}: {msg}")
-            run_logs.open_run(next_name, run_id=next_args["log_run_id"],
-                              started_by=actor, task_args=next_args, mode="cloud")
             # Record the scope this step was actually given, and why. The
             # consolidation's impact is only the floor: a map that moved videos
             # between niches widens recode and timelines to everything, and
@@ -1436,6 +1437,7 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str,
                 prunes=prunes)
         else:
             print(f"[{name}] Refresh run: advance to {next_name} failed: {msg}")
+            run_logs.abort_run(next_name, msg)
             record = refresh_pipeline.finish_run(partial=True, failed_at=next_name,
                                                  prunes=prunes, run_id=run_id)
             _publish_run_summary(record)
@@ -1461,19 +1463,21 @@ def _advance_refresh_run(name: str, task_args: dict, outcome: str,
         # flips it to failed.
         stamp_task_status(leaf, "queued", "Queued — waiting for a worker…",
                           stage=leaf_stage)
+        # Run log first, task second — see start_process for the race.
+        run_logs.open_run(leaf, run_id=child_args["log_run_id"],
+                          started_by=actor, task_args=child_args, mode="cloud")
         success, msg = _dispatch_cloud_task(
             leaf, child_args,
             dispatch_deadline_seconds=dispatch_deadline_for(leaf, child_args))
         if success:
             print(f"[{name}] Refresh run: forked {leaf}: {msg}")
-            run_logs.open_run(leaf, run_id=child_args["log_run_id"],
-                              started_by=actor, task_args=child_args, mode="cloud")
             dispatched[leaf] = {
                 "scope": refresh_pipeline.scope_note(leaf, leaf_args),
                 "reason": reasons.get(leaf, ""),
             }
         else:
             print(f"[{name}] Refresh run: fork of {leaf} failed: {msg}")
+            run_logs.abort_run(leaf, msg)
             stamp_task_status(
                 leaf, "failed",
                 "Couldn't start — the task could not be queued for a worker.",
@@ -1507,16 +1511,18 @@ def _advance_legacy_chain(name: str, task_args: dict, outcome: str) -> None:
     next_args["pipeline_remaining"] = remaining[1:]
     next_args["started_by"] = _pipeline_actor(task_args, name)
     next_args["log_run_id"] = run_logs.new_run_id()
+    # Run log first, task second — see start_process for the race.
+    run_logs.open_run(next_name, run_id=next_args["log_run_id"],
+                      started_by=next_args["started_by"],
+                      task_args=next_args, mode="cloud")
     success, msg = _dispatch_cloud_task(
         next_name, next_args,
         dispatch_deadline_seconds=dispatch_deadline_for(next_name, next_args))
     if success:
         print(f"[{name}] Chained to {next_name}: {msg}")
-        run_logs.open_run(next_name, run_id=next_args["log_run_id"],
-                          started_by=next_args["started_by"],
-                          task_args=next_args, mode="cloud")
     else:
         print(f"[{name}] Chain to {next_name} failed: {msg}")
+        run_logs.abort_run(next_name, msg)
 
 
 def _publish_run_summary(record: dict | None) -> None:

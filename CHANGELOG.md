@@ -127,6 +127,13 @@ public version. Entries below describe the Hub as it stands at that release.
   worker running that trigger was the hourly heartbeat — 58 minutes from
   Arm to the first scrape on 2026-09-05. Arm now runs one tick at once, and
   a tick that cuts a slice starts the scraper in the same breath.
+- **Worker run logs showed a run twice, one copy "interrupted".** Every
+  dispatcher created the Cloud Task first and opened the run log second; a
+  hot task runner picked the task up within ~200 ms — before that write
+  landed — so the worker found nothing to adopt and opened its own record,
+  and the dispatcher's record then marked it "interrupted". Only one job
+  ever ran. The run log is now opened before the task is created (and
+  closed as failed if the dispatch is refused), at every dispatch site.
 - **A plan's last batch waited for the heartbeat to be consolidated.** A
   worker's completion only ticked the loop while a plan was armed, so a
   batch that finished after its plan went Idle sat unconsolidated — and the

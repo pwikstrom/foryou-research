@@ -901,13 +901,21 @@ def start_process(name: str, script_path, args: list = [], study_name: str | Non
         task_args["started_by"] = started_by or task_args.get("started_by") or ""
         task_args["log_run_id"] = task_args.get("log_run_id") or run_logs.new_run_id()
 
+        # Open the run BEFORE the task exists. A hot task runner picks a task
+        # up within ~200 ms of its creation — faster than this write landed —
+        # and the worker's attach_run then found nothing to adopt, opened a
+        # duplicate record under the same id, and the dispatch's record
+        # arrived a moment later marking it "interrupted" (2026-09-05: every
+        # third worker run showed twice, one of them "interrupted").
+        run_logs.open_run(status_key, run_id=task_args["log_run_id"],
+                          started_by=task_args["started_by"],
+                          task_args=task_args, mode="cloud")
         success, msg = _dispatch_cloud_task(
             name, task_args,
             dispatch_deadline_seconds=dispatch_deadline_for(name, task_args))
+        if not success:
+            run_logs.abort_run(status_key, msg)
         if success:
-            run_logs.open_run(status_key, run_id=task_args["log_run_id"],
-                              started_by=task_args["started_by"],
-                              task_args=task_args, mode="cloud")
             _journal_worker_started(name, task_args["started_by"], task_args)
             # Write an immediate "running" status so the UI shows feedback
             # before the task-runner instance starts up and writes its own status.
