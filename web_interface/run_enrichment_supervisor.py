@@ -50,6 +50,24 @@ from web_interface.task_status import TaskStatusReporter
 # the threshold lives with the rest of the plan semantics.
 _MAX_STALLS = ce.MAX_STALLS
 
+# A Gemini batch job costs ~8 minutes of fixed turnaround however small it is,
+# and grows only slowly with size (1,000 videos take little longer than 35).
+# So the loop does not start a job for fewer than this while more scrapes are
+# on their way — the queued videos wait for the next handoff and go in one job.
+MIN_ANNOTATE_BATCH = 500
+
+# ...but never for longer than this: a slow or failing scrape must not strand
+# queued videos, and the tail of a plan has to finish some time.
+MAX_ANNOTATE_HOLD_MIN = 45
+
+# Scrape this much more than the yield says the target needs. Scrapes are
+# cheap, the handoff clamps annotation to the target regardless, and the
+# margin is what turns "one more small cycle for the shortfall" into "done".
+CUT_MARGIN = 0.05
+
+# Ledger __meta__ key: the held-back annotation queue ({since, queued}).
+ANNOTATE_HELD_KEY = "annotate_held"
+
 # Ledger __meta__ key: set when the loop starts a scraper or annotator, cleared
 # when the loop consolidates. A plan that is parked or finishes while a job it
 # started is still running leaves the job's results with no tick to fold them
@@ -297,16 +315,10 @@ def run_enrichment_supervisor(reporter: TaskStatusReporter,
     # A handoff fills the annotation queue but, on its own, leaves the annotator
     # for a later tick — and ticks fire only at terminal worker completions, so
     # this tick is the cycle BOUNDARY and must perform the whole move itself:
-    # start the annotator on the handed-off backlog, then cut and start the next
-    # scrape slice so it runs inside the annotation window.
+    # cut and start the next scrape slice, then (below, last) start the
+    # annotator on the handed-off backlog so it runs alongside that scrape.
     if outcome.get("action") == "handoff":
         message = (f"Queued {outcome.get('queued')} item(s) for annotation")
-        follow = _drain(reporter, plans)
-        if follow:
-            message += " and started the annotator"
-            outcome = {**follow, "handoff_queued": outcome.get("queued")}
-        # The next slice: scrape-lane only — the annotator just dispatched may
-        # not read as running yet, and a second annotate start would double it.
         plan_out = _plan(reporter, plans)
         if plan_out and plan_out.get("action") == "plan":
             # The in-memory entry may predate its first cycle and lack the
@@ -315,7 +327,7 @@ def run_enrichment_supervisor(reporter: TaskStatusReporter,
             pcid = plan_out.get("collection_id")
             plans = {**plans, pcid: {**(plans.get(pcid) or {}),
                                      "platform": plan_out.get("platform")}}
-            drain2 = _drain(reporter, plans, lanes=("scrape",))
+            drain2 = _drain(reporter, plans)
             if drain2 and drain2.get("action") == "scrape":
                 message += (f"; queued the next slice "
                             f"({plan_out.get('queued')} item(s)) and started the scraper")
@@ -331,10 +343,33 @@ def run_enrichment_supervisor(reporter: TaskStatusReporter,
         pcid = outcome.get("collection_id")
         plans = {**plans, pcid: {**(plans.get(pcid) or {}),
                                  "platform": outcome.get("platform")}}
-        follow = _drain(reporter, plans, lanes=("scrape",))
+        follow = _drain(reporter, plans)
         if follow and follow.get("action") == "scrape":
             outcome = {**outcome,
                        "message": f"{outcome.get('message', '').rstrip('.')} and started the scraper."}
+
+    # The annotation lane goes LAST, once this tick has handed off and cut
+    # its slice: only then is it known whether more scrapes are on their way,
+    # which is what decides whether a small queue waits for company or goes
+    # now. Not after a consolidation or a refresh was dispatched — those need
+    # the lanes quiet, exactly as the busy gate would have enforced.
+    if outcome.get("action") not in ("consolidate", "waiting_consolidate", "finalize",
+                                     "scrape_stalled"):
+        annotate = _drain_annotate(reporter, plans, more_coming=_scrapes_coming(plans))
+        if annotate:
+            if outcome.get("action") == "nothing_to_do":
+                outcome = annotate
+            else:
+                merged = (f"{outcome.get('message', '').rstrip('.')}; "
+                          f"{annotate.get('message', '').rstrip('.')}.")
+                if annotate.get("action") == "annotate_held":
+                    # Holding is a footnote to whatever else the tick did.
+                    outcome = {**outcome, "message": merged}
+                else:
+                    # Starting (or parking) the annotator is the tick's headline.
+                    extra = ({"handoff_queued": outcome.get("queued")}
+                             if outcome.get("action") == "handoff" else {})
+                    outcome = {**outcome, **annotate, **extra, "message": merged}
 
     reporter.update_progress(100, outcome.get("message") or outcome["action"])
     reporter.emit_data(outcome)
@@ -384,28 +419,26 @@ def _queue_stalled(reporter, plans: dict, guard_key: str, queue_len: int,
     return False
 
 
-def _drain(reporter, plans: dict, lanes: tuple = ("scrape", "annotate")) -> dict | None:
-    """Start workers for whichever queues hold work and whose lane is free.
+def _drain(reporter, plans: dict) -> dict | None:
+    """Start the scraper for a platform whose queue holds work and whose lane is free.
 
-    The two lanes are independent: a scraper can start while the annotator is
-    mid-job and vice versa (they share no files — the scraper writes scrape
-    parquets and its own queue, the annotator claims from ``to_annotate.json``
-    and writes refined annotation parquets). At most one scraper plus the
-    annotator per tick. The stall guards are evaluated ONLY when the lane is
-    free — a queue that is merely waiting for its busy worker is not stalled,
-    so the guards can never strike while jobs are legitimately in flight.
+    The scrape and annotation lanes are independent: a scraper can start while
+    the annotator is mid-job and vice versa (they share no files — the scraper
+    writes scrape parquets and its own queue, the annotator claims from
+    ``to_annotate.json`` and writes refined annotation parquets). At most one
+    scraper per tick; the annotation lane is :func:`_drain_annotate`, which
+    the tick runs last. The stall guard is evaluated ONLY when the lane is free
+    — a queue that is merely waiting for its busy worker is not stalled, so
+    the guard can never strike while jobs are legitimately in flight.
 
     Args:
         reporter: Status reporter.
         plans: The armed plans this tick serves.
-        lanes: Which lanes to consider — the boundary move restricts the
-            post-plan drain to ("scrape",) because the annotator it just
-            started may not show as running yet (double-dispatch guard).
     """
     from fyp.scrape import scrape_queues
 
     scrape_outcome = None
-    if "scrape" in lanes:
+    if True:
         lengths = scrape_queues.queue_lengths()
         # Serve only platforms an armed collection actually uses, so a leftover
         # queue from manual admin work does not keep the loop busy forever.
@@ -453,39 +486,92 @@ def _drain(reporter, plans: dict, lanes: tuple = ("scrape", "annotate")) -> dict
             scrape_outcome = {"action": "scrape", "platform": platform, "queued": count,
                               "started": ok, "message": f"Started the {platform} scraper."}
             break
+    return scrape_outcome
 
-    annotate_outcome = None
-    if "annotate" in lanes:
-        queue = data_io.load_json(storage_location="cache",
-                                  filename=ce.ANNOTATE_QUEUE_FILENAME) or []
-        if isinstance(queue, list) and queue:
-            if _annotate_lane_busy():
-                pass  # already being drained (or claimed into in-flight jobs)
-            elif _queue_stalled(reporter, plans, "annotate_guard", len(queue),
-                                "annotation"):
-                return {"action": "annotate_stalled", "queued": len(queue),
-                        "message": "The annotation queue is not draining; plans parked."}
-            else:
-                name = _annotator_process()
-                ok, msg = _start(name)
-                reporter.log(f"Annotating {len(queue)} queued item(s) via {name}: {msg}")
-                if ok:
-                    _note_settle_owed("annotate")
-                    journal.record("queue.drained",
-                                   f"Annotator started on {len(queue):,} queued video(s)",
-                                   actor="enrichment_supervisor", worker=name,
-                                   queued=len(queue))
-                annotate_outcome = {"action": "annotate", "queued": len(queue),
-                                    "started": ok, "message": f"Started {name}."}
-        else:
-            # An empty queue clears the guard: whatever was stuck has drained.
-            if ce.get_meta("annotate_guard") is not None:
-                ce.set_meta("annotate_guard", None)
 
-    if scrape_outcome and annotate_outcome:
-        return {**scrape_outcome,
-                "message": f"{scrape_outcome['message']} {annotate_outcome['message']}"}
-    return scrape_outcome or annotate_outcome
+def _scrapes_coming(plans: dict) -> bool:
+    """Whether more scraped videos are on their way for any armed plan: its
+    scraper is running, or its platform queue holds a slice not yet scraped."""
+    try:
+        from fyp.scrape import scrape_queues
+        lengths = scrape_queues.queue_lengths()
+        for entry in plans.values():
+            platform = str(entry.get("platform") or "")
+            if not platform:
+                continue
+            if _scrape_lane_busy(platform) or int(lengths.get(platform) or 0) > 0:
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def _drain_annotate(reporter, plans: dict, more_coming: bool) -> dict | None:
+    """Start the annotator on the annotation queue — or hold a small queue back.
+
+    A batch job's turnaround is dominated by fixed overhead, so a job of 35
+    videos costs nearly what a job of 1,000 does. While more scrapes are on
+    their way (``more_coming``) a queue below :data:`MIN_ANNOTATE_BATCH` waits:
+    the next handoff adds to it and the lot goes in one job. The hold is
+    bounded by :data:`MAX_ANNOTATE_HOLD_MIN`, and never applies when nothing
+    more is coming — the plan's tail must finish.
+
+    Runs last in the tick, after the handoff and the next slice, so that
+    ``more_coming`` reflects what this tick just queued.
+    """
+    queue = data_io.load_json(storage_location="cache",
+                              filename=ce.ANNOTATE_QUEUE_FILENAME) or []
+    if not (isinstance(queue, list) and queue):
+        # An empty queue clears the guards: whatever was stuck has drained.
+        if ce.get_meta("annotate_guard") is not None:
+            ce.set_meta("annotate_guard", None)
+        if ce.get_meta(ANNOTATE_HELD_KEY) is not None:
+            ce.set_meta(ANNOTATE_HELD_KEY, None)
+        return None
+    if _annotate_lane_busy():
+        return None  # already being drained (or claimed into in-flight jobs)
+    if _queue_stalled(reporter, plans, "annotate_guard", len(queue), "annotation"):
+        return {"action": "annotate_stalled", "queued": len(queue),
+                "message": "The annotation queue is not draining; plans parked."}
+
+    if len(queue) < MIN_ANNOTATE_BATCH and more_coming:
+        held = ce.get_meta(ANNOTATE_HELD_KEY)
+        since = (held or {}).get("since") if isinstance(held, dict) else None
+        age_min = None
+        if since:
+            try:
+                age_min = (datetime.now(timezone.utc)
+                           - datetime.fromisoformat(str(since))).total_seconds() / 60
+            except (TypeError, ValueError):
+                age_min = None
+        if age_min is None or age_min < MAX_ANNOTATE_HOLD_MIN:
+            if not held:
+                ce.set_meta(ANNOTATE_HELD_KEY, {"since": ce.now_iso(), "queued": len(queue)})
+                journal.record("annotate.held",
+                               f"Annotation held back — {len(queue):,} video(s) queued; "
+                               f"waiting for more before starting a batch (a batch starts at "
+                               f"{MIN_ANNOTATE_BATCH:,} videos, when no more scraping is due, "
+                               f"or after {MAX_ANNOTATE_HOLD_MIN} minutes)",
+                               actor="enrichment_supervisor", queued=len(queue),
+                               min_batch=MIN_ANNOTATE_BATCH, max_hold_min=MAX_ANNOTATE_HOLD_MIN)
+            reporter.log(f"Holding {len(queue)} queued item(s) for annotation until there are "
+                         f"{MIN_ANNOTATE_BATCH} (or nothing more is coming).")
+            return {"action": "annotate_held", "queued": len(queue),
+                    "message": f"Holding {len(queue)} queued item(s) for a fuller annotation batch."}
+        reporter.log(f"Held annotation queue is {age_min:.0f} min old — starting it now.")
+
+    name = _annotator_process()
+    ok, msg = _start(name)
+    reporter.log(f"Annotating {len(queue)} queued item(s) via {name}: {msg}")
+    if ok:
+        _note_settle_owed("annotate")
+        if ce.get_meta(ANNOTATE_HELD_KEY) is not None:
+            ce.set_meta(ANNOTATE_HELD_KEY, None)
+        journal.record("queue.drained",
+                       f"Annotator started on {len(queue):,} queued video(s)",
+                       actor="enrichment_supervisor", worker=name, queued=len(queue))
+    return {"action": "annotate", "queued": len(queue),
+            "started": ok, "message": f"Started {name}."}
 
 
 def _note_settle_owed(after: str) -> None:
@@ -557,8 +643,7 @@ def _settle_owed(reporter) -> dict | None:
                      f"waiting for {', '.join(blocking)} to finish first.")
         return {"action": "waiting_consolidate", "after": kind, "blocking": blocking,
                 "message": f"Waiting for {', '.join(blocking)} before consolidating."}
-    ok, msg = _start("consolidate_enrichment",
-                     {"auto_refresh": False, "plan_deferred": True})
+    ok, msg = _start_consolidation({"auto_refresh": False, "plan_deferred": True})
     reporter.log(f"Folding in results from the {kind} job the loop started before its "
                  f"plan stopped: {msg}")
     if ok:
@@ -605,8 +690,7 @@ def _settle(reporter) -> dict | None:
     # plan_deferred marks this debt as the LOOP's, so _finalize may spend it.
     # An operator's own consolidate-without-refresh writes the same ledger entry
     # without the flag and is left alone.
-    ok, msg = _start("consolidate_enrichment",
-                     {"auto_refresh": False, "plan_deferred": True})
+    ok, msg = _start_consolidation({"auto_refresh": False, "plan_deferred": True})
     reporter.log(f"Consolidating after {kind} (downstream refresh deferred): {msg}")
     if ok:
         # The debt the drain step recorded is being paid.
@@ -616,6 +700,48 @@ def _settle(reporter) -> dict | None:
             pass
     return {"action": "consolidate", "after": kind, "auto_refresh": False,
             "started": ok, "message": f"Consolidating after {kind}."}
+
+
+def _start_consolidation(task_args: dict) -> tuple[bool, str]:
+    """Start a consolidation the way the Consolidate button does: with a run
+    record, so the Refresh Pipeline chart draws it.
+
+    Until 2026-09-05 the loop's consolidations were started bare and the chart
+    kept showing whichever run came before — a consolidate-only run seeded
+    here reads on the chart exactly like a manual consolidation with the
+    refresh box unticked.
+    """
+    from web_interface.services import refresh_pipeline
+
+    record = _seed_consolidation_run(task_args)
+    if record:
+        task_args = {**task_args,
+                     "pipeline_run_id": record["run_id"],
+                     "pipeline_stage_index": 1,
+                     "pipeline_stage_total": record.get("stage_total", 1)}
+    ok, msg = _start("consolidate_enrichment", task_args)
+    if not ok and record:
+        # Nothing will ever finish this run — clear it rather than lock the
+        # cards until the stale-flag sweep.
+        try:
+            refresh_pipeline.clear_run()
+        except Exception:
+            pass
+    return ok, msg
+
+
+def _seed_consolidation_run(task_args: dict) -> dict | None:
+    """Plan and persist the consolidate-only run record. Never raises."""
+    try:
+        from web_interface.services import refresh_pipeline
+        record = refresh_pipeline.plan_run(
+            "consolidate_enrichment", kind="consolidate",
+            started_by="automatic enrichment", mode="consolidate_only",
+            origin_task_args=dict(task_args), provisional=False)
+        return refresh_pipeline.seed_run(record)
+    except Exception as exc:
+        print(f"[enrichment_supervisor] could not seed the consolidation's run record: {exc}")
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -719,7 +845,11 @@ def _handoff(reporter, plans: dict) -> dict | None:
     served = []
     for cid, entry in plans.items():
         try:
-            result = ce.handoff_scraped(cid, entry)
+            # Hand off slightly more than the target still needs — enough
+            # that the ~2% of annotations that fail do not leave the plan a
+            # few dozen short and cost a whole extra cycle for them.
+            yields = _expected_yields(cid, entry.get("platform"))
+            result = ce.handoff_scraped(cid, entry, annotation_yield=yields["annotate"])
         except Exception as exc:
             reporter.log(f"Handoff check for {cid} failed: {exc}")
             continue
@@ -772,13 +902,19 @@ _YIELD_RUNS = 3
 _YIELD_MIN_ATTEMPTS = 20
 
 
-def _expected_yield(cid: str, platform: str | None) -> float:
-    """The share of cut videos this plan's recent runs got annotated.
+_DEFAULT_SCRAPE_YIELD = 0.88
+_DEFAULT_ANNOTATE_YIELD = 0.98
 
-    Scrape success x annotation success over the last few runs the plan
-    shares (read from the enrichment history), clamped to [0.5, 1.0];
-    :data:`DEFAULT_EXPECTED_YIELD` until there is enough history. Never raises.
+
+def _expected_yields(cid: str, platform: str | None) -> dict:
+    """The plan's measured yields: ``{"scrape", "annotate", "combined"}``.
+
+    Scrape success and annotation success over the last few runs the plan
+    shares (read from the enrichment history), each clamped to [0.5, 1.0];
+    the defaults until there is enough history. Never raises.
     """
+    out = {"scrape": _DEFAULT_SCRAPE_YIELD, "annotate": _DEFAULT_ANNOTATE_YIELD,
+           "combined": DEFAULT_EXPECTED_YIELD}
     try:
         events = journal.read(collection_id=cid, platform=platform, limit=80)
 
@@ -793,15 +929,36 @@ def _expected_yield(cid: str, platform: str | None) -> float:
         scrape = rate("scrape.finished", "ok", ("permanent", "given_up"))
         annotate = rate("annotate.finished", "ok", ("fail",))
         if scrape is None and annotate is None:
-            return DEFAULT_EXPECTED_YIELD
-        combined = (scrape if scrape is not None else 0.88) * \
-                   (annotate if annotate is not None else 0.98)
-        return min(1.0, max(0.5, combined))
+            return out
+        if scrape is not None:
+            out["scrape"] = min(1.0, max(0.5, scrape))
+        if annotate is not None:
+            out["annotate"] = min(1.0, max(0.5, annotate))
+        out["combined"] = min(1.0, max(0.5, out["scrape"] * out["annotate"]))
     except Exception:
-        return DEFAULT_EXPECTED_YIELD
+        pass
+    return out
 
 
-def _auto_cycle_items(entry: dict, activity, status, expected_yield: float = 1.0) -> int:
+def _expected_yield(cid: str, platform: str | None) -> float:
+    """The share of cut videos this plan's recent runs got annotated (scrape
+    success x annotation success); see :func:`_expected_yields`."""
+    return _expected_yields(cid, platform)["combined"]
+
+
+def _pending_annotations(activity) -> int:
+    """This collection's videos already queued or claimed for annotation —
+    work enrichment status has not seen yet, which every sizing decision has
+    to subtract or it re-counts the previous cycle."""
+    collection_ids = {str(i) for i in activity["item_id"].unique()}
+    queue = data_io.load_json(storage_location="cache",
+                              filename=ce.ANNOTATE_QUEUE_FILENAME) or []
+    pending = ({str(i) for i in queue} | _in_flight_annotation_ids()) & collection_ids
+    return len(pending)
+
+
+def _auto_cycle_items(entry: dict, activity, status, expected_yield: float = 1.0,
+                      margin: float = 0.0, pending: int | None = None) -> int:
     """Size an Auto plan's cycle for the shortest total time.
 
     ``min(ceil(target headroom / expected_yield), one annotation job)``:
@@ -830,18 +987,16 @@ def _auto_cycle_items(entry: dict, activity, status, expected_yield: float = 1.0
     settings = {**ce.DEFAULT_SETTINGS, **(entry.get("settings") or {})}
     target = int(settings.get("annotation_target") or 0)
     annotated = ce._annotated_unique(activity, status)
-    collection_ids = {str(i) for i in activity["item_id"].unique()}
-    queue = data_io.load_json(storage_location="cache",
-                              filename=ce.ANNOTATE_QUEUE_FILENAME) or []
-    pending = ({str(i) for i in queue} | _in_flight_annotation_ids()) & collection_ids
-    headroom = max(0, target - annotated - len(pending))
+    if pending is None:
+        pending = _pending_annotations(activity)
+    headroom = max(0, target - annotated - int(pending))
     if headroom <= 0:
         return 0
     try:
         yield_ = min(1.0, max(0.5, float(expected_yield or 1.0)))
     except (TypeError, ValueError):
         yield_ = 1.0
-    want = int(math.ceil(headroom / yield_))
+    want = int(math.ceil(headroom / yield_ * (1.0 + max(0.0, float(margin or 0.0)))))
     return min(want, DEFAULT_BATCH_SIZE, 20_000)
 
 
@@ -897,10 +1052,12 @@ def _plan(reporter, plans: dict) -> dict | None:
             auto_items = None
             status = None
             expected_yield = _expected_yield(cid, platform)
+            pending = _pending_annotations(activity)
             if settings.get("cycle_items_auto"):
                 status = ce.load_status(activity["item_id"].unique())
                 auto_items = _auto_cycle_items(entry, activity, status,
-                                               expected_yield=expected_yield)
+                                               expected_yield=expected_yield,
+                                               margin=CUT_MARGIN, pending=pending)
                 if auto_items == 0:
                     target = int(settings.get("annotation_target") or 0)
                     if target and ce._annotated_unique(activity, status) >= target:
@@ -930,7 +1087,8 @@ def _plan(reporter, plans: dict) -> dict | None:
                              f"(sized for an expected {expected_yield:.0%} yield).")
 
             result = ce.plan_cycle(cid, entry, activity=activity, status=status,
-                                   expected_yield=expected_yield)
+                                   expected_yield=expected_yield, pending=pending,
+                                   margin=CUT_MARGIN)
             items = result["item_ids"]
 
             if not items:

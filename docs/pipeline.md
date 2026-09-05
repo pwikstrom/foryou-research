@@ -163,6 +163,18 @@ spend the deep dive walks on with (and vice versa; a zero share stays
 disabled), and on the plan's **last slice** — the one the target rather
 than the cycle size bounds — the deep dive may buy part of a day, leaving
 its cursor on that day so a later target raise completes it first. The
+clamp counts videos already queued or claimed for annotation as done (they
+are invisible to enrichment status until consolidated), scrapes carry a
+5 % margin (`CUT_MARGIN`), and the handoff allows for the measured share
+of annotations that fail — together what makes a plan's last cycle
+actually its last. Batch jobs are not started small: while more scrapes
+are on their way the annotation lane holds a queue below
+`MIN_ANNOTATE_BATCH` (500) for the next handoff, bounded by
+`MAX_ANNOTATE_HOLD_MIN` (45) and never when nothing more is coming — the
+lane therefore runs LAST in the tick, after the handoff and the next
+slice. The loop's consolidations are started through
+`_start_consolidation`, which seeds a consolidate-only refresh-run record
+so the Refresh Pipeline chart draws them like a manual consolidation. The
 handoff clamps what may enter annotation the same way, and a target of 0
 means no goal — the plan does nothing rather than run to 100%. The handoff
 always sweeps the collection's **scraped-but-unannotated backlog first**,

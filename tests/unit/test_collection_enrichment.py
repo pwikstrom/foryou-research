@@ -544,6 +544,11 @@ def tick(monkeypatch, store):
     import web_interface.services.worker_status as ws
     monkeypatch.setattr(ws, "_workers_blocking_consolidate",
                         lambda: list(world["consolidate_blockers"]))
+    # The batch-size hold and the run-record seeding are exercised by their
+    # own tests; every older tick test wants a 3-item handoff to start the
+    # annotator at once, and the bare consolidate task_args it always asserted.
+    monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 1)
+    monkeypatch.setattr(sup, "_seed_consolidation_run", lambda task_args: None)
     monkeypatch.setattr(sup, "_start",
                         lambda name, task_args=None:
                         (world["started"].append((name, task_args or {})), (True, "ok"))[1])
@@ -720,8 +725,10 @@ def test_tick_handoff_is_the_boundary_move(tick):
     assert rep.data[-1]["action"] == "annotate"
     assert rep.data[-1]["handoff_queued"] == 3
     started = [n for n, _ in tick["started"]]
-    assert started[0] == "queue_annotator"
-    assert "queue_scraper_tiktok" in started       # the next slice, same tick
+    # The next slice is cut and its scraper started FIRST, so the annotation
+    # lane — which runs last — knows more scrapes are coming when it decides
+    # whether a small queue waits; here the fixture's batch floor is 1.
+    assert started == ["queue_scraper_tiktok", "queue_annotator"]
     entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
     assert entry["spent_items"] == 13
     assert entry["cycles"] == 1                    # the next slice was cut
@@ -775,6 +782,7 @@ def test_tick_annotate_stall_guard_parks_plans(tick):
     """
     tick["plans"] = {"c1": _entry()}
     tick["store"][ce.ANNOTATE_QUEUE_FILENAME] = ["x1", "x2", "x3"]
+    tick["scrape_busy"] = {"tiktok"}      # no new slice this tick: the annotator alone
 
     rep = tick["run"]()
     assert rep.data[-1]["action"] == "annotate"      # first run: fine
@@ -867,6 +875,127 @@ def test_auto_cycle_items_is_sized_for_the_expected_yield(monkeypatch, store):
     assert sup._auto_cycle_items(huge, activity, None, expected_yield=0.5) == DEFAULT_BATCH_SIZE
     # Nonsense yields fall back to the raw headroom rather than exploding the cut.
     assert sup._auto_cycle_items(small, activity, None, expected_yield=0) == 23
+    # The safety margin (scrapes are cheap; a shortfall costs a whole cycle).
+    assert sup._auto_cycle_items(small, activity, None, expected_yield=0.85,
+                                 margin=0.05) == 29
+    # Pending work counts toward the target when the caller passes it.
+    assert sup._auto_cycle_items(small, activity, None, pending=20) == 3
+
+
+def test_handoff_allows_for_the_annotations_that_will_fail(monkeypatch):
+    """Handing off exactly the shortfall left the plan a few dozen short every
+    time (~2% of annotations fail) and cost a whole extra cycle. The clamp
+    allows for that share; the over-buy is bounded by it."""
+    activity = _activity({"2026-08-27": 40})
+    ids = list(activity["item_id"])
+    status = _status(ids, scraped=ids, downloaded=ids, annotated=ids[:30])
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status", lambda i=None: status)
+    entry = _entry(annotation_target=35)                 # 5 short, 10 eligible
+    assert len(ce.handoff_scraped("c1", entry)["ready"]) == 5
+    assert len(ce.handoff_scraped("c1", entry, annotation_yield=0.98)["ready"]) == 6
+    assert len(ce.handoff_scraped("c1", entry, annotation_yield=0.5)["ready"]) == 10
+
+
+def test_plan_cycle_counts_pending_annotations_toward_the_target():
+    """2026-09-05, 14:06: 581 videos were queued for annotation and 25 more
+    were needed, but the clamp read the target as 606 away and cut a whole
+    103-video day for them. With the pending work counted, this is the last
+    slice and only what is needed is cut."""
+    activity = _activity({"2026-05-01": 103, "2026-05-02": 120})
+    entry = _entry(annotation_target=606, cycle_items=2000, sample_share=0.0)
+    whole = ce.plan_cycle("c1", entry, activity=activity, status=None)
+    assert len(whole["item_ids"]) == 223 and whole["last_slice"] is True   # 606 > 223: everything
+    tail = ce.plan_cycle("c1", entry, activity=activity, status=None, pending=581)
+    assert len(tail["item_ids"]) == 25 and tail["partial_day"] == "2026-05-02"
+    # And the margin inflates that cut a little.
+    padded = ce.plan_cycle("c1", entry, activity=activity, status=None, pending=581, margin=0.2)
+    assert len(padded["item_ids"]) == 30
+
+
+def test_small_handoff_waits_for_the_next_scrape(tick, monkeypatch):
+    """A Gemini batch job costs ~8 minutes however small it is. A handoff
+    below the batch floor waits while the next slice is being scraped, so
+    the two go in one job — the annotator is NOT started, the scraper is."""
+    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.services.enrichment_journal as journal
+
+    monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 500)
+    tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
+    tick["handoff"] = {"c1": ["x1", "x2", "x3"]}
+    rep = tick["run"]()
+    assert [n for n, _ in tick["started"]] == ["queue_scraper_tiktok"]
+    assert rep.data[-1]["action"] == "handoff"       # holding is a footnote, not the headline
+    assert "Holding 3" in rep.data[-1]["message"]
+    assert ce.get_meta(sup.ANNOTATE_HELD_KEY)["queued"] == 3
+    kinds = [e["kind"] for e in tick["store"][journal.JOURNAL_FILENAME]["events"]]
+    assert kinds.count("annotate.held") == 1
+    # A second tick while the scrape is still running holds again — silently.
+    tick["scrape_busy"] = {"tiktok"}
+    tick["handoff"] = {}
+    tick["run"]()
+    kinds = [e["kind"] for e in tick["store"][journal.JOURNAL_FILENAME]["events"]]
+    assert kinds.count("annotate.held") == 1
+    assert [n for n, _ in tick["started"]] == ["queue_scraper_tiktok"]
+
+
+def test_held_queue_starts_when_nothing_more_is_coming(tick, monkeypatch):
+    """The plan's tail: nothing left to scrape, so the small queue goes now."""
+    import web_interface.run_enrichment_supervisor as sup
+
+    monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 500)
+    monkeypatch.setattr(ce, "plan_cycle",
+                        lambda cid, entry, **kw: {"item_ids": [], "a_cursor": None,
+                                                  "b_cursor": None, "a": 0, "b": 0,
+                                                  "exhausted": True, "platform": "tiktok"})
+    tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
+    tick["store"][ce.ANNOTATE_QUEUE_FILENAME] = ["x1", "x2", "x3"]
+    rep = tick["run"]()
+    assert ("queue_annotator", {}) in tick["started"]
+    assert rep.data[-1]["action"] == "annotate"
+    assert ce.get_meta(sup.ANNOTATE_HELD_KEY) is None
+
+
+def test_held_queue_starts_after_the_maximum_hold(tick, monkeypatch):
+    import web_interface.run_enrichment_supervisor as sup
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 500)
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=sup.MAX_ANNOTATE_HOLD_MIN + 5)).isoformat()
+    ce.set_meta(sup.ANNOTATE_HELD_KEY, {"since": stale, "queued": 3})
+    tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
+    tick["store"][ce.ANNOTATE_QUEUE_FILENAME] = ["x1", "x2", "x3"]
+    tick["scrape_queues"] = {"tiktok": 12}            # more IS coming...
+    tick["run"]()
+    assert ("queue_annotator", {}) in tick["started"]  # ...but it has waited long enough
+    assert ce.get_meta(sup.ANNOTATE_HELD_KEY) is None
+
+
+def test_loop_consolidations_get_a_run_record(monkeypatch):
+    """The Refresh Pipeline chart draws the run record; the loop's own
+    consolidations were started bare and the chart kept showing the run
+    before (2026-09-05, 14:44)."""
+    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.services.refresh_pipeline as rp
+
+    seen = {}
+    monkeypatch.setattr(rp, "seed_run", lambda record: seen.update(record) or record)
+    monkeypatch.setattr(rp, "clear_run", lambda: seen.update({"cleared": True}))
+    started = []
+    monkeypatch.setattr(sup, "_start",
+                        lambda name, task_args=None: (started.append((name, task_args)), (True, "ok"))[1])
+
+    ok, _ = sup._start_consolidation({"auto_refresh": False, "plan_deferred": True})
+    assert ok and seen["mode"] == "consolidate_only" and seen["origin"] == "consolidate_enrichment"
+    assert seen["started_by"] == "automatic enrichment" and seen["in_flight"] is True
+    name, task_args = started[0]
+    assert name == "consolidate_enrichment"
+    assert task_args["pipeline_run_id"] == seen["run_id"] and task_args["plan_deferred"] is True
+
+    # A refused dispatch clears the record rather than leaving it in flight.
+    monkeypatch.setattr(sup, "_start", lambda name, task_args=None: (False, "refused"))
+    ok, _ = sup._start_consolidation({"auto_refresh": False, "plan_deferred": True})
+    assert not ok and seen.get("cleared") is True
 
 
 def test_expected_yield_is_measured_from_the_plans_history(store):
@@ -900,6 +1029,7 @@ def test_tick_auto_mode_injects_the_effective_cycle_items(tick, monkeypatch):
     monkeypatch.setattr(ce, "plan_cycle", fake_cycle)
     monkeypatch.setattr(ce, "load_status", lambda ids: None)
     monkeypatch.setattr(sup, "_expected_yield", lambda cid, platform: 1.0)
+    monkeypatch.setattr(sup, "CUT_MARGIN", 0.0)   # the margin has its own test
     tick["plans"] = {"c1": _entry(annotation_target=500, cycle_items_auto=True,
                                   cycle_items=400)}
     tick["run"]()

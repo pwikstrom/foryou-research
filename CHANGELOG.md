@@ -67,6 +67,15 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **No more tiny annotation batches.** A Gemini batch job costs about eight
+  minutes of turnaround however small it is, so the loop no longer starts
+  one for fewer than 500 videos while more scrapes are on their way — the
+  queued videos wait for the next handoff and go in one job (never longer
+  than 45 minutes, and never when nothing more is coming). The plan's last
+  cycle is also more often genuinely the last: the target clamp now counts
+  videos already queued for annotation, scrapes carry a 5 % margin, and the
+  handoff allows for the ~2 % of annotations that fail, so a plan is not
+  left a few dozen short with a whole extra cycle to cover them.
 - **The automatic-enrichment messages speak the operator's language.** The
   queue notes, the queue dialog, the Dataset Assembly banner, the panel's
   status strip and tooltips, and every Enrichment History line now use the
@@ -133,6 +142,11 @@ public version. Entries below describe the Hub as it stands at that release.
   worker running that trigger was the hourly heartbeat — 58 minutes from
   Arm to the first scrape on 2026-09-05. Arm now runs one tick at once, and
   a tick that cuts a slice starts the scraper in the same breath.
+- **The Refresh Pipeline chart ignored the loop's own consolidations.** A
+  consolidation started by automatic enrichment left no run record, so the
+  chart kept showing whichever run came before. They are now recorded as
+  consolidate-only runs, exactly like a manual consolidation with the
+  refresh box unticked.
 - **Worker run logs showed a run twice, one copy "interrupted".** Every
   dispatcher created the Cloud Task first and opened the run log second; a
   hot task runner picked the task up within ~200 ms — before that write

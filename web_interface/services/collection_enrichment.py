@@ -512,7 +512,8 @@ def _month_key(day) -> str:
 def plan_cycle(collection_id: str, entry: dict,
                activity: pd.DataFrame | None = None,
                status: pd.DataFrame | None = None,
-               expected_yield: float = 1.0) -> dict:
+               expected_yield: float = 1.0, pending: int = 0,
+               margin: float = 0.0) -> dict:
     """Cut the next slice of work for one collection.
 
     Runs Process B and Process A against the collection's own budget share, then
@@ -544,6 +545,11 @@ def plan_cycle(collection_id: str, entry: dict,
         status: Pre-loaded enrichment status, else loaded here.
         expected_yield: Fraction of cut videos expected to come back annotated,
             in (0, 1]; 1.0 keeps the raw clamp.
+        pending: This collection's videos already queued or claimed for
+            annotation — counted toward the target here, because enrichment
+            status cannot see them yet (without this the last slice was cut
+            against a target 581 videos further away than it was, 2026-09-05).
+        margin: Extra share to cut on top of the yield, for variance.
 
     Returns:
         ``{"item_ids", "a_cursor", "b_cursor", "a", "b", "exhausted", "platform",
@@ -575,13 +581,18 @@ def plan_cycle(collection_id: str, entry: dict,
     # results consolidated, so the count is current to within one cycle — the
     # documented worst-case overshoot.
     target = int(settings.get("annotation_target") or 0)
-    remaining_target = max(0, target - _annotated_unique(activity, status))
+    remaining_target = max(0, target - _annotated_unique(activity, status) - max(0, int(pending or 0)))
     try:
         yield_ = min(1.0, max(0.5, float(expected_yield or 1.0)))
     except (TypeError, ValueError):
         yield_ = 1.0
+    try:
+        margin_ = max(0.0, float(margin or 0.0))
+    except (TypeError, ValueError):
+        margin_ = 0.0
     # What must be CUT for the remaining target to come back annotated.
-    target_room = int(math.ceil(remaining_target / yield_)) if remaining_target else 0
+    target_room = (int(math.ceil(remaining_target / yield_ * (1.0 + margin_)))
+                   if remaining_target else 0)
     budget = min(int(settings["cycle_items"]), target_room)
     if budget <= 0:
         return {**empty, "platform": platform, "exhausted": True, "yield": yield_}
@@ -757,7 +768,8 @@ def plan_cycle(collection_id: str, entry: dict,
 
 def handoff_scraped(collection_id: str, entry: dict,
                     activity: pd.DataFrame | None = None,
-                    status: pd.DataFrame | None = None) -> dict:
+                    status: pd.DataFrame | None = None,
+                    annotation_yield: float = 1.0) -> dict:
     """What of this collection may enter annotation, and the surviving in-flight set.
 
     Called only after a consolidation, which is the moment scrape outcomes become
@@ -797,8 +809,17 @@ def handoff_scraped(collection_id: str, entry: dict,
     eligible = annotation_eligible(ids, status)
     # Clamp to what the target still needs. No target = nothing may be handed
     # off: the plan's goal has been unset, so it must not keep spending on the
-    # strength of items queued under an earlier goal.
-    room = max(0, target - _annotated_unique(activity, status))
+    # strength of items queued under an earlier goal. The clamp allows for the
+    # share of annotations expected to fail (``annotation_yield``, ~0.98 on
+    # TikTok): handing off exactly the shortfall left the plan a few dozen
+    # short every time and cost a whole extra cycle — the over-buy is at most
+    # that share of one handoff, and the plan closes in one.
+    try:
+        ann_yield = min(1.0, max(0.5, float(annotation_yield or 1.0)))
+    except (TypeError, ValueError):
+        ann_yield = 1.0
+    need = max(0, target - _annotated_unique(activity, status))
+    room = int(math.ceil(need / ann_yield)) if need else 0
     eligible = eligible[:room]
 
     # Prune in_flight: an id leaves once its outcome is known — handed off now,

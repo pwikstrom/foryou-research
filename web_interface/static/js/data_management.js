@@ -7620,6 +7620,7 @@ const DM_ENRICH_TICK_LABELS = {
     annotate: 'started the annotator',
     consolidate: 'started a consolidation',
     handoff: 'queued the scraped videos for annotation',
+    annotate_held: 'holding the queued videos until there are enough for an annotation batch',
     plan: 'queued the next batch of videos to scrape',
     busy: 'a scrape, annotation or refresh is still running — try again when it finishes',
     idle: 'no collection is armed',

@@ -65,6 +65,7 @@ KINDS: dict[str, tuple[str, str]] = {
     "queue.built": ("Queue built", FAMILY_QUEUE),
     "queue.emptied": ("Queue emptied", FAMILY_QUEUE),
     "queue.drained": ("Started on the queue", FAMILY_QUEUE),
+    "annotate.held": ("Annotation held back", FAMILY_QUEUE),
     "slice.queued": ("Next batch queued", FAMILY_QUEUE),
     "handoff": ("Queued for annotation", FAMILY_QUEUE),
     "worker.started": ("Started by hand", FAMILY_WORKER),
