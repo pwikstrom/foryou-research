@@ -229,7 +229,7 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
             "No items pruned from this batch (refinement failure?). "
             "Stopping chain to avoid an infinite retry loop."
         )
-        return _finish("stopped — nothing in the last batch could be resolved")
+        return _finish("stopped — the last batch made no progress")
 
     # More work remains — request a chain dispatch
     next_task_args = {

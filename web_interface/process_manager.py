@@ -774,7 +774,7 @@ def _journal_worker_started(name: str, started_by: str, task_args: dict | None) 
         if name == "consolidate_enrichment" and "auto_refresh" in ta:
             extras.append("with the analysis refresh" if ta.get("auto_refresh")
                           else "without the analysis refresh")
-        message = f"{what} started by {journal.actor_label(started_by)}"
+        message = f"{what} started by hand — {journal.actor_label(started_by)}"
         if extras:
             message += f" ({', '.join(extras)})"
         journal.record("worker.started", message, platform=platform,

@@ -110,7 +110,7 @@
 
 Armed, this collection gets that done by itself, a batch at a time. It always takes the cheapest step first: videos that are already scraped but not yet annotated are annotated before any new scraping starts. Then it cycles - pick the next videos, scrape them, check what actually arrived, annotate those, repeat. It never tries to annotate a video that was not scraped.
 
-The loop moves on its own about once an hour, and again whenever a scrape or annotation job finishes. Any number of collections can be armed at once - they take turns, one batch per turn, through the same shared scraper and annotator, so plans never collide. Work done outside a plan is seen too: a video that is already scraped or annotated is skipped, never paid for twice.
+It moves on its own about once an hour, and again whenever a scrape or annotation finishes. Any number of collections can be armed at once - they take turns, one batch per turn, through the same shared scraper and annotator, so plans never collide. Work done outside a plan is seen too: a video that is already scraped or annotated is skipped, never paid for twice.
 
 A plan stops when its annotation target is met, or when nothing processable is left. For it to run unattended, automatic enrichment must also be switched on for the whole site (Admin -> Site Settings); with that off, only Run a cycle now does anything.") }}</h3>
             <p class="text-xs" style="margin: 0 0 10px 0; color: var(--color-text-muted);">
@@ -191,7 +191,7 @@ The loop can overshoot slightly - it always scrapes whole days, so the last cycl
                     <label class="text-sm" style="display: block;">
                         <span class="meta-tooltip tooltip-wide" data-tooltip="How many videos each cycle queues for scraping, split between the two ways of choosing days (under Advanced).
 
-Auto (recommended) sizes each cycle for the shortest total time: one annotation job's worth (2,000 videos) - about what the scraper can feed while the previous job runs - never more than the target still needs, and sized up for the videos expected to fail on the way, measured from this plan's own recent runs. The last slice may buy part of a day so the target is met without an extra cycle. Untick it to set a number by hand.
+Auto (recommended) picks the number of videos per cycle for the shortest total time: up to 2,000 (one annotation batch - roughly what can be scraped while the previous batch is being annotated) and never more than the target still needs, with a margin for the videos that fail along the way, based on this plan's own recent runs. The final cycle may take only part of a day, so the target is reached without an extra cycle. Untick it to set a number by hand.
 
 Smaller cycles report back sooner and keep the spend visible; larger ones waste less time waiting between steps. A cycle can go a little over the number, because neither half will ever take part of a day - a partly covered day is worth almost nothing to the analyses.">Items per cycle</span>
                         <div style="display: flex; align-items: center; gap: 8px;">
@@ -263,23 +263,23 @@ Deep-dive days are not capped - they take the whole day, however busy it was.">M
                     <div id="dm-enrich-status-line" class="text-sm" style="color: var(--color-text-secondary);">
                         Loading enrichment plan...
                     </div>{{ card_info(
-                    "The plan's state, and what the machinery is doing right now.
+                    "The plan's state, and what the hub is doing for it right now.
 
 Not armed - no plan yet. Pick a target and press Arm.
-Running - the collection is picked up automatically, about once an hour and whenever a job finishes. While a step is in flight the line names it - scraping, annotating, or consolidating - with the worker's own latest progress note; between steps it says what the next tick will do.
+Running - the collection is picked up automatically, about once an hour and whenever a scrape or annotation finishes. While a step is running the line names it - scraping, annotating, or consolidating - with that worker's own latest progress note; between steps it says what the next cycle will do.
 Paused - nothing new starts; work already queued still finishes.
 Idle - the annotation target is met (or nothing processable is left), so there is nothing to do. Raise the target and arm to continue.
-Needs attention - the plan queued work repeatedly without a single new scrape landing, or its scraper was held off, or a shared queue stopped draining; the reason is shown beside the status. Fix the cause, then arm it again.
+Needs attention - the plan queued videos to scrape several times and none came back, or its scraper was paused by a scraper alert, or a shared queue stopped getting shorter; the reason is shown beside the status. Fix the cause, then arm it again.
 
 This line is a summary and refreshes itself while work is in flight. What happened before - each cycle's scrapes, annotations and consolidations, with their numbers - is under History below. The full live logs are elsewhere: scraping and annotation on their own Data pages (the worker cards), consolidation under Dataset Assembly.") }}
                 </div>
                 <div style="margin-top: 8px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <span class="meta-tooltip tooltip-wide" id="dm-enrich-arm-wrap"
-                        data-tooltip="Arm hands this collection to the loop: it gets picked up automatically from then on, and keeps going until the annotation target is met or there is nothing left to process. Arming always saves the settings above first - there is no separate save step on this path.
+                        data-tooltip="Arm switches on automatic enrichment for this collection: it is picked up automatically from then on, and keeps going until the annotation target is reached or there is nothing left to process. Arming always saves the settings above first - there is no separate save step on this path.
 
 There is only ever ONE plan per collection - if a colleague armed it already, this updates that same plan rather than starting a second one, and the last person to save wins on the settings.
 
-The scrape queue is shared by everything that scrapes on this platform, and the annotation queue by everyone; the loop drains them before it can do its own work. If either holds videos queued elsewhere (a study's Build scrape queue, say), a dialog shows how many and whose, and asks whether to drain them first or empty them now.
+The scrape and annotation queues are shared by the whole hub, and automatic enrichment works through them in order - whatever is already queued is processed before this collection's own videos. If videos queued elsewhere are waiting (from Queue videos for scraping on the Scrape page, say), a dialog shows how many and whose, and asks whether to process them first or remove them.
 
 While the plan runs the button reads Pause: nothing new starts, anything already queued still finishes. On a paused plan it reads Resume. On a finished plan it reads Arm again - raise the annotation target first, or there is nothing for it to do."><button
                         type="button" class="action-btn text-sm" id="dm-enrich-arm-btn"
@@ -292,7 +292,7 @@ Changing a setting does not undo work already done - it applies from the next cy
                         onclick="dmEnrichSave()">Save settings</button></span>
                     <span id="dm-enrich-msg" class="text-xs" style="color: var(--color-text-tertiary);"></span>
                     <span class="meta-tooltip tooltip-wide" id="dm-enrich-tick-wrap" style="margin-left: auto;"
-                        data-tooltip="Runs one step of the loop right now instead of waiting for the next automatic tick. A manual nudge and diagnostic - it does not arm anything, and one click advances the loop by exactly one step: queue the next batch of videos to scrape, start the scraper or the annotator, or fold finished results back in.
+                        data-tooltip="Runs one step of automatic enrichment right now instead of waiting for the next automatic cycle. A manual nudge and diagnostic - it does not arm anything, and one click advances the plan by exactly one step: queue the next batch of videos to scrape, start the scraper or the annotator, or consolidate finished results.
 
 Hover again once the panel has loaded - this tip then says what a cycle would actually do for this collection."><button
                         type="button" class="btn-discreet text-xs" id="dm-enrich-tick-btn"
@@ -305,7 +305,7 @@ Hover again once the panel has loaded - this tip then says what a cycle would ac
                 <div style="margin-top: 12px; display: flex; align-items: baseline; gap: 6px;">
                     <button type="button" class="dm-enrich-advanced-toggle" id="dm-enrich-history-toggle"
                         onclick="dmEnrichHistoryToggle()"><span class="caret">&#9656;</span>History</button>{{ card_info(
-                    "What happened to this collection, newest first: the plan armed, paused or parked; each slice queued to scrape; each handoff to annotation; and every scraper, annotator and consolidation run the plan shares with the rest of the site - including runs someone started by hand, and queues built elsewhere that the loop drained first.
+                    "What happened to this collection, newest first: the plan armed, paused or stopped; each batch of videos queued to scrape; each batch queued for annotation; and every scraper, annotator and consolidation run the plan shares with the rest of the hub - including runs someone started by hand, and videos queued elsewhere that were processed first.
 
 One line per event with the numbers that matter (how many scraped OK and failed for good, how many annotated, what a consolidation folded in). It is the durable record: worker logs keep only the last few runs, this keeps weeks.
 

@@ -591,9 +591,9 @@ def _journal_plan_save(cid: str, patch: dict, prev_state, entry: dict, *,
                 kind, verb = "plan.armed", "Armed again"
             else:
                 kind, verb = "plan.armed", "Armed"
-            message = f"{verb} by {actor} — target {target:,} unique videos annotated"
+            message = f"{verb} by {actor} — target {target:,} videos annotated"
             if settings.get("cycle_items_auto"):
-                message += ", cycles sized automatically"
+                message += ", videos per cycle chosen automatically"
             else:
                 message += f", {int(settings.get('cycle_items') or 0):,} videos per cycle"
             try:
@@ -601,11 +601,11 @@ def _journal_plan_save(cid: str, patch: dict, prev_state, entry: dict, *,
             except (TypeError, ValueError):
                 n_foreign = 0
             if queue_choice == "empty" and n_foreign:
-                message += (f"; {n_foreign:,} video(s) queued elsewhere were emptied "
+                message += (f"; {n_foreign:,} video(s) queued elsewhere were removed "
                             f"from the queues first")
             elif queue_choice == "drain" and n_foreign:
-                message += (f"; {n_foreign:,} video(s) queued elsewhere will be "
-                            f"drained before the plan's own work")
+                message += (f"; {n_foreign:,} video(s) queued elsewhere are processed "
+                            f"before this collection's own")
         elif state == ce.STATE_PAUSED:
             kind = "plan.paused"
             message = f"Paused by {actor} — work already queued still finishes"

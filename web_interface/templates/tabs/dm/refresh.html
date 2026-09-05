@@ -83,7 +83,7 @@
 <div id="dm-history-card" style="background: var(--section-bg); padding: 15px; border-radius: 4px; border: 1px solid var(--color-border); margin-bottom: 20px;">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
         <div class="font-bold">Enrichment History{{ card_info(
-            "What the enrichment machinery did, newest first, one line per event: a plan armed, paused or parked (and why); a scrape queue built from a study; a queue emptied; a queue handed to a worker, split into the armed plans' own slices and whatever else was queued; every scraper, annotator, consolidation and analysis refresh that finished, with its numbers; who started what. Rows are coloured by kind - queue, worker, consolidation, refresh, and amber for anything that needs attention.
+            "What happened to the hub's scraping, annotation and analyses, newest first, one line per event: a plan armed, paused or stopped (and why); a scrape queue built from a study; a queue emptied; a scraper or annotator started on a queue, and how much of that queue the plans queued themselves; every scraper, annotator, consolidation and analysis refresh that finished, with its numbers; and who started what. Rows are coloured by kind - queue, worker, consolidation, refresh, and amber for anything that needs attention.
 
 This is the durable record of how a cycle unfolded. Worker logs keep only their last few runs and the supervisor's own log is flushed by its hourly heartbeat; this keeps weeks. Filter by collection to read one plan's story - that view is the same one its Edit Collections panel shows under History.") }}</div>
         <select id="dm-history-filter" class="control-input text-xs"

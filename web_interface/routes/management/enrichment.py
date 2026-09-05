@@ -1037,9 +1037,10 @@ def calculate_to_scrape():
             added = len(by_platform.get(platform) or [])
             if not added:
                 continue
+            from ...services.enrichment_journal import platform_label
             _journal("queue.built",
                      f"Scrape queue built from study '{study_name}' by {_actor()} — "
-                     f"{added:,} {platform} video(s) added, {n:,} now queued",
+                     f"{added:,} {platform_label(platform)} video(s) added, {n:,} now queued",
                      platform=platform, study=study_name, added=added, queued=n,
                      retry_failed=retry_failed, retry_missing_media=retry_missing_media)
 

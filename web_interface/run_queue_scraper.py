@@ -46,9 +46,9 @@ def _journal_scrape_finished(*, platform: str, reason: str, ok: int, permanent: 
         message = (f"{journal.platform_label(platform)} scrape finished — "
                    f"{ok:,} OK, {permanent:,} failed for good")
         if transient:
-            message += f", {transient:,} left for another try"
+            message += f", {transient:,} to be retried"
         if given_up:
-            message += f", {given_up:,} given up on"
+            message += f", {given_up:,} given up on after repeated retries"
         message += f"; {queue_remaining:,} still queued" if queue_remaining else "; queue empty"
         if reason:
             message += f" ({reason})"
@@ -333,7 +333,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
             f"No items pruned from this batch ({len(transient_failed)} transient). "
             f"Stopping chain to avoid an infinite retry loop."
         )
-        return _finish("stopped — nothing in the last batch could be resolved")
+        return _finish("stopped — the last batch made no progress")
 
     next_task_args = {
         "platform": platform,

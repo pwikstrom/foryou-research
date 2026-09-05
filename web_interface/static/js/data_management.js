@@ -2668,9 +2668,9 @@ function checkConsolidationNeeded(data) {
         // the loop is about to make itself.
         const owes = data.loop_owes || {};
         if (owes.settle) {
-            warningEl.textContent = `The ${parts.join(' and ')} completed after the last consolidation — `
-                + 'the enrichment loop started it and folds the results in on its next tick '
-                + '(within the hour at the latest). Press "Consolidate" only if you would rather not wait.';
+            warningEl.textContent = `The ${parts.join(' and ')} finished after the last consolidation. `
+                + 'Automatic enrichment started that run and will consolidate the results itself in its '
+                + 'next cycle (within the hour at the latest) — press "Consolidate" only if you would rather not wait.';
         } else {
             warningEl.textContent = `The ${parts.join(' and ')} completed after the last consolidation. Click "Consolidate" to incorporate new data.`;
         }
@@ -2714,9 +2714,9 @@ function renderConsolidationImpact(impact, partial = null) {
             // The loop's own consolidations deferred this refresh; it runs
             // it itself once the loop goes quiet, so the button is a
             // shortcut, not a chore.
-            note.textContent = 'The enrichment loop deferred this refresh and runs it itself once its '
-                + 'last consolidation is in (within the hour at the latest). '
-                + '"Refresh All Affected" only if you would rather not wait.';
+            note.textContent = 'Automatic enrichment has postponed this refresh until its plan finishes and '
+                + 'will run it itself (within the hour at the latest). Use "Refresh All Affected" only if '
+                + 'you want the analyses updated sooner.';
             note.style.display = '';
         } else {
             note.style.display = 'none';
@@ -3428,14 +3428,14 @@ async function emptyQueue(queueType, platform) {
         ? ((stats.scrape_queues || {})[platform] || 0) : (stats.annotate_queue_len || 0);
     const own = queueType === 'scrape' ? ((stats.queue_plan_items_by_platform || {})[platform] || 0) : 0;
     const which = queueType === 'scrape' ? `${_dmPlatformLabel(platform)} scrape` : 'annotation';
-    let msg = `Empty the ${which} queue? ${queued.toLocaleString()} queued video(s) will be dropped.`;
+    let msg = `Empty the ${which} queue? The ${queued.toLocaleString()} queued video(s) will be removed `
+            + `and will not be ${queueType === 'scrape' ? 'scraped' : 'annotated'}.`;
     if (armed.length) {
-        const many = armed.length > 1;
-        msg += `\n\nArmed plan${many ? 's' : ''} ${_armedPlanLabel(armed)} ${many ? 'share' : 'shares'} this queue`;
+        msg += `\n\nAutomatic enrichment is running for ${_armedPlanLabel(armed)} and uses this queue.`;
         if (own) {
-            msg += `; ${own.toLocaleString()} of the queued videos are its current slice, and the plan will not revisit those days`;
+            msg += ` ${own.toLocaleString()} of the queued videos are its current batch: if you remove them, `
+                 + 'the plan treats those days as done and moves on without them.';
         }
-        msg += '.';
     }
     const ok = await showAppConfirm(msg, { okLabel: 'Empty the queue', danger: true });
     if (!ok) return;
@@ -6829,7 +6829,7 @@ const DM_ENRICH_ACTIVITY_LABELS = {
     scraping: 'scraping now',
     annotating: 'annotating now',
     consolidating: 'consolidating results now',
-    refreshing: 'analyses refreshing now — the loop waits for it',
+    refreshing: 'the analyses are being refreshed — enrichment continues when that finishes',
 };
 
 // Mirrors the supervisor's auto-cycle cap (MAX_CONCURRENT_JOBS x the
@@ -7058,13 +7058,14 @@ function dmEnrichStateLabel(state) {
 // no-plan / target-met states disable the button precisely because a cycle
 // would do nothing.
 function dmEnrichTickTooltip(armed, state, progress) {
-    const base = 'Runs one step of the loop right now instead of waiting for '
-               + 'the next automatic tick. A manual nudge and diagnostic — it '
-               + 'does not arm anything, and one click advances the loop by '
-               + 'exactly one step: queue the next batch of videos to scrape, '
-               + 'start the scraper or the annotator, or fold finished results '
-               + 'back in. If the shared queues hold videos queued elsewhere, '
-               + 'a dialog shows them first — the loop drains those before its own.';
+    const base = 'Runs one step of automatic enrichment right now instead of '
+               + 'waiting for the next automatic cycle. A manual nudge and '
+               + 'diagnostic — it does not arm anything, and one click advances '
+               + 'the plan by exactly one step: queue the next batch of videos to '
+               + 'scrape, start the scraper or the annotator, or consolidate '
+               + 'finished results. If videos queued elsewhere are waiting in the '
+               + 'shared queues, a dialog shows them first — they are processed '
+               + 'before this collection\'s own.';
     if (!armed) {
         return 'Disabled: this collection has no plan yet, so a cycle has '
              + 'nothing to run. Press Arm (or edit a setting and save) first.';
@@ -7368,14 +7369,14 @@ function dmEnrichRender(data) {
             if (msg) line += ` \u2014 ${msg.length > 90 ? msg.slice(0, 87) + '\u2026' : msg}`;
         } else if (dmEnrichArmed && dmEnrichState === 'running') {
             const next = dmEnrichNextLabel(progress);
-            line += ' \u00b7 waiting for the next tick'
+            line += ' \u00b7 waiting for the next cycle'
                   + (next ? ` \u2014 next: ${next}` : '');
         }
         if (dmEnrichArmed && (data.deferred_refresh || {}).pending) {
-            line += ' \u00b7 analyses refresh when the plan completes';
+            line += ' \u00b7 the analyses are refreshed when the plan finishes';
         }
         if (!data.enabled_site_wide) {
-            line += ' \u00b7 site-wide auto-enrichment is OFF';
+            line += ' \u00b7 automatic enrichment is switched off for the whole site (Admin \u2192 Site Settings)';
         }
         statusEl.textContent = line;
     }
@@ -7467,7 +7468,7 @@ function dmEnrichNextLabel(progress) {
     const backlog = Math.min(
         Math.max(0, (progress.unique_scraped || 0) - (progress.unique_annotated || 0)),
         target - annotated);
-    if (backlog) return `annotate the ${backlog.toLocaleString()}-video backlog`;
+    if (backlog) return `annotate the ${backlog.toLocaleString()} videos that are already scraped`;
     const cycleItems = dmEnrichEffectiveCycleItems();
     return cycleItems
         ? `queue ~${cycleItems.toLocaleString()} videos to scrape`
@@ -7618,16 +7619,16 @@ const DM_ENRICH_TICK_LABELS = {
     scrape: 'started the scraper',
     annotate: 'started the annotator',
     consolidate: 'started a consolidation',
-    handoff: 'queued scraped items for annotation',
-    plan: 'queued the next slice to scrape',
-    busy: 'workers still running — try again later',
-    idle: 'nothing armed',
+    handoff: 'queued the scraped videos for annotation',
+    plan: 'queued the next batch of videos to scrape',
+    busy: 'a scrape, annotation or refresh is still running — try again when it finishes',
+    idle: 'no collection is armed',
     nothing_to_do: 'nothing to do right now',
-    disabled: 'automatic enrichment is disabled',
-    scrape_stalled: 'the scrape queue is not draining, so the plan was parked',
-    annotate_stalled: 'the annotation queue is not draining, so the plan was parked',
-    waiting_consolidate: 'waiting for workers to finish before consolidating',
-    finalize: 'started the deferred analysis refresh',
+    disabled: 'automatic enrichment is switched off for the whole site',
+    scrape_stalled: 'the scrape queue is not getting any shorter, so the plan was stopped (Needs attention)',
+    annotate_stalled: 'the annotation queue is not getting any shorter, so the plan was stopped (Needs attention)',
+    waiting_consolidate: 'waiting for a scrape or annotation to finish before consolidating',
+    finalize: 'started the analysis refresh',
 };
 
 function dmEnrichTickLabel(action) {
@@ -7716,31 +7717,31 @@ function _dmEnrichQueueRowHtml(key, q, label, platform, canEmpty) {
     const foreign = q.foreign || 0;
     let who;
     if (q.breakdown === false) {
-        who = 'too many to attribute';
+        who = 'Too many videos to work out which collections they belong to.';
     } else {
-        const parts = [`${(q.this_collection || 0).toLocaleString()} from this collection`];
+        const parts = [`This collection: ${(q.this_collection || 0).toLocaleString()}`];
         const others = (q.others || []).map(o =>
             `${escapeHtml(o.display_id || o.collection_id)} (${(o.n || 0).toLocaleString()})`);
         if (others.length) {
-            parts.push(`from other collections: ${others.join(', ')}`
+            parts.push(`Other collections: ${others.join(', ')}`
                      + (q.more ? ` and ${q.more.toLocaleString()} more` : ''));
         }
-        if (q.unattributed) parts.push(`${q.unattributed.toLocaleString()} in no collection`);
+        if (q.unattributed) parts.push(`Not in any collection: ${q.unattributed.toLocaleString()}`);
         who = parts.join(' · ');
     }
     let cost = '';
     if (key === 'annotate' && q.cost_estimate && q.cost_estimate.est_cost_usd) {
-        cost = ` — ≈ $${q.cost_estimate.est_cost_usd.toLocaleString()} to annotate`
-             + ` (${escapeHtml(q.cost_estimate.model || q.cost_estimate.backend || '')})`;
+        cost = ` Annotating them would cost about $${q.cost_estimate.est_cost_usd.toLocaleString()}`
+             + ` (${escapeHtml(q.cost_estimate.model || q.cost_estimate.backend || '')}).`;
     }
     const tick = canEmpty
         ? `<label><input type="checkbox" class="dm-enrich-queue-empty" data-queue="${key}"`
           + ` data-platform="${escapeHtml(platform)}"${foreign ? ' checked' : ''}>`
-          + ` Empty this queue first (${q.total.toLocaleString()} video(s) dropped)</label>`
+          + ` Remove all ${q.total.toLocaleString()} from this queue first</label>`
         : '';
     return `<div class="dm-enrich-queue-row">
-        <div class="text-sm"><b>${escapeHtml(label)}:</b> ${q.total.toLocaleString()} video(s) queued,
-            <b>${foreign.toLocaleString()}</b> not this collection's${cost}</div>
+        <div class="text-sm"><b>${escapeHtml(label)}:</b> ${q.total.toLocaleString()} video(s) waiting,
+            <b>${foreign.toLocaleString()}</b> of them from other collections.${cost}</div>
         <div class="text-xs who">${who}</div>${tick}</div>`;
 }
 
@@ -7762,10 +7763,10 @@ function _dmEnrichQueueDialog(verb, preview) {
     if (note) {
         const armed = (preview.armed_elsewhere || []).map(p => p.display_id || p.collection_id);
         let text = canEmpty
-            ? 'Emptying drops the queued videos for everyone: whoever queued them re-queues from their study if they still want them.'
-            : 'You cannot empty queues from here (that needs the Scrape or Annotation page permission).';
+            ? 'Removed videos are not scraped or annotated unless someone queues them again from their study.'
+            : 'You cannot remove queued videos from here — that needs access to the Scrape or Annotation page.';
         if (armed.length) {
-            text += ` Also armed on ${platformLabel}: ${armed.join(', ')} — the plans take turns, one slice each.`;
+            text += ` Automatic enrichment is also running for ${armed.join(', ')} on ${platformLabel}; the plans take turns.`;
         }
         note.textContent = text;
     }
@@ -7776,9 +7777,9 @@ function _dmEnrichQueueDialog(verb, preview) {
         const ticked = rows.querySelectorAll('.dm-enrich-queue-empty:checked').length;
         if (emptyBtn) {
             emptyBtn.style.display = canEmpty && ticked ? '' : 'none';
-            emptyBtn.textContent = `Empty ${ticked > 1 ? 'the ticked queues' : 'it'}, then ${verb}`;
+            emptyBtn.textContent = `Remove them, then ${verb}`;
         }
-        if (drainBtn) drainBtn.textContent = `${verb} and drain ${ticked > 1 || (scrape.total && annotate.total) ? 'them' : 'it'} first`;
+        if (drainBtn) drainBtn.textContent = `${verb} — process them first`;
     };
     rows.querySelectorAll('.dm-enrich-queue-empty').forEach(cb => cb.addEventListener('change', refreshButtons));
     refreshButtons();
@@ -7805,7 +7806,7 @@ async function _dmEnrichEmptyTicked(preview) {
     if (!rows) return;
     const ticked = [...rows.querySelectorAll('.dm-enrich-queue-empty:checked')];
     if (!ticked.length) return;
-    dmEnrichMsg('Emptying the queue(s)...');
+    dmEnrichMsg('Removing the queued videos...');
     const reason = `before arming ${dmEnrichCollectionId}`;
     for (const cb of ticked) {
         const type = cb.dataset.queue;
@@ -7931,13 +7932,19 @@ function renderArmedPlanNotes(data) {
         if (!plans.length) { el.style.display = 'none'; el.textContent = ''; continue; }
         const queued = (data.scrape_queues || {})[platform] || 0;
         const mine = own[platform] || 0;
-        const many = plans.length > 1;
-        let text = `Armed plan${many ? 's' : ''} ${_armedPlanLabel(plans)} drain${many ? '' : 's'} this queue on `
-                 + `${many ? 'their' : 'its'} next tick`;
-        if (queued) {
-            text += mine
-                ? ` — ${mine.toLocaleString()} of the ${queued.toLocaleString()} queued are the plan's own slice`
-                : ` — none of the ${queued.toLocaleString()} queued are the plan's own`;
+        const other = Math.max(0, queued - mine);
+        let text = `Automatic enrichment is running for ${_armedPlanLabel(plans)}. `
+                 + 'Whatever is in this queue is scraped in its next cycle';
+        if (!queued) {
+            text += '.';
+        } else if (!mine) {
+            text += ` — none of these ${queued.toLocaleString()} videos were queued by the plan, `
+                  + 'so they are scraped first, before the plan\'s own videos.';
+        } else if (!other) {
+            text += ` — all ${queued.toLocaleString()} of these videos were queued by the plan.`;
+        } else {
+            text += ` — ${mine.toLocaleString()} of these ${queued.toLocaleString()} videos were queued by the plan; `
+                  + `the other ${other.toLocaleString()} were queued here and are scraped along with them.`;
         }
         el.textContent = text;
         el.style.display = '';
@@ -7949,9 +7956,9 @@ function renderArmedPlanNotes(data) {
             annNote.style.display = 'none';
             annNote.textContent = '';
         } else {
-            const many = all.length > 1;
-            annNote.textContent = `Armed plan${many ? 's' : ''} ${_armedPlanLabel(all)} drain${many ? '' : 's'} this queue `
-                + 'on the next tick — anything queued here is annotated (and paid for) by the loop';
+            annNote.textContent = `Automatic enrichment is running for ${_armedPlanLabel(all)}. `
+                + 'Anything in this queue is annotated in its next cycle, and annotation costs money — '
+                + 'queue only videos you mean to annotate.';
             annNote.style.display = '';
         }
     }

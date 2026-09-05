@@ -67,6 +67,12 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **The automatic-enrichment messages speak the operator's language.** The
+  queue notes, the queue dialog, the Dataset Assembly banner, the panel's
+  status strip and tooltips, and every Enrichment History line now use the
+  hub's own words — scrape, annotate, consolidate, queue, cycle, plan — in
+  place of engineering shorthand ("the loop drains this queue on its next
+  tick", "handed to annotation", "results folded in", "slice").
 - **Auto cycle sizing reaches the target in fewer cycles.** A cycle is now
   sized for the plan's expected *yield* (scrape success × annotation
   success, measured from its own recent runs), so what comes back annotated

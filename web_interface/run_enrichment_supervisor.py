@@ -248,7 +248,8 @@ def run_enrichment_supervisor(reporter: TaskStatusReporter,
         if forced:
             # Only a person's click is worth a history line here — the hourly
             # heartbeat waiting behind a long pipeline is not news.
-            journal.record("tick.busy", f"Cycle requested, but the loop had to wait: {why}",
+            journal.record("tick.busy",
+                           f"Cycle requested, but something is still running: {why}",
                            collection_id=forced, actor=task_args.get("started_by"),
                            blocking=list(blocking))
         reporter.emit_data({"action": "busy", "blocking": blocking})
@@ -372,9 +373,9 @@ def _queue_stalled(reporter, plans: dict, guard_key: str, queue_len: int,
             ce.save_plan(cid, {"state": ce.STATE_BLOCKED,
                                "last_error": f"{label} queue not draining"})
             journal.record("plan.blocked",
-                           f"Needs attention — the {label} queue is not draining "
-                           f"({queue_len:,} item(s) unchanged across {strikes + 1} runs); "
-                           f"every plan sharing it is parked",
+                           f"Needs attention — the {label} queue has not got any shorter "
+                           f"({queue_len:,} video(s) across {strikes + 1} runs); every plan "
+                           f"using it has been stopped",
                            collection_id=cid, actor="enrichment_supervisor",
                            reason=f"{label} queue not draining", queued=queue_len)
         ce.set_meta(guard_key, None)
@@ -431,8 +432,9 @@ def _drain(reporter, plans: dict, lanes: tuple = ("scrape", "annotate")) -> dict
                                            "last_error": f"scraper {tripped}"})
                         journal.record("plan.blocked",
                                        f"Needs attention — the {journal.platform_label(platform)} "
-                                       f"scraper is held off ({tripped.replace('_', ' ')}); "
-                                       f"clear the alert on the Scrape page, then arm again",
+                                       f"scraper has been paused by a scraper alert "
+                                       f"({tripped.replace('_', ' ')}); clear the alert on the "
+                                       f"Scrape page, then arm again",
                                        collection_id=cid, platform=platform,
                                        actor="enrichment_supervisor", reason=tripped)
                 continue
@@ -470,8 +472,7 @@ def _drain(reporter, plans: dict, lanes: tuple = ("scrape", "annotate")) -> dict
                 if ok:
                     _note_settle_owed("annotate")
                     journal.record("queue.drained",
-                                   f"Annotator started on the annotation queue — "
-                                   f"{len(queue):,} video(s) queued",
+                                   f"Annotator started on {len(queue):,} queued video(s)",
                                    actor="enrichment_supervisor", worker=name,
                                    queued=len(queue))
                 annotate_outcome = {"action": "annotate", "queued": len(queue),
@@ -517,10 +518,15 @@ def _journal_scrape_drain(platform: str, count: int, platform_plans: dict) -> No
             own |= {str(i) for i in (fresh.get("in_flight") or [])}
         plan_items = len(queued & own)
         other = max(0, count - plan_items)
-        message = (f"{journal.platform_label(platform)} scraper started on its queue — "
-                   f"{count:,} queued: {plan_items:,} from armed plans")
-        message += (f", {other:,} queued elsewhere (drained first)" if other
-                    else "")
+        message = (f"{journal.platform_label(platform)} scraper started on "
+                   f"{count:,} queued video(s)")
+        if not other:
+            message += ", all of them queued by the plan"
+        elif not plan_items:
+            message += " — none queued by the plan; they were queued elsewhere and are scraped first"
+        else:
+            message += (f" — {plan_items:,} queued by the plan, {other:,} queued elsewhere "
+                        f"and scraped along with them")
         journal.record("queue.drained", message, platform=platform,
                        actor="enrichment_supervisor", queued=count,
                        plan_items=plan_items, other_items=other,
@@ -558,9 +564,8 @@ def _settle_owed(reporter) -> dict | None:
     if ok:
         ce.set_meta(SETTLE_OWED_KEY, None)
         journal.record("results.settled",
-                       f"Consolidating {kind} results from a job the loop started "
-                       f"before its plan stopped — nothing armed, so this is the "
-                       f"loop's last step",
+                       f"Consolidating the results of the last {kind} run — it finished "
+                       f"after the plan did",
                        actor="enrichment_supervisor", after=kind,
                        owed_since=(owed.get("since") if isinstance(owed, dict) else None))
     return {"action": "consolidate", "after": kind, "auto_refresh": False,
@@ -672,10 +677,11 @@ def _finalize(reporter, require_backstop: bool = False) -> dict | None:
         reporter.log(f"Deferred downstream refresh dispatched "
                      f"(impact spanned {deferred.get('runs', '?')} consolidation(s)).")
         journal.record("finalize.dispatched",
-                       f"Analysis refresh started — the impact of "
-                       f"{deferred.get('runs', '?')} consolidation(s) deferred since "
+                       f"Analysis refresh started — covering "
+                       f"{deferred.get('runs', '?')} consolidation(s) since "
                        f"{str(deferred.get('deferred_since') or '?')[:16].replace('T', ' ')}"
-                       + (" (24h backstop, mid-plan)" if require_backstop else ""),
+                       + (" (started mid-plan: the analyses were more than 24 hours old)"
+                          if require_backstop else ""),
                        actor="enrichment_supervisor",
                        collection_ids=deferred.get("affected_collection_ids") or None,
                        runs=deferred.get("runs"), backstop=bool(require_backstop),
@@ -740,7 +746,7 @@ def _handoff(reporter, plans: dict) -> dict | None:
         # the reset counter and the pruned in-flight set, not the snapshot.
         plans[cid] = {**entry, **patch}
         reporter.log(f"{cid}: {n} scraped item(s) handed to annotation.")
-        journal.record("handoff", f"{n:,} scraped video(s) handed to annotation",
+        journal.record("handoff", f"{n:,} scraped video(s) queued for annotation",
                        collection_id=cid, platform=entry.get("platform"),
                        actor="enrichment_supervisor", queued=n,
                        skipped_in_flight=len(result["ready"]) - len(ready))
@@ -907,8 +913,8 @@ def _plan(reporter, plans: dict) -> dict | None:
                                            "finished_at": ce.now_iso()})
                         reporter.log(f"{cid}: annotation target met; plan complete.")
                         journal.record("plan.done",
-                                       f"Idle — the annotation target ({target:,} unique "
-                                       f"videos) is met",
+                                       f"Idle — the annotation target ({target:,} videos) "
+                                       f"is reached",
                                        collection_id=cid, platform=platform,
                                        actor="enrichment_supervisor", target=target)
                         _notify_owner(reporter, cid, entry)
@@ -934,8 +940,8 @@ def _plan(reporter, plans: dict) -> dict | None:
                                    "finished_at": ce.now_iso()})
                 reporter.log(f"{cid}: nothing left to enrich; plan complete.")
                 journal.record("plan.done",
-                               "Idle — the annotation target is met, or nothing "
-                               "processable is left",
+                               "Idle — the annotation target is reached, or nothing "
+                               "that can still be processed is left",
                                collection_id=cid, platform=platform,
                                actor="enrichment_supervisor",
                                target=int(settings.get("annotation_target") or 0))
@@ -952,8 +958,8 @@ def _plan(reporter, plans: dict) -> dict | None:
                                    "last_error": f"no scrape progress in {stalls} cycles"})
                 reporter.log(f"{cid}: no scrape progress in {stalls} cycles; plan blocked.")
                 journal.record("plan.blocked",
-                               f"Needs attention — {stalls} cycles queued scrapes without "
-                               f"a single new one landing; parked rather than keep spending",
+                               f"Needs attention — {stalls} cycles in a row queued videos to "
+                               f"scrape and none came back; stopped rather than keep trying",
                                collection_id=cid, platform=platform,
                                actor="enrichment_supervisor",
                                reason=f"no scrape progress in {stalls} cycles",
@@ -987,15 +993,18 @@ def _plan(reporter, plans: dict) -> dict | None:
                          f"back to {result['b_cursor']} / {result['a_cursor']}."
                          + (f" Partial day {result['partial_day']} — the plan's last slice."
                             if result.get("partial_day") else ""))
-            message = (f"Next slice queued — {len(items):,} video(s) to scrape "
-                       f"({result['b']:,} deep dive, {result['a']:,} spread); "
-                       f"deep dive back to {result['b_cursor'] or '—'}, "
-                       f"spread to {result['a_cursor'] or '—'}")
+            message = (f"Next batch queued for scraping — {len(items):,} video(s) "
+                       f"({result['b']:,} from the deep dive into recent days, "
+                       f"{result['a']:,} from the spread across the history); "
+                       f"the deep dive now reaches back to {result['b_cursor'] or '—'}, "
+                       f"the spread to {result['a_cursor'] or '—'}")
             if result.get("partial_day"):
-                message += (f"; part of {result['partial_day']} only — the last slice "
-                            f"toward the target, sized for a {expected_yield:.0%} yield")
+                message += (f"; only part of {result['partial_day']} — the last batch needed "
+                            f"to reach the target, allowing for the ~{1 - expected_yield:.0%} "
+                            f"of videos expected to fail")
             elif result.get("last_slice"):
-                message += f"; the last slice toward the target, sized for a {expected_yield:.0%} yield"
+                message += (f"; the last batch needed to reach the target, allowing for the "
+                            f"~{1 - expected_yield:.0%} of videos expected to fail")
             journal.record("slice.queued", message,
                            collection_id=cid, platform=platform,
                            actor="enrichment_supervisor", queued=len(items),

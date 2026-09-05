@@ -487,11 +487,12 @@ reports its impact (which collections and studies changed), and — with
 "Refresh caches afterwards" ticked — dispatches the downstream refresh
 pipeline for exactly what changed, showing each planned step's live state.
 The **Enrichment History** card below the pipeline chart is the durable,
-high-level record of what the enrichment machinery did, newest first —
-plans armed, paused or parked (and why), scrape queues built from a study,
-queues emptied, a queue handed to a worker split into the armed plans' own
-slices and everything else, and every scraper, annotator, consolidation
-and analysis refresh that finished, with its totals and who started it.
+high-level record of what happened to the hub's scraping, annotation and
+analyses, newest first — plans armed, paused or stopped (and why), scrape
+queues built from a study, queues emptied, a scraper or annotator started
+on a queue (and how much of that queue the plans queued themselves), and
+every scraper, annotator, consolidation and analysis refresh that
+finished, with its totals and who started it.
 Filter it by collection to read one plan's story; the same view is under
 *History* in that collection's Edit Collections panel.
 Below it, the **Rebuild Downstream Datasets** cards run any single step by

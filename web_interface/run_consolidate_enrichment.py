@@ -142,19 +142,19 @@ def _journal_consolidation(task_args: dict, impact: dict | None,
         studies = impact.get("affected_study_names") or []
         parts = []
         if new_scrapes:
-            parts.append(f"{new_scrapes:,} new scrape(s)")
+            parts.append(f"{new_scrapes:,} newly scraped")
         if new_annos:
-            parts.append(f"{new_annos:,} new annotation(s)")
+            parts.append(f"{new_annos:,} newly annotated")
         if not parts:
-            parts.append(f"{int(impact.get('changed_item_count') or 0):,} changed item(s)")
-        message = "Consolidated — " + ", ".join(parts)
-        message += f"; {len(collections):,} collection(s), {len(studies):,} study/studies"
+            parts.append(f"{int(impact.get('changed_item_count') or 0):,} changed")
+        message = "Consolidated — " + ", ".join(parts) + " video(s)"
+        message += f" across {len(collections):,} collection(s) and {len(studies):,} study/studies"
         if auto_refresh:
-            message += "; analyses refresh follows"
+            message += "; the analyses are being refreshed now"
         elif from_plan:
-            message += "; analyses refresh deferred to the end of the plan"
+            message += "; the analyses are refreshed when the plan finishes"
         else:
-            message += "; analyses refresh skipped (Refresh All Affected when wanted)"
+            message += "; the analyses were not refreshed (use Refresh All Affected when wanted)"
         journal.record("consolidate.finished", message, actor=actor,
                        collection_ids=collections, new_scrapes=new_scrapes,
                        new_annotations=new_annos, studies=len(studies),

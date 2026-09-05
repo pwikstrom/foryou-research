@@ -39,7 +39,7 @@ def test_record_appends_and_read_returns_newest_first(store):
     assert [e["kind"] for e in _events(store)] == ["plan.armed", "handoff"]
     out = journal.read(limit=10)
     assert [e["kind"] for e in out] == ["handoff", "plan.armed"]
-    assert out[0]["label"] == "Handed to annotation" and out[0]["family"] == journal.FAMILY_QUEUE
+    assert out[0]["label"] == "Queued for annotation" and out[0]["family"] == journal.FAMILY_QUEUE
     assert out[0]["detail"] == {"queued": 3}
     assert out[0]["ts"].endswith("+00:00")       # an instant, rendered in the viewer's zone
 
