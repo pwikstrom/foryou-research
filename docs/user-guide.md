@@ -421,8 +421,12 @@ the target into items, estimated cost (with the active model) and cycles.
 The loop always annotates the already-scraped backlog first, then splits
 new scraping between a recent-days **deep dive** and a capped **spread**
 across the history (the balance slider and the spread's month/day limits
-live under *Advanced*); an amber warning appears when the settings cannot
-reach the chosen target. The target is a running total: to continue a
+live under *Advanced*); what one of the two cannot spend the other uses.
+With *Auto* items per cycle, each cycle is one annotation job's worth
+(2,000), sized up for the videos expected to fail on the way — measured
+from the plan's own recent runs — so the target is met without a trailing
+cycle for the shortfall; the last slice may buy part of a day. An amber
+warning appears when the settings cannot reach the chosen target. The target is a running total: to continue a
 finished (Idle) plan, raise the target and press *Arm again*. Arming runs
 the first cycle at once (the slice is cut and the scraper started); the
 later cycles follow on their own. Automatic ticking also requires the

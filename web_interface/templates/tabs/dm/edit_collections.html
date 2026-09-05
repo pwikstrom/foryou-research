@@ -191,7 +191,7 @@ The loop can overshoot slightly - it always scrapes whole days, so the last cycl
                     <label class="text-sm" style="display: block;">
                         <span class="meta-tooltip tooltip-wide" data-tooltip="How many videos each cycle queues for scraping, split between the two ways of choosing days (under Advanced).
 
-Auto (recommended) sizes each cycle for the shortest total time: as many videos as one full set of concurrent annotation jobs can absorb, never more than the target still needs. Untick it to set a number by hand.
+Auto (recommended) sizes each cycle for the shortest total time: one annotation job's worth (2,000 videos) - about what the scraper can feed while the previous job runs - never more than the target still needs, and sized up for the videos expected to fail on the way, measured from this plan's own recent runs. The last slice may buy part of a day so the target is met without an extra cycle. Untick it to set a number by hand.
 
 Smaller cycles report back sooner and keep the spend visible; larger ones waste less time waiting between steps. A cycle can go a little over the number, because neither half will ever take part of a day - a partly covered day is worth almost nothing to the analyses.">Items per cycle</span>
                         <div style="display: flex; align-items: center; gap: 8px;">

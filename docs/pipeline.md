@@ -151,7 +151,18 @@ A plan's goal is an **annotation target** — keep going until this many of
 the collection's unique videos are annotated. The target is a *state*, not
 a spend meter: annotation done by any other means counts toward it, nothing
 is ever paid for twice, and reopening a finished plan is just raising the
-number. `plan_cycle` clamps every cycle to `target − annotated`, the
+number. `plan_cycle` clamps every cycle to `target − annotated`
+**inflated by the plan's expected yield** (scrape success × annotation
+success, measured from its own recent runs in the enrichment history,
+0.85 until there is history) — a slice cut to exactly the shortfall always
+came back short and cost a whole extra cycle; `_auto_cycle_items` caps a
+cycle at ONE annotation job (2,000), the size the scraper can feed during
+one job's turnaround, since the loop serialises on consolidation and a
+larger slice only delays the first annotation. Whatever the spread cannot
+spend the deep dive walks on with (and vice versa; a zero share stays
+disabled), and on the plan's **last slice** — the one the target rather
+than the cycle size bounds — the deep dive may buy part of a day, leaving
+its cursor on that day so a later target raise completes it first. The
 handoff clamps what may enter annotation the same way, and a target of 0
 means no goal — the plan does nothing rather than run to 100%. The handoff
 always sweeps the collection's **scraped-but-unannotated backlog first**,

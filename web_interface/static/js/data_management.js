@@ -6816,7 +6816,7 @@ const DM_ENRICH_ACTIVITY_LABELS = {
 // Mirrors the supervisor's auto-cycle cap (MAX_CONCURRENT_JOBS x the
 // annotator's job slice): one cycle = at most one full set of concurrent
 // Gemini jobs, so its annotation is ~one job turnaround.
-const DM_ENRICH_AUTO_CYCLE_CAP = 8000;
+const DM_ENRICH_AUTO_CYCLE_CAP = 2000;
 
 function dmEnrichEffectiveCycleItems() {
     const auto = !!document.getElementById('dm-enrich-cycle-auto')?.checked;

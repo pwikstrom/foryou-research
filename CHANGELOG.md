@@ -67,6 +67,16 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **Auto cycle sizing reaches the target in fewer cycles.** A cycle is now
+  sized for the plan's expected *yield* (scrape success × annotation
+  success, measured from its own recent runs), so what comes back annotated
+  meets the target instead of falling a few percent short and costing a
+  trailing cycle; whatever the spread cannot spend the deep dive walks on
+  with (and vice versa) instead of being discarded; the last slice may buy
+  part of a day, with the cursor left on that day; and the cap is one
+  annotation job (2,000) — the size the scraper can feed during a job's
+  turnaround — rather than four. On the 2026-09-05 run this is two cycles
+  instead of four, and no orphaned scrapes.
 - **The enrichment loop overlaps its work.** The supervisor's all-workers busy
   gate became per-lane: the next cycle's scrape now runs while the current
   cycle's annotation batch is still in flight, and the two consolidations at a

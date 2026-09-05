@@ -36,6 +36,7 @@ and task status, and every ledger write is a compare-and-set.
 
 from __future__ import annotations
 
+import math
 import time
 from datetime import datetime, timezone
 
@@ -755,22 +756,70 @@ def _handoff(reporter, plans: dict) -> dict | None:
 # Step 4 — cut the next slice
 # --------------------------------------------------------------------------- #
 
-def _auto_cycle_items(entry: dict, activity, status) -> int:
-    """Size an Auto plan's cycle: fill the annotation lane, never overshoot.
+# Yield assumed before a plan has runs of its own to measure: TikTok's ~88%
+# scrape success x ~98% annotation success.
+DEFAULT_EXPECTED_YIELD = 0.85
 
-    ``min(target headroom, one full set of concurrent Gemini jobs)`` — a cycle
-    whose annotation is always ~one job turnaround, with a scrape that roughly
-    fills that window. Headroom subtracts PENDING work (queued or claimed into
-    an in-flight job) because enrichment status has not seen it yet; without
-    that, every overlapped cycle would re-count the previous cycle's items.
+# Runs of each kind the yield is measured over, and the attempts below which a
+# measurement is too small to trust.
+_YIELD_RUNS = 3
+_YIELD_MIN_ATTEMPTS = 20
+
+
+def _expected_yield(cid: str, platform: str | None) -> float:
+    """The share of cut videos this plan's recent runs got annotated.
+
+    Scrape success x annotation success over the last few runs the plan
+    shares (read from the enrichment history), clamped to [0.5, 1.0];
+    :data:`DEFAULT_EXPECTED_YIELD` until there is enough history. Never raises.
+    """
+    try:
+        events = journal.read(collection_id=cid, platform=platform, limit=80)
+
+        def rate(kind: str, ok_key: str, loss_keys: tuple) -> float | None:
+            runs = [e for e in events if e.get("kind") == kind][:_YIELD_RUNS]
+            ok = sum(int((e.get("detail") or {}).get(ok_key) or 0) for e in runs)
+            lost = sum(int((e.get("detail") or {}).get(k) or 0)
+                       for e in runs for k in loss_keys)
+            return ok / (ok + lost) if ok + lost >= _YIELD_MIN_ATTEMPTS else None
+
+        # Transient scrape failures are retried, not lost; given-up ones are.
+        scrape = rate("scrape.finished", "ok", ("permanent", "given_up"))
+        annotate = rate("annotate.finished", "ok", ("fail",))
+        if scrape is None and annotate is None:
+            return DEFAULT_EXPECTED_YIELD
+        combined = (scrape if scrape is not None else 0.88) * \
+                   (annotate if annotate is not None else 0.98)
+        return min(1.0, max(0.5, combined))
+    except Exception:
+        return DEFAULT_EXPECTED_YIELD
+
+
+def _auto_cycle_items(entry: dict, activity, status, expected_yield: float = 1.0) -> int:
+    """Size an Auto plan's cycle for the shortest total time.
+
+    ``min(ceil(target headroom / expected_yield), one annotation job)``:
+
+    * Headroom subtracts PENDING work (queued or claimed into an in-flight
+      job) because enrichment status has not seen it yet; without that, every
+      overlapped cycle would re-count the previous cycle's items.
+    * The yield inflates the cut so that what comes back annotated meets the
+      headroom — cutting exactly the headroom always left a shortfall that cost
+      a whole extra cycle (2026-09-05: cycle 4 existed to cover 23 videos).
+    * The cap is ONE batch job, not the annotator's four concurrent jobs: the
+      loop serialises on consolidation, so a cycle takes
+      max(scrape this slice, annotate the previous one); the scraper feeds
+      ~55-90 videos/min and a job turns around in ~8 min + ~1 min/100 videos,
+      which balance around 1,000-2,000. Four jobs' worth kept the annotator
+      idle for the first two hours of a large plan. The concurrency is still
+      used — by the backlog-first handoff, which annotates whatever is
+      scraped regardless of slice size.
 
     Returns:
         The effective cycle_items; 0 when pending work already covers the
-        target (the caller skips the slice, not the plan).
+        target, or the target is met (the caller tells the two apart).
     """
-    from web_interface.run_queue_annotator_batch import (
-        DEFAULT_BATCH_SIZE, MAX_CONCURRENT_JOBS,
-    )
+    from web_interface.run_queue_annotator_batch import DEFAULT_BATCH_SIZE
 
     settings = {**ce.DEFAULT_SETTINGS, **(entry.get("settings") or {})}
     target = int(settings.get("annotation_target") or 0)
@@ -782,7 +831,12 @@ def _auto_cycle_items(entry: dict, activity, status) -> int:
     headroom = max(0, target - annotated - len(pending))
     if headroom <= 0:
         return 0
-    return min(headroom, MAX_CONCURRENT_JOBS * DEFAULT_BATCH_SIZE, 20_000)
+    try:
+        yield_ = min(1.0, max(0.5, float(expected_yield or 1.0)))
+    except (TypeError, ValueError):
+        yield_ = 1.0
+    want = int(math.ceil(headroom / yield_))
+    return min(want, DEFAULT_BATCH_SIZE, 20_000)
 
 
 def _plan(reporter, plans: dict) -> dict | None:
@@ -836,9 +890,11 @@ def _plan(reporter, plans: dict) -> dict | None:
             settings = {**ce.DEFAULT_SETTINGS, **(entry.get("settings") or {})}
             auto_items = None
             status = None
+            expected_yield = _expected_yield(cid, platform)
             if settings.get("cycle_items_auto"):
                 status = ce.load_status(activity["item_id"].unique())
-                auto_items = _auto_cycle_items(entry, activity, status)
+                auto_items = _auto_cycle_items(entry, activity, status,
+                                               expected_yield=expected_yield)
                 if auto_items == 0:
                     target = int(settings.get("annotation_target") or 0)
                     if target and ce._annotated_unique(activity, status) >= target:
@@ -864,9 +920,11 @@ def _plan(reporter, plans: dict) -> dict | None:
                     continue
                 entry = {**entry,
                          "settings": {**settings, "cycle_items": auto_items}}
-                reporter.log(f"{cid}: auto items-per-cycle = {auto_items:,}.")
+                reporter.log(f"{cid}: auto items-per-cycle = {auto_items:,} "
+                             f"(sized for an expected {expected_yield:.0%} yield).")
 
-            result = ce.plan_cycle(cid, entry, activity=activity, status=status)
+            result = ce.plan_cycle(cid, entry, activity=activity, status=status,
+                                   expected_yield=expected_yield)
             items = result["item_ids"]
 
             if not items:
@@ -921,21 +979,31 @@ def _plan(reporter, plans: dict) -> dict | None:
                 "last_cycle_at": ce.now_iso(),
                 "last_batch": {"a": result["a"], "b": result["b"],
                                "total": len(items)},
+                "last_yield": round(float(result.get("yield") or 1.0), 3),
                 "last_error": None,
             })
             reporter.log(f"{cid}: queued {len(items)} item(s) to scrape "
                          f"({result['b']} deep-dive, {result['a']} spread); "
-                         f"back to {result['b_cursor']} / {result['a_cursor']}.")
-            journal.record("slice.queued",
-                           f"Next slice queued — {len(items):,} video(s) to scrape "
-                           f"({result['b']:,} deep dive, {result['a']:,} spread); "
-                           f"deep dive back to {result['b_cursor'] or '—'}, "
-                           f"spread to {result['a_cursor'] or '—'}",
+                         f"back to {result['b_cursor']} / {result['a_cursor']}."
+                         + (f" Partial day {result['partial_day']} — the plan's last slice."
+                            if result.get("partial_day") else ""))
+            message = (f"Next slice queued — {len(items):,} video(s) to scrape "
+                       f"({result['b']:,} deep dive, {result['a']:,} spread); "
+                       f"deep dive back to {result['b_cursor'] or '—'}, "
+                       f"spread to {result['a_cursor'] or '—'}")
+            if result.get("partial_day"):
+                message += (f"; part of {result['partial_day']} only — the last slice "
+                            f"toward the target, sized for a {expected_yield:.0%} yield")
+            elif result.get("last_slice"):
+                message += f"; the last slice toward the target, sized for a {expected_yield:.0%} yield"
+            journal.record("slice.queued", message,
                            collection_id=cid, platform=platform,
                            actor="enrichment_supervisor", queued=len(items),
                            deep_dive=result["b"], spread=result["a"],
                            b_cursor=result["b_cursor"], a_cursor=result["a_cursor"],
-                           auto_items=auto_items,
+                           auto_items=auto_items, expected_yield=round(expected_yield, 3),
+                           last_slice=bool(result.get("last_slice")),
+                           partial_day=result.get("partial_day"),
                            cycle=int(entry.get("cycles") or 0) + 1)
             return {"action": "plan", "collection_id": cid, "queued": len(items),
                     "a": result["a"], "b": result["b"], "platform": platform,

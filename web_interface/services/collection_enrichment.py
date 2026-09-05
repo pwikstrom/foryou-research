@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 from datetime import datetime, timezone
 
 import numpy as np
@@ -510,28 +511,52 @@ def _month_key(day) -> str:
 
 def plan_cycle(collection_id: str, entry: dict,
                activity: pd.DataFrame | None = None,
-               status: pd.DataFrame | None = None) -> dict:
+               status: pd.DataFrame | None = None,
+               expected_yield: float = 1.0) -> dict:
     """Cut the next slice of work for one collection.
 
     Runs Process B and Process A against the collection's own budget share, then
     reports the item ids to scrape and where the two cursors now stand. Pure: it
     reads data and returns a decision, it does not touch a queue or the ledger.
 
+    Three sizing rules, learned from the first runs against a numeric target
+    (2026-09-05, 391 videos short of the target took four one-day cycles):
+
+    * **Yield.** Scrapes and annotations each lose a share on the way (TikTok
+      ~12% of scrapes, ~2% of annotations), so a slice cut to exactly what the
+      target still needs always leaves a shortfall — and the shortfall costs a
+      whole extra cycle. ``expected_yield`` (the supervisor measures the plan's
+      own recent runs) inflates the target clamp; annotation is never
+      over-bought because the handoff clamps to the target on its own.
+    * **Reallocation.** Whatever the spread cannot spend (its cursor past the
+      first month, thin months) the deep dive walks on with, and vice versa.
+      A share of zero still disables a process outright.
+    * **The last day may be partial.** A day is never split mid-plan (Sessions
+      must not see a half-covered sitting) — except on the plan's last slice,
+      when what the target still needs is smaller than the next day: that much
+      of the day is bought and the cursor is left ON the day, so raising the
+      target later completes it before anything older is touched.
+
     Args:
         collection_id: The collection being served.
         entry: Its ledger entry.
         activity: Pre-loaded activity (see :func:`load_activity`), else loaded here.
         status: Pre-loaded enrichment status, else loaded here.
+        expected_yield: Fraction of cut videos expected to come back annotated,
+            in (0, 1]; 1.0 keeps the raw clamp.
 
     Returns:
-        ``{"item_ids", "a_cursor", "b_cursor", "a", "b", "exhausted", "platform"}``.
-        ``exhausted`` is True when both processes have walked off the end of the
-        collection's history and there is nothing left to buy.
+        ``{"item_ids", "a_cursor", "b_cursor", "a", "b", "exhausted", "platform",
+        "last_slice", "partial_day", "yield"}``. ``exhausted`` is True when both
+        processes have walked off the end of the collection's history and there
+        is nothing left to buy; ``last_slice`` when the target, not the cycle
+        size, bounded the slice; ``partial_day`` names a day bought in part.
     """
     settings = {**DEFAULT_SETTINGS, **(entry.get("settings") or {})}
     empty = {"item_ids": [], "a_cursor": entry.get("a_cursor"),
              "b_cursor": entry.get("b_cursor"), "a": 0, "b": 0,
-             "exhausted": False, "platform": ""}
+             "exhausted": False, "platform": "",
+             "last_slice": False, "partial_day": None, "yield": 1.0}
 
     if activity is None:
         activity = load_activity(collection_id)
@@ -549,15 +574,23 @@ def plan_cycle(collection_id: str, entry: dict,
     # Ticks run one at a time and PLAN only fires with the queues drained and
     # results consolidated, so the count is current to within one cycle — the
     # documented worst-case overshoot.
-    budget = int(settings["cycle_items"])
     target = int(settings.get("annotation_target") or 0)
     remaining_target = max(0, target - _annotated_unique(activity, status))
-    budget = min(budget, remaining_target)
+    try:
+        yield_ = min(1.0, max(0.5, float(expected_yield or 1.0)))
+    except (TypeError, ValueError):
+        yield_ = 1.0
+    # What must be CUT for the remaining target to come back annotated.
+    target_room = int(math.ceil(remaining_target / yield_)) if remaining_target else 0
+    budget = min(int(settings["cycle_items"]), target_room)
     if budget <= 0:
-        return {**empty, "platform": platform, "exhausted": True}
+        return {**empty, "platform": platform, "exhausted": True, "yield": yield_}
+    # The target, not the cycle size, bounds this slice: if the yields hold it
+    # is the plan's last, and the only slice allowed to buy part of a day.
+    last_slice = target_room <= int(settings["cycle_items"])
 
-    a_budget = int(round(budget * float(settings["sample_share"])))
-    b_budget = budget - a_budget
+    a_share = int(round(budget * float(settings["sample_share"])))
+    b_share = budget - a_share
 
     # Per-day view: total size (for the min_day_items floor) and the ids still
     # worth scraping. Computed once and shared by both processes.
@@ -589,74 +622,111 @@ def plan_cycle(collection_id: str, entry: dict,
 
     all_days = sorted(by_day, reverse=True)
     min_day = int(settings["min_day_items"])
+    item_day = {i: _day_key(day) for day, info in by_day.items() for i in info["need"]}
 
     # ---- Process B: whole days, uncapped, newest first ---------------------
-    b_cursor = entry.get("b_cursor")
-    picked_b: list[str] = []
-    b_days: list[pd.Timestamp] = []
-    # A zero share disables the process outright; it then counts as "done" so
-    # exhaustion is decided by the other process alone.
-    b_done = b_budget <= 0
-    for day in all_days if b_budget > 0 else []:
-        if b_cursor and _day_key(day) >= str(b_cursor):
-            continue  # already walked past this day in an earlier cycle
-        info = by_day[day]
-        if info["total"] < min_day or not info["need"]:
-            b_days.append(day)  # nothing to buy here; the cursor still advances
-            continue
-        # Never split a day: Sessions must not see a half-covered sitting. A day
-        # too big for what is left of the budget waits for the next cycle.
-        if picked_b and len(picked_b) + len(info["need"]) > b_budget:
-            break
-        picked_b.extend(info["need"])
-        b_days.append(day)
-        if len(picked_b) >= b_budget:
-            break
-    else:
-        b_done = True
-    if b_days:
-        b_cursor = _day_key(b_days[-1])
+    def take_b(b_budget: int):
+        """Walk B from the saved cursor with this budget.
 
-    b_covered = {_day_key(d) for d in b_days}
+        Returns ``(picked, days_walked, done, partial_day)``; ``done`` means B
+        walked off the end of the history (exhaustion is decided by the other
+        process alone when a share is zero).
+        """
+        cursor = entry.get("b_cursor")
+        picked: list[str] = []
+        days: list[pd.Timestamp] = []
+        if b_budget <= 0:
+            return picked, days, True, None
+        for day in all_days:
+            if cursor and _day_key(day) >= str(cursor):
+                continue  # already walked past this day in an earlier cycle
+            info = by_day[day]
+            if info["total"] < min_day or not info["need"]:
+                days.append(day)  # nothing to buy here; the cursor still advances
+                continue
+            room = b_budget - len(picked)
+            if len(info["need"]) > room:
+                if last_slice:
+                    # The plan's last step: buy what the target still needs of
+                    # this day and leave the cursor on it (not in `days`), so a
+                    # later target raise completes the day first.
+                    picked.extend(stable_sample(info["need"], room,
+                                                salt=f"{collection_id}:{_day_key(day)}:tail"))
+                    return picked, days, False, _day_key(day)
+                if picked:
+                    # Never split a day mid-plan: Sessions must not see a
+                    # half-covered sitting. A day too big for what is left of
+                    # the budget waits for the next cycle.
+                    return picked, days, False, None
+                # A single oversized first day is still taken whole.
+            picked.extend(info["need"])
+            days.append(day)
+            if len(picked) >= b_budget:
+                return picked, days, False, None
+        return picked, days, True, None
 
     # ---- Process A: whole sampled days, newest month first -----------------
-    a_cursor = entry.get("a_cursor")
-    picked_a: list[str] = []
-    a_months: list[str] = []
-    a_done = a_budget <= 0
-    a_full = False
-    months = sorted({_month_key(d) for d in all_days}, reverse=True)
-    for month in months if a_budget > 0 else []:
-        if a_full:
-            break
-        if a_cursor and month >= str(a_cursor):
-            continue
-        # A only ever buys days that clear the Correlations floor, and never a day
-        # B has already taken whole — B's day is complete, so there is nothing to
-        # add and a smaller sample would be pure waste.
-        eligible = [d for d in all_days
-                    if _month_key(d) == month
-                    and by_day[d]["total"] >= min_day
-                    and by_day[d]["need"]
-                    and _day_key(d) not in b_covered]
-        # Seeded draw among qualifying days rather than "the busiest days":
-        # picking the busiest would bias Timelines' trends toward heavy-usage days.
-        for day in stable_sample(eligible, int(settings["a_days_per_month"]),
-                                 salt=f"{collection_id}:{month}"):
-            info = by_day[day]
-            quota = int(settings["a_day_cap"]) - info["scraped"]
-            if quota <= 0:
-                continue
-            picked_a.extend(stable_sample(info["need"], quota,
-                                          salt=f"{collection_id}:{_day_key(day)}"))
-            if len(picked_a) >= a_budget:
-                a_full = True
+    def take_a(a_budget: int, covered: set[str]):
+        """Walk A from the saved cursor. Returns ``(picked, months_walked, done)``."""
+        cursor = entry.get("a_cursor")
+        picked: list[str] = []
+        months_walked: list[str] = []
+        if a_budget <= 0:
+            return picked, months_walked, True
+        full = False
+        months = sorted({_month_key(d) for d in all_days}, reverse=True)
+        for month in months:
+            if full:
                 break
-        a_months.append(month)
-    else:
-        a_done = True
-    if a_months:
-        a_cursor = a_months[-1]
+            if cursor and month >= str(cursor):
+                continue
+            # A only ever buys days that clear the Correlations floor, and never
+            # a day B has already taken whole — B's day is complete, so there is
+            # nothing to add and a smaller sample would be pure waste.
+            eligible = [d for d in all_days
+                        if _month_key(d) == month
+                        and by_day[d]["total"] >= min_day
+                        and by_day[d]["need"]
+                        and _day_key(d) not in covered]
+            # Seeded draw among qualifying days rather than "the busiest days":
+            # picking the busiest would bias Timelines' trends toward heavy-usage days.
+            for day in stable_sample(eligible, int(settings["a_days_per_month"]),
+                                     salt=f"{collection_id}:{month}"):
+                info = by_day[day]
+                quota = int(settings["a_day_cap"]) - info["scraped"]
+                if quota <= 0:
+                    continue
+                picked.extend(stable_sample(info["need"], quota,
+                                            salt=f"{collection_id}:{_day_key(day)}"))
+                if len(picked) >= a_budget:
+                    full = True
+                    break
+            months_walked.append(month)
+        else:
+            return picked, months_walked, True
+        return picked, months_walked, False
+
+    picked_b, b_days, b_done, partial_day = take_b(b_share)
+    b_covered = {_day_key(d) for d in b_days}
+    # Whatever B did not use is the spread's to spend (B's own overshoot never
+    # eats into the spread's share); a zero share stays zero.
+    a_alloc = max(a_share, budget - len(picked_b)) if a_share > 0 else 0
+    picked_a, a_months, a_done = take_a(a_alloc, b_covered)
+
+    spare = budget - len(picked_b) - len(picked_a)
+    if spare > 0 and b_share > 0 and not b_done and partial_day is None:
+        # The spread left budget on the table (its cursor is past the first
+        # month, or its months are thin): the deep dive walks on with it. Re-cut
+        # from the same cursor — the same days plus more — then drop any A
+        # sample of a day B now holds whole.
+        more_b, more_days, more_done, more_partial = take_b(len(picked_b) + spare)
+        if len(more_b) > len(picked_b):
+            picked_b, b_days, b_done, partial_day = more_b, more_days, more_done, more_partial
+            b_covered = {_day_key(d) for d in b_days}
+            picked_a = [i for i in picked_a if item_day.get(i) not in b_covered]
+
+    b_cursor = _day_key(b_days[-1]) if b_days else entry.get("b_cursor")
+    a_cursor = a_months[-1] if a_months else entry.get("a_cursor")
 
     # Neither process's contribution is trimmed to the cycle budget: the DAY is
     # the unit of value (a half-covered sitting is worth nothing to Sessions; a
@@ -675,6 +745,9 @@ def plan_cycle(collection_id: str, entry: dict,
         "b": len(picked_b),
         "exhausted": bool(a_done and b_done and not picked),
         "platform": platform,
+        "last_slice": bool(last_slice),
+        "partial_day": partial_day,
+        "yield": yield_,
     }
 
 

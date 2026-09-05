@@ -109,6 +109,86 @@ def test_b_takes_one_oversized_day_whole_rather_than_splitting():
     assert len(out["item_ids"]) == 80
 
 
+def test_b_walks_on_with_the_spreads_unused_share():
+    """2026-09-05 replay: the spread's cursor was past the first month, so its
+    half of every cycle was thrown away and the deep dive took one day per
+    cycle (155 of an allowed 391). The deep dive now spends what the spread
+    cannot: 155 + 155 + 126 = 436 of 455."""
+    activity = _activity({"2026-05-06": 124, "2026-05-07": 126,
+                          "2026-05-08": 155, "2026-05-09": 155})
+    entry = {**_entry(cycle_items=455, sample_share=0.5), "a_cursor": "2026-05"}
+    out = ce.plan_cycle("c1", entry, activity=activity, status=None)
+    days = {i.split("#")[0] for i in out["item_ids"]}
+    assert days == {"2026-05-09", "2026-05-08", "2026-05-07"}
+    assert out["b"] == 436 and out["a"] == 0
+    assert out["b_cursor"] == "2026-05-07"
+    assert out["last_slice"] is False and out["partial_day"] is None
+
+
+def test_a_spends_the_deep_dives_unused_share_when_b_is_exhausted():
+    """The other direction: with the deep dive walked off the history, the
+    spread gets the whole budget (its own per-day cap still applies)."""
+    activity = _activity({"2026-06-05": 80, "2026-06-20": 80, "2026-07-10": 80})
+    entry = {**_entry(cycle_items=60, sample_share=0.5, a_days_per_month=2,
+                      a_day_cap=50),
+             "b_cursor": "2026-06-01"}                  # B has nothing left
+    out = ce.plan_cycle("c1", entry, activity=activity, status=None)
+    assert out["b"] == 0
+    # Its own 30 would stop after one 50-item day; the full 60 reaches a second.
+    assert out["a"] == 100
+
+
+def test_a_zero_share_stays_disabled_under_reallocation():
+    activity = _activity({"2026-08-27": 20, "2026-07-10": 80})
+    entry = _entry(cycle_items=100, sample_share=0.0)
+    out = ce.plan_cycle("c1", entry, activity=activity, status=None)
+    assert out["a"] == 0 and out["b"] == 100
+
+
+def test_last_slice_buys_part_of_a_day_and_keeps_the_cursor_on_it():
+    """The plan's last step: 23 short of the target with 155-video days ahead
+    used to cost a whole day (124 scraped, 85 orphaned). Only what is needed
+    is cut, and the cursor stays on the day so a later target raise completes
+    it first."""
+    activity = _activity({"2026-05-08": 155, "2026-05-09": 155})
+    entry = _entry(annotation_target=23, cycle_items=2000, sample_share=0.0)
+    out = ce.plan_cycle("c1", entry, activity=activity, status=None)
+    assert len(out["item_ids"]) == 23
+    assert {i.split("#")[0] for i in out["item_ids"]} == {"2026-05-09"}
+    assert out["last_slice"] is True and out["partial_day"] == "2026-05-09"
+    assert out["b_cursor"] is None                       # not walked past the day
+
+    # The target is raised: the rest of that day comes first.
+    done = out["item_ids"]
+    status = _status([f"2026-05-09#{n}" for n in range(155)] + [f"2026-05-08#{n}" for n in range(155)],
+                     scraped=done, annotated=done)
+    again = ce.plan_cycle("c1", _entry(annotation_target=400, cycle_items=2000, sample_share=0.0),
+                          activity=activity, status=status)
+    first_day = {i.split("#")[0] for i in again["item_ids"][:132]}
+    assert first_day == {"2026-05-09"} and len(again["item_ids"]) == 132 + 155
+    assert again["partial_day"] is None
+
+
+def test_mid_plan_slices_still_take_whole_days_only():
+    """The partial-day rule is for the last slice only: a cycle bounded by
+    cycle_items rather than the target must not split a day."""
+    activity = _activity({"2026-05-08": 155, "2026-05-09": 155})
+    entry = _entry(annotation_target=100_000, cycle_items=200, sample_share=0.0)
+    out = ce.plan_cycle("c1", entry, activity=activity, status=None)
+    assert len(out["item_ids"]) == 155 and out["partial_day"] is None
+    assert out["last_slice"] is False
+
+
+def test_plan_cycle_inflates_the_target_clamp_by_the_yield():
+    activity = _activity({"2026-05-09": 155})
+    entry = _entry(annotation_target=23, cycle_items=2000, sample_share=0.0)
+    out = ce.plan_cycle("c1", entry, activity=activity, status=None, expected_yield=0.85)
+    assert len(out["item_ids"]) == 28 and out["yield"] == 0.85
+    # And is deterministic: the same cursor and yield cut the same ids.
+    again = ce.plan_cycle("c1", entry, activity=activity, status=None, expected_yield=0.85)
+    assert again["item_ids"] == out["item_ids"]
+
+
 def test_b_skips_days_below_the_correlations_floor():
     activity = _activity({"2026-08-26": 3, "2026-08-27": 30})
     entry = _entry(cycle_items=100, sample_share=0.0, min_day_items=10)
@@ -143,8 +223,11 @@ def test_b_ignores_already_scraped_and_permanently_failed():
 # --------------------------------------------------------------------------- #
 
 def test_a_samples_whole_days_capped_and_skips_b_days():
-    # Two months of history; B (budget 20) covers the newest day whole, then A
-    # (budget 80) samples days per month excluding B's.
+    # Two months of history; B (share 20) covers the newest day whole, then A
+    # (share 80) samples days per month excluding B's — but A's own limits
+    # (2 days/month, 5 per day) let it spend only 20 before it walks off the
+    # end of the history, and what the spread cannot spend the deep dive walks
+    # on with (2026-09-05). A's picks on days B then holds whole are dropped.
     days = {f"2026-08-{d:02d}": 20 for d in (10, 11, 12, 27)}
     days.update({f"2026-07-{d:02d}": 20 for d in (1, 2, 3)})
     activity = _activity(days)
@@ -158,12 +241,28 @@ def test_a_samples_whole_days_capped_and_skips_b_days():
     for iid in a_items:
         a_days.setdefault(iid.split("#")[0], []).append(iid)
 
-    assert b_days == {"2026-08-27"}
+    assert "2026-08-27" in b_days and b_days <= {"2026-08-27", "2026-08-12",
+                                                 "2026-08-11", "2026-08-10"}
+    assert out["b"] == 80                            # B spent the spread's leftover
     assert not (set(a_days) & b_days)              # A never re-buys B's day
+    assert a_days and all(d.startswith("2026-07") for d in a_days)
     for day, items in a_days.items():
         assert len(items) <= 5                     # a_day_cap respected
     for month in {d[:7] for d in a_days}:
         assert len([d for d in a_days if d.startswith(month)]) <= 2
+    assert len(out["item_ids"]) == 80 + sum(len(v) for v in a_days.values())
+
+
+def test_a_keeps_its_share_when_it_can_spend_it():
+    """Reallocation only moves budget a process cannot spend: with months to
+    spare, the spread keeps its 80 and the deep dive its 20."""
+    days = {f"2026-0{m}-{d:02d}": 40 for m in (3, 4, 5, 6, 7, 8) for d in (5, 15, 25)}
+    activity = _activity(days)
+    entry = _entry(cycle_items=100, sample_share=0.8,
+                   a_days_per_month=2, a_day_cap=20)
+    out = ce.plan_cycle("c1", entry, activity=activity, status=None)
+    assert out["b"] == 40                            # one 40-video day, B's oversized first
+    assert out["a"] == 80                            # 2 months x 2 days x 20
 
 
 def test_a_quota_subtracts_already_scraped():
@@ -234,17 +333,19 @@ def test_no_target_means_nothing_to_do():
     assert out["item_ids"] == [] and out["exhausted"] is True
 
 
-def test_remaining_target_clamps_the_cycle_but_never_splits_a_day():
+def test_remaining_target_clamps_the_last_slice_to_part_of_a_day():
     activity = _activity({"2026-08-27": 30})
     ids = list(activity["item_id"])
     status = _status(ids, scraped=ids[:4], annotated=ids[:4])
-    # 4 annotated, target 10 → 6 of headroom. The whole-day rule outranks the
-    # clamp for the FIRST day (a split day is worthless to Sessions), so the
-    # 26 unscraped items are planned in full; the handoff's room clamp is what
-    # holds annotation spend to the target.
+    # 4 annotated, target 10 → 6 of headroom, and cycle_items (100) is not
+    # what bounds the slice: this is the plan's LAST slice, the one place a
+    # day may be bought in part (2026-09-05: a whole 124-video day was scraped
+    # to annotate 23). The cursor stays on the day.
     entry = _entry(annotation_target=10, cycle_items=100, sample_share=0.0)
     out = ce.plan_cycle("c1", entry, activity=activity, status=status)
-    assert len(out["item_ids"]) == 26
+    assert len(out["item_ids"]) == 6
+    assert out["last_slice"] is True and out["partial_day"] == "2026-08-27"
+    assert out["b_cursor"] is None
 
     # And a met target plans nothing at all, whole days or not.
     met = _entry(annotation_target=4, cycle_items=100, sample_share=0.0)
@@ -716,12 +817,12 @@ def test_tick_scrape_stall_guard_parks_platform_plans(tick):
 
 
 def test_auto_cycle_items_formula(monkeypatch, store):
-    """min(target headroom − pending, one full set of concurrent jobs)."""
+    """min(target headroom − pending, ONE annotation job) — the loop serialises
+    on consolidation, so a slice larger than the scraper can feed during one
+    job's turnaround only delays the first annotation."""
     import web_interface.run_enrichment_supervisor as sup
-    from web_interface.run_queue_annotator_batch import (
-        DEFAULT_BATCH_SIZE, MAX_CONCURRENT_JOBS,
-    )
-    cap = MAX_CONCURRENT_JOBS * DEFAULT_BATCH_SIZE
+    from web_interface.run_queue_annotator_batch import DEFAULT_BATCH_SIZE
+    cap = DEFAULT_BATCH_SIZE
 
     activity = _activity({"2026-08-27": 30})
     ids = list(activity["item_id"].astype(str))
@@ -749,6 +850,44 @@ def test_auto_cycle_items_formula(monkeypatch, store):
     assert sup._auto_cycle_items(small, activity, None) == 0
 
 
+def test_auto_cycle_items_is_sized_for_the_expected_yield(monkeypatch, store):
+    """Cutting exactly the headroom always left a shortfall (scrapes and
+    annotations each lose a share) that cost a whole extra cycle — 2026-09-05's
+    cycle 4 existed to cover 23 videos. The cut is inflated by the yield; the
+    cap still applies."""
+    import web_interface.run_enrichment_supervisor as sup
+    from web_interface.run_queue_annotator_batch import DEFAULT_BATCH_SIZE
+
+    activity = _activity({"2026-08-27": 30})
+    monkeypatch.setattr(sup, "_in_flight_annotation_ids", lambda: set())
+    small = _entry(annotation_target=23, cycle_items_auto=True)
+    assert sup._auto_cycle_items(small, activity, None, expected_yield=0.85) == 28
+    assert sup._auto_cycle_items(small, activity, None, expected_yield=1.0) == 23
+    huge = _entry(annotation_target=10_000, cycle_items_auto=True)
+    assert sup._auto_cycle_items(huge, activity, None, expected_yield=0.5) == DEFAULT_BATCH_SIZE
+    # Nonsense yields fall back to the raw headroom rather than exploding the cut.
+    assert sup._auto_cycle_items(small, activity, None, expected_yield=0) == 23
+
+
+def test_expected_yield_is_measured_from_the_plans_history(store):
+    """scrape OK/attempted x annotation OK/attempted over the last runs the
+    plan shares; the default until there is enough history."""
+    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.services.enrichment_journal as journal
+
+    assert sup._expected_yield("c1", "tiktok") == sup.DEFAULT_EXPECTED_YIELD
+    journal.record("scrape.finished", "x", platform="tiktok", ok=88, permanent=10, given_up=2)
+    journal.record("annotate.finished", "x", ok=98, fail=2)
+    assert abs(sup._expected_yield("c1", "tiktok") - 0.88 * 0.98) < 1e-9
+    # Another platform's scrapes are not this plan's evidence.
+    journal.record("scrape.finished", "x", platform="instagram", ok=1, permanent=99)
+    assert abs(sup._expected_yield("c1", "tiktok") - 0.88 * 0.98) < 1e-9
+    # A catastrophic run cannot drive the cut above 2x the headroom.
+    for _ in range(3):
+        journal.record("scrape.finished", "x", platform="tiktok", ok=10, permanent=90)
+    assert sup._expected_yield("c1", "tiktok") == 0.5
+
+
 def test_tick_auto_mode_injects_the_effective_cycle_items(tick, monkeypatch):
     import web_interface.run_enrichment_supervisor as sup  # noqa: F401
     seen = {}
@@ -760,6 +899,7 @@ def test_tick_auto_mode_injects_the_effective_cycle_items(tick, monkeypatch):
 
     monkeypatch.setattr(ce, "plan_cycle", fake_cycle)
     monkeypatch.setattr(ce, "load_status", lambda ids: None)
+    monkeypatch.setattr(sup, "_expected_yield", lambda cid, platform: 1.0)
     tick["plans"] = {"c1": _entry(annotation_target=500, cycle_items_auto=True,
                                   cycle_items=400)}
     tick["run"]()
