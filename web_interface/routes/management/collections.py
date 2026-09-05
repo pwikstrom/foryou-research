@@ -517,9 +517,59 @@ def save_collection_enrichment(collection_id):
     _journal_plan_save(cid, patch, (existing or {}).get("state"), entry or {},
                        queue_choice=data.get("queue_choice"),
                        foreign_queued=data.get("foreign_queued"))
+    # Arming used to change a ledger entry and nothing else: the first slice
+    # waited for the hourly heartbeat (up to an hour, on 2026-09-05 the
+    # better part of one). Arm now means "start" — one tick, right away.
+    ticked = None
+    if patch.get("state") == ce.STATE_RUNNING and \
+            (existing or {}).get("state") != ce.STATE_RUNNING:
+        ticked = _tick_now(cid)
     return jsonify({"status": "success", "armed": entry is not None,
                     "settings": (entry or {}).get("settings"),
-                    "progress": ce.progress(cid, entry)})
+                    "progress": ce.progress(cid, entry),
+                    "tick": ticked})
+
+
+def _tick_now(cid: str) -> dict:
+    """Run (Cloud Run: dispatch) one supervisor tick for ``cid``. Never raises.
+
+    The same mechanics as the tick endpoint below; shared here so Arm and
+    "Run a cycle now" start the loop the same way.
+    """
+    from fyp.fyp_config import ENRICHMENT_SUPERVISOR_SCRIPT
+    from ...services import collection_enrichment as ce
+    from ...task_status import is_cloud_run
+
+    try:
+        if is_cloud_run():
+            prev_start = (ce.last_tick() or {}).get("start_time")
+            success, msg = start_process(
+                "enrichment_supervisor", ENRICHMENT_SUPERVISOR_SCRIPT,
+                args=["--collection-id", cid], task_args={"collection_id": cid},
+                started_by=_actor())
+            return {"status": "started" if success else "error", "message": msg,
+                    "prev_start_time": prev_start}
+        from ...run_enrichment_supervisor import run_enrichment_supervisor
+
+        outcome: dict = {}
+
+        class _Reporter:
+            def log(self, msg):
+                print(f"[enrichment_supervisor] {msg}")
+
+            def update_progress(self, pct, msg=""):
+                pass
+
+            def emit_data(self, data):
+                if isinstance(data, dict):
+                    outcome.update(data)
+
+        run_enrichment_supervisor(_Reporter(), {"collection_id": cid,
+                                                "started_by": _actor()})
+        return {"status": "completed", "action": outcome.get("action"),
+                "message": outcome.get("message")}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
 
 
 def _journal_plan_save(cid: str, patch: dict, prev_state, entry: dict, *,

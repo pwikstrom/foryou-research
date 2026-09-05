@@ -867,6 +867,74 @@ def test_settle_owed_waits_for_a_busy_worker(tick):
     assert ce.get_meta(sup.SETTLE_OWED_KEY)             # still owed
 
 
+def test_tick_starts_the_scraper_right_after_cutting_a_slice(tick):
+    """The first cycle after Arm: a slice cut outside the boundary move used to
+    wait for the next trigger — the hourly heartbeat, with nothing running —
+    before anyone started the scraper (58 minutes from Arm to the first scrape
+    on 2026-09-05)."""
+    tick["plans"] = {"c1": _entry()}
+    rep = tick["run"]()
+    assert rep.data[-1]["action"] == "plan"
+    assert tick["started"] == [("queue_scraper_tiktok", {})]
+    assert "started the scraper" in rep.data[-1]["message"]
+
+
+def test_auto_plan_goes_idle_when_its_target_is_met(tick, monkeypatch):
+    """An Auto plan whose target is met exactly (10,570/10,570 on 2026-09-05)
+    took the "pending work covers the target" exit and stayed Running for
+    ever; only plan_cycle's exhausted path marked plans done."""
+    import web_interface.services.enrichment_journal as journal
+
+    tick["plans"] = {"c1": {**_entry(annotation_target=100, cycle_items_auto=True),
+                            "platform": "tiktok"}}
+    monkeypatch.setattr(ce, "load_status", lambda ids: None)
+    monkeypatch.setattr(ce, "_annotated_unique", lambda activity, status: 100)
+    rep = tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_DONE and entry.get("finished_at")
+    assert tick["started"] == []
+    assert rep.data[-1]["action"] in ("nothing_to_do", "finalize")
+    kinds = [e["kind"] for e in tick["store"][journal.JOURNAL_FILENAME]["events"]]
+    assert "plan.done" in kinds
+
+
+def test_auto_plan_waits_while_pending_work_covers_the_target(tick, monkeypatch):
+    """The other reason auto sizing returns 0 — queued/claimed annotations
+    already reach the target — must NOT close the plan."""
+    tick["plans"] = {"c1": {**_entry(annotation_target=100, cycle_items_auto=True),
+                            "platform": "tiktok"}}
+    monkeypatch.setattr(ce, "load_status", lambda ids: None)
+    monkeypatch.setattr(ce, "_annotated_unique", lambda activity, status: 90)
+    tick["claimed"] = {f"2026-08-27#{n}" for n in range(10)}   # in-flight, covers the gap
+    rep = tick["run"]()
+    # Nothing to cut and nothing to close: the plan is left exactly as it was.
+    entry = (tick["store"].get(ce.LEDGER_FILENAME) or {}).get("c1") or tick["plans"]["c1"]
+    assert entry.get("state") == ce.STATE_RUNNING
+    assert tick["started"] == []
+    assert rep.data[-1]["action"] == "nothing_to_do"
+
+
+def test_journal_drain_split_reads_the_ledger_not_the_snapshot(tick, monkeypatch):
+    """The boundary tick's scraper start must count the slice _plan just wrote
+    as the plan's own — the first live run reported its own 155 videos as
+    "queued elsewhere (drained first)"."""
+    import fyp.scrape.scrape_queues as sq
+    import web_interface.services.enrichment_journal as journal
+
+    monkeypatch.setattr(ce, "get_plan",
+                        lambda cid: (tick["store"].get(ce.LEDGER_FILENAME) or {}).get(cid))
+    monkeypatch.setattr(sq, "load_scrape_queue",
+                        lambda platform: [f"c1-i{n}" for n in range(5)])   # the fixture's slice
+    tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
+    tick["handoff"] = {"c1": ["x1"]}
+    tick["run"]()
+    drains = [e for e in tick["store"][journal.JOURNAL_FILENAME]["events"]
+              if e["kind"] == "queue.drained" and e.get("platform") == "tiktok"]
+    assert drains and drains[-1]["detail"]["plan_items"] == 5
+    assert drains[-1]["detail"]["other_items"] == 0
+    assert "queued elsewhere" not in drains[-1]["message"]
+
+
 def test_tick_writes_the_enrichment_history(tick):
     """The boundary move leaves its story in the journal: the handoff, the
     next slice, and the worker starts with the queue split."""

@@ -320,6 +320,19 @@ def run_enrichment_supervisor(reporter: TaskStatusReporter,
             else:
                 message += f"; queued the next slice ({plan_out.get('queued')} item(s))"
         outcome = {**outcome, "message": message + "."}
+    elif outcome.get("action") == "plan":
+        # A slice cut outside the boundary move (the first cycle after Arm)
+        # used to wait for the NEXT trigger before anyone started the scraper
+        # — and with no worker running, the next trigger is the hourly
+        # heartbeat: on 2026-09-05 the first slice sat 12 minutes until a
+        # manual tick, and would have sat 48. Start the scraper now.
+        pcid = outcome.get("collection_id")
+        plans = {**plans, pcid: {**(plans.get(pcid) or {}),
+                                 "platform": outcome.get("platform")}}
+        follow = _drain(reporter, plans, lanes=("scrape",))
+        if follow and follow.get("action") == "scrape":
+            outcome = {**outcome,
+                       "message": f"{outcome.get('message', '').rstrip('.')} and started the scraper."}
 
     reporter.update_progress(100, outcome.get("message") or outcome["action"])
     reporter.emit_data(outcome)
@@ -494,8 +507,13 @@ def _journal_scrape_drain(platform: str, count: int, platform_plans: dict) -> No
         from fyp.scrape import scrape_queues
         queued = {str(i) for i in scrape_queues.load_scrape_queue(platform)}
         own: set[str] = set()
-        for entry in platform_plans.values():
-            own |= {str(i) for i in (entry.get("in_flight") or [])}
+        for cid, entry in platform_plans.items():
+            # The ledger, not the tick's snapshot: on the boundary tick the
+            # slice this scraper is about to take was written to `in_flight`
+            # by _plan a moment ago, and the snapshot predates it (the first
+            # live run read its own slice as "155 queued elsewhere").
+            fresh = ce.get_plan(cid) or entry
+            own |= {str(i) for i in (fresh.get("in_flight") or [])}
         plan_items = len(queued & own)
         other = max(0, count - plan_items)
         message = (f"{journal.platform_label(platform)} scraper started on its queue — "
@@ -822,6 +840,23 @@ def _plan(reporter, plans: dict) -> dict | None:
                 status = ce.load_status(activity["item_id"].unique())
                 auto_items = _auto_cycle_items(entry, activity, status)
                 if auto_items == 0:
+                    target = int(settings.get("annotation_target") or 0)
+                    if target and ce._annotated_unique(activity, status) >= target:
+                        # Nothing pending — the target is simply MET. This
+                        # branch used to `continue`, so an Auto plan that
+                        # reached its target exactly read "Running" for ever
+                        # (2026-09-05: 10,570/10,570, ticking nothing_to_do
+                        # every hour). Close it the way plan_cycle would.
+                        ce.save_plan(cid, {"state": ce.STATE_DONE, "platform": platform,
+                                           "finished_at": ce.now_iso()})
+                        reporter.log(f"{cid}: annotation target met; plan complete.")
+                        journal.record("plan.done",
+                                       f"Idle — the annotation target ({target:,} unique "
+                                       f"videos) is met",
+                                       collection_id=cid, platform=platform,
+                                       actor="enrichment_supervisor", target=target)
+                        _notify_owner(reporter, cid, entry)
+                        continue
                     # Target headroom is fully covered by pending work (queued
                     # or in an in-flight job) — cutting more would overshoot.
                     reporter.log(f"{cid}: pending annotations already cover the "

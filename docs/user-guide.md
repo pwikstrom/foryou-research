@@ -423,9 +423,11 @@ new scraping between a recent-days **deep dive** and a capped **spread**
 across the history (the balance slider and the spread's month/day limits
 live under *Advanced*); an amber warning appears when the settings cannot
 reach the chosen target. The target is a running total: to continue a
-finished (Idle) plan, raise the target and press *Arm again*. Automatic
-ticking also requires the site-wide switch in Admin → Site Settings;
-*Run a cycle now* works regardless. Before *Arm*, *Resume* or *Run a cycle
+finished (Idle) plan, raise the target and press *Arm again*. Arming runs
+the first cycle at once (the slice is cut and the scraper started); the
+later cycles follow on their own. Automatic ticking also requires the
+site-wide switch in Admin → Site Settings; *Run a cycle now* works
+regardless. Before *Arm*, *Resume* or *Run a cycle
 now* the panel checks the shared queues: the platform's scrape queue and
 the annotation queue are one file each for the whole site, and the loop
 drains them before it can do its own work — so if either holds videos

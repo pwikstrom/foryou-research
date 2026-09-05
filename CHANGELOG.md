@@ -108,6 +108,18 @@ public version. Entries below describe the Hub as it stands at that release.
   by one every cycle regardless of progress; the fourth cycle stopped with
   "no scrape progress in 3 cycles". The planning step now reloads the entry
   immediately before its read-modify-write.
+- **An Auto-sized plan that reached its target exactly stayed "Running" for
+  ever.** The auto sizing returned "nothing to cut" for a met target as well
+  as for pending work, and only the pending case was handled; the plan now
+  goes Idle (and notifies its owner) the moment the target is met.
+- **Arming did not start anything.** A slice cut outside the cycle boundary
+  waited for the next trigger before the scraper was started, and with no
+  worker running that trigger was the hourly heartbeat — 58 minutes from
+  Arm to the first scrape on 2026-09-05. Arm now runs one tick at once, and
+  a tick that cuts a slice starts the scraper in the same breath.
+- **The history's "queued elsewhere" split read the tick's stale snapshot**
+  on the boundary tick and reported the plan's own freshly cut slice as
+  someone else's; it now reads the ledger.
 - **Results from a job the loop started were stranded when its plan stopped
   first.** An annotation batch that finished after its plan was parked had
   no armed plan left to consolidate it, and the deferred analysis refresh
