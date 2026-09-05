@@ -978,6 +978,12 @@ def finish_run(*, partial: bool = False, failed_at: str | None = None,
     Idempotent — the fan-out barrier can reach it more than once when leaves
     finish together.
     """
+    # Whether THIS call is the one that closed the run: the fan-out barrier
+    # can reach finish_run twice when leaves finish together, and the history
+    # must carry one line per run, not one per caller (2026-09-05, 13:19:57
+    # and 13:19:58).
+    closed_here = {"v": False}
+
     def _apply(record: dict) -> bool | None:
         if run_id is not None and record.get("run_id") != run_id:
             return False
@@ -986,6 +992,7 @@ def finish_run(*, partial: bool = False, failed_at: str | None = None,
             prev = steps.get(step) or {}
             if prev.get("state") == "planned":
                 steps[step] = {**prev, "state": "pruned", "reason": why}
+        closed_here["v"] = bool(record.get("in_flight"))
         record["in_flight"] = False
         record["fork"] = None
         record["partial"] = bool(partial)
@@ -1005,7 +1012,7 @@ def finish_run(*, partial: bool = False, failed_at: str | None = None,
         return None
 
     finished = mutate_run(_apply)
-    if finished:
+    if finished and closed_here["v"]:
         _journal_finished_run(finished)
     return finished
 

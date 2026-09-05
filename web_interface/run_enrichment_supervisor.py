@@ -553,7 +553,7 @@ def _settle_owed(reporter) -> dict | None:
                 "message": f"Waiting for {', '.join(blocking)} before consolidating."}
     ok, msg = _start("consolidate_enrichment",
                      {"auto_refresh": False, "plan_deferred": True})
-    reporter.log(f"Folding in results from a {kind} job the loop started before its "
+    reporter.log(f"Folding in results from the {kind} job the loop started before its "
                  f"plan stopped: {msg}")
     if ok:
         ce.set_meta(SETTLE_OWED_KEY, None)

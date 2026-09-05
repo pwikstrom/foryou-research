@@ -104,6 +104,34 @@ def test_every_kind_has_a_label_and_a_known_family():
     assert journal.label_for("not.a.kind") == "not.a.kind"     # unknown kinds still render
 
 
+def test_finish_run_journals_a_refresh_once_even_when_reentered(store, monkeypatch):
+    """The fan-out barrier can reach finish_run twice when leaves finish
+    together; the history carried two "Analyses refreshed" lines one second
+    apart (2026-09-05). Only the call that closes the run writes the line."""
+    import web_interface.services.refresh_pipeline as rp
+
+    state = {"record": {"run_id": "r1", "in_flight": True, "steps": {}, "fork": None,
+                        "impact": {"affected_collection_ids": ["c1"],
+                                   "affected_study_names": ["s1"]},
+                        "origin": "consolidate_enrichment", "started_by": ""}}
+
+    def fake_mutate(fn):
+        rec = dict(state["record"])
+        if fn(rec) is False:
+            return None
+        state["record"] = rec
+        return rec
+
+    monkeypatch.setattr(rp, "mutate_run", fake_mutate)
+    monkeypatch.setattr(rp, "summarize", lambda record: "Refreshed everything.")
+    rp.finish_run(run_id="r1")
+    rp.finish_run(run_id="r1")            # the barrier's second arrival
+    lines = [e for e in _events(store) if e["kind"] == "refresh.finished"]
+    assert len(lines) == 1
+    assert lines[0]["collection_ids"] == ["c1"] and lines[0]["detail"]["studies"] == 1
+    assert lines[0]["message"].startswith("Analyses refreshed")
+
+
 def test_actor_label_names_the_loop_and_the_system():
     assert journal.actor_label(None) == "the system"
     assert journal.actor_label("enrichment_supervisor") == "the enrichment loop"
