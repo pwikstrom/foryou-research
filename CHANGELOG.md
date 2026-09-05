@@ -127,6 +127,13 @@ public version. Entries below describe the Hub as it stands at that release.
   worker running that trigger was the hourly heartbeat — 58 minutes from
   Arm to the first scrape on 2026-09-05. Arm now runs one tick at once, and
   a tick that cuts a slice starts the scraper in the same breath.
+- **A plan's last batch waited for the heartbeat to be consolidated.** A
+  worker's completion only ticked the loop while a plan was armed, so a
+  batch that finished after its plan went Idle sat unconsolidated — and the
+  Dataset Assembly page asked for a manual Consolidate — until the hourly
+  heartbeat settled it. Completions now tick the loop while it owes a
+  consolidation or its deferred refresh, and the page's banner says the loop
+  has it in hand.
 - **The history's "queued elsewhere" split read the tick's stale snapshot**
   on the boundary tick and reported the plan's own freshly cut slice as
   someone else's; it now reads the ledger.

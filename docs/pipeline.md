@@ -213,7 +213,10 @@ started owes a consolidation** (`__meta__.settle_owed`, set when the loop
 starts a scraper or annotator, cleared when it consolidates): a plan parked
 or finished while its job still runs leaves results that no tick would
 otherwise fold in, so the no-plans path settles that debt before the quiet
-finalize. Every one of these decisions is written to the **enrichment
+finalize — and a worker completion still dispatches a tick while the loop
+owes a settle or its own deferred refresh (`process_routes.loop_owes_work`),
+not only while a plan is armed; the Dataset Assembly banner reads the same
+flag and says the loop has the consolidation in hand. Every one of these decisions is written to the **enrichment
 history** (`services/enrichment_journal.py`, `cache/enrichment_journal.json`,
 a bounded ring): plans armed/paused/parked, queues built/emptied/drained
 (with the split between the armed plans' own slices and everything else),

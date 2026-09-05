@@ -1257,20 +1257,56 @@ def _maybe_autofire_armed_consolidate(just_finished: str) -> bool:
     return False
 
 
+def loop_owes_work() -> dict:
+    """What the enrichment loop still owes with nothing armed. Never raises.
+
+    ``settle``: a worker the loop started has results not yet consolidated
+    (the ledger's ``settle_owed`` marker). ``refresh``: the loop's own
+    consolidations left a deferred analysis refresh (``from_plan``). Both are
+    reasons to tick the supervisor, and both are what the Dataset Assembly
+    page should say the loop has in hand rather than asking the operator to
+    press Consolidate.
+    """
+    out = {"settle": False, "refresh": False, "settle_since": None, "deferred_since": None}
+    try:
+        from web_interface.run_enrichment_supervisor import SETTLE_OWED_KEY
+        from web_interface.services import collection_enrichment as ce
+        from web_interface.services import downstream_refresh
+
+        owed = ce.get_meta(SETTLE_OWED_KEY)
+        if owed:
+            out["settle"] = True
+            out["settle_since"] = (owed.get("since") if isinstance(owed, dict) else None)
+        deferred = downstream_refresh.get_deferred_impact() or {}
+        if deferred and deferred.get("from_plan"):
+            out["refresh"] = True
+            out["deferred_since"] = deferred.get("deferred_since")
+    except Exception as exc:
+        print(f"[enrichment] loop_owes_work failed: {exc}")
+    return out
+
+
 def _tick_enrichment_supervisor(just_finished: str) -> None:
     """Advance the automatic enrichment loop after a worker finishes.
 
     Fire-and-forget: the loop must never be able to fail somebody else's task
     completion. The tick is a no-op unless the site switch is on and some
-    collection is armed, and it re-checks every precondition itself, so a
-    spurious call costs one cheap Cloud Task and nothing else.
+    collection is armed — or the loop still OWES something with nothing
+    armed: a consolidation for a job it started before its last plan
+    finished, or the deferred analysis refresh of its own consolidations.
+    Gating purely on armed plans left both to the hourly heartbeat
+    (2026-09-05: a plan's last 87 annotations landed ten minutes after it
+    went Idle and sat "not consolidated" on the Dataset Assembly page for
+    the rest of the hour). The tick re-checks every precondition itself, so
+    a spurious call costs one cheap Cloud Task and nothing else.
 
     Args:
         just_finished: The worker whose completion triggered this.
     """
     try:
         from web_interface.services import collection_enrichment as ce
-        if not ce.armed_plans():
+        owes = loop_owes_work()
+        if not ce.armed_plans() and not (owes["settle"] or owes["refresh"]):
             return
         from ..process_manager import _dispatch_cloud_task, dispatch_deadline_for
         success, msg = _dispatch_cloud_task(

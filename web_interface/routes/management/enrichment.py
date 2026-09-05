@@ -398,6 +398,14 @@ def get_enrichment_stats():
     # this on its next tick" before someone builds or empties a queue under it.
     armed_plans_by_platform, queue_plan_items_by_platform = \
         _armed_queue_view(scrape_queues_by_platform)
+    # What the loop still owes with nothing armed (a consolidation for a job
+    # it started, its deferred refresh) — the Dataset Assembly banner says the
+    # loop has it in hand instead of asking for a manual Consolidate.
+    try:
+        from ..process_routes import loop_owes_work
+        loop_owes = loop_owes_work()
+    except Exception:
+        loop_owes = {"settle": False, "refresh": False}
 
     cookie_health = {
         p: _cached_cookie_health(p)
@@ -453,6 +461,7 @@ def get_enrichment_stats():
         # {platform: n} of the queue that is those plans' own slices.
         "armed_plans_by_platform": armed_plans_by_platform,
         "queue_plan_items_by_platform": queue_plan_items_by_platform,
+        "loop_owes": loop_owes,
         # Fresh local-drain leases (laptop draining a queue against the shared
         # bucket) — the matching scraper start and consolidation are blocked
         # while one is held. {platform: {host, user, started_at, ...}}.

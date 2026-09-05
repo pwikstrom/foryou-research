@@ -1075,6 +1075,42 @@ def test_journal_drain_split_reads_the_ledger_not_the_snapshot(tick, monkeypatch
     assert "queued elsewhere" not in drains[-1]["message"]
 
 
+def test_worker_completion_ticks_the_loop_while_it_owes_work(store, monkeypatch):
+    """The trigger, not the tick: with nothing armed, a worker's completion
+    used to dispatch no tick at all — so the settle_owed path never ran until
+    the hourly heartbeat, and a plan's last batch sat unconsolidated on the
+    Dataset Assembly page for the rest of the hour (2026-09-05, 12:44)."""
+    import web_interface.routes.process_routes as pr
+    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.services.downstream_refresh as dr
+
+    dispatched = []
+    monkeypatch.setattr("web_interface.process_manager._dispatch_cloud_task",
+                        lambda name, args, **kw: (dispatched.append(name), (True, "ok"))[1])
+    monkeypatch.setattr(ce, "armed_plans", lambda: {})
+    monkeypatch.setattr(dr, "get_deferred_impact", lambda: None)
+
+    pr._tick_enrichment_supervisor("queue_annotator_batch")
+    assert dispatched == []                              # nothing armed, nothing owed
+
+    ce.set_meta(sup.SETTLE_OWED_KEY, {"after": "annotate"})
+    pr._tick_enrichment_supervisor("queue_annotator_batch")
+    assert dispatched == ["enrichment_supervisor"]      # owed a consolidation
+    assert pr.loop_owes_work()["settle"] is True
+
+    ce.set_meta(sup.SETTLE_OWED_KEY, None)
+    monkeypatch.setattr(dr, "get_deferred_impact",
+                        lambda: {"from_plan": True, "deferred_since": "2026-09-05T02:34:13+00:00"})
+    pr._tick_enrichment_supervisor("consolidate_enrichment")
+    assert dispatched == ["enrichment_supervisor"] * 2  # owed its deferred refresh
+    assert pr.loop_owes_work()["refresh"] is True
+
+    # An operator's own deferral is not the loop's to spend — no tick for it.
+    monkeypatch.setattr(dr, "get_deferred_impact", lambda: {"from_plan": False})
+    pr._tick_enrichment_supervisor("consolidate_enrichment")
+    assert len(dispatched) == 2
+
+
 def test_tick_writes_the_enrichment_history(tick):
     """The boundary move leaves its story in the journal: the handoff, the
     next slice, and the worker starts with the queue split."""

@@ -2663,7 +2663,17 @@ function checkConsolidationNeeded(data) {
         const parts = [];
         if (scraperNewer) parts.push('scraper');
         if (annotatorNewer) parts.push('annotator');
-        warningEl.textContent = `The ${parts.join(' and ')} completed after the last consolidation. Click "Consolidate" to incorporate new data.`;
+        // When the enrichment loop started that worker, the consolidation is
+        // the loop's own next step — say so, instead of asking for a click
+        // the loop is about to make itself.
+        const owes = data.loop_owes || {};
+        if (owes.settle) {
+            warningEl.textContent = `The ${parts.join(' and ')} completed after the last consolidation — `
+                + 'the enrichment loop started it and folds the results in on its next tick '
+                + '(within the hour at the latest). Press "Consolidate" only if you would rather not wait.';
+        } else {
+            warningEl.textContent = `The ${parts.join(' and ')} completed after the last consolidation. Click "Consolidate" to incorporate new data.`;
+        }
         warningEl.style.display = '';
         setNeedsAction(true);
     } else {
@@ -2693,11 +2703,20 @@ function renderConsolidationImpact(impact, partial = null) {
     // When the last auto-refresh aborted partway, explain why the impact is
     // still here so the panel doesn't read as "nothing happened".
     if (note) {
+        const owes = (_lastEnrichmentStats && _lastEnrichmentStats.loop_owes) || {};
         if (partial && partial.partial) {
             const where = partial.failedAt
                 ? ` at "${escapeHtml(_humanizePipelineSteps(partial.failedAt))}"` : '';
             note.textContent = `⚠ The auto-refresh stopped${where}; the items below were not fully refreshed. `
                 + `Click "Refresh All Affected" to complete.`;
+            note.style.display = '';
+        } else if (owes.refresh) {
+            // The loop's own consolidations deferred this refresh; it runs
+            // it itself once the loop goes quiet, so the button is a
+            // shortcut, not a chore.
+            note.textContent = 'The enrichment loop deferred this refresh and runs it itself once its '
+                + 'last consolidation is in (within the hour at the latest). '
+                + '"Refresh All Affected" only if you would rather not wait.';
             note.style.display = '';
         } else {
             note.style.display = 'none';
