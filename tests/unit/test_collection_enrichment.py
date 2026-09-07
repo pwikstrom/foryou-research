@@ -1431,6 +1431,12 @@ def test_enrichment_panel_buttons_keep_their_handlers():
         "dm-enrich-tick-btn": "dmEnrichTick",
         "dm-enrich-advanced-toggle": "dmEnrichToggleAdvanced",
         "dm-enrich-history-toggle": "dmEnrichHistoryToggle",
+        # The modal's own controls, which live in the same template and are
+        # just as easy to strand: Save moved into the sticky title bar, and
+        # Collection details is now a disclosure that renders on first expand.
+        "save-collection-btn": "dm_saveAnnotation",
+        "delete-collection-btn": "dm_deleteCollection",
+        "edit-collection-details-toggle": "dmToggleCollectionDetails",
     }
     for element_id, handler in expected.items():
         attrs = parser.by_id.get(element_id)

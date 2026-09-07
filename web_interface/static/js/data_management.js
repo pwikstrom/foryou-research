@@ -6431,11 +6431,11 @@ function openEditCollectionModal(collectionObj) {
         deleteBtn.textContent = 'Delete Collection';
     }
 
-    _dmRenderCollectionDetails([collectionObj]);
+    _dmResetCollectionDetails([collectionObj]);
     dm_renderTags();
     _dmFillAccountSelect(collectionObj.user_id || '', false);
     dmEnrichLoad(currentEditCollectionId);
-    document.getElementById('editCollectionModal').style.display = 'block';
+    _dmShowEditCollectionModal();
 }
 
 
@@ -6468,6 +6468,47 @@ function _dmAccountPayload(bulk) {
     return { user_id: sel.value || null };
 }
 
+
+// Reveal the modal, and make a click on the backdrop close it - the same
+// discard-without-saving the [x] does. The handler is on the overlay, so only
+// a click that lands outside .modal-content counts.
+function _dmShowEditCollectionModal() {
+    const modal = document.getElementById('editCollectionModal');
+    if (!modal) return;
+    modal.onclick = (e) => { if (e.target === modal) closeEditCollectionModal(); };
+    modal.style.display = 'block';
+}
+
+// Collection details opens collapsed on every open, and renders nothing until
+// it is expanded: for a single collection the render costs a personality
+// request, which is wasted on the many opens that only edit the fields above.
+let _dmDetailObjs = null;
+let _dmDetailsRendered = false;
+
+function _dmResetCollectionDetails(objs) {
+    _dmDetailObjs = objs;
+    _dmDetailsRendered = false;
+    const panel = document.getElementById('edit-collection-details-panel');
+    if (panel) panel.style.display = 'none';
+    const btn = document.getElementById('edit-collection-details-toggle');
+    if (btn) {
+        btn.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+    }
+    const box = document.getElementById('edit-collection-details');
+    if (box) box.innerHTML = '';
+}
+
+function dmToggleCollectionDetails() {
+    dmToggleAdvanced('edit-collection-details-panel', 'edit-collection-details-toggle');
+    const panel = document.getElementById('edit-collection-details-panel');
+    const open = !!panel && panel.style.display !== 'none';
+    if (open && !_dmDetailsRendered) {
+        _dmDetailsRendered = true;
+        _dmRenderCollectionDetails(_dmDetailObjs);
+    }
+}
+window.dmToggleCollectionDetails = dmToggleCollectionDetails;
 
 // Read-only metadata block in the edit modal. One collection gets a compact
 // meta line plus the donated-data personality view (shared renderer from
@@ -8276,10 +8317,10 @@ function openEditSelectedCollections() {
         deleteBtn.textContent = `Delete ${selectedIds.length} Collections`;
     }
 
-    _dmRenderCollectionDetails(selectedObjs);
+    _dmResetCollectionDetails(selectedObjs);
     dm_renderTags();
     _dmFillAccountSelect('', true);
-    document.getElementById('editCollectionModal').style.display = 'block';
+    _dmShowEditCollectionModal();
 }
 window.openEditSelectedCollections = openEditSelectedCollections;
 

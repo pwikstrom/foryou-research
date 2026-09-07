@@ -48,59 +48,80 @@
          Admin -> Site Settings convention), .text-sm for a field label. -->
     <div class="modal-content"
         style="width: 70%; max-width: 1000px; max-height: 88vh; overflow-y: auto; margin: 4vh auto; font-size: var(--text-body);">
-        <span class="close" onclick="closeEditCollectionModal()">&times;</span>
-        <h2 style="margin: 0 0 20px 0;">Edit Collection: <span id="edit-collection-id-display"></span></h2>
+        <!-- The title bar stays put while the modal scrolls. This modal is
+             several screens tall, and the shared .close is positioned against
+             the modal rather than the viewport, so it used to scroll out of
+             reach. Save rides along with it: it is the only other thing you
+             want at any scroll position, which is also why the old Cancel is
+             gone - the [x] beside it already does that. -->
+        <div class="edit-collection-header">
+            <h2 style="margin: 0;">Edit Collection: <span id="edit-collection-id-display"></span></h2>
+            <div class="edit-collection-header-actions">
+                <button type="button" class="action-btn" id="save-collection-btn" onclick="dm_saveAnnotation()">Save</button>
+                <span class="close" onclick="closeEditCollectionModal()" aria-label="Close">&times;</span>
+            </div>
+        </div>
 
         <input type="hidden" id="edit-collection-id" value="">
 
-        <div class="form-group" style="margin-bottom: 20px;">
-            <label for="edit-collection-display-id" class="text-sm"
-                style="display: block; margin-bottom: 5px; color: var(--color-text-secondary);">Display ID:</label>
-            <input type="text" id="edit-collection-display-id" class="control-input"
-                style="width: 100%; padding: 8px;">
-        </div>
+        <!-- Display ID / User account beside Tags / Hide Collection. Stacked,
+             these four short controls filled a screen on their own and pushed
+             the enrichment panel below the fold. The grid folds back to one
+             column when the modal is too narrow for two. -->
+        <div class="edit-collection-fields">
+            <div class="edit-collection-col">
+                <div class="form-group">
+                    <label for="edit-collection-display-id" class="text-sm"
+                        style="display: block; margin-bottom: 5px; color: var(--color-text-secondary);">Display ID:</label>
+                    <input type="text" id="edit-collection-display-id" class="control-input"
+                        style="width: 100%; padding: 8px;">
+                </div>
 
-        <div class="form-group">
-            <label class="text-sm"
-                style="display: block; margin-bottom: 5px; color: var(--color-text-secondary);">Tags:</label>
-            <div id="edit-collection-tags-container"
-                style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;">
+                <div class="form-group">
+                    <label for="edit-collection-user" class="text-sm"
+                        style="display: block; margin-bottom: 5px; color: var(--color-text-secondary);">User account:</label>
+                    <select id="edit-collection-user" class="control-input" style="width: 100%; padding: 8px;">
+                        <option value="">&mdash; no account &mdash;</option>
+                    </select>
+                    <span class="text-xs" style="color: var(--color-text-muted); display: block; margin-top: 4px;">
+                        The participant this collection belongs to. Demographic details are kept on the
+                        account (Admin &rarr; Active users), never on the collection.</span>
+                </div>
             </div>
-            <div style="display: flex; gap: 5px;">
-                <input type="text" id="edit-collection-new-tag" class="control-input"
-                    style="flex: 1; padding: 8px;"
-                    placeholder="Add new tag..."
-                    onkeydown="if(event.key === 'Enter') { dm_addNewTag(); event.preventDefault(); }">
-                <button type="button" class="action-btn" onclick="dm_addNewTag()" style="padding: 8px 15px;">Add Tag</button>
+
+            <div class="edit-collection-col">
+                <div class="form-group">
+                    <label class="text-sm"
+                        style="display: block; margin-bottom: 5px; color: var(--color-text-secondary);">Tags:</label>
+                    <div id="edit-collection-tags-container"
+                        style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;">
+                    </div>
+                    <div style="display: flex; gap: 5px;">
+                        <input type="text" id="edit-collection-new-tag" class="control-input"
+                            style="flex: 1; padding: 8px;"
+                            placeholder="Add new tag..."
+                            onkeydown="if(event.key === 'Enter') { dm_addNewTag(); event.preventDefault(); }">
+                        <button type="button" class="action-btn" onclick="dm_addNewTag()" style="padding: 8px 15px;">Add Tag</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="text-sm" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="edit-collection-hidden" style="width: auto; cursor: pointer;">
+                        Hide Collection
+                    </label>
+                    <span class="text-xs" style="color: var(--color-text-muted); margin-left: 25px; display: block;">Hidden collections are
+                        not shown in the primary study interface.</span>
+                </div>
             </div>
-        </div>
-
-        <div class="form-group" style="margin-top: 20px;">
-            <label for="edit-collection-user" class="text-sm"
-                style="display: block; margin-bottom: 5px; color: var(--color-text-secondary);">User account:</label>
-            <select id="edit-collection-user" class="control-input" style="width: 100%; padding: 8px;">
-                <option value="">&mdash; no account &mdash;</option>
-            </select>
-            <span class="text-xs" style="color: var(--color-text-muted); display: block; margin-top: 4px;">
-                The participant this collection belongs to. Demographic details are kept on the
-                account (Admin &rarr; Active users), never on the collection.</span>
-        </div>
-
-        <div class="form-group" style="margin-top: 20px;">
-            <label class="text-sm" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                <input type="checkbox" id="edit-collection-hidden" style="width: auto; cursor: pointer;">
-                Hide Collection
-            </label>
-            <span class="text-xs" style="color: var(--color-text-muted); margin-left: 25px; display: block;">Hidden collections are
-                not shown in the primary study interface.</span>
         </div>
 
         <!-- Automatic enrichment: the per-collection A+B loop (deep-dive recent
              days + spread sample of whole days back through history). Single
              collection only - hidden in bulk mode. Settings live in the
              cache/collection_enrichment.json ledger, not collections_tags.json,
-             and are saved by their own endpoint (the Save button below does not
-             touch them).
+             and are saved by their own endpoint (the modal's own Save button does
+             not touch them).
              It sits above the collection details because the details block ends
              in the full-height personality view: anything after that is a scroll
              away and effectively invisible. -->
@@ -287,7 +308,7 @@ While the plan runs the button reads Pause: nothing new starts, anything already
                     <span class="meta-tooltip tooltip-wide" id="dm-enrich-save-wrap"
                         data-tooltip="Store the settings above without arming or pausing anything. Enabled only while something differs from the saved plan - Arm saves too, so this is for changing a plan (say, raising the target) without touching its state.
 
-Changing a setting does not undo work already done - it applies from the next cycle onwards. Separate from the modal's own Save button at the bottom, which never touches these."><button
+Changing a setting does not undo work already done - it applies from the next cycle onwards. Separate from the modal's own Save button at the top, which never touches these."><button
                         type="button" class="action-btn btn-secondary text-sm" id="dm-enrich-save-btn"
                         onclick="dmEnrichSave()">Save settings</button></span>
                     <span id="dm-enrich-msg" class="text-xs" style="color: var(--color-text-tertiary);"></span>
@@ -320,31 +341,30 @@ The full history for every collection, with a collection filter, is under Data M
         <!-- Read-only metadata. The Edit Collections table shows only what you
              need to find a collection; everything else it holds is reported
              here, for the one collection or for each of the selected ones.
-             Last, because a single collection also gets the full-height
-             personality view (rendered by my_collections.js). -->
+             Last, and collapsed: for a single collection it ends in the
+             full-height personality view (rendered by my_collections.js),
+             which is worth a click but not worth a screen every time the
+             modal opens. Nothing inside is rendered until it is expanded. -->
         <div class="form-group" style="margin-top: 24px;">
-            <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Collection details</h3>
-            <p class="text-xs" style="margin: 0 0 10px 0; color: var(--color-text-muted);">
-                Read-only. A single collection also gets its donated-data view; several
-                get a row each, so a bulk edit can be checked against what it will touch.
-            </p>
-            <div id="edit-collection-details" class="text-sm"
-                style="border: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 8px 10px;">
+            <button type="button" class="dm-enrich-advanced-toggle" id="edit-collection-details-toggle"
+                aria-expanded="false"
+                onclick="dmToggleCollectionDetails()"><span class="caret">&#9656;</span>Collection details</button>
+            <div id="edit-collection-details-panel" style="display: none;">
+                <p class="text-xs" style="margin: 6px 0 10px 0; color: var(--color-text-muted);">
+                    Read-only. A single collection also gets its donated-data view; several
+                    get a row each, so a bulk edit can be checked against what it will touch.
+                </p>
+                <div id="edit-collection-details" class="text-sm"
+                    style="border: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 8px 10px;">
+                </div>
             </div>
         </div>
 
-        <div style="margin-top: 25px; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-            {% if current_user.is_admin() %}
+        {% if current_user.is_admin() %}
+        <div style="margin-top: 25px;">
             <button type="button" class="action-btn btn-danger" id="delete-collection-btn"
                 onclick="dm_deleteCollection()">Delete Collection</button>
-            {% else %}
-            <span></span>
-            {% endif %}
-            <div style="display: flex; gap: 10px;">
-                <button type="button" class="action-btn btn-secondary" style=""
-                    onclick="closeEditCollectionModal()">Cancel</button>
-                <button type="button" class="action-btn" id="save-collection-btn" onclick="dm_saveAnnotation()">Save</button>
-            </div>
         </div>
+        {% endif %}
     </div>
 </div>

@@ -7359,6 +7359,71 @@ body:has(.public-page) {
         var(--color-border-strong) 3px, var(--color-border-strong) 5px);
 }
 
+/* ------------------------------------------------------------
+   Edit Collection modal (Data Management -> Edit Collections)
+   ------------------------------------------------------------ */
+
+/* The title bar is the modal's only fixed point. .modal-content is itself the
+   scroll container, and the shared .close is absolutely positioned inside it,
+   so on a modal this tall the [x] used to scroll away entirely. Sticky keeps
+   the bar - title, Save, [x] - at the top of the scrollport instead.
+   The container gives up its top padding to the bar, which carries its own:
+   a sticky box is constrained by its MARGIN box, so a negative top margin
+   here would just be handed back as a 20px strip of padding above the bar,
+   for the content to scroll up through. The negative side margins are safe,
+   and make the bar full-bleed. */
+#editCollectionModal .modal-content {
+    padding-top: 0;
+}
+
+.edit-collection-header {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 -20px 20px -20px;
+    padding: 16px 20px;
+    background: var(--modal-bg);
+    border-bottom: 1px solid var(--color-border-strong);
+}
+
+.edit-collection-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* In the bar the [x] is just another flex item, not a corner overlay. */
+.edit-collection-header .close {
+    position: static;
+    float: none;
+    line-height: 1;
+}
+
+/* Display ID / User account beside Tags / Hide Collection. Two explicit
+   tracks rather than auto-fit: auto-fit leaves a collapsed third track and
+   its gutter unused at this width, so the pair would not fill the modal. */
+.edit-collection-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px 28px;
+    align-items: start;
+}
+
+.edit-collection-col {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* The house breakpoint: below it the modal is too narrow for two columns. */
+@media (max-width: 860px) {
+    .edit-collection-fields { grid-template-columns: 1fr; }
+}
+
 .dm-enrich-advanced-toggle {
     background: none;
     border: none;
