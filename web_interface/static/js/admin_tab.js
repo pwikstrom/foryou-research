@@ -1147,6 +1147,71 @@
         }
     }
 
+    // --- CSV export for Active Users ---
+
+    // One column per flat field of the payload. Nested collections are kept as
+    // a count, and the per-user tag/note lists are left out entirely — this is
+    // a one-row-per-account sheet, not an activity log.
+    const ACTIVE_USERS_CSV_COLUMNS = [
+        ['email',             u => u.username],
+        ['display_name',      u => u.display_username],
+        ['role',              u => u.role],
+        ['account_kind',      u => u.account_kind],
+        ['placeholder',       u => !!u.placeholder],
+        ['can_login',         u => !!u.can_login],
+        ['registered',        u => u.created_at],
+        ['last_login',        u => u.last_login],
+        ['terms_accepted_at', u => u.terms_accepted_at],
+        ['origin_source',     u => (u.origin || {}).source],
+        ['origin_at',         u => (u.origin || {}).at],
+        ['origin_collection', u => (u.origin || {}).collection_id],
+        ['collections',       u => Number(u.collections_count || (u.collections || []).length || 0)],
+        ['full_name',         u => (u.profile || {}).full_name],
+        ['age',               u => (u.profile || {}).age],
+        ['postcode',          u => (u.profile || {}).postcode],
+        ['country',           u => (u.profile || {}).country],
+        ['occupation',        u => (u.profile || {}).occupation],
+        ['tiktok_handle',     u => (u.profile || {}).tiktok_handle],
+        ['consent_to_contact', u => (u.profile || {}).consent_to_contact],
+        ['annotated_videos',  u => Number((u.stats || {}).unique_videos || 0)],
+        ['notes',             u => Number((u.stats || {}).notes || 0)],
+        ['closed_tags',       u => Number((u.stats || {}).closed_tags || 0)],
+        ['open_tags',         u => Number((u.stats || {}).open_tags || 0)],
+    ];
+
+    function _csvCell(value) {
+        if (value === null || value === undefined) return '';
+        let text = String(value);
+        // Profile fields are participant-supplied, so a leading =, + or -
+        // would be read as a formula by Excel and Sheets. Prefix it away.
+        // A leading @ is left alone: every TikTok handle starts with one.
+        if (/^[=+\-\t\r]/.test(text)) text = "'" + text;
+        return '"' + text.replace(/"/g, '""') + '"';
+    }
+
+    // Exports every active user, not just the rows the search box and the
+    // participant toggle currently leave visible.
+    function downloadActiveUsersCsv() {
+        const users = window._activeUsersData || [];
+        if (!users.length) {
+            showToast('No users to export.', 'error');
+            return;
+        }
+        const header = ACTIVE_USERS_CSV_COLUMNS.map(([name]) => _csvCell(name)).join(',');
+        const rows = users.map(u =>
+            ACTIVE_USERS_CSV_COLUMNS.map(([, read]) => _csvCell(read(u))).join(','));
+        // The BOM is what makes Excel read the file as UTF-8.
+        const blob = new Blob(['\ufeff' + [header, ...rows].join('\r\n') + '\r\n'],
+            { type: 'text/csv;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `active_users_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+    }
+
     // --- Sorting for Active Users table ---
 
     window._activeUsersSort = window._activeUsersSort || { key: 'username', dir: 'asc' };

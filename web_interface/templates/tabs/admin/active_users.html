@@ -1,10 +1,17 @@
 <!-- Active Users sub-page -->
 <h2 style="margin: 0 0 16px 0; display: flex; justify-content: space-between; align-items: center;">
     Active Users
-    <button onclick="loadUsers()" class="btn-discreet"
-        style="padding: 6px 12px;">
-        ↻ Refresh List
-    </button>
+    <span style="display: flex; gap: 8px;">
+        <button onclick="downloadActiveUsersCsv()" class="btn-discreet"
+            style="padding: 6px 12px;"
+            title="Download every active user, with profile fields, as a CSV">
+            ⬇ Download CSV
+        </button>
+        <button onclick="loadUsers()" class="btn-discreet"
+            style="padding: 6px 12px;">
+            ↻ Refresh List
+        </button>
+    </span>
 </h2>
 
 <!-- Orphan placeholder participant accounts (hidden when none) -->
