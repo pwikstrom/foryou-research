@@ -3,10 +3,12 @@
 All storage, queue and process calls are monkeypatched — nothing touches disk,
 GCS or the real workers. Pins:
 
-1. Process B buys whole days newest-first, never splits one across the budget
-   line, and skips days below ``min_day_items`` (the Correlations floor).
-2. Process A samples whole days per month, honours ``a_day_cap``, and never
-   picks a day B has already taken — no double-buying between processes.
+1. Process B takes whole days newest-first, never splits one across the budget
+   line, and takes quiet days too — ``min_day_items`` (the Correlations floor)
+   limits the spread only, so any deep-dive share can reach the whole collection.
+2. Process A samples whole days per month, honours ``a_day_cap``, skips days
+   below the floor, and never picks a day B has already taken — no
+   double-buying between processes.
 3. ``sample_share`` splits the cycle budget, cursors advance monotonically, and
    re-planning from the same cursor is byte-identical (``stable_sample``
    determinism, independent of input row order).
@@ -76,8 +78,11 @@ def _status(item_ids, scraped=(), scrape_fail=(), downloaded=None,
 def _entry(**settings) -> dict:
     # A far-away annotation target by default, so tests exercising the slice
     # cutter aren't clamped by it; target-specific tests override it.
+    # Manual cycle sizing unless a test says otherwise: these tests pin the
+    # slice cutter's arithmetic against an explicit cycle_items, and the Auto
+    # path (now the shipped default) sizes the cycle from the target instead.
     return {"state": ce.STATE_RUNNING,
-            "settings": {**ce.DEFAULT_SETTINGS,
+            "settings": {**ce.DEFAULT_SETTINGS, "cycle_items_auto": False,
                          "annotation_target": 1_000_000, **settings},
             "spent_items": 0}
 
@@ -189,15 +194,48 @@ def test_plan_cycle_inflates_the_target_clamp_by_the_yield():
     assert again["item_ids"] == out["item_ids"]
 
 
-def test_b_skips_days_below_the_correlations_floor():
+def test_b_takes_quiet_days_below_the_correlations_floor_too():
+    # A one-video day is still a viewing session. The floor used to stop the
+    # deep dive as well as the spread, so a light viewer's collection was
+    # mostly out of reach (2026-09-08: 251 videos over 124 days, 4 days of
+    # 10+ → the plan bought 46 and went Idle "with nothing left").
     activity = _activity({"2026-08-26": 3, "2026-08-27": 30})
     entry = _entry(cycle_items=100, sample_share=0.0, min_day_items=10)
     out = ce.plan_cycle("c1", entry, activity=activity, status=None)
     days = {i.split("#")[0] for i in out["item_ids"]}
-    assert days == {"2026-08-27"}
-    # The tiny day is walked past — the cursor moves beyond it so the next
-    # cycle does not reconsider it.
+    assert days == {"2026-08-26", "2026-08-27"}
+    assert len(out["item_ids"]) == 33
     assert out["b_cursor"] == "2026-08-26"
+
+
+def test_a_sparse_collection_is_fully_reachable_by_the_deep_dive():
+    # The prod shape: median one video per day, a handful of busier days.
+    days = {f"2026-0{m}-{d:02d}": (12 if d in (7, 10) else 1)
+            for m in (3, 4, 5) for d in range(1, 29)}
+    activity = _activity(days)
+    entry = _entry(cycle_items=400, sample_share=0.45)
+    picked: set[str] = set()
+    for _ in range(10):
+        status = _status(activity["item_id"], scraped=picked, annotated=picked)
+        out = ce.plan_cycle("c1", entry, activity=activity, status=status,
+                            expected_yield=1.0)
+        if out["exhausted"]:
+            break
+        picked.update(out["item_ids"])
+        entry = {**entry, "a_cursor": out["a_cursor"], "b_cursor": out["b_cursor"]}
+    # Every video is reached: the spread contributes only the busy days it is
+    # allowed, the deep dive walks everything else, quiet days included.
+    assert picked == set(activity["item_id"])
+    assert out["exhausted"]
+
+
+def test_a_alone_still_skips_days_below_the_floor():
+    activity = _activity({"2026-08-26": 3, "2026-08-27": 30})
+    entry = _entry(cycle_items=100, sample_share=1.0, a_days_per_month=5,
+                   a_day_cap=50, min_day_items=10)
+    out = ce.plan_cycle("c1", entry, activity=activity, status=None)
+    days = {i.split("#")[0] for i in out["item_ids"]}
+    assert days == {"2026-08-27"}
 
 
 def test_b_resumes_from_the_cursor():
@@ -1041,8 +1079,10 @@ def test_tick_auto_mode_injects_the_effective_cycle_items(tick, monkeypatch):
 def test_normalize_settings_round_trips_cycle_items_auto():
     assert ce.normalize_settings({"cycle_items_auto": True})["cycle_items_auto"] is True
     assert ce.normalize_settings({"cycle_items_auto": False})["cycle_items_auto"] is False
-    assert ce.normalize_settings({})["cycle_items_auto"] is False
-    assert ce.DEFAULT_SETTINGS["cycle_items_auto"] is False
+    # Auto is the default a new plan starts with: the panel shows the server
+    # defaults for a collection with no plan, so this is what the RA sees.
+    assert ce.normalize_settings({})["cycle_items_auto"] is True
+    assert ce.DEFAULT_SETTINGS["cycle_items_auto"] is True
 
 
 def test_tick_parks_a_stalled_plan(tick):
@@ -1195,7 +1235,12 @@ def test_journal_drain_split_reads_the_ledger_not_the_snapshot(tick, monkeypatch
                         lambda cid: (tick["store"].get(ce.LEDGER_FILENAME) or {}).get(cid))
     monkeypatch.setattr(sq, "load_scrape_queue",
                         lambda platform: [f"c1-i{n}" for n in range(5)])   # the fixture's slice
-    tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
+    plan = {**_entry(), "platform": "tiktok"}
+    # The ledger holds the plan, as in prod: an entry the handoff's save had to
+    # create from scratch would carry the server defaults (Auto, no target)
+    # instead of this plan's own settings.
+    ce.save_plan("c1", plan)
+    tick["plans"] = {"c1": plan}
     tick["handoff"] = {"c1": ["x1"]}
     tick["run"]()
     drains = [e for e in tick["store"][journal.JOURNAL_FILENAME]["events"]

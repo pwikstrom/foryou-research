@@ -6930,10 +6930,10 @@ function dmEnrichFillSettings(settings, progress = {}) {
     set('dm-enrich-cycle-items', settings.cycle_items ?? 400);
     const autoBox = document.getElementById('dm-enrich-cycle-auto');
     if (autoBox) {
-        // Default: Auto for collections with NO plan yet; a saved plan keeps
-        // its stored choice (the server default is false, deliberately — see
-        // DEFAULT_SETTINGS).
-        autoBox.checked = settings.cycle_items_auto ?? !dmEnrichArmed;
+        // Auto by default: a collection with no plan yet receives the server
+        // defaults verbatim (cycle_items_auto true), and a saved plan carries
+        // its own stored choice.
+        autoBox.checked = settings.cycle_items_auto ?? true;
     }
     set('dm-enrich-sample-share', Math.round((settings.sample_share ?? 0.5) * 100));
     set('dm-enrich-days-per-month', settings.a_days_per_month ?? 2);
@@ -7207,14 +7207,21 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
     let dd = Math.round(remaining * (1 - share));
     let sp = remaining - dd;
     const ddDays = new Set();
-    for (let i = n - 1; i >= 0 && dd > 0; i--) {
-        if (earliest && daily.dates[i] < earliest) break;
-        if ((daily.total[i] || 0) < minDay) continue;
-        const u = unscraped(i);
-        if (u <= 0) continue;
-        const take = Math.min(u, dd);      // last day drawn partial
-        planned[i] += take; dd -= take; ddDays.add(i);
-    }
+    // The deep dive takes every day, quiet ones included — only the spread
+    // honours the analysis floor (a one-video day is still a session).
+    // Returns what it could not place (history exhausted).
+    const deep = new Array(n).fill(0);   // what the deep dive placed per day
+    const deepDive = (budget) => {
+        for (let i = n - 1; i >= 0 && budget > 0; i--) {
+            if (earliest && daily.dates[i] < earliest) break;
+            const room = unscraped(i) - deep[i];
+            if (room <= 0) continue;
+            const take = Math.min(room, budget);      // last day drawn partial
+            planned[i] += take; deep[i] += take; budget -= take; ddDays.add(i);
+        }
+        return budget;
+    };
+    deepDive(dd);
     // 3. Spread: up to daysPerMonth capped days per month, newest month first.
     let month = '', taken = 0;
     for (let i = n - 1; i >= 0 && sp > 0; i--) {
@@ -7228,19 +7235,26 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
         if (take <= 0) continue;
         planned[i] += take; sp -= take; taken += 1;
     }
+    // 4. Whatever the spread could not place goes back to the deep dive, as
+    //    the planner's reallocation does — so with any deep-dive share at all
+    //    the estimate walks the whole history.
+    if (share < 1 && sp > 0) deepDive(sp);
     return planned;
 }
 
 // What the CURRENT settings can ever reach: the estimate run with no target
 // bound. Only two things make this fall short of the reachable ceiling — a
-// 100%-spread balance (its month/day limits cap the total) and an
-// earliest-date floor; any deep-dive share walks the whole history
-// eventually. Same code path as the red line, so it moves with it.
+// 100%-spread balance (its month/day limits and the analysis floor cap the
+// total) and an earliest-date floor; any deep-dive share walks the whole
+// history eventually, quiet days included. Same code path as the red line,
+// so it moves with it.
 function dmEnrichSettingsReachable() {
     if (!dmEnrichDailyCache) return null;
     const annotated = dmEnrichProgressCache.target_floor ?? 0;
-    const total = dmEnrichProgressCache.unique_items || 0;
-    const planned = _dmEnrichPlanEstimate(dmEnrichDailyCache, total);
+    const ceiling = dmEnrichProgressCache.target_ceiling
+        ?? (dmEnrichProgressCache.unique_items || 0);
+    const planned = _dmEnrichPlanEstimate(dmEnrichDailyCache,
+                                          Math.max(0, ceiling - annotated));
     return annotated + planned.reduce((a, b) => a + b, 0);
 }
 
@@ -7266,19 +7280,19 @@ function dmEnrichTargetWarning(target) {
     const causes = [];
     const fixes = [];
     if (share >= 1) {
-        causes.push('only spread and its limits');
-        fixes.push('raise the deep-dive share or the spread limits');
+        causes.push('the balance set to only spread');
+        fixes.push('move the balance toward the deep dive');
     }
     if (earliest) {
-        causes.push('the earliest-date floor');
+        causes.push('the earliest date');
         fixes.push('move or clear the earliest date');
     }
     const cause = causes.length ? `With ${causes.join(' and ')}, ` : '';
     let fix = fixes.join(', or ');
-    fix = fix ? fix.charAt(0).toUpperCase() + fix.slice(1) + ' to go further.' : '';
-    el.textContent = `\u26a0 ${cause}this plan can reach only `
-        + `\u2248 ${reachable.toLocaleString()} annotated videos \u2014 it will go `
-        + `idle there, below the target. ${fix}`;
+    fix = fix ? fix.charAt(0).toUpperCase() + fix.slice(1) + ' to reach more of the collection.' : '';
+    el.textContent = `\u26a0 ${cause}these settings can annotate at most about `
+        + `${reachable.toLocaleString()} videos, so the plan will stop `
+        + `short of this target. ${fix}`;
     el.style.display = '';
 }
 

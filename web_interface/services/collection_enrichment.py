@@ -25,8 +25,13 @@ few-videos-on-every-day spread is worth almost nothing:
 So both processes buy days; they differ only in *which* days:
 
 * **Process B (deep dive)** — every view item of consecutive days, most recent
-  first, uncapped. The only thing that buys Sessions, and it gives Timelines and
-  Correlations honest denominators on a recent window.
+  first, uncapped, and INCLUDING days below the Correlations floor: a
+  one-video day is still a sitting for Sessions and an honest zero-ish
+  denominator for Timelines, and a light viewer's history is mostly such days
+  (2026-09-08: a DDP with 251 videos over 124 days had only 4 days of 10+, so
+  a floored deep dive could reach 46 of them and declared itself done). The
+  only thing that buys Sessions, and it gives Timelines and Correlations honest
+  denominators on a recent window.
 * **Process A (spread)** — a couple of *whole* days per calendar month, each
   enriched up to a cap, walking backwards month by month. Buys the long arc for
   Timelines, breadth for Semantic Space, ellipsed periods for the participant's
@@ -92,15 +97,17 @@ DEFAULT_SETTINGS = {
     "cycle_items": 400,       # items enqueued per cycle (ignored when auto)
     # Auto: the supervisor sizes each cycle itself — min(target headroom, one
     # full set of concurrent annotation jobs) — so a cycle's annotation is
-    # ~one batch-job turnaround. False here (not True) because save_plan
-    # re-seeds these defaults into every stored entry: a True default would
-    # retroactively flip pre-existing manual plans. The PANEL pre-checks the
-    # box for collections with no plan yet, which is where the default lives.
-    "cycle_items_auto": False,
+    # ~one batch-job turnaround. True is the default the panel shows for a
+    # collection with no plan yet (the GET route hands it DEFAULT_SETTINGS
+    # verbatim, so a False here made every new plan manual — 2026-09-08). A
+    # saved plan always stores its own value, so save_plan's re-seeding of
+    # defaults cannot flip an existing plan's choice.
+    "cycle_items_auto": True,
     "sample_share": 0.5,      # fraction of the cycle given to Process A
     "a_days_per_month": 2,    # A: whole days sampled per calendar month
     "a_day_cap": 50,          # A: max items enriched on one sampled day
-    "min_day_items": 10,      # skip days below this (the Correlations floor)
+    "min_day_items": 10,      # the spread skips days below this (the
+                              # Correlations floor); the deep dive never does
     "earliest_date": None,    # optional floor; None = the whole history
 }
 
@@ -652,8 +659,8 @@ def plan_cycle(collection_id: str, entry: dict,
             if cursor and _day_key(day) >= str(cursor):
                 continue  # already walked past this day in an earlier cycle
             info = by_day[day]
-            if info["total"] < min_day or not info["need"]:
-                days.append(day)  # nothing to buy here; the cursor still advances
+            if not info["need"]:
+                days.append(day)  # nothing left on this day; the cursor still advances
                 continue
             room = b_budget - len(picked)
             if len(info["need"]) > room:

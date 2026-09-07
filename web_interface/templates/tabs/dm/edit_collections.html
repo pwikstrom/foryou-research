@@ -237,11 +237,11 @@ Smaller cycles report back sooner and keep the spend visible; larger ones waste 
                     <div style="min-width: 240px;">
                         <span class="text-sm meta-tooltip tooltip-wide" data-tooltip="How each cycle is divided between two ways of choosing days.
 
-Deep dive takes every video from the most recent days, one whole day after another, working backwards. This is the only thing that makes viewing sessions analysable, and it gives the trends and correlations honest day-by-day totals.
+Deep dive takes every video from the most recent days, one whole day after another, working backwards - quiet days with only one or two videos included, because a short viewing session is still a session. This is the only thing that makes viewing sessions analysable, and it gives the trends and correlations honest day-by-day totals. With any deep dive at all, the plan can eventually cover the whole collection - which is what Explore and the per-video analyses want.
 
 Spread takes a few whole days out of each month instead (bounded by the limits beside this slider), walking back through the person's history. This is what covers the long arc: the year-scale trends, the breadth of topics, and extra usable days for the correlations.
 
-Both take WHOLE days on purpose. Every analysis here groups by the day, and a day with only a handful of annotated videos is dropped - so a thin scattering of videos across every day achieves almost nothing.">Deep dive / spread balance</span>
+Both take WHOLE days on purpose. Every analysis here groups by the day, and the correlations drop any day with fewer than ten annotated videos - so a thin scattering of videos across every day achieves almost nothing. That ten-video floor only limits which days the spread picks; it never stops the deep dive.">Deep dive / spread balance</span>
                         <input type="range" id="dm-enrich-sample-share" min="0" max="100" step="5"
                             style="width: 100%; margin-top: 6px;" oninput="dmEnrichChartRefresh()">
                         <div class="text-xs" style="display: flex; justify-content: space-between; color: var(--color-text-muted);">
@@ -255,7 +255,7 @@ Both take WHOLE days on purpose. Every analysis here groups by the day, and a da
                             <label class="text-sm" style="display: block;">
                                 <span class="meta-tooltip tooltip-wide" data-tooltip="How many whole days, at most, the spread takes out of each calendar month as it works backwards.
 
-The days are drawn at random from those with enough activity that the deep dive has not already taken - but the same way every time, so re-running a plan picks the same days rather than churning.
+The days are drawn at random from those with at least ten videos (the analysis floor) that the deep dive has not already taken - but the same way every time, so re-running a plan picks the same days rather than churning.
 
 Random rather than the busiest days: always choosing the busiest would make the person's viewing look heavier than it was.">Max days / month</span><br>
                                 <input type="number" id="dm-enrich-days-per-month" class="control-input" min="0" max="31"

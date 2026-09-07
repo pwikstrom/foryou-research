@@ -1096,13 +1096,30 @@ def _plan(reporter, plans: dict) -> dict | None:
                                    "a_cursor": result["a_cursor"],
                                    "b_cursor": result["b_cursor"],
                                    "finished_at": ce.now_iso()})
+                target = int(settings.get("annotation_target") or 0)
+                if status is None:
+                    status = ce.load_status(activity["item_id"].unique())
+                annotated = ce._annotated_unique(activity, status)
+                if target and annotated + int(pending or 0) >= target:
+                    why = (f"Idle — the annotation target ({target:,} videos) is "
+                           f"reached, or covered by videos already queued")
+                elif float(settings.get("sample_share") or 0) >= 1:
+                    why = ("Idle — the plan has processed every day the spread is "
+                           "allowed to pick, and is still short of the target; "
+                           "moving the balance toward the deep dive lets it "
+                           "cover the rest of the collection")
+                elif settings.get("earliest_date"):
+                    why = (f"Idle — every video since the earliest date "
+                           f"({settings['earliest_date']}) is processed or "
+                           f"failed for good; clear the earliest date to go "
+                           f"further back")
+                else:
+                    why = ("Idle — every video in the collection is processed, "
+                           "or failed for good")
                 reporter.log(f"{cid}: nothing left to enrich; plan complete.")
-                journal.record("plan.done",
-                               "Idle — the annotation target is reached, or nothing "
-                               "that can still be processed is left",
+                journal.record("plan.done", why,
                                collection_id=cid, platform=platform,
-                               actor="enrichment_supervisor",
-                               target=int(settings.get("annotation_target") or 0))
+                               actor="enrichment_supervisor", target=target)
                 _notify_owner(reporter, cid, entry)
                 continue
 
