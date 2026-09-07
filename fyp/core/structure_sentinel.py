@@ -800,6 +800,73 @@ def status_from_findings(findings: list[dict], n_accepted: int) -> str:
 
 
 
+def _quarantine_codes(findings: list[dict]) -> set[tuple]:
+    """The ``(layer, code)`` pairs of every quarantine-severity finding."""
+    return {
+        (f.get("layer"), f.get("code"))
+        for f in findings or []
+        if f.get("severity") == "quarantine"
+    }
+
+
+
+
+
+def apply_review(verdict: dict, prior: dict | None) -> dict:
+    """Let an admin's earlier approval of this file stand on re-evaluation.
+
+    A quarantined file is re-fingerprinted on every ingest run. Approving it
+    learns its shape into the baseline, but one file cannot move a mature
+    baseline's core-path support below the threshold (20 accepted files with
+    a path make it 20/21 = 95% core), so the very same finding quarantined
+    the file again on the next run — three times on 2026-09-07 — and the
+    approval was a no-op. The operator's decision has to win: when the file's
+    stored verdict carries an approval and every quarantine finding this run
+    raised is of a kind that approval already covered, the verdict becomes
+    ``approved`` and the file ingests. A quarantine finding of a NEW kind
+    (say a stats outlier the reviewer never saw, because phase B never ran
+    on a withheld file) still quarantines, so the reviewer sees it.
+
+    Args:
+        verdict: This run's verdict (mutated and returned).
+        prior: The stored verdict for the same file, or None.
+
+    Returns:
+        ``verdict``.
+    """
+    if verdict.get("status") != "quarantined" or not prior:
+        return verdict
+    if prior.get("review_action") != "approve":
+        return verdict
+    if not _quarantine_codes(verdict.get("findings")) <= _quarantine_codes(prior.get("findings")):
+        return verdict
+    verdict["status"] = "approved"
+    verdict["reviewed_by"] = prior.get("reviewed_by")
+    verdict["reviewed_at"] = prior.get("reviewed_at")
+    verdict["review_action"] = "approve"
+    return verdict
+
+
+
+
+
+def review_is_newer(stored: dict | None, ts_evaluated: str | None) -> bool:
+    """True when ``stored`` carries a review decided after ``ts_evaluated``.
+
+    The hub records approvals and rejections while an ingest run may still
+    be holding this file's verdict and ledger entry in memory; a decision
+    made after the run evaluated the file must not be overwritten by the run
+    finishing later.
+    """
+    if not stored or not stored.get("review_action"):
+        return False
+    reviewed_at = stored.get("reviewed_at") or ""
+    return bool(reviewed_at) and reviewed_at > (ts_evaluated or "")
+
+
+
+
+
 def findings_digest(findings: list[dict]) -> str:
     """One-line human-readable digest of a findings list (for ledger notes)."""
     if not findings:
@@ -831,6 +898,13 @@ class StructureSentinel:
     def __init__(self):
         self.baselines = load_baselines()
         self.observations: dict[str, dict] = {}
+        # Verdicts as stored when this run started — an admin's approval of
+        # an earlier quarantine lives here (see apply_review).
+        try:
+            self.prior_verdicts: dict[str, dict] = dict(load_verdicts().get("files") or {})
+        except Exception as exc:
+            logger.warning(f"WARNING: could not read stored structure verdicts: {exc}")
+            self.prior_verdicts = {}
 
 
 
@@ -891,6 +965,7 @@ class StructureSentinel:
             "reviewed_at": None,
             "review_action": None,
         }
+        apply_review(verdict, self.prior_verdicts.get(filename))
         self.observations[filename] = verdict
         return verdict
 
@@ -928,6 +1003,7 @@ class StructureSentinel:
             metrics, processed_stats.get("activity_types"), baseline
         )
         verdict["status"] = status_from_findings(verdict["findings"], baseline["n_accepted"])
+        apply_review(verdict, self.prior_verdicts.get(filename))
         verdict["ts_evaluated"] = _now_iso()
         return verdict
 
@@ -948,7 +1024,7 @@ class StructureSentinel:
                 collection this run.
         """
         for filename, verdict in self.observations.items():
-            if verdict["status"] in ("ok", "warn", "learning") and filename in ingested_filenames:
+            if verdict["status"] in ("ok", "warn", "learning", "approved") and filename in ingested_filenames:
                 key = baseline_key(verdict["platform"], verdict["source"], verdict.get("variant"))
                 baseline = self.baselines["baselines"].setdefault(key, _empty_baseline())
                 learn_file(
@@ -962,6 +1038,10 @@ class StructureSentinel:
 
         stored = load_verdicts()
         for filename, verdict in self.observations.items():
+            # An admin reviewed this file while the run was in flight: their
+            # decision is newer than this observation and stays on record.
+            if review_is_newer(stored["files"].get(filename), verdict.get("ts_evaluated")):
+                continue
             entry = dict(verdict)
             entry.pop("fingerprint", None)
             if verdict["status"] == "quarantined":

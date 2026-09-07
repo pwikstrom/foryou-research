@@ -7,6 +7,7 @@ Date:
 """
 
 
+import copy
 import functools
 import os
 import re
@@ -1560,6 +1561,11 @@ class ForYouCollection(ForYouBaseCollection):
             ledger = {"schema_version": 1, "files": files}
 
         self.ledger = ledger
+        # What storage held when we loaded: save_ledger writes back only what
+        # THIS process changed since, so two processes editing the ledger at
+        # once (an ingest run and the hub's review buttons) don't erase each
+        # other's writes.
+        self._ledger_snapshot = copy.deepcopy(ledger.get("files") or {})
         self._upgrade_legacy_ledger_entries()
         self._refresh_discarded_from_ledger()
 
@@ -1723,13 +1729,114 @@ class ForYouCollection(ForYouBaseCollection):
 
 
     def save_ledger(self) -> None:
-        """Persist the ledger to its JSON file."""
+        """Persist the ledger, merging this process's changes into storage.
+
+        The ledger is edited from two places at once: an ingest run holds it
+        in memory for a minute and writes it at the end, and the hub's
+        review buttons (approve / reject / unskip) edit it on click. A plain
+        overwrite let whichever wrote last win — on 2026-09-07 two approvals
+        landed while a run was saving, the run's stale copy put the
+        ``quarantined_structure`` entries straight back, and both files sat
+        invisible (verdict approved, ledger quarantined, upload pending) for
+        the rest of the day.
+
+        Now the stored ledger is re-read and only what changed since this
+        process loaded it is applied: entries added or rewritten here win,
+        entries removed here are removed, everything else keeps whatever
+        storage holds now. One more rule for the run side: a quarantine this
+        run recorded is NOT written when the file's stored verdict shows an
+        approval or rejection made after this run evaluated it — the admin's
+        decision is the newer fact, and the ledger entry the review wanted
+        (none, or ``manually_excluded``) is already in storage.
+        """
+        files = self.ledger.setdefault("files", {})
+        snapshot = getattr(self, "_ledger_snapshot", None)
+        merged = self._merge_ledger_into_storage(files, snapshot)
+        self.ledger["files"] = merged
+        self._ledger_snapshot = copy.deepcopy(merged)
+        self._refresh_discarded_from_ledger()
         data_io.save_json(
             data=self.ledger,
             storage_location=self.processed_storage_location,
             filename=self.ledger_filename,
             verbose=False,
         )
+
+
+
+
+    def _merge_ledger_into_storage(self, files: dict, snapshot: dict | None) -> dict:
+        """Three-way merge of this process's ledger edits over the stored file.
+
+        Args:
+            files: This process's in-memory ledger entries.
+            snapshot: The entries as loaded by this process, or None when the
+                ledger was never loaded from storage (tests, fresh installs):
+                then ``files`` is written as-is.
+
+        Returns:
+            The merged ``files`` mapping to persist.
+        """
+        if snapshot is None:
+            return files
+        stored = self._read_stored_ledger_files()
+        if stored is None:
+            return files
+        merged = dict(stored)
+        for fn in snapshot:
+            if fn not in files:
+                merged.pop(fn, None)
+        reviewed_after = self._quarantines_reviewed_after_evaluation(files)
+        for fn, entry in files.items():
+            if snapshot.get(fn) == entry:
+                continue
+            if fn in reviewed_after:
+                continue
+            merged[fn] = entry
+        return merged
+
+
+
+
+    def _read_stored_ledger_files(self) -> dict | None:
+        """The ``files`` mapping currently in storage, or None when unreadable."""
+        try:
+            if not data_io.exists(storage_location=self.processed_storage_location,
+                                  filename=self.ledger_filename):
+                return {}
+            stored = data_io.load_json(storage_location=self.processed_storage_location,
+                                       filename=self.ledger_filename, verbose=False)
+        except Exception as exc:
+            logger.warning(f"WARNING: could not re-read the ingestion ledger before saving: {exc}")
+            return None
+        if not isinstance(stored, dict) or not isinstance(stored.get("files"), dict):
+            return {}
+        return stored["files"]
+
+
+
+
+    def _quarantines_reviewed_after_evaluation(self, files: dict) -> set[str]:
+        """Stored names this run quarantined that an admin has since reviewed."""
+        evaluated_at: dict[str, str] = {}
+        for collection in getattr(self, "collections", None) or []:
+            for fn, verdict in (getattr(collection, "quarantined_this_run", {}) or {}).items():
+                evaluated_at[fn] = (verdict or {}).get("ts_evaluated") or ""
+        candidates = {
+            fn for fn, entry in files.items()
+            if (entry or {}).get("outcome") == "quarantined_structure" and fn in evaluated_at
+        }
+        if not candidates:
+            return set()
+        try:
+            stored_verdicts = _structure_sentinel.load_verdicts().get("files") or {}
+        except Exception as exc:
+            logger.warning(f"WARNING: could not read structure verdicts before saving the ledger: {exc}")
+            return set()
+        return {
+            fn for fn in candidates
+            if _structure_sentinel.review_is_newer(stored_verdicts.get(fn), evaluated_at[fn])
+        }
 
 
 

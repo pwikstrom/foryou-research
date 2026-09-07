@@ -471,9 +471,15 @@ def structure_approve():
     except ValueError as e:
         return jsonify({"error": str(e)}), 409
 
+    # Only a withheld file needs its ledger entry dropped so the next run
+    # reloads it. A "warn" verdict's file was ingested already; its ledger
+    # entry is the record of that (counts, uploader, original filename) and
+    # deleting it left one 2026-09-07 upload with no provenance at all.
     main_collection = get_main_collection(verbose=False)
-    main_collection.remove_from_ledger(filename)
-    main_collection.save_ledger()
+    ledger_entry = (main_collection.ledger.get("files") or {}).get(filename) or {}
+    if ledger_entry.get("outcome") == "quarantined_structure":
+        main_collection.remove_from_ledger(filename)
+        main_collection.save_ledger()
 
     activity_log.record(
         actor=_actor(),
