@@ -1205,7 +1205,7 @@
             { type: 'text/csv;charset=utf-8' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `active_users_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.download = `active_users_${fypWallIsoDate(new Date())}.csv`;
         document.body.appendChild(a);
         a.click();
         a.remove();
