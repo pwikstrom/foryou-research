@@ -470,7 +470,13 @@ def save_collection_enrichment(collection_id):
     optional; settings are normalized/clamped server-side. Arming a collection
     that has never been armed seeds the ledger entry (cursors start unset, so
     the first cycle begins at the newest day/month). Pausing keeps every
-    cursor, so resuming continues where it stopped.
+    cursor, so resuming continues where it stopped. Arming an IDLE plan again
+    (a raised target, changed settings, or a fixed planner) resets both
+    cursors: its walk had ended, and a fresh walk from the newest day costs
+    nothing — every video already processed or failed for good is skipped, so
+    it picks up exactly what is left (2026-09-08: a plan whose deep dive had
+    skipped every quiet day sat with both cursors at the oldest month, and a
+    re-arm would have found nothing to do).
     """
     from ...services import collection_enrichment as ce
     from ...collection_accounts import load_owner_map
@@ -493,6 +499,10 @@ def save_collection_enrichment(collection_id):
         patch["settings"] = ce.normalize_settings(data["settings"])
 
     existing = ce.get_plan(cid)
+    if existing is not None and patch.get("state") == ce.STATE_RUNNING \
+            and existing.get("state") == ce.STATE_DONE:
+        patch["a_cursor"] = None
+        patch["b_cursor"] = None
     if existing is None:
         try:
             owner = (load_owner_map() or {}).get(cid)
