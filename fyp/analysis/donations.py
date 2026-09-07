@@ -283,6 +283,14 @@ def get_recent_data_donations_from_aio_aws(
     # ------------------------------------------------------------------
     # 4) Download each donation file from S3
     # ------------------------------------------------------------------
+    # A donation already in the raw location is never fetched again: the
+    # raw locations are append-only, and the daily window re-lists the same
+    # donation ids on consecutive runs.
+    already = [d for d in donation_ids
+               if data_io.exists(storage_location=storage_location, filename=d)]
+    if already:
+        logger.info(f"Skipping {len(already)} donation(s) already in {storage_location}.")
+    donation_ids = [d for d in donation_ids if d not in set(already)]
     for donation_id in donation_ids:
         target_path = dest / donation_id
         s3.download_file(bucket, f"donation/{donation_id}", str(target_path))
@@ -304,7 +312,7 @@ def get_recent_data_donations_from_aio_aws(
                 data = json.load(f)
 
                 # Use data_io to save (handles GCS upload + Local secondary)
-                data_io.save_json(data, storage_location, filename)
+                data_io.save_json(data, storage_location, filename, overwrite=False)
                 count += 1
             except Exception as e:
                 logger.error(f"Failed to process/upload {filename}: {e}")

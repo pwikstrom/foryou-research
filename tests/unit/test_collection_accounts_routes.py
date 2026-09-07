@@ -232,10 +232,17 @@ def test_upload_records_account_link(env):
          patch("werkzeug.datastructures.FileStorage.save", new=_fake_save):
         r = client.post("/api/manage/ingestion/upload", data=data, content_type="multipart/form-data")
     assert r.status_code == 200, r.get_json()
+    # The stored name and the collection id are generated; the browser's
+    # filename survives only as provenance (fyp.ingest.raw_names).
+    detail = r.get_json()["uploaded"][0]
+    assert detail["original_filename"] == "donor_a.json"
+    assert detail["filename"] != "donor_a.json" and detail["collection_id"] != "donor_a"
     manifest = store.files[raw_path]["ingestion_manifest.json"]
-    assert manifest["donor_a.json"]["user_id"] == "member@example.test"
-    entry = store.files["recoded"]["collections_tags.json"]["donor_a"]
+    assert manifest[detail["filename"]]["user_id"] == "member@example.test"
+    assert manifest[detail["filename"]]["original_filename"] == "donor_a.json"
+    entry = store.files["recoded"]["collections_tags.json"][detail["collection_id"]]
     assert entry["user_id"] == "member@example.test" and entry["annotation_tags"] == ["alpha"]
+    assert entry["display_collection_id"] == "donor_a"
 
     r = client.post("/api/manage/ingestion/upload", data={
         "files": (io.BytesIO(b"{}"), "donor_b.json"), "raw_path": raw_path, "user_id": "ghost@example.test"},

@@ -5,7 +5,6 @@ import os
 
 from flask import jsonify, request
 from flask_login import login_required
-from werkzeug.utils import secure_filename
 
 import fyp.data_io as data_io
 from fyp.fyp_config import (
@@ -73,10 +72,14 @@ def get_ingestion_sources():
                 for fn, meta in manifest.items():
                     files.append({
                         "filename": fn,
+                        "original_filename": (meta or {}).get("original_filename"),
+                        "display_collection_id": (meta or {}).get("display_collection_id"),
                         "collection_id": (meta or {}).get("collection_id"),
                         "tags": (meta or {}).get("tags") or [],
                         "tz": (meta or {}).get("tz"),
                         "user_id": (meta or {}).get("user_id"),
+                        "uploaded_at": (meta or {}).get("uploaded_at"),
+                        "uploaded_by": (meta or {}).get("uploaded_by"),
                     })
             files.sort(key=lambda f: f["filename"])
             pending = len(files)
@@ -207,6 +210,30 @@ def upload_ingestion_file():
     if owner_user_id and user_manager.get_user(owner_user_id) is None:
         return jsonify({"error": f"Unknown user account: {owner_user_id!r}"}), 400
 
+    # Names and ids are generated (fyp.ingest.raw_names): the browser's
+    # filename is provenance only. An explicit collection id may reuse an
+    # existing id only to append to that same account's collection — an id
+    # that exists under a different owner (or under no owner while this
+    # upload names one) would merge two people's data.
+    from fyp.ingest.raw_names import (
+        allocate_upload_identity,
+        known_collection_ids,
+        manifest_entry,
+    )
+    from ...services.study_data import get_collection_tags
+    known_ids = known_collection_ids()
+    if collection_id_mode == "single" and collection_id and collection_id in known_ids:
+        current = (get_collection_tags() or {}).get(collection_id)
+        current_owner = current.get("user_id") if isinstance(current, dict) else None
+        if current_owner != owner_user_id:
+            return jsonify({
+                "error": f"Collection id '{collection_id}' already exists"
+                         + (f" and is linked to {current_owner}" if current_owner else "")
+                         + ". Choose another id, or set the same account to append to it.",
+            }), 409
+    target_platform = getattr(target_col, "source_platform", None)
+    target_source = getattr(target_col, "data_source", None)
+
     # Load or create the ingestion manifest for this raw_path
     manifest_fn = "ingestion_manifest.json"
     manifest: dict = {}
@@ -217,10 +244,14 @@ def upload_ingestion_file():
 
     try:
         uploaded = []
+        uploaded_detail = []
         for file in files:
             if file.filename == '':
                 continue
-            filename = secure_filename(file.filename)
+            original_name = os.path.basename(file.filename)
+            filename, generated_cid, display_id = allocate_upload_identity(
+                target_platform, target_source, original_name, raw_path_key,
+                known_ids=known_ids)
             temp_path = os.path.join(temp_dir, filename)
             file.save(temp_path)
 
@@ -234,23 +265,25 @@ def upload_ingestion_file():
             # the file actually landed before we record it in the manifest.
             if not data_io.exists(storage_location=raw_path_key, filename=filename):
                 return jsonify({
-                    "error": f"Upload of '{filename}' to '{raw_path_key}' did not persist.",
+                    "error": f"Upload of '{original_name}' to '{raw_path_key}' did not persist.",
                 }), 500
 
             if collection_id_mode == "single" and collection_id:
                 file_collection_id = collection_id
+                file_display = None  # an admin-chosen id is its own label
             else:
-                file_collection_id = os.path.splitext(filename)[0]
+                file_collection_id = generated_cid
+                file_display = display_id
 
-            manifest[filename] = {
-                "collection_id": file_collection_id,
-                "tags": tags,
-            }
-            if donor_tz:
-                manifest[filename]["tz"] = donor_tz
-            if owner_user_id:
-                manifest[filename]["user_id"] = owner_user_id
+            manifest[filename] = manifest_entry(
+                file_collection_id, original_name,
+                display_collection_id=file_display, user_id=owner_user_id,
+                tags=tags, tz=donor_tz or None, uploaded_by=_actor())
             uploaded.append(filename)
+            uploaded_detail.append({
+                "filename": filename, "original_filename": original_name,
+                "collection_id": file_collection_id, "display_id": file_display,
+            })
 
         # Save updated manifest
         data_io.save_json(
@@ -260,11 +293,10 @@ def upload_ingestion_file():
             verbose=False
         )
 
-        # Pre-populate the collections sidecar with tags and the account link
-        # for each collection id uploaded in this batch.
-        if tags or owner_user_id:
-            _prepopulate_annotations(
-                {fn: manifest[fn] for fn in uploaded}, tags, user_id=owner_user_id)
+        # Pre-populate the collections sidecar (display label, tags, account
+        # link) for each collection id uploaded in this batch.
+        _prepopulate_annotations(
+            {fn: manifest[fn] for fn in uploaded}, tags, user_id=owner_user_id)
 
         activity_log.record(
             actor=_actor(),
@@ -273,6 +305,8 @@ def upload_ingestion_file():
             target=raw_path_key,
             details={
                 "files": uploaded,
+                "original_files": [d["original_filename"] for d in uploaded_detail],
+                "collection_ids": [d["collection_id"] for d in uploaded_detail],
                 "tags": tags,
                 "collection_id_mode": collection_id_mode,
                 "tz": donor_tz or None,
@@ -283,6 +317,7 @@ def upload_ingestion_file():
             "status": "success",
             "message": f"{len(uploaded)} file(s) uploaded.",
             "files": uploaded,
+            "uploaded": uploaded_detail,
         })
     except Exception as e:
         print(f"Error uploading file: {e}")
@@ -401,7 +436,13 @@ def structure_warnings():
     from fyp import structure_sentinel
 
     try:
-        return jsonify(structure_sentinel.review_queue())
+        queue = structure_sentinel.review_queue()
+        # Verdicts are keyed by the stored (generated) name; show the
+        # original upload name alongside it where the manifest still has it.
+        originals = _pending_original_names()
+        for row in queue.get("files", []):
+            row["original_filename"] = originals.get(row.get("filename"))
+        return jsonify(queue)
     except Exception as e:
         print(f"Error loading structure warnings: {e}")
         return jsonify({"error": str(e)}), 500
@@ -569,6 +610,29 @@ def clear_pending_uploads():
 
 
 
+def _pending_original_names() -> dict[str, str]:
+    """{stored filename: original filename} across every raw location's
+    manifest (entries that carry an original name)."""
+    out: dict[str, str] = {}
+    try:
+        for col in get_main_collection(verbose=False).collections:
+            if not col.raw_path:
+                continue
+            if not data_io.exists(storage_location=col.raw_path, filename="ingestion_manifest.json"):
+                continue
+            manifest = data_io.load_json(
+                storage_location=col.raw_path, filename="ingestion_manifest.json",
+                verbose=False) or {}
+            for fn, meta in manifest.items():
+                if isinstance(meta, dict) and meta.get("original_filename"):
+                    out[fn] = str(meta["original_filename"])
+    except Exception as e:
+        print(f"Could not read manifests for original names: {e}")
+    return out
+
+
+
+
 def _prepopulate_annotations(manifest: dict, tags: list[str], user_id: str | None = None) -> None:
     """Merge tags (and set the account link, if given) in the collections
     sidecar for each unique collection_id in ``manifest``. Other keys of an
@@ -590,7 +654,10 @@ def _prepopulate_annotations(manifest: dict, tags: list[str], user_id: str | Non
             if not isinstance(existing, dict):
                 existing = {}
             existing_tags = existing.get("annotation_tags", [])
-            existing["display_collection_id"] = existing.get("display_collection_id")
+            if existing.get("display_collection_id") is None and meta.get("display_collection_id"):
+                existing["display_collection_id"] = meta["display_collection_id"]
+            else:
+                existing["display_collection_id"] = existing.get("display_collection_id")
             existing["annotation_tags"] = sorted(set(existing_tags + tags))
             existing["hidden"] = existing.get("hidden", False)
             if user_id:

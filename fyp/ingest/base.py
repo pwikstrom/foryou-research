@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import pandas as pd
 
 import fyp.data_io as data_io
+from fyp.ingest.raw_names import MANIFEST_PROVENANCE_KEYS, provenance_from_manifest
 from fyp import activity_contract as _activity_contract
 from fyp import activity_versioning as _activity_versioning
 from fyp import scrape_contract as _scrape_contract
@@ -203,6 +204,12 @@ LEDGER_SKIP_OUTCOMES: set[str] = {
     "quarantined_structure",
     "skipped_legacy",
 }
+
+# A pending manifest entry whose stored name is already in the skip set
+# (load_raw's tripwire). Reported in the run result; never written to the
+# ledger under that name (it belongs to the older file) and never pruned
+# from the manifest.
+BLOCKED_OUTCOME = "blocked_name_collision"
 
 
 
@@ -623,6 +630,10 @@ class ForYouBaseCollection(ABC):
         # Files withheld from this run because their structure deviated from
         # the learned baseline: {filename: verdict dict}.
         self.quarantined_this_run: dict[str, dict] = {}
+        # Manifest entries whose stored name is in the skip set (load_raw).
+        self.blocked_this_run: dict[str, str] = {}
+        # This run's manifest, for copying provenance into the ledger.
+        self.manifest_this_run: dict[str, dict] = {}
         # Files whose load_single_raw raised this run: {filename: error message}.
         # They stay pending (retried next refresh); tracked so the refresh
         # summary can tell the user why a file was not ingested.
@@ -839,6 +850,8 @@ class ForYouBaseCollection(ABC):
 
         self.load_failed_this_run = {}
         self.file_stats_this_run = {}
+        self.blocked_this_run = {}
+        self.manifest_this_run = {}
 
         MANIFEST_FILENAME = "ingestion_manifest.json"
 
@@ -855,6 +868,29 @@ class ForYouBaseCollection(ABC):
                 filename=MANIFEST_FILENAME,
                 verbose=False
             ) or {}
+        self.manifest_this_run = {fn: (meta if isinstance(meta, dict) else {})
+                                  for fn, meta in manifest.items()}
+
+        # Tripwire. A manifest entry is an upload waiting for THIS run; when
+        # its stored name is in the skip set the loop below never opens it,
+        # and the old cleanup then pruned the entry as "processed" — the
+        # 2026-09-06 incident, when a participant's user_data_tiktok_2.json
+        # matched an old test collection's raw file and vanished without a
+        # trace. Stored names are generated and unique now, so a hit can only
+        # mean a bug or a hand-placed file: report it loudly and leave the
+        # entry pending for a human.
+        skip_set = set(skip_these_raw_files) | set(self.discarded_raw_files)
+        for fn in manifest:
+            if fn not in skip_set:
+                continue
+            reason = ("its name is in the discard list"
+                      if fn in self.discarded_raw_files
+                      else "its name is already a raw file in the dataset")
+            self.blocked_this_run[fn] = reason
+            logger.error(
+                f"ERROR: pending upload '{fn}' in {self.raw_path} was NOT ingested: "
+                f"{reason}. The entry stays pending; give the file a fresh stored "
+                f"name or remove the entry.")
 
 
 
@@ -1361,6 +1397,10 @@ class ForYouBaseCollection(ABC):
             if self.collection_id is not None:
                 df['collection_id'] = self.collection_id
             elif "raw_file" in df.columns:
+                logger.warning(
+                    "No collection_id on the rows being standardized; falling back "
+                    "to the raw filename. Uploads through the Hub always carry a "
+                    "manifest collection_id — this is a legacy path.")
                 df["collection_id"] = df["raw_file"]
             else:
                 df["collection_id"] = pd.NA
@@ -1565,9 +1605,17 @@ class ForYouCollection(ForYouBaseCollection):
         """
         now = datetime.now(timezone.utc).isoformat()
         files = self.ledger.setdefault("files", {})
+        manifest_meta: dict[str, dict] = {}
+        for collection in getattr(self, "collections", None) or []:
+            manifest_meta.update(getattr(collection, "manifest_this_run", {}) or {})
         for entry in per_file_summary:
             fn = entry.get("filename")
             if not fn:
+                continue
+            # A blocked entry names a file the ledger already describes (the
+            # older file that owns that name); writing it here would overwrite
+            # that record. The block is reported in the run result instead.
+            if entry.get("outcome") == BLOCKED_OUTCOME:
                 continue
             existing = files.get(fn) or {}
             files[fn] = {
@@ -1585,7 +1633,78 @@ class ForYouCollection(ForYouBaseCollection):
                 "ts_last_seen": now,
                 "notes": entry.get("notes") or existing.get("notes"),
             }
+            # Provenance from the upload-time manifest entry (original
+            # filename, uploader, timezone, review flag): copied here because
+            # the manifest entry is pruned once the file is resolved.
+            for k, v in provenance_from_manifest(manifest_meta.get(fn)).items():
+                files[fn][k] = v
+            for k in MANIFEST_PROVENANCE_KEYS:
+                if k not in files[fn] and existing.get(k) is not None:
+                    files[fn][k] = existing[k]
         self._refresh_discarded_from_ledger()
+
+
+
+
+    def prune_manifests(self) -> None:
+        """Drop ingestion-manifest entries this run resolved.
+
+        An entry leaves the manifest only when THIS run consumed its file
+        (opened it and ingested, deduped or discarded it — quarantined and
+        unreadable files stay pending) or when the raw object is gone. Never
+        by matching names against the whole dataset: that is how a pending
+        upload whose name collided with an old raw file was pruned as
+        "processed" without being read (2026-09-06). Entries the tripwire
+        blocked are always kept.
+        """
+        MANIFEST_FILENAME = "ingestion_manifest.json"
+        for collection in self.collections:
+            if collection.raw_path is None:
+                continue
+            if not data_io.exists(storage_location=collection.raw_path, filename=MANIFEST_FILENAME):
+                continue
+            manifest = data_io.load_json(
+                storage_location=collection.raw_path,
+                filename=MANIFEST_FILENAME,
+                verbose=False
+            ) or {}
+            consumed = self._files_consumed_this_run(collection)
+            blocked = set(getattr(collection, "blocked_this_run", {}) or {})
+            trimmed = {}
+            for fn, meta in manifest.items():
+                if fn in blocked:
+                    trimmed[fn] = meta
+                    continue
+                if fn in consumed:
+                    continue
+                if not data_io.exists(storage_location=collection.raw_path, filename=fn):
+                    logger.warning(
+                        f"Dropping manifest entry '{fn}' from {collection.raw_path}: "
+                        f"the raw file no longer exists.")
+                    continue
+                trimmed[fn] = meta
+            if len(trimmed) < len(manifest):
+                data_io.save_json(
+                    data=trimmed,
+                    storage_location=collection.raw_path,
+                    filename=MANIFEST_FILENAME,
+                    verbose=False
+                )
+                if self.verbose:
+                    logger.info(f"Cleaned {len(manifest) - len(trimmed)} processed entries from {collection.raw_path}/{MANIFEST_FILENAME}")
+
+
+
+
+    @staticmethod
+    def _files_consumed_this_run(collection) -> set[str]:
+        """Stored names a sub-collection opened and resolved in this run:
+        every file with load stats, minus the ones held back for review
+        (quarantined) or left pending for retry (unreadable)."""
+        stats = getattr(collection, "file_stats_this_run", {}) or {}
+        held = set(getattr(collection, "quarantined_this_run", {}) or {})
+        held |= set(getattr(collection, "load_failed_this_run", {}) or {})
+        return {fn for fn in stats if fn not in held}
 
 
 
@@ -1934,31 +2053,7 @@ class ForYouCollection(ForYouBaseCollection):
         self._refresh_discarded_from_ledger()
         self.save_ledger()
 
-        # Clean up ingestion manifests: remove entries for files now in the dataset
-        processed_files = set(self.discarded_raw_files)
-        if 'raw_file' in self.data.columns:
-            processed_files |= set(self.data['raw_file'].unique().tolist())
-        MANIFEST_FILENAME = "ingestion_manifest.json"
-        for collection in self.collections:
-            if collection.raw_path is None:
-                continue
-            if not data_io.exists(storage_location=collection.raw_path, filename=MANIFEST_FILENAME):
-                continue
-            manifest = data_io.load_json(
-                storage_location=collection.raw_path,
-                filename=MANIFEST_FILENAME,
-                verbose=False
-            ) or {}
-            trimmed = {fn: meta for fn, meta in manifest.items() if fn not in processed_files}
-            if len(trimmed) < len(manifest):
-                data_io.save_json(
-                    data=trimmed,
-                    storage_location=collection.raw_path,
-                    filename=MANIFEST_FILENAME,
-                    verbose=False
-                )
-                if self.verbose:
-                    logger.info(f"Cleaned {len(manifest) - len(trimmed)} processed entries from {collection.raw_path}/{MANIFEST_FILENAME}")
+        self.prune_manifests()
 
 
 

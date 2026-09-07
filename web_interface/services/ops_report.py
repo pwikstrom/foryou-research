@@ -364,6 +364,7 @@ def collect_status(hours_back: int = 24) -> dict:
     except Exception as e:
         check(sec, "Consolidation", "red", f"Could not compute: {e}")
 
+    pending_cids: set = set()
     try:
         pending_uploads = []
         for loc in ("zeeschuimer_raw", "ddp_raw", "aio_raw",
@@ -373,8 +374,17 @@ def collect_status(hours_back: int = 24) -> dict:
                                              filename="ingestion_manifest.json") or {}
             except Exception:
                 manifest = {}
-            for fn in manifest:
-                pending_uploads.append(f"{loc}: {fn}")
+            for fn, meta in manifest.items():
+                meta = meta if isinstance(meta, dict) else {}
+                if meta.get("collection_id"):
+                    pending_cids.add(str(meta["collection_id"]))
+                # Stored names are generated; the name the participant knows
+                # is the original one.
+                original = meta.get("original_filename")
+                label = (f"{original} (stored as {fn})"
+                         if original and original != fn else fn)
+                owner = f", {meta['user_id']}" if meta.get("user_id") else ""
+                pending_uploads.append(f"{loc}: {label}{owner}")
         stat("Pending ingest", len(pending_uploads),
              "green" if not pending_uploads else "yellow",
              "uploads not yet ingested")
@@ -408,6 +418,18 @@ def collect_status(hours_back: int = 24) -> dict:
         if removed:
             check(sec, "Removed collections", "yellow",
                   f"{len(removed)} removed since last report", removed)
+        # An owned collection that is neither in the dataset nor waiting as
+        # an upload nor inside a withdrawal window is an upload that fell
+        # through the cracks (2026-09-06: a pending file was skipped on a
+        # name collision and its manifest entry cleaned, leaving only the
+        # owner link behind — this check would have flagged it that morning).
+        orphaned = _linked_collections_missing(tags, pending_cids)
+        if orphaned:
+            check(sec, "Linked collections missing from the dataset", "yellow",
+                  f"{len(orphaned)} owned collection(s) have no data, no pending "
+                  f"upload and no withdrawal record", orphaned)
+        else:
+            check(sec, "Linked collections missing from the dataset", "green", "None")
         meta_mtime = data_io.getmtime(storage_location="recoded",
                                       filename="collections_metadata.parquet")
         meta_dt = (datetime.fromtimestamp(meta_mtime, tz=timezone.utc)
@@ -555,6 +577,42 @@ def collect_status(hours_back: int = 24) -> dict:
         "queues": queue_now or state.get("queues", {}),
     }
     return doc
+
+
+def _linked_collections_missing(tags: dict, pending_cids: set) -> list[str]:
+    """Owned collections (a truthy ``user_id`` in the tags sidecar) that have
+    no metadata row, no pending manifest entry and no withdrawal record.
+
+    Args:
+        tags: The collections tags sidecar.
+        pending_cids: Collection ids named by any raw location's manifest.
+    """
+    import fyp.data_io as data_io
+    from fyp.organize_datasets import COLLECTIONS_LABEL
+    dataset_ids: set = set()
+    meta_fn = f"{COLLECTIONS_LABEL}_metadata.parquet"
+    if data_io.exists(storage_location="recoded", filename=meta_fn):
+        meta = data_io.load_parquet(storage_location="recoded", filename=meta_fn)
+        if meta is not None:
+            if "collection_id" in getattr(meta, "columns", []):
+                dataset_ids = {str(c) for c in meta["collection_id"].dropna().unique()}
+            else:
+                dataset_ids = {str(c) for c in meta.index.dropna().unique()}
+    withdrawn: set = set()
+    if data_io.exists(storage_location="recoded", filename="withdrawals.json"):
+        withdrawn = {str(k) for k in (data_io.load_json(
+            storage_location="recoded", filename="withdrawals.json") or {})}
+    out = []
+    for cid, entry in sorted(tags.items()):
+        if not isinstance(entry, dict) or not entry.get("user_id"):
+            continue
+        cid = str(cid)
+        if cid in dataset_ids or cid in pending_cids or cid in withdrawn:
+            continue
+        out.append(f"{cid} (owner {entry['user_id']})")
+    return out
+
+
 
 
 def _stalled_queues(queue_now, stats_doc, now, max_age_days=STALE_QUEUE_DAYS):

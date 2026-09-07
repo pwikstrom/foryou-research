@@ -125,6 +125,49 @@ def _get_bucket():
 
 
 
+# Storage locations that hold raw donations and their archive. Every object
+# written there carries a generated, unique name (see fyp.ingest.raw_names),
+# so a second write to an existing name is a bug somewhere upstream — never a
+# legitimate replacement. move()/rename() into these locations refuse to
+# clobber: they raise FileExistsError instead of silently overwriting a
+# donation, and in GCS mode the write itself carries an
+# ``if_generation_match=0`` precondition so the check is atomic.
+APPEND_ONLY_LOCATIONS: frozenset = frozenset({
+    "ddp_raw", "zeeschuimer_raw", "aio_raw", "instagram_raw", "youtube_raw",
+    "archive",
+})
+
+
+
+
+def _refuse_clobber(storage_location: str, filename: str) -> None:
+    """Raise FileExistsError when ``filename`` already exists in
+    ``storage_location``. Callers apply it to append-only locations (or on an
+    explicit ``overwrite=False``)."""
+    if exists(storage_location=storage_location, filename=filename):
+        raise FileExistsError(
+            f"'{filename}' already exists in '{storage_location}' and raw "
+            f"uploads are never overwritten")
+
+
+
+
+def _no_clobber_kwargs(guard: bool) -> dict:
+    """GCS upload/copy kwargs that make a write fail when the object exists."""
+    return {"if_generation_match": 0} if guard else {}
+
+
+
+
+def _is_precondition_failed(exc: Exception) -> bool:
+    """True for the GCS 412 raised when an ``if_generation_match=0`` write
+    finds the object already there (checked by name so no google import is
+    needed at module level)."""
+    return type(exc).__name__ == "PreconditionFailed" or getattr(exc, "code", None) == 412
+
+
+
+
 
 def register_location(name: str, abs_path: str, verbose: bool = False) -> None:
     """Register a storage location at runtime so ``_resolve_paths`` accepts it.
@@ -582,6 +625,12 @@ def move(src_storage_location: str = "", dst_storage_location: str = "", filenam
     # Resolve DST
     dst_primary, _, dst_mode, dst_blob_name = _resolve_paths(dst_storage_location, filename)
 
+    # Raw donations and their archive are append-only: refuse to replace an
+    # existing object (see APPEND_ONLY_LOCATIONS). Raises FileExistsError.
+    guard = dst_storage_location in APPEND_ONLY_LOCATIONS
+    if guard:
+        _refuse_clobber(dst_storage_location, filename)
+
 
     # temp to storage_location
     if src_storage_location == "temp":
@@ -596,11 +645,17 @@ def move(src_storage_location: str = "", dst_storage_location: str = "", filenam
             if bucket:
                 try:
                     blob = bucket.blob(dst_blob_name)
-                    blob.upload_from_filename(src_path)
+                    blob.upload_from_filename(src_path, **_no_clobber_kwargs(guard))
                     if verbose: logger.info(f"    [DATA_IO] Uploaded from temp to GCS: '{src_path}' -> '{dst_blob_name}'")
                     # Remove local temp file after successful upload
                     os.remove(src_path)
                 except Exception as e:
+                    if guard and _is_precondition_failed(e):
+                        raise FileExistsError(
+                            f"'{filename}' already exists in '{dst_storage_location}' "
+                            f"and raw uploads are never overwritten") from e
+                    if guard:
+                        raise
                     if verbose: logger.warning(f"    [DATA_IO] WARN: Failed to upload/move from temp to GCS: {e}")
             else:
                  if verbose: logger.warning("    [DATA_IO] WARN: GCS bucket not initialized for temp move.")
@@ -623,11 +678,17 @@ def move(src_storage_location: str = "", dst_storage_location: str = "", filenam
         if bucket:
             try:
                 blob = bucket.blob(src_blob_name)
-                # GCS 'rename' is a move (copy + delete)
-                
-                bucket.rename_blob(blob, dst_blob_name)
+                # GCS 'rename' is a move (copy + delete). The generation
+                # precondition applies to the DESTINATION object.
+                bucket.rename_blob(blob, dst_blob_name, **_no_clobber_kwargs(guard))
                 if verbose: logger.info(f"    [DATA_IO] Moved GCS: '{src_blob_name}' -> '{dst_blob_name}'")
             except Exception as e:
+                if guard and _is_precondition_failed(e):
+                    raise FileExistsError(
+                        f"'{filename}' already exists in '{dst_storage_location}' "
+                        f"and raw uploads are never overwritten") from e
+                if guard:
+                    raise
                 if verbose: logger.warning(f"    [DATA_IO] WARN: GCS Move failed (src likely missing): {e}")
 
     # Local Move
@@ -650,7 +711,8 @@ def rename(storage_location: str = "", src_filename: str = "", dst_filename: str
 
     Local mode is an atomic filesystem move; GCS mode uses ``rename_blob``
     (a server-side copy + delete). An existing file at ``dst_filename`` is
-    overwritten, matching ``save_*`` semantics.
+    overwritten, matching ``save_*`` semantics — except inside an append-only
+    location (APPEND_ONLY_LOCATIONS), where it raises FileExistsError.
 
     Args:
         storage_location: The named storage location holding the file.
@@ -674,6 +736,10 @@ def rename(storage_location: str = "", src_filename: str = "", dst_filename: str
     src_primary, _, src_mode, src_blob_name = _resolve_paths(storage_location, src_filename)
     dst_primary, _, _, dst_blob_name = _resolve_paths(storage_location, dst_filename)
 
+    guard = storage_location in APPEND_ONLY_LOCATIONS
+    if guard:
+        _refuse_clobber(storage_location, dst_filename)
+
     if src_mode == 'gcs':
         bucket = _get_bucket()
         if not bucket:
@@ -681,7 +747,14 @@ def rename(storage_location: str = "", src_filename: str = "", dst_filename: str
         blob = bucket.blob(src_blob_name)
         if not blob.exists():
             return False
-        bucket.rename_blob(blob, dst_blob_name)
+        try:
+            bucket.rename_blob(blob, dst_blob_name, **_no_clobber_kwargs(guard))
+        except Exception as e:
+            if guard and _is_precondition_failed(e):
+                raise FileExistsError(
+                    f"'{dst_filename}' already exists in '{storage_location}' "
+                    f"and raw uploads are never overwritten") from e
+            raise
         if verbose: logger.info(f"    [DATA_IO] Renamed GCS: '{src_blob_name}' -> '{dst_blob_name}'")
         return True
 
@@ -988,10 +1061,15 @@ def release_local_copy(path: str | None, verbose: bool = False) -> None:
 
 
 
-def save_json(data = None, storage_location: str = "cache", filename: str = "", verbose: bool = False):
+def save_json(data = None, storage_location: str = "cache", filename: str = "", verbose: bool = False,
+              overwrite: bool = True):
     """
     Save a json to a given path.
     Supports GCS write + Parallel Save.
+
+    ``overwrite=False`` refuses to replace an existing file (FileExistsError;
+    atomic in GCS via an ``if_generation_match=0`` precondition) — used for
+    raw donation objects, whose names are unique by construction.
     """
 
     if data is None:
@@ -1009,6 +1087,8 @@ def save_json(data = None, storage_location: str = "cache", filename: str = "", 
         if verbose: logger.warning(f"    [DATA_IO] WARN: File extension is not '.json': '{ext}' (filename: {bn})")
         
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
+    if not overwrite:
+        _refuse_clobber(storage_location, filename)
 
     payload = json.dumps(data)
 
@@ -1018,7 +1098,13 @@ def save_json(data = None, storage_location: str = "cache", filename: str = "", 
         bucket = _get_bucket()
         if bucket:
              blob = bucket.blob(blob_name)
-             blob.upload_from_string(payload)
+             try:
+                 blob.upload_from_string(payload, **_no_clobber_kwargs(not overwrite))
+             except Exception as e:
+                 if not overwrite and _is_precondition_failed(e):
+                     raise FileExistsError(
+                         f"'{filename}' already exists in '{storage_location}'") from e
+                 raise
              if verbose: logger.info(f"    [DATA_IO] Saved JSON to GCS: {blob_name}")
         else:
              raise ValueError("GCS bucket not initialized")

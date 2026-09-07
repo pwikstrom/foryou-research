@@ -514,10 +514,38 @@ def load_withdrawals(purge: bool = True) -> dict:
     return w
 
 
+def ledger_manifest_entries(cid: str, files: list[str]) -> dict[str, dict]:
+    """Rebuild the ingestion-manifest entry of each stored file from the
+    ingestion ledger's provenance (original name, timezone, review flag,
+    uploader), so a restore hands the ingester exactly what the upload did.
+    Files the ledger does not know get a minimal entry."""
+    from fyp.ingest.raw_names import manifest_entry
+    ledger: dict = {}
+    if data_io.exists(storage_location="recoded", filename="ingestion_ledger.json"):
+        ledger = (data_io.load_json(storage_location="recoded",
+                                    filename="ingestion_ledger.json", verbose=False)
+                  or {}).get("files") or {}
+    out: dict[str, dict] = {}
+    for fn in files:
+        rec = ledger.get(fn) or {}
+        out[fn] = manifest_entry(
+            str(cid), rec.get("original_filename") or fn,
+            display_collection_id=rec.get("display_collection_id"),
+            user_id=rec.get("user_id"), tz=rec.get("tz"),
+            client_reviewed=bool(rec.get("client_reviewed")),
+            uploaded_by=rec.get("uploaded_by"), uploaded_at=rec.get("uploaded_at"))
+    return out
+
+
+
+
 def record_withdrawal(cid: str, username: str, files: list[str],
                       raw_path: str | None, display_id: str | None,
-                      source_platform: str | None) -> dict:
-    """Write the ledger entry for a just-requested withdrawal."""
+                      source_platform: str | None,
+                      manifest_entries: dict[str, dict] | None = None) -> dict:
+    """Write the ledger entry for a just-requested withdrawal.
+    ``manifest_entries`` ({stored filename: manifest entry}) is what a restore
+    writes back into the raw location's manifest."""
     now = _utc_now()
     entry = {
         "user_id": username,
@@ -527,6 +555,7 @@ def record_withdrawal(cid: str, username: str, files: list[str],
         "source_platform": source_platform,
         "raw_path": raw_path,
         "files": list(files),
+        "manifest_entries": dict(manifest_entries or {}),
     }
     w = _load_withdrawals_raw()
     w[str(cid)] = entry
@@ -577,13 +606,20 @@ def restore_withdrawal(cid: str) -> dict:
     if data_io.exists(storage_location=raw_path, filename=MANIFEST_FILENAME):
         manifest = data_io.load_json(
             storage_location=raw_path, filename=MANIFEST_FILENAME, verbose=False) or {}
+    stored_entries = entry.get("manifest_entries") or {}
     for fn in files:
         data_io.move(src_storage_location="archive", dst_storage_location=raw_path,
                      filename=fn, verbose=False)
         if not data_io.exists(storage_location=raw_path, filename=fn):
             raise RestoreError("Restoring the file did not persist. Try again.")
-        manifest[fn] = {"collection_id": str(cid), "tags": [],
-                        "user_id": entry.get("user_id")}
+        # The entry the upload wrote (original name, timezone, review flag)
+        # so the ingester treats the restored file exactly as it did the
+        # first time; withdrawals recorded before this existed get the
+        # minimal entry.
+        restored = dict(stored_entries.get(fn) or {})
+        restored.update({"collection_id": str(cid), "user_id": entry.get("user_id")})
+        restored.setdefault("tags", [])
+        manifest[fn] = restored
     data_io.save_json(data=manifest, storage_location=raw_path,
                       filename=MANIFEST_FILENAME, verbose=False)
     set_collection_owner(str(cid), entry.get("user_id"))

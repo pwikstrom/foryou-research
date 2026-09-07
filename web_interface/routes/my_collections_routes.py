@@ -10,7 +10,6 @@ import os
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user
-from werkzeug.utils import secure_filename
 
 from ..permissions import permission_required
 from ._access import current_user_ctx, owned_collection_access_error
@@ -72,22 +71,28 @@ def api_my_upload_sources():
 @permission_required('tab.my_stuff.my_collections')
 def api_my_upload():
     """Self-serve donation upload: simplified clone of the admin ingestion
-    upload. No tags, no account choice (always the logged-in user), filename
-    becomes the collection id (auto-suffixed on collision), browser-detected
-    timezone accepted silently.
+    upload. No tags, no account choice (always the logged-in user),
+    browser-detected timezone accepted silently.
+
+    The browser's filename is never a storage key or an identity: the stored
+    name and the collection id are generated (``fyp.ingest.raw_names``), the
+    original name becomes the display label and is kept as provenance.
     """
     import fyp.data_io as data_io
     from fyp.fyp_config import fyp_cf
     from fyp.ingest import parse_donor_timezone
+    from fyp.ingest.raw_names import (
+        allocate_upload_identity,
+        known_collection_ids,
+        manifest_entry,
+    )
     from .. import activity_log
     from ..collection_accounts import set_collection_owner
     from ..services.my_collections_service import (
         MANIFEST_FILENAME,
-        _load_metadata_personas,
         donation_upload_sources,
         invalidate_cache,
     )
-    from ..services.study_data import get_collection_tags
 
     files = request.files.getlist('files')
     if not files or all(f.filename == '' for f in files):
@@ -126,20 +131,7 @@ def api_my_upload():
     if data_io.exists(storage_location=raw_path_key, filename=MANIFEST_FILENAME):
         manifest = data_io.load_json(
             storage_location=raw_path_key, filename=MANIFEST_FILENAME, verbose=False) or {}
-    meta = _load_metadata_personas(None)
-    dataset_ids = set(meta.index.map(str)) if meta is not None else set()
-    tags_sidecar = get_collection_tags() or {}
-
-    def _collides(fn: str, cid: str) -> bool:
-        m_entry = manifest.get(fn)
-        if isinstance(m_entry, dict) and m_entry.get("user_id") != username:
-            return True
-        if cid in dataset_ids:
-            return True
-        t_entry = tags_sidecar.get(cid)
-        if isinstance(t_entry, dict) and t_entry.get("user_id") not in (None, username):
-            return True
-        return False
+    known_ids = known_collection_ids()
 
     temp_dir = fyp_cf['paths']['temp']
     os.makedirs(temp_dir, exist_ok=True)
@@ -149,17 +141,14 @@ def api_my_upload():
         for file in files:
             if file.filename == '':
                 continue
-            filename = secure_filename(file.filename)
-            base, ext = os.path.splitext(filename)
-            cid = base
-            # Auto-suffix on collision: someone else's file/collection may
-            # already carry this name (filename = collection id). The same
-            # user re-uploading the same pending filename replaces it.
-            n = 2
-            while _collides(filename, cid):
-                filename = f"{base}-{n}{ext}"
-                cid = f"{base}-{n}"
-                n += 1
+            # Every TikTok export is called "user_data_tiktok.json": the name
+            # says nothing about whose data it is, so it is never reused as a
+            # storage key or a collection id. Both are generated; the raw
+            # location is append-only at the storage layer as well.
+            original_name = os.path.basename(file.filename)
+            filename, cid, display_id = allocate_upload_identity(
+                source["source_platform"], source["data_source"],
+                original_name, raw_path_key, known_ids=known_ids)
 
             temp_path = os.path.join(temp_dir, filename)
             file.save(temp_path)
@@ -171,17 +160,17 @@ def api_my_upload():
             )
             if not data_io.exists(storage_location=raw_path_key, filename=filename):
                 return jsonify({
-                    "error": f"Upload of '{filename}' did not persist. Please try again.",
+                    "error": f"Upload of '{original_name}' did not persist. Please try again.",
                 }), 500
 
-            manifest[filename] = {"collection_id": cid, "tags": [], "user_id": username}
-            if donor_tz:
-                manifest[filename]["tz"] = donor_tz
-            if client_reviewed:
-                manifest[filename]["client_reviewed"] = True
-            set_collection_owner(cid, username)
+            manifest[filename] = manifest_entry(
+                cid, original_name, display_collection_id=display_id,
+                user_id=username, tz=donor_tz or None,
+                client_reviewed=client_reviewed, uploaded_by=username)
+            set_collection_owner(cid, username, display_collection_id=display_id)
             uploaded.append({"collection_id": cid, "raw_path": raw_path_key,
-                             "filename": filename})
+                             "filename": filename, "original_filename": original_name,
+                             "display_id": display_id})
 
         data_io.save_json(data=manifest, storage_location=raw_path_key,
                           filename=MANIFEST_FILENAME, verbose=False)
@@ -191,7 +180,10 @@ def api_my_upload():
             category=activity_log.CATEGORY_DATA_MANAGEMENT,
             action="my_collections.upload",
             target=raw_path_key,
-            details={"files": [u["filename"] for u in uploaded], "tz": donor_tz or None},
+            details={"files": [u["filename"] for u in uploaded],
+                     "original_files": [u["original_filename"] for u in uploaded],
+                     "collection_ids": [u["collection_id"] for u in uploaded],
+                     "tz": donor_tz or None},
         )
         invalidate_cache()
         return jsonify({"status": "success", "collections": uploaded})
@@ -272,6 +264,7 @@ def api_my_withdraw(collection_id):
         donation_upload_sources,
         drop_withdrawal,
         invalidate_cache,
+        ledger_manifest_entries,
         record_withdrawal,
     )
     from ..services.study_data import get_collection_tags
@@ -307,7 +300,8 @@ def api_my_withdraw(collection_id):
     tags_entry = (get_collection_tags() or {}).get(str(collection_id)) or {}
     entry = record_withdrawal(
         str(collection_id), current_user.username, files, raw_path,
-        tags_entry.get("display_collection_id"), platform)
+        tags_entry.get("display_collection_id"), platform,
+        manifest_entries=ledger_manifest_entries(str(collection_id), files))
 
     success, msg = start_process(
         "collection_delete", COLLECTION_DELETE_SCRIPT,

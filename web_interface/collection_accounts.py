@@ -142,11 +142,14 @@ def collection_counts_by_user(fresh: bool = False) -> dict:
 # Link writes
 # ---------------------------------------------------------------------------
 
-def set_collection_owner(collection_id: str, user_id, *, tags: dict | None = None) -> dict:
+def set_collection_owner(collection_id: str, user_id, *, tags: dict | None = None,
+                         display_collection_id: str | None = None) -> dict:
     """Link ``collection_id`` to ``user_id`` (None = explicitly unassigned).
 
     Preserves every other key of the sidecar entry. Pass ``tags`` to batch
     several writes: the caller then owns the load and the final save.
+    ``display_collection_id`` fills the label only when the entry has none
+    (an upload's default label never overrides an admin's rename).
     """
     own = tags is None
     if own:
@@ -155,6 +158,8 @@ def set_collection_owner(collection_id: str, user_id, *, tags: dict | None = Non
     if not isinstance(entry, dict):
         entry = {"display_collection_id": None, "annotation_tags": [], "hidden": False}
     entry["user_id"] = user_id
+    if display_collection_id and entry.get("display_collection_id") is None:
+        entry["display_collection_id"] = display_collection_id
     tags[str(collection_id)] = entry
     if own:
         _save_tags(tags)

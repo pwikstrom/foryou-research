@@ -4647,9 +4647,12 @@ function renderStructureWarnings(data) {
         row.innerHTML = `
             <div style="flex: 1; min-width: 0;">
                 <div class="text-sm" style="word-break: break-all;">
-                    ${_escapeHtml(f.filename)}
+                    ${_escapeHtml(f.original_filename || f.filename)}
                     <span class="text-xxs font-bold" style="color: ${badgeColor}; margin-left: 8px; text-transform: uppercase;">${badgeLabel}</span>
                 </div>
+                ${f.original_filename && f.original_filename !== f.filename
+                    ? `<div class="text-xxs" style="color: var(--color-text-tertiary); word-break: break-all;">stored as ${_escapeHtml(f.filename)}</div>`
+                    : ''}
                 <div class="text-xxs" style="color: var(--color-text-tertiary);">
                     ${_escapeHtml(provenance)} · ${nFindings} finding${nFindings === 1 ? '' : 's'}
                 </div>
@@ -4720,7 +4723,10 @@ function openStructureReviewModal(verdict) {
     overlay.innerHTML = `
         <div class="upload-modal" style="max-width: 640px; max-height: 80vh; overflow-y: auto;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                <h3 style="margin: 0; word-break: break-all;">Structure review — ${_escapeHtml(verdict.filename)}</h3>
+                <h3 style="margin: 0; word-break: break-all;">Structure review — ${_escapeHtml(verdict.original_filename || verdict.filename)}</h3>
+                ${verdict.original_filename && verdict.original_filename !== verdict.filename
+                    ? `<div class="text-xxs" style="color: var(--color-text-tertiary); word-break: break-all;">stored as ${_escapeHtml(verdict.filename)}</div>`
+                    : ''}
                 <button type="button" class="btn-discreet" data-role="close">&times;</button>
             </div>
             <div class="text-xs" style="color: var(--color-text-tertiary); margin-bottom: 16px;">
@@ -4847,7 +4853,13 @@ function renderPendingUploads(sources, totalPending) {
             const uploaderSuffix = f.user_id
                 ? ` <span class="text-xxs" style="color: var(--color-accent);">uploaded by ${escapeHtml(f.user_id)}</span>`
                 : '';
-            return `<li style="margin-left: 16px; word-break: break-all;">${f.filename}${cidSuffix}${tagSuffix}${uploaderSuffix}</li>`;
+            // Stored names are generated; the name the uploader knows is the
+            // original one, so lead with that and show the stored name after it.
+            const shownName = f.original_filename ? escapeHtml(f.original_filename) : escapeHtml(f.filename);
+            const storedSuffix = (f.original_filename && f.original_filename !== f.filename)
+                ? ` <span class="text-xxs" style="color: var(--color-text-tertiary);">stored as ${escapeHtml(f.filename)}</span>`
+                : '';
+            return `<li style="margin-left: 16px; word-break: break-all;">${shownName}${storedSuffix}${cidSuffix}${tagSuffix}${uploaderSuffix}</li>`;
         }).join('');
         block.innerHTML = `
             <div class="text-sm font-semibold" style="margin-bottom: 4px;">
@@ -5559,6 +5571,7 @@ const _ingestOutcomeLabels = {
     skipped_legacy: { label: 'Skipped — reason not recorded', color: 'var(--color-text-tertiary)' },
     quarantined_structure: { label: 'Quarantined — structure drift (review above)', color: 'var(--color-danger)' },
     load_failed: { label: 'Failed to read — will retry next refresh', color: 'var(--color-danger)' },
+    blocked_name_collision: { label: 'Not ingested — stored name already taken (stays pending)', color: 'var(--color-danger)' },
 };
 
 // Plain-language labels for the per-file drop-reason breakdown captured by
@@ -5713,13 +5726,16 @@ function renderIngestResultsPanel(data) {
             const siblingsLine = (r.outcome === 'merged_with_existing' && r.merged_with_siblings && r.merged_with_siblings.length)
                 ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">joined with: ${_escapeHtml(_formatSiblings(r.merged_with_siblings))}</div>`
                 : '';
-            const notesLine = ((r.outcome === 'quarantined_structure' || r.outcome === 'load_failed') && r.notes)
+            const notesLine = ((r.outcome === 'quarantined_structure' || r.outcome === 'load_failed' || r.outcome === 'blocked_name_collision') && r.notes)
                 ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${_escapeHtml(r.notes)}</div>`
                 : '';
             return `
                 <tr>
                     <td style="${tdStyle}">
-                        <div class="text-sm" style="word-break: break-all;">${_escapeHtml(r.filename)}</div>
+                        <div class="text-sm" style="word-break: break-all;">${_escapeHtml(r.original_filename || r.filename)}</div>
+                        ${r.original_filename && r.original_filename !== r.filename
+                            ? `<div class="text-xxs" style="color: var(--color-text-tertiary); word-break: break-all;">stored as ${_escapeHtml(r.filename)}</div>`
+                            : ''}
                         ${provenance ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${_escapeHtml(provenance)}</div>` : ''}
                     </td>
                     <td style="${tdStyle} color: ${meta.color};">

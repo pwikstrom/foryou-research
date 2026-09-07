@@ -178,7 +178,14 @@ withdrawal** rather than waiting for the next routine refresh.
 **Operational residue.** Bookkeeping stores (the ingestion ledger,
 structure-sentinel baselines, process logs, the admin activity log)
 retain the collection id and raw filenames as audit metadata; they
-contain no feed content.
+contain no feed content. A raw file is stored under a generated name
+(platform, source, upload time, random suffix), never under the name
+the participant's browser gave it: every TikTok export is called
+`user_data_tiktok.json`, so that name identifies nobody and two
+donations must never share a storage key. The original filename is kept
+only as provenance (and as the collection's default display label), and
+raw locations are append-only at the storage layer, so no upload can
+replace another.
 
 **The participant's account.** Demographic and contact details a
 participant submits with a donation (name, email, age, postcode, country,

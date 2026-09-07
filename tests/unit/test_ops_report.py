@@ -312,3 +312,38 @@ def test_ops_report_html_404_when_missing(client, monkeypatch):
                         lambda storage_location="", filename="", **kw: None)
     _login(client, _TEST_ADMIN)
     assert client.get("/api/admin/ops-report/html").status_code == 404
+
+
+
+
+def test_linked_collection_missing_from_dataset_is_flagged(tmp_path, monkeypatch):
+    """2026-09-06: a pending upload was skipped on a name collision and its
+    manifest entry pruned, leaving only the owner link. An owned collection
+    with no metadata row, no pending upload and no withdrawal record is the
+    signature of that failure and must be reported."""
+    import json
+
+    import pandas as pd
+
+    from fyp.fyp_config import fyp_cf
+    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from web_interface.services.ops_report import _linked_collections_missing
+
+    recoded = tmp_path / "recoded"
+    recoded.mkdir()
+    monkeypatch.setitem(fyp_cf["paths"], "recoded", str(recoded))
+    monkeypatch.setitem(fyp_cf["data_io"], "use_gcs_for_data", False)
+    meta = pd.DataFrame({"n": [1]}, index=pd.Index(["in_dataset"], name="collection_id"))
+    meta.to_parquet(recoded / f"{COLLECTIONS_LABEL}_metadata.parquet")
+    (recoded / "withdrawals.json").write_text(json.dumps({"withdrawn": {"user_id": "a"}}))
+
+    tags = {
+        "in_dataset": {"user_id": "a"},
+        "withdrawn": {"user_id": "a"},
+        "pending": {"user_id": "a"},
+        "user_data_tiktok_2": {"user_id": "wendto1712@gmail.com"},
+        "unowned_orphan": {"display_collection_id": "x"},
+        "explicitly_unassigned": {"user_id": None},
+    }
+    assert _linked_collections_missing(tags, {"pending"}) == [
+        "user_data_tiktok_2 (owner wendto1712@gmail.com)"]

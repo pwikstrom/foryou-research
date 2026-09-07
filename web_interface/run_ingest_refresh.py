@@ -7,6 +7,7 @@ project_root = current_dir.parent
 sys.path.append(str(project_root))
 
 from web_interface.task_status import TaskStatusReporter
+from fyp.ingest.base import BLOCKED_OUTCOME
 from fyp.ingest import LEDGER_SKIP_OUTCOMES
 from fyp.structure_sentinel import StructureSentinel, findings_digest
 
@@ -67,6 +68,7 @@ def _build_per_file_summary(
     quarantined: dict[str, dict] | None = None,
     load_failed: dict[str, dict] | None = None,
     file_stats: dict[str, dict] | None = None,
+    blocked: dict[str, dict] | None = None,
 ) -> list[dict]:
     """For each new raw_file, produce a row describing what happened.
 
@@ -77,6 +79,10 @@ def _build_per_file_summary(
       - ``discarded_at_load``: file failed the min-row check in load_raw.
       - ``quarantined_structure``: the file's structure or parse-output stats
         deviated from the learned baseline; withheld pending admin review.
+      - ``blocked_name_collision``: a pending manifest entry whose stored
+        name is already a raw file in the dataset or the discard list. Never
+        opened; stays pending; not written to the ledger (that name belongs
+        to the older file).
       - ``fully_deduped``: every row collided with an existing collection.
       - ``merged_with_existing``: this file's rows joined an existing
         collection that also contains one or more prior raw_files; the
@@ -86,8 +92,10 @@ def _build_per_file_summary(
     quarantined = quarantined or {}
     load_failed = load_failed or {}
     file_stats = file_stats or {}
+    blocked = blocked or {}
     final_df = main_collection.data
-    candidate_files = set(raw_counts) | discarded_at_load | set(quarantined) | set(load_failed)
+    candidate_files = (set(raw_counts) | discarded_at_load | set(quarantined)
+                       | set(load_failed) | set(blocked))
     summary: list[dict] = []
 
     for rf in sorted(candidate_files):
@@ -100,6 +108,24 @@ def _build_per_file_summary(
         raw_rows = raw_counts.get(rf, {}).get("rows", 0) or int(stats.get("raw_rows") or 0)
         processed_rows = processed_counts.get(rf, {}).get("rows", 0)
         dropped = stats.get("dropped") or {}
+
+        if rf in blocked:
+            block = blocked[rf]
+            summary.append({
+                "filename": rf,
+                "platform": platform or block.get("platform"),
+                "source": source or block.get("source"),
+                "raw_rows": 0,
+                "processed_rows": 0,
+                "final_rows": 0,
+                "outcome": BLOCKED_OUTCOME,
+                "canonical_collection_id": block.get("collection_id"),
+                "merged_with_siblings": [],
+                "deduped_rows": 0,
+                "dropped": {},
+                "notes": block.get("reason"),
+            })
+            continue
 
         if rf in load_failed:
             fail = load_failed[rf]
@@ -279,6 +305,24 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
                 f"{sub.source_platform}_{sub.data_source} for structure drift."
             )
 
+    blocked_files: dict[str, dict] = {}
+    for sub in main_collection.collections:
+        for fn, reason in (getattr(sub, "blocked_this_run", {}) or {}).items():
+            meta = (getattr(sub, "manifest_this_run", {}) or {}).get(fn) or {}
+            blocked_files[fn] = {
+                "reason": reason,
+                "platform": sub.source_platform,
+                "source": sub.data_source,
+                "collection_id": meta.get("collection_id"),
+                "original_filename": meta.get("original_filename"),
+                "user_id": meta.get("user_id"),
+            }
+    if blocked_files:
+        reporter.log(
+            f"ERROR: {len(blocked_files)} pending upload(s) were NOT ingested because "
+            "their stored name is already taken; they stay pending: "
+            + "; ".join(f"{fn} ({v['reason']})" for fn, v in sorted(blocked_files.items()))
+        )
     quarantined_files: dict[str, dict] = {}
     load_failed_files: dict[str, dict] = {}
     for sub in main_collection.collections:
@@ -320,6 +364,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         quarantined=quarantined_files,
         load_failed=load_failed_files,
         file_stats=file_stats,
+        blocked=blocked_files,
     )
 
     # Record the active activity-contract version once per ingest run (idempotent,
@@ -474,6 +519,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         "files_discarded_at_load": sum(1 for e in per_file_summary if e.get("outcome") == "discarded_at_load"),
         "files_quarantined": sum(1 for e in per_file_summary if e.get("outcome") == "quarantined_structure"),
         "files_load_failed": sum(1 for e in per_file_summary if e.get("outcome") == "load_failed"),
+        "files_blocked_name_collision": len(blocked_files),
         "files_skipped_previously": len(skipped_previously),
         "per_file_summary": per_file_summary,
         "skipped_previously": skipped_previously,
