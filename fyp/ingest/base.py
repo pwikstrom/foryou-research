@@ -838,7 +838,19 @@ class ForYouBaseCollection(ABC):
 
 
 
-    def load_raw(self, skip_these_raw_files: list[str] = []):
+    def load_raw(self, skip_these_raw_files: list[str] = [],
+                 held_for_review: set[str] | None = None):
+        """Load every raw file in ``raw_path`` that is not in the skip set.
+
+        Args:
+            skip_these_raw_files: Stored names already in the dataset or the
+                discard list; never opened.
+            held_for_review: Stored names the structure sentinel quarantined
+                in an earlier run. They are in the skip set by design (the
+                ledger says ``quarantined_structure``) and their manifest
+                entries stay pending until an admin approves or rejects the
+                file, so the name-collision tripwire must not fire on them.
+        """
         if self.verbose:
             logger.info(f"Loading raw data for collection '{self.source_platform}_{self.data_source}'.")
 
@@ -880,8 +892,9 @@ class ForYouBaseCollection(ABC):
         # mean a bug or a hand-placed file: report it loudly and leave the
         # entry pending for a human.
         skip_set = set(skip_these_raw_files) | set(self.discarded_raw_files)
+        held = set(held_for_review or ())
         for fn in manifest:
-            if fn not in skip_set:
+            if fn not in skip_set or fn in held:
                 continue
             reason = ("its name is in the discard list"
                       if fn in self.discarded_raw_files
@@ -1902,8 +1915,16 @@ class ForYouCollection(ForYouBaseCollection):
         else:
             skip_these_raw_files = self.discarded_raw_files
 
+        # Files the sentinel quarantined earlier stay pending (manifest entry
+        # kept, name in the ledger skip set) until reviewed — legitimate, not
+        # a collision, so the sub-collections' tripwire must ignore them.
+        held_for_review = {
+            fn for fn, meta in (self.ledger.get("files") or {}).items()
+            if (meta or {}).get("outcome") == "quarantined_structure"
+        }
         for collection in self.collections:
-            collection.load_raw(skip_these_raw_files=skip_these_raw_files)
+            collection.load_raw(skip_these_raw_files=skip_these_raw_files,
+                                held_for_review=held_for_review)
         
         if self.verbose:
             logger.info(f"Done loading raw {sum([len(collection.data) for collection in self.collections]):,} rows for the registered sub collections.")

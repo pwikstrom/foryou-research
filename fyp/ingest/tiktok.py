@@ -362,7 +362,8 @@ class TikTokAIOCollection(TikTokDDPCollection):
         return bool(os.environ.get("K_SERVICE"))
 
 
-    def load_raw(self, skip_these_raw_files: list[str] = []):
+    def load_raw(self, skip_these_raw_files: list[str] = [],
+                 held_for_review: set[str] | None = None):
         """Fetch recent donations and participant metadata from AWS, then load files."""
         from fyp.donations import (
             get_donation_metadata_from_aio_aws,
@@ -374,7 +375,8 @@ class TikTokAIOCollection(TikTokDDPCollection):
                     "AIO AWS auto-fetch disabled ([features].aio_aws_fetch; "
                     "default off outside Cloud Run). Processing existing local files."
                 )
-            super().load_raw(skip_these_raw_files=skip_these_raw_files)
+            super().load_raw(skip_these_raw_files=skip_these_raw_files,
+                             held_for_review=held_for_review)
             return
 
         if self.verbose:
@@ -395,7 +397,8 @@ class TikTokAIOCollection(TikTokDDPCollection):
             if self.verbose:
                 logger.warning(f"AWS metadata fetch failed: {e}.")
 
-        super().load_raw(skip_these_raw_files=skip_these_raw_files)
+        super().load_raw(skip_these_raw_files=skip_these_raw_files,
+                             held_for_review=held_for_review)
 
 
 

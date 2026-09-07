@@ -161,3 +161,28 @@ def test_per_file_summary_reports_blocked_uploads():
     assert row["notes"] == "its name is already a raw file in the dataset"
     assert row["canonical_collection_id"] == "cid"
     assert row["platform"] == "tiktok" and row["source"] == "ddp"
+
+
+
+
+def test_sentinel_quarantined_file_is_held_not_blocked(probe):
+    """A file the structure sentinel quarantined earlier is in the ledger skip
+    set by design and its manifest entry stays pending until an admin reviews
+    it (2026-09-07: the participant's pruned export). That is not a name
+    collision: no block, no error, and the file is still not opened."""
+    col, raw_dir = probe
+    (raw_dir / "q.json").write_text("{}")
+    _write_manifest(raw_dir, {"q.json": {"collection_id": "c", "client_reviewed": True}})
+
+    main = ForYouCollection(verbose=False)
+    main.collections = [col]
+    main.ledger = {"schema_version": 1, "files": {
+        "q.json": {"outcome": "quarantined_structure", "platform": "tiktok", "source": "probe"}}}
+    main._refresh_discarded_from_ledger()
+    assert "q.json" in main.discarded_raw_files
+
+    main.load_raw()                                   # load_single_raw would raise
+
+    assert col.blocked_this_run == {}
+    assert col.manifest_this_run["q.json"]["client_reviewed"] is True
+    assert _read_manifest(raw_dir) == {"q.json": {"collection_id": "c", "client_reviewed": True}}
