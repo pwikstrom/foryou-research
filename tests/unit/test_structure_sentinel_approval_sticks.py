@@ -36,7 +36,11 @@ FULL_PATHS = [
     "Profile.Profile Information.userName|str",
     "Profile.Settings.App Language|str",
 ]
-PRUNED_PATHS = FULL_PATHS[:2]
+# The platform renamed a field inside a section the file contains: drift.
+PRUNED_PATHS = [
+    "Activity.Video Browsing History.VideoList[].Timestamp|str",
+    "Activity.Video Browsing History.VideoList[].Link|str",
+]
 
 
 @pytest.fixture
@@ -104,7 +108,7 @@ def test_new_kind_of_quarantine_finding_still_quarantines(stores):
     second = ss.StructureSentinel()
     # Same file name, but now a known path comes back with a different type:
     # a finding the reviewer never saw.
-    retyped = [*PRUNED_PATHS[:1], "Activity.Video Browsing History.VideoList[].Link|int"]
+    retyped = [*PRUNED_PATHS[:1], "Activity.Video Browsing History.VideoList[].Link|int"]  # Link retyped
     verdict = second.check_raw(FakeCollection(_fp(retyped)), "pruned.json", pd.DataFrame({"a": range(20)}))
     assert verdict["status"] == "quarantined"
     assert any(f["code"] == "type_changed" for f in verdict["findings"])

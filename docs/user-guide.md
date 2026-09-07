@@ -396,8 +396,10 @@ the filename, join an existing collection, or mint a new one), optional tags,
 and an optional donor timezone (the authoritative source for local-time
 conversion — recommended for YouTube/Instagram where the export's label can
 be ambiguous). "Process New Collections" parses the pending uploads into the
-dataset; a **Structure review** panel quarantines uploads that deviate from
-the learned structure of past donations until you approve them; the **Last
+dataset; a **Structure review** panel quarantines uploads whose structure
+changed inside sections they contain (a renamed or retyped field, a parser
+that finds no rows) until you approve them — sections an uploader chose not
+to donate are noted on the ledger entry, not flagged; the **Last
 run results** and permanent **Ingestion history** panels record what happened
 to every file (rows read, rows kept, why rows were dropped — uploaded files
 are never modified).

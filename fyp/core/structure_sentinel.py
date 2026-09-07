@@ -12,6 +12,15 @@ Three detection layers:
 
 1. **Raw structure** — zip member paths, recursive JSON key paths with leaf
    types, HTML structural markers (YouTube watch-history), NDJSON record keys.
+   A donor decides what to donate: whole sections a file leaves out (a
+   category unticked in the platform's export, a section pruned in the
+   browser review, an empty list) are never a finding — they are recorded
+   on the verdict and in the ledger as ``withheld_sections``. Only structure
+   that changed INSIDE a section the file does contain quarantines: a known
+   field gone from a record that is present, or a path reappearing with a
+   different type. A renamed section therefore looks like a withheld one
+   plus unseen paths; layer 2/3 still catch it, because the parser then
+   finds no rows in it (``dominant_type_missing``, collapsed ``kept_ratio``).
 2. **Parse-output sanity** — per-file stats such as rows-per-MB, the fraction
    of rows surviving processing (timestamp parse rate), null item_id fraction,
    and donated-seed fill rates.
@@ -154,6 +163,61 @@ def _leaf_type(value: object) -> str:
 def base_path_of(typed_path: str) -> str:
     """Strip the ``|type`` suffix from a typed key path."""
     return typed_path.rsplit(TYPE_SEP, 1)[0]
+
+
+
+
+
+# Leaf types a container takes when it is empty or absent-but-present:
+# ``[]`` → list, ``{}`` → dict, ``null``. Between themselves these are not
+# drift (an empty favourites list one month, ``null`` the next).
+_EMPTY_CONTAINER_TYPES = frozenset({"list", "dict", "null"})
+
+
+def container_of(base_path: str) -> str | None:
+    """The path one level up: ``a.b.L[].f`` → ``a.b.L[]`` → ``a.b.L`` → ``a.b`` → ``a`` → None."""
+    if base_path.endswith("[]"):
+        return base_path[:-2]
+    if "." in base_path:
+        return base_path.rsplit(".", 1)[0]
+    return None
+
+
+
+
+
+def _ancestors_present(fp_bases: set[str]) -> set[str]:
+    """Every path that is present in the file as a leaf OR as a container.
+
+    A populated list ``L`` shows up in a fingerprint only through its
+    children (``L[].f``); this set also holds ``L``, ``L[]`` and every
+    ancestor so "is this section present?" is one membership test.
+    """
+    present: set[str] = set()
+    for base in fp_bases:
+        node: str | None = base
+        while node is not None and node not in present:
+            present.add(node)
+            node = container_of(node)
+    return present
+
+
+
+
+
+def withheld_root(base_path: str, present: set[str]) -> str | None:
+    """The outermost absent ancestor of a missing path, or None if its
+    immediate container is present (then the path is missing from a section
+    the file does contain — structural drift, not a donor's choice)."""
+    node = container_of(base_path)
+    if node is None or node in present:
+        return None
+    root = node
+    while True:
+        parent = container_of(node)
+        if parent is None or parent in present:
+            return root
+        root = node = parent
 
 
 
@@ -636,17 +700,15 @@ def evaluate_structure(fingerprint: dict | None, baseline: dict) -> list[dict]:
     fp_members = set(fingerprint.get("member_paths", []))
     fp_typed = set(fingerprint.get("key_paths", []))
     fp_bases = {base_path_of(p) for p in fp_typed}
+    fp_types: dict[str, set[str]] = {}
+    for typed_path in fp_typed:
+        fp_types.setdefault(base_path_of(typed_path), set()).add(typed_path.rsplit(TYPE_SEP, 1)[-1])
+    present = _ancestors_present(fp_bases)
 
+    # A zip member the donor left out is a withheld section, not drift.
     core_members = {m for m, c in baseline["member_paths"].items() if c / n >= CORE_PATH_SUPPORT}
     missing_members = sorted(core_members - fp_members)
-    if missing_members:
-        findings.append({
-            "layer": "structure",
-            "severity": "quarantine",
-            "code": "missing_member",
-            "detail": f"{len(missing_members)} expected zip member(s) absent",
-            "items": missing_members,
-        })
+    withheld: set[str] = set(missing_members)
     new_members = sorted(fp_members - set(baseline["member_paths"]))
     if new_members:
         findings.append({
@@ -662,13 +724,32 @@ def evaluate_structure(fingerprint: dict | None, baseline: dict) -> list[dict]:
     type_changed: list[str] = []
     for typed_path in sorted(core_typed - fp_typed):
         base = base_path_of(typed_path)
-        # A missing member already accounts for every path scoped under it.
+        leaf = typed_path.rsplit(TYPE_SEP, 1)[-1]
+        # A withheld member already accounts for every path scoped under it.
         if any(base.startswith(f"{m}{MEMBER_SEP}") for m in missing_members):
             continue
         if base in fp_bases:
+            # Same path, other type. Empty-container forms (null / [] / {})
+            # are one family; a populated container in the file is not a
+            # type change either (the baseline's ``null`` was just empty).
+            if leaf in _EMPTY_CONTAINER_TYPES and fp_types[base] <= _EMPTY_CONTAINER_TYPES:
+                continue
             type_changed.append(typed_path)
-        else:
-            missing_core.append(typed_path)
+            continue
+        if base in present:
+            # Present as a populated container (``L[].f`` in the file, ``L|null``
+            # in the baseline): the section is there, filled in.
+            continue
+        root = withheld_root(base, present)
+        if root is not None:
+            withheld.add(root)
+            continue
+        if leaf in _EMPTY_CONTAINER_TYPES:
+            # A whole (empty-in-the-baseline) subsection left out of a
+            # present section: still the donor's choice, not a renamed field.
+            withheld.add(base)
+            continue
+        missing_core.append(typed_path)
     if type_changed:
         findings.append({
             "layer": "structure",
@@ -682,7 +763,7 @@ def evaluate_structure(fingerprint: dict | None, baseline: dict) -> list[dict]:
             "layer": "structure",
             "severity": "quarantine",
             "code": "missing_core_paths",
-            "detail": f"{len(missing_core)} core key path(s) absent",
+            "detail": f"{len(missing_core)} known field(s) missing from section(s) the file contains",
             "items": missing_core,
         })
 
@@ -695,6 +776,17 @@ def evaluate_structure(fingerprint: dict | None, baseline: dict) -> list[dict]:
             "code": "new_key_paths",
             "detail": f"{len(new_paths)} previously unseen key path(s)",
             "items": new_paths[:100],
+        })
+
+    if withheld:
+        # Not a finding: the donor's choice, recorded for the ledger and the
+        # verdict so an admin can see what this donation does not contain.
+        findings.append({
+            "layer": "structure",
+            "severity": "note",
+            "code": "withheld_sections",
+            "detail": f"{len(withheld)} section(s) the baseline expects are not in this donation",
+            "items": sorted(withheld),
         })
 
     return findings
@@ -792,9 +884,20 @@ def status_from_findings(findings: list[dict], n_accepted: int) -> str:
         return "learning"
     if any(f["severity"] == "quarantine" for f in findings):
         return "quarantined"
-    if findings:
+    if any(f["severity"] != "note" for f in findings):
         return "warn"
     return "ok"
+
+
+
+
+
+def withheld_sections(findings: list[dict]) -> list[str]:
+    """The sections a donation leaves out, from its structure findings."""
+    for f in findings or []:
+        if f.get("code") == "withheld_sections":
+            return list(f.get("items") or [])
+    return []
 
 
 
@@ -964,6 +1067,7 @@ class StructureSentinel:
             "reviewed_by": None,
             "reviewed_at": None,
             "review_action": None,
+            "withheld_sections": withheld_sections(findings),
         }
         apply_review(verdict, self.prior_verdicts.get(filename))
         self.observations[filename] = verdict

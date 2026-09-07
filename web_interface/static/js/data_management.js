@@ -4669,7 +4669,9 @@ function renderStructureWarnings(data) {
 }
 
 function _structureFindingHtml(finding) {
-    const sevColor = finding.severity === 'quarantine' ? 'var(--color-danger)' : 'var(--color-warning)';
+    // 'note' = sections the uploader withheld: their choice, not drift.
+    const sevColor = finding.severity === 'quarantine' ? 'var(--color-danger)'
+        : finding.severity === 'note' ? 'var(--color-text-tertiary)' : 'var(--color-warning)';
     const items = (finding.items || []).slice(0, 30);
     const itemsHtml = items.length
         ? `<ul class="text-xxs" style="margin: 4px 0 0 0; padding-left: 18px; color: var(--color-text-secondary); font-family: var(--font-mono); word-break: break-all;">

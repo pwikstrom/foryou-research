@@ -971,6 +971,13 @@ class ForYouBaseCollection(ABC):
                         verdict = self.sentinel.check_raw(self, fn, one_df, variant=variant)
                     except Exception as exc:
                         logger.warning(f"WARNING: structure check failed for '{fn}': {exc}. Ingesting anyway.")
+                withheld = list((verdict or {}).get("withheld_sections") or [])
+                if withheld:
+                    # The donor's choice, not drift: noted on the ledger entry.
+                    self.file_stats_this_run[fn]["withheld_sections"] = withheld
+                    if self.verbose:
+                        logger.info(f"   [{fn}] Donation leaves out {len(withheld)} section(s): "
+                                    + ", ".join(withheld[:8]) + (" …" if len(withheld) > 8 else ""))
                 if verdict is not None and verdict["status"] == "quarantined":
                     self.quarantined_this_run[fn] = verdict
                     if self.verbose: logger.info(f"Quarantining file: {fn} (structure drift).")

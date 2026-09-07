@@ -59,6 +59,17 @@ def _per_file_counts(sub_collections) -> dict[str, dict]:
 
 
 
+def _withheld_note(stats: dict) -> str | None:
+    """Ledger note naming the sections a donation leaves out, or None."""
+    withheld = list((stats or {}).get("withheld_sections") or [])
+    if not withheld:
+        return None
+    return "Uploader withheld: " + ", ".join(withheld)
+
+
+
+
+
 def _build_per_file_summary(
     main_collection,
     raw_counts: dict[str, dict],
@@ -212,6 +223,7 @@ def _build_per_file_summary(
             "merged_with_siblings": siblings,
             "deduped_rows": max(processed_rows - final_rows, 0),
             "dropped": dropped,
+            "notes": _withheld_note(stats),
         })
 
     return summary

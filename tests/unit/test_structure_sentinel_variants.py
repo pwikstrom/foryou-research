@@ -70,15 +70,17 @@ def test_baseline_key_variant():
     assert ss.baseline_key("tiktok", "ddp", "reviewed") == "tiktok_ddp__reviewed"
 
 
-def test_pruned_file_quarantines_on_legacy_baseline(stores):
-    # Sanity: without the variant, a pruned file IS missing-core-path drift.
+def test_pruned_file_is_accepted_on_legacy_baseline_with_sections_noted(stores):
+    # Whole sections a donor leaves out are their choice, never drift — even
+    # against the verbatim-export baseline. They are noted, not flagged.
     baselines, _ = stores
     _mature_legacy_baseline(baselines)
     sentinel = ss.StructureSentinel()
     verdict = sentinel.check_raw(FakeCollection(_fp(PRUNED_PATHS)), "pruned.json",
                                  pd.DataFrame({"a": range(20)}))
-    assert verdict["status"] == "quarantined"
-    assert any(f["code"] == "missing_core_paths" for f in verdict["findings"])
+    assert verdict["status"] == "ok"
+    assert not any(f["code"] == "missing_core_paths" for f in verdict["findings"])
+    assert verdict["withheld_sections"] == ["Direct Messages", "Profile"]
 
 
 def test_reviewed_variant_uses_own_baseline(stores):

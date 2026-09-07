@@ -51,8 +51,9 @@ Notable behaviors:
   (`fyp/ingest/tiktok.py`), and login-history/IP rows are surfaced as a
   reviewable section. Reviewed uploads are flagged `client_reviewed`, and the
   structure sentinel evaluates them against a separate `__reviewed` baseline
-  instead of quarantining them as drift from the verbatim-export baseline
-  (`fyp/core/structure_sentinel.py`).
+  whose stat distributions fit pruned files (`fyp/core/structure_sentinel.py`).
+  Sections a donor leaves out are never drift on either baseline: the
+  sentinel notes them as `withheld_sections` and ingests what was donated.
 
 ## 2. Scraping (`fyp/scrape/`)
 

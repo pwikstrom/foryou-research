@@ -149,7 +149,9 @@ zero orchestration edits:
 Supporting safety nets: the **structure sentinel**
 (`fyp/core/structure_sentinel.py`) learns each platform's export structure and
 quarantines silently-drifted uploads for admin review instead of ingesting
-them; parse failures leave files pending for retry rather than discarding;
+them (drift inside sections a file contains — sections a donor left out are
+noted, never flagged); parse failures leave files pending for retry rather
+than discarding;
 and the **ingestion ledger** records every file's per-run outcome with row
 counts and a drop-reason breakdown, surfaced as a permanent per-file intake
 report in the UI. On the scraping side, batch-level guards stop a broken

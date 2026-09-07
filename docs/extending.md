@@ -135,10 +135,17 @@ platform requires an authenticated session.
 
 The sentinel (`fyp/core/structure_sentinel.py`) learns donation-export
 structure per `(source_platform, data_source)` and quarantines drifted
-uploads. A new platform starts learn-only (every accepted file trains the
-baseline) until enough files accumulate; to seed the baseline from an
-existing corpus of accepted files, run
-`scripts/bootstrap_structure_baselines.py`.
+uploads. Drift means a change inside a section the file contains — a known
+field missing from a present record, or a path back with another type;
+whole sections a donor left out (categories unticked in the platform's
+export, sections pruned in the browser review, empty lists, absent zip
+members) are the donor's choice and are recorded as `withheld_sections` on
+the verdict and as a ledger note, never flagged. A platform-side section
+rename shows up as a withheld section plus unseen paths, and the stats
+layers catch it because the parser then finds no rows in it. A new platform
+starts learn-only (every accepted file trains the baseline) until enough
+files accumulate; to seed the baseline from an existing corpus of accepted
+files, run `scripts/bootstrap_structure_baselines.py`.
 
 ### 9. Optional config
 
