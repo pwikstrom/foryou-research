@@ -14,6 +14,7 @@ from web_interface import task_failures
 
 from .. import explorer_backend as explorer
 from ..data_service import (
+    TOTAL_STATS_PROVISIONAL_KEY,
     _get_recoded_mtime,
     enrich_with_user_tags,
     get_accessible_studies,
@@ -1051,6 +1052,12 @@ def api_explorer_filter():
     # total_stats. Read-only: anything grafted onto it below must copy first.
     cached_metadata = get_explorer_metadata_cached(study)
 
+    # A composed ("Everyone & Me") study has no unfiltered stats of its own:
+    # what the merged metadata carries is the base study's, standing in for the
+    # cold-open reply. The owner's own videos are only in the frame, so the
+    # unfiltered answer has to be computed from it like any filtered one.
+    reuse_total_stats = not cached_metadata.get(TOTAL_STATS_PROVISIONAL_KEY)
+
     result = {}
 
     # Stats are only computed for the columns this user's Explore actually
@@ -1063,7 +1070,7 @@ def api_explorer_filter():
         # Check if filters are empty and we have cached stats
         is_empty_filters = (not filters) and (not search_query)
 
-        if is_empty_filters and 'total_stats' in cached_metadata:
+        if is_empty_filters and reuse_total_stats and 'total_stats' in cached_metadata:
             #print("    Using cached total_stats for Slice 1")
             # Copy: the metadata dict is a shared cache entry now, and the
             # User Tags injection below must not write into it.
@@ -1102,7 +1109,7 @@ def api_explorer_filter():
             # Check if filters are empty (for S2 specific case if not identical/S1 not avail)
             is_empty_filters2 = (not filters2) and (not search_query2)
 
-            if is_empty_filters2 and 'total_stats' in cached_metadata:
+            if is_empty_filters2 and reuse_total_stats and 'total_stats' in cached_metadata:
                  #print("    Using cached total_stats for Slice 2")
                  result['stats2'] = dict(cached_metadata['total_stats'])
                  result['count2'] = len(df)

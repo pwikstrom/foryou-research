@@ -322,6 +322,13 @@ _explorer_meta_cache = LRUCache(maxsize=8)
 _explorer_meta_lock = threading.Lock()
 
 
+# Set on a composed study's merged metadata to say its ``total_stats`` is the
+# base study's, standing in until the composed frame is loaded. The filter
+# endpoint reads it and recomputes rather than serving those numbers as the
+# unfiltered answer (see _stand_in_total_stats).
+TOTAL_STATS_PROVISIONAL_KEY = "total_stats_provisional"
+
+
 def _merge_explorer_metadata(base_meta, overlay_meta):
     """Union two explorer-metadata payloads for a composed study.
 
@@ -330,6 +337,10 @@ def _merge_explorer_metadata(base_meta, overlay_meta):
     ids, become filterable), numeric ``min``/``max`` take the envelope, and
     any other conflict keeps the base value (counts therefore read as the
     base's — approximate, like the composed stats).
+
+    ``total_stats`` is the one subtree this must never touch: its lists are
+    PARALLEL arrays, not sets of values (see _stand_in_total_stats). The
+    caller replaces it wholesale straight after this returns.
     """
     if isinstance(base_meta, dict) and isinstance(overlay_meta, dict):
         merged = dict(base_meta)
@@ -374,6 +385,36 @@ def _merge_meta_bounds(merged, base_meta, overlay_meta):
     return merged
 
 
+def _stand_in_total_stats(merged, base_meta):
+    """Replace a composed study's merged ``total_stats`` with the base's own.
+
+    Every other subtree is a set of values a union describes honestly.
+    ``total_stats`` is not: each numeric column holds a density histogram as
+    PARALLEL arrays — ``x``/``y`` (bin centres and their heights) and
+    ``tick_vals``/``tick_text`` (log-axis positions and their labels). Unioning
+    those interleaves two independent binnings, so the x positions stop being
+    evenly spaced and Plotly draws hairline bars instead of a histogram; worse,
+    duplicate label strings dedupe away while the float positions do not, and
+    the tick list outgrows its labels until Plotly prints raw log10 positions
+    ("-2.065") where a decade label belongs.
+
+    The two histograms cannot be recombined from what is stored (different bin
+    grids, different log offsets), so the base study's own arrays stand in and
+    the payload is flagged: the filter endpoint recomputes the real composed
+    distribution from the frame, and only the cold-open ``warming`` reply —
+    already provisional, already followed by a second request — ever shows
+    these.
+    """
+    base_stats = base_meta.get('total_stats')
+    if isinstance(base_stats, dict):
+        merged['total_stats'] = base_stats
+        merged[TOTAL_STATS_PROVISIONAL_KEY] = True
+    else:
+        merged.pop('total_stats', None)
+        merged.pop(TOTAL_STATS_PROVISIONAL_KEY, None)
+    return merged
+
+
 def get_explorer_metadata_cached(study):
     """Parsed ``{study}_explorer_metadata.json``, or ``{}`` when absent.
 
@@ -395,9 +436,12 @@ def get_explorer_metadata_cached(study):
         base_meta = get_explorer_metadata_cached(base_name)
         overlay_meta = get_explorer_metadata_cached(overlay_name)
         if not base_meta:
-            return overlay_meta
+            # Overlay only (base metadata missing): its stats describe half the
+            # composed frame, so they are a stand-in on the same terms.
+            return _stand_in_total_stats(dict(overlay_meta), overlay_meta)
         merged = _merge_explorer_metadata(base_meta, overlay_meta)
         merged = _merge_meta_bounds(merged, base_meta, overlay_meta)
+        merged = _stand_in_total_stats(merged, base_meta)
         with _explorer_meta_lock:
             _explorer_meta_cache[study] = (token, merged)
         return merged

@@ -110,3 +110,32 @@ def test_warm_frame_never_takes_the_fast_path(client, monkeypatch):
     res = client.post("/api/explore/filter", json={"study": "s1", "filters": {}})
     assert sentinel.get("hit") is True
     assert res.get_json().get("warming") is None
+
+
+def test_composed_study_recomputes_the_unfiltered_stats(client, monkeypatch):
+    """An "Everyone & Me" study has no unfiltered stats of its own — what the
+    merged metadata carries is the base study's, under a provisional flag.
+    An empty-filter request must compute the composed distribution from the
+    frame rather than echo the stand-in back as the answer."""
+    import pandas as pd
+
+    monkeypatch.setattr(routes, "is_study_frame_cached", lambda s: True)
+    monkeypatch.setattr(
+        routes, "get_explorer_metadata_cached",
+        lambda s: {"total_stats": {"niche": {"cats": 999}},
+                   routes.TOTAL_STATS_PROVISIONAL_KEY: True})
+
+    df = pd.DataFrame({"niche": ["cats", "dogs"]})
+    monkeypatch.setattr(routes, "get_explorer_data",
+                        lambda study, **kw: (df, {"niche": "category"}))
+    monkeypatch.setattr(routes, "enrich_with_user_tags",
+                        lambda d, t, u, **kw: (d, t))
+    monkeypatch.setattr(routes.explorer, "get_current_stats",
+                        lambda *a, **kw: {"stats": {"niche": {"cats": 1, "dogs": 1}},
+                                          "count": 2})
+
+    res = client.post("/api/explore/filter",
+                      json={"study": "__me_plus__p@example.org", "filters": {}})
+    payload = res.get_json()
+    assert payload["stats"] == {"niche": {"cats": 1, "dogs": 1}}
+    assert payload["count"] == 2

@@ -429,3 +429,58 @@ def test_save_study_defs_drops_derived_presentation_keys(monkeypatch):
     assert written["data"][f"__me__{_OWNER}"]["USER_ACCESS"] == [_OWNER]
     # The in-memory definitions keep their working copy of STUDY_NAME.
     assert defs["main_study"]["STUDY_NAME"] == "main_study"
+
+
+def test_composed_metadata_never_splices_two_histograms(participant_defs, monkeypatch):
+    """``total_stats`` holds parallel arrays — histogram bin centres against
+    their heights, log-axis tick positions against their labels. The generic
+    union that makes overlay-only filter values reachable would interleave two
+    independent binnings (hairline bars) and let the tick list outgrow its
+    labels (Plotly then prints raw log10 positions). The base's arrays stand in
+    instead, flagged so the filter endpoint recomputes from the frame."""
+    from web_interface.services import study_data
+
+    plus = f"__me_plus__{_OWNER}"
+    payloads = {
+        "main_study": {
+            "duration": {"type": "number", "min": 1.0, "max": 600.0, "log": True},
+            "total_stats": {"duration": {
+                "type": "density",
+                "x": [0.5, 0.7, 0.9], "y": [0.2, 0.9, 0.4],
+                "transform": "log10", "log_offset": 1.0,
+                "tick_vals": [1.0413, 2.0043], "tick_text": ["10", "100"],
+                "mean": 46.7, "count": 500000}},
+        },
+        f"__me__{_OWNER}": {
+            "duration": {"type": "number", "min": 2.0, "max": 1200.0, "log": True},
+            "total_stats": {"duration": {
+                "type": "density",
+                "x": [0.6, 0.8, 1.0, 1.2], "y": [0.3, 1.0, 0.5, 0.1],
+                "transform": "log10", "log_offset": 0.004,
+                "tick_vals": [1.0002, 2.0000, 3.0000],
+                "tick_text": ["10", "100", "1,000"],
+                "mean": 51.2, "count": 9000}},
+        },
+    }
+    monkeypatch.setattr(study_data, "_ttl_mtime", lambda filename: 1.0)
+    monkeypatch.setattr(study_data.data_io, "load_json",
+                        lambda storage_location, filename: payloads[
+                            filename.replace("_explorer_metadata.json", "")])
+    with study_data._explorer_meta_lock:
+        study_data._explorer_meta_cache.clear()
+
+    merged = study_data.get_explorer_metadata_cached(plus)
+    hist = merged["total_stats"]["duration"]
+
+    assert hist["x"] == [0.5, 0.7, 0.9]          # one binning, evenly spaced
+    assert len(hist["x"]) == len(hist["y"])
+    assert len(hist["tick_vals"]) == len(hist["tick_text"])
+    assert hist["log_offset"] == 1.0             # the offset its x values use
+    assert merged[study_data.TOTAL_STATS_PROVISIONAL_KEY] is True
+
+    # The rest of the payload still merges: bounds take the envelope.
+    assert merged["duration"]["min"] == 1.0
+    assert merged["duration"]["max"] == 1200.0
+
+    with study_data._explorer_meta_lock:
+        study_data._explorer_meta_cache.clear()

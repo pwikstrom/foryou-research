@@ -19,6 +19,7 @@ from .services.analysis_data import (  # noqa: F401
 )
 from .services.study_data import (  # noqa: F401
     SECTION_ORDER,
+    TOTAL_STATS_PROVISIONAL_KEY,
     StudyCache,
     _CAT_SCALES,
     _COLLECTION_TAGS_TTL,
