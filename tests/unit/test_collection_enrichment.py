@@ -986,6 +986,46 @@ def test_small_handoff_waits_for_the_next_scrape(tick, monkeypatch):
     assert [n for n, _ in tick["started"]] == ["queue_scraper_tiktok"]
 
 
+def test_held_ticks_never_strike_the_stall_guard(tick, monkeypatch):
+    """A held queue is waiting on purpose; its unchanged length is not a stall.
+
+    2026-09-08: the tail of a plan cut one-video slices, three of which scraped
+    nothing, so the held queue read 384 three ticks running. The guard was
+    evaluated before the hold and parked both plans although no annotator had
+    run. The guard may only count runs the annotator was actually started for.
+    """
+    import web_interface.run_enrichment_supervisor as sup
+
+    monkeypatch.setattr(sup, "MIN_ANNOTATE_BATCH", 500)
+    tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
+    tick["store"][ce.ANNOTATE_QUEUE_FILENAME] = ["x1", "x2", "x3"]
+    tick["scrape_queues"] = {"tiktok": 1}            # more is coming, one video at a time
+    tick["scrape_busy"] = {"tiktok"}
+    for _ in range(4):
+        rep = tick["run"]()
+        assert rep.data[-1]["action"] != "annotate_stalled", rep.data[-1]
+        parked = (tick["store"].get(ce.LEDGER_FILENAME) or {}).get("c1") or {}
+        assert parked.get("state") != ce.STATE_BLOCKED, parked
+    assert ce.get_meta("annotate_guard") is None
+    assert tick["started"] == []
+
+    # Strikes from before the hold do not carry into the run after it: with
+    # the hold over (nothing more coming), the first run starts clean and the
+    # guard needs two more identical runs before it parks.
+    ce.set_meta("annotate_guard", {"len": 3, "strikes": 1})
+    tick["run"]()                                     # held again: clears the strikes
+    assert ce.get_meta("annotate_guard") is None
+    tick["scrape_queues"] = {}
+    tick["scrape_busy"] = set()
+    monkeypatch.setattr(ce, "plan_cycle",
+                        lambda cid, entry, **kw: {"item_ids": [], "a_cursor": None,
+                                                  "b_cursor": None, "a": 0, "b": 0,
+                                                  "exhausted": True, "platform": "tiktok"})
+    rep = tick["run"]()
+    assert rep.data[-1]["action"] == "annotate"
+    assert [n for n, _ in tick["started"]] == ["queue_annotator"]
+
+
 def test_held_queue_starts_when_nothing_more_is_coming(tick, monkeypatch):
     """The plan's tail: nothing left to scrape, so the small queue goes now."""
     import web_interface.run_enrichment_supervisor as sup

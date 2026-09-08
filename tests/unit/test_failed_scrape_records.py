@@ -204,9 +204,9 @@ def _metadata_row(item_id: str) -> pd.DataFrame:
 def _run_and_capture(ids, fake_dl, **patches):
     """Run a real (non-dry) batch and capture what lands on the failed record.
 
-    A batch with zero successful rows returns before the failed-record save, so
-    callers must include at least one success for the record to be written at
-    all. The recode/save of those successful rows is stubbed out.
+    The recode/save of any successful rows is stubbed out. A batch with no
+    successful row at all still writes its record — see
+    :func:`test_all_failed_batch_still_writes_the_record`.
     """
     captured: dict[str, list] = {}
 
@@ -274,6 +274,26 @@ def test_storm_verdict_never_reaches_the_record():
 
 
 
+def test_all_failed_batch_still_writes_the_record():
+    """A batch where every item failed permanently records every failure.
+
+    The empty-results return used to come first, so such a batch recorded
+    nothing: consolidation never marked the videos scrape_fail and the
+    enrichment planner re-cut the same dead video every cycle (2026-09-08).
+    """
+    def fake_dl(video_id=None, **kwargs):
+        return _failure("removed")
+
+    captured, perm, trans = _run_and_capture(["v1", "v2"], fake_dl)
+
+    assert set(perm) == {"v1", "v2"}, perm
+    assert trans == [], trans
+    assert captured.get("payload") == [
+        {"item_id": "v1", "category": "permanent:removed"},
+        {"item_id": "v2", "category": "permanent:removed"},
+    ], captured
+    print("PASS: all-failed batch still writes the record")
+
 
 if __name__ == "__main__":
     test_legacy_bare_ids_still_load()
@@ -287,4 +307,5 @@ if __name__ == "__main__":
                        ("network", "transient:network")]:
         test_writer_records_the_category(_cat, _exp)
     test_storm_verdict_never_reaches_the_record()
+    test_all_failed_batch_still_writes_the_record()
     print("All failed-scrape record tests passed.")

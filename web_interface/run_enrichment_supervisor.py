@@ -530,10 +530,13 @@ def _drain_annotate(reporter, plans: dict, more_coming: bool) -> dict | None:
         return None
     if _annotate_lane_busy():
         return None  # already being drained (or claimed into in-flight jobs)
-    if _queue_stalled(reporter, plans, "annotate_guard", len(queue), "annotation"):
-        return {"action": "annotate_stalled", "queued": len(queue),
-                "message": "The annotation queue is not draining; plans parked."}
 
+    # The hold is decided BEFORE the stall guard. A held queue is waiting on
+    # purpose, and its length is unchanged tick after tick by design; the
+    # guard counts identical lengths per tick, so evaluating it first parked
+    # every armed plan on 2026-09-08 after three held ticks in which no
+    # annotator had run at all. Holding also clears any strikes, so the first
+    # run after the hold starts from a clean count.
     if len(queue) < MIN_ANNOTATE_BATCH and more_coming:
         held = ce.get_meta(ANNOTATE_HELD_KEY)
         since = (held or {}).get("since") if isinstance(held, dict) else None
@@ -545,6 +548,8 @@ def _drain_annotate(reporter, plans: dict, more_coming: bool) -> dict | None:
             except (TypeError, ValueError):
                 age_min = None
         if age_min is None or age_min < MAX_ANNOTATE_HOLD_MIN:
+            if ce.get_meta("annotate_guard") is not None:
+                ce.set_meta("annotate_guard", None)
             if not held:
                 ce.set_meta(ANNOTATE_HELD_KEY, {"since": ce.now_iso(), "queued": len(queue)})
                 journal.record("annotate.held",
@@ -559,6 +564,10 @@ def _drain_annotate(reporter, plans: dict, more_coming: bool) -> dict | None:
             return {"action": "annotate_held", "queued": len(queue),
                     "message": f"Holding {len(queue)} queued item(s) for a fuller annotation batch."}
         reporter.log(f"Held annotation queue is {age_min:.0f} min old — starting it now.")
+
+    if _queue_stalled(reporter, plans, "annotate_guard", len(queue), "annotation"):
+        return {"action": "annotate_stalled", "queued": len(queue),
+                "message": "The annotation queue is not draining; plans parked."}
 
     name = _annotator_process()
     ok, msg = _start(name)

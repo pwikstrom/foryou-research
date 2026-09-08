@@ -1314,6 +1314,8 @@ def download_video_threads(
             # point may not hold from another, unlike a removed or private post.
             failed_items += [{"item_id": vid, "category": classification}]
 
+    fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
+
     if storm_state["tripped"]:
         logger.warning(f"  Permanent-storm guard: {storm_demoted} "
                        f"'{storm_state['classification']}' failures demoted to transient "
@@ -1366,6 +1368,16 @@ def download_video_threads(
         logger.info(f"  Failures: {len(permanent_failed_ids)} permanent, "
               f"{len(transient_failed_ids)} transient (will retry)")
 
+    # The failed record is written BEFORE the empty-results return below. A
+    # batch where every item failed permanently used to return first and record
+    # nothing: consolidation never marked those videos scrape_fail, the
+    # enrichment planner's scrapeable mask kept them, and on 2026-09-08 one dead
+    # video was re-cut into a one-item slice every 25 seconds until the
+    # supervisor's no-drain guard parked every armed plan.
+    if not dry_run and len(failed_items)>0:
+        data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{_failed_scrapes_label()}_{fine_ts}.json", verbose=verbose)
+        logger.info(f"Saved {len(failed_items)} failed items")
+
     if len(results)==0:
         logger.warning("The scrape procedure did not generate any useful results")
         empty_results = pd.DataFrame()
@@ -1382,17 +1394,11 @@ def download_video_threads(
     # concat(axis=1) hashtag fan-out into a cartesian row explosion.
     results = pd.concat(results, ignore_index=True)
 
-    fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
-
     if not dry_run and len(results)>0:
         results = _canonicalize_recode_save(
             results, scraper, fine_ts, verbose=verbose, reporter=reporter,
             storage_link_overrides=already_have_media,
         )
-
-    if not dry_run and len(failed_items)>0:
-        data_io.save_json(data = failed_items, storage_location="scrape", filename=f"{_failed_scrapes_label()}_{fine_ts}.json", verbose=verbose)
-        logger.info(f"Saved {len(failed_items)} failed items")
 
     # Signal upward (batch loop / queue-scraper chaining) that this batch was
     # aborted by the rate-limit circuit breaker or the permanent-storm guard.
