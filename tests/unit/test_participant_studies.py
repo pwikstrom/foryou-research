@@ -484,3 +484,41 @@ def test_composed_metadata_never_splices_two_histograms(participant_defs, monkey
 
     with study_data._explorer_meta_lock:
         study_data._explorer_meta_cache.clear()
+
+
+def test_composed_metadata_keeps_the_owners_own_filter_values(participant_defs, monkeypatch):
+    """The owner's collection id is the one filter an Everyone & Me study
+    exists for, and the generic merge dropped it: a filter's ``values`` list
+    holds ``{"value", "count"}`` dicts, which that pass has no cheap way to
+    dedupe, so it kept the base's list whole and discarded the overlay's."""
+    from web_interface.services import study_data
+
+    plus = f"__me_plus__{_OWNER}"
+    payloads = {
+        "main_study": {
+            "collection_id": {"type": "category", "total_unique": 2,
+                              "values": [{"value": "c9", "count": 90},
+                                         {"value": "c1", "count": 10}]},
+        },
+        f"__me__{_OWNER}": {
+            "collection_id": {"type": "category", "total_unique": 2,
+                              "values": [{"value": "c2", "count": 40},
+                                         {"value": "c1", "count": 12}]},
+        },
+    }
+    monkeypatch.setattr(study_data, "_ttl_mtime", lambda filename: 1.0)
+    monkeypatch.setattr(study_data.data_io, "load_json",
+                        lambda storage_location, filename: payloads[
+                            filename.replace("_explorer_metadata.json", "")])
+    with study_data._explorer_meta_lock:
+        study_data._explorer_meta_cache.clear()
+
+    values = study_data.get_explorer_metadata_cached(plus)["collection_id"]
+
+    # c2 is the owner's own; c1 is on both sides and keeps the base's count.
+    assert [v["value"] for v in values["values"]] == ["c9", "c2", "c1"]
+    assert [v["count"] for v in values["values"]] == [90, 40, 10]
+    assert values["total_unique"] == 3   # grown by what the overlay added
+
+    with study_data._explorer_meta_lock:
+        study_data._explorer_meta_cache.clear()

@@ -174,6 +174,8 @@ def test_enrichment_never_mutates_the_cached_metadata_types(monkeypatch, _clear_
 
 
 def test_explorer_metadata_parsed_once_per_mtime(monkeypatch):
+    from fyp.fyp_config import fyp_cf
+
     with study_data._explorer_meta_lock:
         study_data._explorer_meta_cache.clear()
     loads = {"n": 0}
@@ -182,6 +184,11 @@ def test_explorer_metadata_parsed_once_per_mtime(monkeypatch):
         loads["n"] += 1
         return {"total_stats": {"x": 1}}
 
+    # Defs in place: the composed-study check at the top of the function calls
+    # init_study_defs() when they are absent, and THAT load_json would land on
+    # the counter below (this file passed only when an earlier test happened to
+    # leave defs loaded).
+    monkeypatch.setitem(fyp_cf, "study_defs", {})
     monkeypatch.setattr(study_data, "_ttl_mtime", lambda f: 42.0)
     monkeypatch.setattr(study_data.data_io, "load_json", fake_load_json)
 

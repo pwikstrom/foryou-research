@@ -1,3 +1,4 @@
+import copy
 import os
 import platform
 import traceback
@@ -33,6 +34,7 @@ from ..data_service import (
 from ..permissions import permission_required
 from ..security import user_manager
 from ..services import system_health
+from ..services.study_data import resolve_compose
 from ..services.user_variables import compose_effective_variables
 from ._access import study_access_error
 
@@ -435,6 +437,9 @@ def api_explorer_metadata_base():
     Falls back to the cold path (loads the DF, computes metadata, saves under
     the canonical filename) when the JSON is missing or invalidated.
 
+    A composed ("Everyone & Me") study never touches that file at all — see
+    below.
+
     Serves both the Explore and Video Analysis tabs (either permission grants
     access).
     """
@@ -448,8 +453,30 @@ def api_explorer_metadata_base():
 
     canonical_filename = f"{study}_explorer_metadata.json"
 
+    # A composed study stores NO artifacts of its own: its metadata is
+    # base ∪ overlay, assembled per request and cached on the two sources'
+    # mtimes. Both halves of the file path below are wrong for it — writing
+    # mints an artifact under a composed name, and reading it back can never
+    # be invalidated, because the staleness check compares against
+    # {study}_recoded.parquet, which a composed study does not have. The file
+    # would be served forever while base and overlay moved on beneath it.
+    composed = resolve_compose(study) is not None
+    if composed:
+        merged = get_explorer_metadata_cached(study)
+        if merged:
+            # Deep copy: the merge is a shared cache entry and finalization
+            # writes into it (display-id labels onto the collection_id rows,
+            # the study-membership filter). Still cheaper than the multi-MB
+            # fetch-and-parse the fast path below does on every call.
+            metadata = _finalize_base_metadata(copy.deepcopy(merged), study)
+            if metadata is not None:
+                # Internal bookkeeping for the filter endpoint, not a column.
+                metadata.pop(TOTAL_STATS_PROVISIONAL_KEY, None)
+                return jsonify(make_serializable(metadata))
+            print(f"    [DATA_ROUTES] Composed metadata for {study} invalidated, regenerating...")
+
     # Fast path
-    if data_io.exists(storage_location="cache", filename=canonical_filename):
+    if not composed and data_io.exists(storage_location="cache", filename=canonical_filename):
         # Staleness check: if the recoded parquet was rewritten after this
         # JSON was saved, the cached filter counts no longer match the data.
         # Fall through to the cold path so metadata is regenerated.
@@ -489,12 +516,15 @@ def api_explorer_metadata_base():
             return jsonify({"error": "Dataset not found"}), 404
 
         metadata = _build_full_metadata(df, col_types, study)
-        data_io.save_json(
-            data=make_serializable(metadata),
-            storage_location="cache",
-            filename=canonical_filename,
-            verbose=False,
-        )
+        # A composed study is served from the frame here only while a source's
+        # metadata is missing; it is never written, so it can never go stale.
+        if not composed:
+            data_io.save_json(
+                data=make_serializable(metadata),
+                storage_location="cache",
+                filename=canonical_filename,
+                verbose=False,
+            )
         metadata = _finalize_base_metadata(metadata, study)
         return jsonify(make_serializable(metadata))
     except Exception as e:
@@ -644,7 +674,11 @@ def api_explorer_metadata():
 
 
     cached_metadata = None
-    if data_io.exists(storage_location="cache", filename=f"{study}_explorer_metadata.json"):
+    # A composed ("Everyone & Me") study stores no artifacts of its own, so it
+    # neither reads nor writes this file (see /api/explore/metadata/base for
+    # why a composed name must never own one) — it always computes below.
+    composed = resolve_compose(study) is not None
+    if not composed and data_io.exists(storage_location="cache", filename=f"{study}_explorer_metadata.json"):
         try:
             potential_metadata = data_io.load_json(storage_location="cache", filename=f"{study}_explorer_metadata.json")
 
@@ -905,7 +939,8 @@ def api_explorer_metadata():
     # triggered the cold computation. Both contexts compute identical metadata
     # because get_explorer_data() applies the same filter for explorer and
     # viewer (see data_service.py).
-    data_io.save_json(data=make_serializable(metadata), storage_location="cache", filename=f"{study}_explorer_metadata.json", verbose=False)
+    if not composed:
+        data_io.save_json(data=make_serializable(metadata), storage_location="cache", filename=f"{study}_explorer_metadata.json", verbose=False)
 
     return jsonify(make_serializable(metadata))
 

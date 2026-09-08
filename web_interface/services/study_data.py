@@ -332,15 +332,16 @@ TOTAL_STATS_PROVISIONAL_KEY = "total_stats_provisional"
 def _merge_explorer_metadata(base_meta, overlay_meta):
     """Union two explorer-metadata payloads for a composed study.
 
-    Generic recursive merge: dicts merge key-wise, lists union (base order
-    first — so overlay-only categorical values, e.g. the owner's collection
-    ids, become filterable), numeric ``min``/``max`` take the envelope, and
+    Generic recursive merge: dicts merge key-wise, lists of plain values
+    union (base order first), numeric ``min``/``max`` take the envelope, and
     any other conflict keeps the base value (counts therefore read as the
     base's — approximate, like the composed stats).
 
-    ``total_stats`` is the one subtree this must never touch: its lists are
-    PARALLEL arrays, not sets of values (see _stand_in_total_stats). The
-    caller replaces it wholesale straight after this returns.
+    Two subtrees this pass cannot describe on its own, both left to the
+    second passes the caller runs straight after: a filter's ``values`` list
+    holds unhashable ``{"value", "count"}`` rows this cannot dedupe (see
+    _merge_filter_values), and ``total_stats`` holds PARALLEL arrays that are
+    not sets of values at all (see _stand_in_total_stats).
     """
     if isinstance(base_meta, dict) and isinstance(overlay_meta, dict):
         merged = dict(base_meta)
@@ -381,6 +382,67 @@ def _merge_meta_bounds(merged, base_meta, overlay_meta):
     for key, m_val in merged.items():
         if isinstance(m_val, dict):
             merged[key] = _merge_meta_bounds(
+                m_val, base_meta.get(key), overlay_meta.get(key))
+    return merged
+
+
+# The dropdown cap get_metadata applies when it builds a filter's value list.
+# A merged list is re-capped the same way, so the "showing top N of M" notice
+# the frontend renders keeps meaning what it says.
+_FILTER_VALUE_CAP = 200
+
+
+def _is_filter_value_list(candidate):
+    """True for a filter's dropdown list: ``[{"value": v, "count": n}, ...]``.
+
+    ``value`` must be a scalar — get_metadata stringifies every one of them, and
+    the union below keys a dict on it, which an unhashable value would break.
+    """
+    return (isinstance(candidate, list) and candidate
+            and all(isinstance(row, dict)
+                    and isinstance(row.get("value"), (str, int, float, bool))
+                    for row in candidate))
+
+
+def _merge_filter_values(merged, base_meta, overlay_meta):
+    """Second pass: union the ``values`` dropdown lists wherever both sides
+    carry one.
+
+    The generic merge cannot: these rows are dicts, which it has no cheap way
+    to dedupe, so it keeps the base's list untouched. That silently dropped
+    every value only the overlay has — the owner's own collection id among
+    them, which is the one filter an Everyone & Me study exists for.
+
+    Keyed on ``value``: a value on both sides keeps the base's row, and
+    overlay-only rows are appended. Counts stay as each side measured them —
+    neither is exact for the composed frame, whose load drops the base's copy
+    of the owner's rows — which is the same approximation every other count in
+    a composed payload carries. The result is re-sorted by count and re-capped
+    the way get_metadata built it, and ``total_unique`` grows by what the
+    overlay added.
+    """
+    if not (isinstance(merged, dict) and isinstance(base_meta, dict)
+            and isinstance(overlay_meta, dict)):
+        return merged
+    base_values = base_meta.get("values")
+    overlay_values = overlay_meta.get("values")
+    if _is_filter_value_list(base_values) and _is_filter_value_list(overlay_values):
+        by_value = {}
+        for row in base_values:
+            by_value.setdefault(row["value"], row)
+        added = 0
+        for row in overlay_values:
+            if row["value"] not in by_value:
+                by_value[row["value"]] = row
+                added += 1
+        ranked = sorted(by_value.values(), key=lambda r: -(r.get("count") or 0))
+        merged["values"] = ranked[:_FILTER_VALUE_CAP]
+        total_unique = merged.get("total_unique")
+        if isinstance(total_unique, int) and not isinstance(total_unique, bool):
+            merged["total_unique"] = total_unique + added
+    for key, m_val in merged.items():
+        if isinstance(m_val, dict):
+            merged[key] = _merge_filter_values(
                 m_val, base_meta.get(key), overlay_meta.get(key))
     return merged
 
@@ -441,6 +503,7 @@ def get_explorer_metadata_cached(study):
             return _stand_in_total_stats(dict(overlay_meta), overlay_meta)
         merged = _merge_explorer_metadata(base_meta, overlay_meta)
         merged = _merge_meta_bounds(merged, base_meta, overlay_meta)
+        merged = _merge_filter_values(merged, base_meta, overlay_meta)
         merged = _stand_in_total_stats(merged, base_meta)
         with _explorer_meta_lock:
             _explorer_meta_cache[study] = (token, merged)
