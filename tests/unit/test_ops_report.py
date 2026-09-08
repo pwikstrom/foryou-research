@@ -347,3 +347,77 @@ def test_linked_collection_missing_from_dataset_is_flagged(tmp_path, monkeypatch
     }
     assert _linked_collections_missing(tags, {"pending"}) == [
         "user_data_tiktok_2 (owner wendto1712@gmail.com)"]
+
+
+
+
+def test_structure_sentinel_check_follows_the_review_queue(monkeypatch):
+    """2026-09-09: a file approved on 09-07 kept its verdict, and the check
+    read every non-ok status as outstanding — two mornings of "Action needed"
+    pointing at a Structure review panel that (correctly) had nothing on it.
+    The check must grade only what the panel shows: quarantined red (data
+    held back), warn yellow (ingested, wants a look), reviewed nothing."""
+    import fyp.core.structure_sentinel as ss
+    from web_interface.services.ops_report import _structure_review_check
+
+    verdicts = {"files": {
+        "approved.json": {"status": "approved", "review_action": "approve"},
+        "rejected.json": {"status": "rejected", "review_action": "reject"},
+        "learning.json": {"status": "learning"},
+        "fine.json": {"status": "ok"},
+    }}
+    monkeypatch.setattr(ss, "load_verdicts", lambda: verdicts)
+    assert _structure_review_check(ss.review_queue())[0] == "green"
+
+    verdicts["files"]["warned.json"] = {"status": "warn"}
+    status, summary, details = _structure_review_check(ss.review_queue())
+    assert status == "yellow"
+    assert details == ["warned.json: warn"]
+    assert "Ingest Collections" in summary
+
+    verdicts["files"]["held.json"] = {"status": "quarantined"}
+    status, _, details = _structure_review_check(ss.review_queue())
+    assert status == "red"
+    assert sorted(details) == ["held.json: quarantined", "warned.json: warn"]
+
+
+def test_scrape_failures_are_graded_by_rate_not_by_existence():
+    """A failure file every day is normal — dead, private and removed posts
+    are a standing share of every queue (prod ran 12.6-15.4% a day over
+    2026-09-04..08), and the ledger's periodic re-consolidation writes a new
+    file that is a rewrite, not new failures. Only a rate outside the band is
+    a Watch, and a platform too small to rate never raises one."""
+    from web_interface.services.ops_report import _scrape_failure_check
+
+    def run(platform, ok, permanent, transient=0):
+        return {"kind": "scrape.finished", "platform": platform,
+                "detail": {"ok": ok, "permanent": permanent,
+                           "transient": transient}}
+
+    assert _scrape_failure_check([])[0] == "green"
+
+    status, summary, details = _scrape_failure_check(
+        [run("tiktok", 900, 149), run("tiktok", 285, 41)])
+    assert status == "blue"
+    assert "normal range" in summary
+    assert details == ["tiktok: 190 of 1,375 attempt(s) failed (13.8%)"]
+
+    # One video, one failure: 100%, and nothing at all to conclude from it.
+    status, _, details = _scrape_failure_check([run("youtube", 0, 1)])
+    assert status == "blue"
+    assert details == ["youtube: 1 of 1 attempt(s) failed (100.0%) "
+                       "— too few attempts to rate"]
+
+    # A broken scraper: rated sample, rate far outside the band. TikTok's
+    # healthy volume must not bury it.
+    status, summary, _ = _scrape_failure_check(
+        [run("tiktok", 900, 149), run("instagram", 40, 160)])
+    assert status == "yellow"
+    assert "instagram 80.0%" in summary and "tiktok" not in summary
+
+    # One broken run inside an otherwise normal day is still a Watch — the
+    # day's own rate would average it away.
+    status, summary, _ = _scrape_failure_check(
+        [run("tiktok", 3000, 450), {**run("tiktok", 60, 140), "ts": "2026-09-08T03:41:11+00:00"}])
+    assert status == "yellow"
+    assert "one tiktok run (2026-09-08T03:41) failed 70.0% of 200" in summary

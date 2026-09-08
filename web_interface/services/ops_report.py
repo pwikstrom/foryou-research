@@ -34,6 +34,14 @@ SESSION_COOKIE = {"tiktok": "sessionid", "instagram": "sessionid",
                   "youtube": "__Secure-3PSID"}
 REPORT_DIR = "ops_report"
 KEEP_DATED_REPORTS = 60
+# Scrape failures are ordinary: dead, private and removed posts are a standing
+# share of every queue. Measured on prod 2026-09-04..08 — 14.1% of 12,213
+# attempts failed, 12.6-15.4% on any one day, and the worst single run of 50+
+# attempts was 24.2%. Only a rate outside that band is worth a Watch.
+HIGH_SCRAPE_FAILURE_RATE = 0.30
+# Below this many attempts in the window a platform's rate says nothing — a
+# one-video run that fails is 100%. Small runs still count towards the totals.
+MIN_RATED_SCRAPE_ATTEMPTS = 50
 # A non-empty queue whose drain worker has not succeeded in this many days
 # is treated as stalled — both platform drains have stopped on a rate limit
 # and simply never been restarted.
@@ -329,16 +337,15 @@ def collect_status(hours_back: int = 24) -> dict:
             check(sec, "Queue drain", "green",
                   "No queue waiting on a stopped drain")
 
-        day_stamp_min = (now - timedelta(hours=hours_back)).strftime("%Y%m%d%H%M%S")
-        fails = [n for n in data_io.listdir(storage_location="scrape")
-                 if n.startswith("scrape_failed_items_")
-                 and n[len("scrape_failed_items_"):len("scrape_failed_items_") + 14]
-                 >= day_stamp_min]
-        if fails:
-            check(sec, "New scrape-failure files (24h)", "yellow",
-                  f"{len(fails)} file(s)", fails)
-        else:
-            check(sec, "New scrape-failure files (24h)", "green", "None")
+        # Not "did any item fail" — dead, private and removed posts are a
+        # standing share of every queue, and the failure files are rewritten
+        # wholesale when the ledger re-consolidates, so their existence says
+        # nothing. Grade the rate the scraper's own run journal reports.
+        from web_interface.services import enrichment_journal as journal
+        runs = [e for e in journal.read(limit=journal.MAX_EVENTS)
+                if e.get("kind") == "scrape.finished"
+                and (_parse_iso(e.get("ts")) or epoch) > day_ago]
+        check(sec, "Scrape failures (24h)", *_scrape_failure_check(runs))
     except Exception as e:
         check(sec, "Queues", "red", f"Could not read queues: {e}")
 
@@ -440,18 +447,15 @@ def collect_status(hours_back: int = 24) -> dict:
         check(sec, "Collections", "red", f"Could not read: {e}")
 
     try:
-        from fyp.core.structure_sentinel import load_verdicts
-        verdicts = load_verdicts() or {}
-        files = verdicts.get("files", verdicts) or {}
-        bad = {k: v.get("status") for k, v in files.items()
-               if isinstance(v, dict)
-               and v.get("status") not in (None, "ok", "learning")}
-        if bad:
-            check(sec, "Structure sentinel", "red",
-                  "Warn/quarantine verdicts present",
-                  [f"{k}: {s}" for k, s in bad.items()])
-        else:
-            check(sec, "Structure sentinel", "green", "No warn/quarantine verdicts")
+        # Read the same queue the Ingest Collections page's "Structure review"
+        # panel shows, so the two can never disagree. A verdict keeps its
+        # entry after the review, and an approved or rejected file is off that
+        # panel — reporting one as outstanding sends the reader to a page with
+        # nothing on it (2026-09-09: a file approved on 09-07 was red here for
+        # two mornings). Quarantined files are held out of the activity data,
+        # so they are the red; a warned file ingested and only wants a look.
+        from fyp.core.structure_sentinel import review_queue
+        check(sec, "Structure sentinel", *_structure_review_check(review_queue()))
     except Exception as e:
         check(sec, "Structure sentinel", "red", f"Could not read: {e}")
 
@@ -577,6 +581,86 @@ def collect_status(hours_back: int = 24) -> dict:
         "queues": queue_now or state.get("queues", {}),
     }
     return doc
+
+
+def _scrape_failure_check(runs: list[dict]) -> tuple[str, str, list[str]]:
+    """Grade the window's scrape failures by rate, per platform and per run.
+
+    A day can look normal in aggregate and still contain one broken run, so
+    both are rated: a platform's whole-window rate, and the worst single run
+    big enough to mean something.
+
+    Args:
+        runs: The window's ``scrape.finished`` journal events.
+
+    Returns:
+        ``(status, summary, details)`` for one report check.
+    """
+    totals: dict[str, list[int]] = {}
+    worst: tuple[float, str, str, int] | None = None
+    for event in runs:
+        detail = event.get("detail") or {}
+        platform = str(event.get("platform") or "unknown")
+        failed = int(detail.get("permanent") or 0) + int(detail.get("transient") or 0)
+        attempted = int(detail.get("ok") or 0) + failed
+        entry = totals.setdefault(platform, [0, 0])
+        entry[0] += attempted
+        entry[1] += failed
+        if attempted >= MIN_RATED_SCRAPE_ATTEMPTS:
+            rate = failed / attempted
+            if rate > HIGH_SCRAPE_FAILURE_RATE and (worst is None or rate > worst[0]):
+                worst = (rate, platform, str(event.get("ts") or "")[:16], attempted)
+    if not totals:
+        return "green", "No scraper run in the last 24h", []
+
+    details, high = [], []
+    for platform, (attempted, failed) in sorted(totals.items()):
+        rate = failed / attempted if attempted else 0.0
+        rated = attempted >= MIN_RATED_SCRAPE_ATTEMPTS
+        details.append(f"{platform}: {failed:,} of {attempted:,} attempt(s) "
+                       f"failed ({rate:.1%})"
+                       + ("" if rated else " — too few attempts to rate"))
+        if rated and rate > HIGH_SCRAPE_FAILURE_RATE:
+            high.append(f"{platform} {rate:.1%}")
+
+    attempted = sum(v[0] for v in totals.values())
+    failed = sum(v[1] for v in totals.values())
+    normal = (f"{failed:,} of {attempted:,} attempt(s) failed "
+              f"({failed / attempted if attempted else 0:.1%}) across "
+              f"{len(runs)} run(s)")
+    if high:
+        return ("yellow",
+                f"Unusually high failure rate over the day — {', '.join(high)} "
+                f"(a normal day runs well under "
+                f"{HIGH_SCRAPE_FAILURE_RATE:.0%})", details)
+    if worst:
+        rate, platform, ts, run_attempts = worst
+        return ("yellow",
+                f"{normal} — the day is normal, but one {platform} run "
+                f"({ts}) failed {rate:.1%} of {run_attempts:,} attempt(s)",
+                details)
+    return "blue", f"{normal} — the normal range", details
+
+
+def _structure_review_check(queue: dict) -> tuple[str, str, list[str]]:
+    """Grade the structure-sentinel review queue for the report.
+
+    Args:
+        queue: ``structure_sentinel.review_queue()`` output.
+
+    Returns:
+        ``(status, summary, details)`` for one report check. Quarantined
+        files are held out of the activity data, so they are the red; a
+        warned file was ingested and only wants a look.
+    """
+    rows = queue.get("files") or []
+    n_q, n_w = queue.get("n_quarantined", 0), queue.get("n_warn", 0)
+    if not rows:
+        return "green", "No file waiting for structure review", []
+    return ("red" if n_q else "yellow",
+            f"{n_q} quarantined, {n_w} warned — review on "
+            f"Data Pipeline → Ingest Collections → Structure review",
+            [f"{r.get('filename')}: {r.get('status')}" for r in rows])
 
 
 def _linked_collections_missing(tags: dict, pending_cids: set) -> list[str]:
