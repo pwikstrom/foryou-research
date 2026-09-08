@@ -70,6 +70,17 @@ logger = logging.getLogger(__name__)
 
 RECODED_FILENAME = f"{COLLECTIONS_LABEL}_recoded.parquet"
 STATUS_FILENAME = "enrichment_status.parquet"
+
+# The smallest slice a plan cuts while it still needs anything at all. A cycle
+# has a fixed cost whatever its size (a scraper boot, a consolidation with its
+# ~20 s save floor, a supervisor tick), and sizing the last slice to exactly
+# what the target still needs converged geometrically toward one-video cycles:
+# each scrape's failures left a residual, the next slice covered just that
+# residual, and so on (2026-09-08: 134, 51, 59, 24, 27, 11, 13, 5, 7, 3, 3, 1,
+# 1, 1, ... videos, 25 s apart). The floor ends a plan in one cycle and lets
+# it overshoot its target by at most this many annotations. Applied by the
+# plan's cut AND its handoff, so what the floor scrapes also gets annotated.
+MIN_CYCLE_ITEMS = 200
 LEDGER_FILENAME = "collection_enrichment.json"
 ANNOTATE_QUEUE_FILENAME = "to_annotate.json"
 # The worker whose task-status file `last_tick` reads.
@@ -602,8 +613,11 @@ def plan_cycle(collection_id: str, entry: dict,
         margin_ = max(0.0, float(margin or 0.0))
     except (TypeError, ValueError):
         margin_ = 0.0
-    # What must be CUT for the remaining target to come back annotated.
-    target_room = (int(math.ceil(remaining_target / yield_ * (1.0 + margin_)))
+    # What must be CUT for the remaining target to come back annotated — never
+    # less than MIN_CYCLE_ITEMS while anything is still needed (see the
+    # constant), and never more than the cycle size.
+    target_room = (max(int(math.ceil(remaining_target / yield_ * (1.0 + margin_))),
+                       int(MIN_CYCLE_ITEMS))
                    if remaining_target else 0)
     budget = min(int(settings["cycle_items"]), target_room)
     if budget <= 0:
@@ -832,7 +846,17 @@ def handoff_scraped(collection_id: str, entry: dict,
         ann_yield = 1.0
     need = max(0, target - _annotated_unique(activity, status))
     room = int(math.ceil(need / ann_yield)) if need else 0
-    eligible = eligible[:room]
+    # What the plan itself cut is annotated even past what the target still
+    # needs, up to the floor: a slice is never smaller than MIN_CYCLE_ITEMS,
+    # so its tail may overshoot the target, and clamping it here would leave
+    # those videos scraped for nothing. The overshoot stays bounded by the
+    # floor (a target lowered mid-plan does not annotate a whole in-flight
+    # slice), and the backlog sweep (videos scraped by anything else) is
+    # bounded by the target alone. No target = nothing at all, as above.
+    flight = set(in_flight)
+    own = [i for i in eligible if i in flight][:max(room, int(MIN_CYCLE_ITEMS))] if target else []
+    rest = [i for i in eligible if i not in flight]
+    eligible = own + rest[:max(0, room - len(own))]
 
     # Prune in_flight: an id leaves once its outcome is known — handed off now,
     # already annotated (ok or fail), or its scrape permanently failed. What

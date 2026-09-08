@@ -30,6 +30,14 @@ import web_interface.services.collection_enrichment as ce
 # Fixtures
 # --------------------------------------------------------------------------- #
 
+@pytest.fixture(autouse=True)
+def no_slice_floor(monkeypatch):
+    """The sizing tests pin the cutter's arithmetic on small numbers; the
+    floor that ends a real plan in one cycle would swamp them. The floor's
+    own tests set it back."""
+    monkeypatch.setattr(ce, "MIN_CYCLE_ITEMS", 1)
+
+
 @pytest.fixture
 def store(monkeypatch):
     """In-memory data_io: json files keyed by filename."""
@@ -942,6 +950,63 @@ def test_handoff_allows_for_the_annotations_that_will_fail(monkeypatch):
     assert len(ce.handoff_scraped("c1", entry)["ready"]) == 5
     assert len(ce.handoff_scraped("c1", entry, annotation_yield=0.98)["ready"]) == 6
     assert len(ce.handoff_scraped("c1", entry, annotation_yield=0.5)["ready"]) == 10
+
+
+def test_the_last_slice_is_never_smaller_than_the_floor(monkeypatch, store):
+    """2026-09-08: sized to exactly the shortfall, the tail of a plan shrank
+    134 → 51 → … → 3 → 1 → 1 → 1 videos, a full scrape-consolidate-tick cycle
+    each. While anything is still needed the cut is at least the floor; the
+    plan may overshoot its target by that much and ends in one cycle."""
+    import web_interface.run_enrichment_supervisor as sup
+    monkeypatch.setattr(ce, "MIN_CYCLE_ITEMS", 200)
+
+    activity = _activity({"2026-05-01": 300, "2026-05-02": 300})
+    monkeypatch.setattr(sup, "_in_flight_annotation_ids", lambda: set())
+    three_short = _entry(annotation_target=3, cycle_items_auto=True)
+    assert sup._auto_cycle_items(three_short, activity, None, expected_yield=0.85) == 200
+    # The floor never turns "covered" into a cut.
+    assert sup._auto_cycle_items(three_short, activity, None, pending=3) == 0
+    # A manual plan keeps its own, smaller, cycle size as the ceiling.
+    out = ce.plan_cycle("c1", _entry(annotation_target=3, cycle_items=2000, sample_share=0.0),
+                        activity=activity, status=None, expected_yield=0.85)
+    assert len(out["item_ids"]) == 200 and out["last_slice"] is True
+    quarter_days = _activity({"2026-05-01": 25, "2026-05-02": 25, "2026-05-03": 25})
+    small = ce.plan_cycle("c1", _entry(annotation_target=3, cycle_items=50, sample_share=0.0),
+                          activity=quarter_days, status=None)
+    assert len(small["item_ids"]) == 50
+    # And the cut is still bounded by what the collection has left.
+    activity = _activity({"2026-05-01": 40})
+    out = ce.plan_cycle("c1", _entry(annotation_target=3, cycle_items=2000, sample_share=0.0),
+                        activity=activity, status=None)
+    assert len(out["item_ids"]) == 40
+
+
+def test_handoff_annotates_what_the_plan_itself_scraped(monkeypatch):
+    """The floor's overshoot must not be scraped for nothing: the plan's own
+    slice passes the handoff whatever the target still needs, while the
+    backlog sweep (videos scraped by anything else) stays bounded by it."""
+    monkeypatch.setattr(ce, "MIN_CYCLE_ITEMS", 200)
+    activity = _activity({"2026-08-27": 40})
+    ids = list(activity["item_id"])
+    status = _status(ids, scraped=ids, downloaded=ids, annotated=ids[:30])
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status", lambda i=None: status)
+    # 5 short; the plan's slice was ids[32:40] (8 videos), backlog ids[30:32].
+    entry = {**_entry(annotation_target=35), "in_flight": ids[32:40]}
+    ready = ce.handoff_scraped("c1", entry)["ready"]
+    assert set(ids[32:40]) <= set(ready) and len(ready) == 8
+    # Room left over after the plan's own goes to the backlog.
+    entry = {**_entry(annotation_target=39), "in_flight": ids[32:40]}
+    ready = ce.handoff_scraped("c1", entry)["ready"]
+    assert len(ready) == 9 and set(ids[32:40]) <= set(ready)
+    # The overshoot is bounded by the floor: a target lowered mid-plan does
+    # not annotate a whole in-flight slice.
+    monkeypatch.setattr(ce, "MIN_CYCLE_ITEMS", 6)
+    entry = {**_entry(annotation_target=35), "in_flight": ids[32:40]}
+    assert len(ce.handoff_scraped("c1", entry)["ready"]) == 6
+    # No target: nothing, own slice or not.
+    entry = {**_entry(annotation_target=0), "in_flight": ids[32:40]}
+    assert ce.handoff_scraped("c1", entry)["ready"] == []
 
 
 def test_plan_cycle_counts_pending_annotations_toward_the_target():

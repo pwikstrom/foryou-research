@@ -987,6 +987,11 @@ def _auto_cycle_items(entry: dict, activity, status, expected_yield: float = 1.0
       used — by the backlog-first handoff, which annotates whatever is
       scraped regardless of slice size.
 
+    * The floor is :data:`ce.MIN_CYCLE_ITEMS`: a cycle's fixed cost is the same
+      for one video as for two hundred, and a cut sized to exactly the headroom
+      shrank geometrically toward one-video cycles (2026-09-08). The plan may
+      overshoot its target by at most the floor.
+
     Returns:
         The effective cycle_items; 0 when pending work already covers the
         target, or the target is met (the caller tells the two apart).
@@ -1006,6 +1011,9 @@ def _auto_cycle_items(entry: dict, activity, status, expected_yield: float = 1.0
     except (TypeError, ValueError):
         yield_ = 1.0
     want = int(math.ceil(headroom / yield_ * (1.0 + max(0.0, float(margin or 0.0)))))
+    # Never below the floor while anything is needed: the tail of a plan used
+    # to converge on one-video cycles (see ce.MIN_CYCLE_ITEMS).
+    want = max(want, int(ce.MIN_CYCLE_ITEMS))
     return min(want, DEFAULT_BATCH_SIZE, 20_000)
 
 

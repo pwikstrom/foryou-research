@@ -448,7 +448,9 @@ for a target the plan cannot meet.
 With *Auto* items per cycle, each cycle is one annotation job's worth
 (2,000), sized up for the videos expected to fail on the way — measured
 from the plan's own recent runs — so the target is met without a trailing
-cycle for the shortfall; the last slice may buy part of a day. An amber
+cycle for the shortfall; the last slice may buy part of a day, and is never
+smaller than 200 videos, so a plan ends in one cycle rather than a trail of
+tiny ones and may finish up to 200 videos past its target. An amber
 warning appears when the settings cannot reach the chosen target. The target is a running total: to continue a
 finished (Idle) plan, raise the target and press *Arm again*. Changing any
 setting on an existing plan saves itself, and applies from the next cycle;

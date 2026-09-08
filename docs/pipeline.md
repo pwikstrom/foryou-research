@@ -168,7 +168,12 @@ clamp counts videos already queued or claimed for annotation as done (they
 are invisible to enrichment status until consolidated), scrapes carry a
 5 % margin (`CUT_MARGIN`), and the handoff allows for the measured share
 of annotations that fail — together what makes a plan's last cycle
-actually its last. Batch jobs are not started small: while more scrapes
+actually its last. A slice is never smaller than `MIN_CYCLE_ITEMS` (200)
+while the plan still needs anything: a cycle's fixed cost is the same for
+one video as for two hundred, and a cut sized to exactly the shortfall
+shrank geometrically toward one-video cycles 25 s apart (2026-09-08); the
+handoff annotates whatever the plan's own slice scraped, so the plan may
+overshoot its target by at most that floor. Batch jobs are not started small: while more scrapes
 are on their way the annotation lane holds a queue below
 `MIN_ANNOTATE_BATCH` (500) for the next handoff, bounded by
 `MAX_ANNOTATE_HOLD_MIN` (45) and never when nothing more is coming — the

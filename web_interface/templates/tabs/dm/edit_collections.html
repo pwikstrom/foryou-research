@@ -268,7 +268,7 @@ The loop can overshoot slightly - it always scrapes whole days, so the last cycl
                     <div class="dm-enrich-field">
                         <span class="dm-enrich-label meta-tooltip tooltip-wide" data-tooltip="How many videos each cycle queues for scraping, split between the two ways of choosing days by the balance beside this.
 
-Auto (recommended) picks the number of videos per cycle for the shortest total time: up to 2,000 (one annotation batch - roughly what can be scraped while the previous batch is being annotated) and never more than the target still needs, with a margin for the videos that fail along the way, based on this plan's own recent runs. The final cycle may take only part of a day, so the target is reached without an extra cycle. Untick it to set a number by hand.
+Auto (recommended) picks the number of videos per cycle for the shortest total time: up to 2,000 (one annotation batch - roughly what can be scraped while the previous batch is being annotated) and never more than the target still needs, with a margin for the videos that fail along the way, based on this plan's own recent runs. The final cycle may take only part of a day, so the target is reached without an extra cycle; it is never smaller than 200 videos, so the plan may finish up to 200 past its target rather than trail off in tiny cycles. Untick it to set a number by hand.
 
 Smaller cycles report back sooner and keep the spend visible; larger ones waste less time waiting between steps. A cycle can go a little over the number, because neither half will ever take part of a day - a partly covered day is worth almost nothing to the analyses.">Items per cycle</span>
                         <div class="dm-enrich-inline">
