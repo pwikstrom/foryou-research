@@ -7332,6 +7332,19 @@ body:has(.public-page) {
     pointer-events: none;
 }
 
+/* Where coverage stood when this run was armed. Quieter than the target
+   marker on purpose: it is history, not a goal, and the two sit on the same
+   bar. */
+.dm-enrich-bar-start {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    width: 2px;
+    background: var(--color-text-tertiary);
+    transform: translateX(-1px);
+    pointer-events: none;
+}
+
 .dm-enrich-legend {
     display: flex;
     flex-wrap: wrap;
@@ -7357,6 +7370,171 @@ body:has(.public-page) {
     background: repeating-linear-gradient(45deg,
         var(--color-bg-input), var(--color-bg-input) 3px,
         var(--color-border-strong) 3px, var(--color-border-strong) 5px);
+}
+
+/* The line above the chart: the collection's size, then how much of it is
+   already analysable, then the (i). */
+.dm-enrich-headline {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-bottom: 8px;
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+}
+.dm-enrich-headline .dm-enrich-ready { color: var(--color-text-muted); }
+.dm-enrich-headline .dm-enrich-ready::before {
+    content: "\00b7";
+    margin-right: 8px;
+}
+.dm-enrich-headline .dm-enrich-ready:empty::before { content: none; }
+
+/* --- Run progress -------------------------------------------------------
+   Where this run started, where it is now, where it stops. The chart and the
+   coverage bar describe the COLLECTION; this describes the run, which is the
+   only thing that answers "how far has it come". */
+.dm-enrich-run {
+    margin-top: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 3px;
+    background: var(--color-bg-surface);
+}
+.dm-enrich-run-head {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    color: var(--color-text-secondary);
+}
+.dm-enrich-run-pct {
+    margin-left: auto;
+    font-weight: var(--weight-bold);
+    color: var(--color-text-primary);
+}
+.dm-enrich-run-meter {
+    height: 6px;
+    margin: 6px 0 5px 0;
+    border-radius: 3px;
+    background: var(--color-bg-input);
+    border: 1px solid var(--color-border-strong);
+    overflow: hidden;
+}
+.dm-enrich-run-fill {
+    height: 100%;
+    width: 0;
+    background: var(--color-success);
+    transition: width 0.3s ease;
+}
+.dm-enrich-run-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+    color: var(--color-text-tertiary);
+}
+.dm-enrich-run-legend b {
+    font-weight: var(--weight-bold);
+    color: var(--color-text-secondary);
+}
+.dm-enrich-run-cursors {
+    margin-top: 3px;
+    color: var(--color-text-tertiary);
+}
+.dm-enrich-run-cursors:empty { display: none; }
+
+/* --- Plan settings ------------------------------------------------------
+   Every knob visible, on one grid, in one type scale: a field label is
+   .text-sm secondary (the same label style the rest of the modal uses), a
+   sub-field label inside a field is .text-xs muted, and values are primary.
+   The target owns a full row - it has a slider, a readout and a warning
+   under it - and the remaining four sit under it two by two. */
+.dm-enrich-settings {
+    display: grid;
+    /* Two explicit tracks, like the modal's own field grid above it, so the
+       four knobs under the target sit in a square rather than an uneven run
+       of auto-fit columns with one field orphaned on its own row. */
+    grid-template-columns: 1fr 1fr;
+    gap: 18px 28px;
+    align-items: start;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--color-border);
+}
+.dm-enrich-field--wide { grid-column: 1 / -1; }
+@media (max-width: 860px) {
+    .dm-enrich-settings { grid-template-columns: 1fr; }
+}
+.dm-enrich-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+}
+.dm-enrich-sublabel {
+    display: block;
+    margin-bottom: 4px;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+}
+.dm-enrich-settings .control-input { padding: 6px; }
+.dm-enrich-inline {
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+.dm-enrich-sub { display: block; }
+.dm-enrich-check {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding-bottom: 6px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+}
+.dm-enrich-check input { width: auto; cursor: pointer; }
+.dm-enrich-range-ends {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 2px;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+}
+.dm-enrich-target-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.dm-enrich-target-value {
+    font-size: var(--text-h3);
+    font-weight: var(--weight-bold);
+    color: var(--color-text-primary);
+    min-width: 70px;
+}
+.dm-enrich-target-pct { color: var(--color-text-muted); }
+.dm-enrich-target-slider {
+    flex: 1;
+    min-width: 180px;
+    max-width: 340px;
+    margin: 0;
+}
+.dm-enrich-hint {
+    margin-top: 5px;
+    color: var(--color-text-muted);
+}
+.dm-enrich-warn {
+    margin-top: 4px;
+    color: var(--color-warning-text);
+}
+.dm-enrich-status-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--color-border);
 }
 
 /* ------------------------------------------------------------
@@ -7403,6 +7581,29 @@ body:has(.public-page) {
     line-height: 1;
 }
 
+/* The modal has no Save button for a single collection: the fields write
+   themselves. This is the whole feedback for that, so it has to be legible
+   without being loud - grey while writing, green when the write lands, red
+   when it does not. */
+.dm-save-state { color: var(--color-text-tertiary); }
+.dm-save-state.ok { color: var(--color-success); font-weight: var(--weight-bold); }
+.dm-save-state.err { color: var(--color-danger); font-weight: var(--weight-bold); }
+
+/* Display ID is the one field that cannot save on every keystroke, so it
+   says so: a Save button while the box differs from what is stored, a green
+   tick for a moment after the write. */
+.dm-inline-save {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.dm-save-tick {
+    color: var(--color-success);
+    font-weight: var(--weight-bold);
+    font-size: var(--text-body);
+    line-height: 1;
+}
+
 /* Display ID / User account beside Tags / Hide Collection. Two explicit
    tracks rather than auto-fit: auto-fit leaves a collapsed third track and
    its gutter unused at this width, so the pair would not fill the modal. */
@@ -7424,7 +7625,10 @@ body:has(.public-page) {
     .edit-collection-fields { grid-template-columns: 1fr; }
 }
 
-.dm-enrich-advanced-toggle {
+/* The disclosure link used by History, Collection persona and the annotation
+   queue's Advanced block. Named for what it does, not for the one panel it
+   was born in — the enrichment plan's own settings are no longer hidden. */
+.dm-disclosure-toggle {
     background: none;
     border: none;
     padding: 0;
@@ -7432,12 +7636,12 @@ body:has(.public-page) {
     cursor: pointer;
     font-size: var(--text-sm);
 }
-.dm-enrich-advanced-toggle .caret {
+.dm-disclosure-toggle .caret {
     display: inline-block;
     margin-right: 4px;
     transition: transform 0.15s ease;
 }
-.dm-enrich-advanced-toggle.open .caret { transform: rotate(90deg); }
+.dm-disclosure-toggle.open .caret { transform: rotate(90deg); }
 
 /* A running plan's Arm button (then reading "Pause") pulses gently, so an
    armed collection is unmissable in the modal. */

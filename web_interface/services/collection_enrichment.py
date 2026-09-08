@@ -104,8 +104,13 @@ DEFAULT_SETTINGS = {
     # defaults cannot flip an existing plan's choice.
     "cycle_items_auto": True,
     "sample_share": 0.5,      # fraction of the cycle given to Process A
-    "a_days_per_month": 2,    # A: whole days sampled per calendar month
-    "a_day_cap": 50,          # A: max items enriched on one sampled day
+    # A: whole days sampled per calendar month, and the ceiling on one such
+    # day. 15 x 50 gives the spread half a month of usable days to work with
+    # per month walked, which is what the long-arc analyses (Timelines,
+    # Correlations) actually need; at 2 the spread bought so few days that the
+    # deep dive did nearly all the work whatever the balance said.
+    "a_days_per_month": 15,
+    "a_day_cap": 50,
     "min_day_items": 10,      # the spread skips days below this (the
                               # Correlations floor); the deep dive never does
     "earliest_date": None,    # optional floor; None = the whole history
@@ -892,6 +897,13 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         "annotation_target": int(settings.get("annotation_target") or 0),
         "a_cursor": entry.get("a_cursor"),
         "b_cursor": entry.get("b_cursor"),
+        # The current run's starting line: when it was armed, and how many of
+        # the collection's videos were annotated at that moment. The panel
+        # reports progress against it — without a recorded start there is no
+        # way to say how far a run has come, only how far the collection has.
+        # None on a plan armed before this was recorded.
+        "run_started_at": entry.get("run_started_at"),
+        "run_start_annotated": entry.get("run_start_annotated"),
         "stall_count": int(entry.get("stall_count") or 0),
         "last_error": entry.get("last_error"),
         "last_cycle_at": entry.get("last_cycle_at"),

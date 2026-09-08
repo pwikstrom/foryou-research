@@ -533,6 +533,15 @@ def test_save_plan_merges_settings_and_delete_drops(store):
     assert "c1" not in store[ce.LEDGER_FILENAME]
 
 
+def test_default_spread_limits_are_fifteen_days_of_fifty():
+    """15 x 50 gives the spread half a month of usable days per month walked —
+    what the long-arc analyses (Timelines, Correlations) need. At the old 2 the
+    spread bought so few days that the deep dive did nearly all the work
+    whatever the balance slider said."""
+    assert ce.DEFAULT_SETTINGS["a_days_per_month"] == 15
+    assert ce.DEFAULT_SETTINGS["a_day_cap"] == 50
+
+
 def test_normalize_settings_clamps_nonsense():
     out = ce.normalize_settings({"annotation_target": -5, "cycle_items": "junk",
                                  "sample_share": 7, "earliest_date": "not-a-date"})
@@ -1472,13 +1481,12 @@ def test_enrichment_panel_buttons_keep_their_handlers():
     parser.feed(src)
     expected = {
         "dm-enrich-arm-btn": "dmEnrichToggleArmed",
-        "dm-enrich-save-btn": "dmEnrichSave",
         "dm-enrich-tick-btn": "dmEnrichTick",
-        "dm-enrich-advanced-toggle": "dmEnrichToggleAdvanced",
         "dm-enrich-history-toggle": "dmEnrichHistoryToggle",
         # The modal's own controls, which live in the same template and are
-        # just as easy to strand: Save moved into the sticky title bar, and
-        # Collection details is now a disclosure that renders on first expand.
+        # just as easy to strand. Save is the BULK edit's apply button (a
+        # single collection autosaves and never shows it), and the persona is
+        # a disclosure that renders on first expand.
         "save-collection-btn": "dm_saveAnnotation",
         "delete-collection-btn": "dm_deleteCollection",
         "edit-collection-details-toggle": "dmToggleCollectionDetails",
@@ -1489,23 +1497,41 @@ def test_enrichment_panel_buttons_keep_their_handlers():
         assert handler in (attrs.get("onclick") or ""), \
             f"{element_id} lost its onclick ({handler})"
 
-    # The Arm/Save/Run tooltips live on WRAPPER spans, not the buttons: a
-    # disabled button eats its own hover tooltip in most browsers, and the
-    # button-state logic disables Save and Run precisely when the explanation
-    # is most needed. A tooltip moved back onto the button would go silent in
-    # exactly those states.
-    for wrap_id in ("dm-enrich-arm-wrap", "dm-enrich-save-wrap",
-                    "dm-enrich-tick-wrap"):
+    # The Arm/Run tooltips live on WRAPPER spans, not the buttons: a disabled
+    # button eats its own hover tooltip in most browsers, and Run is disabled
+    # precisely when the explanation is most needed (no plan, target met). A
+    # tooltip moved back onto the button would go silent in exactly those
+    # states.
+    for wrap_id in ("dm-enrich-arm-wrap", "dm-enrich-tick-wrap"):
         attrs = parser.by_id.get(wrap_id)
         assert attrs is not None, f"{wrap_id} missing from the template"
         assert attrs.get("data-tooltip"), f"{wrap_id} lost its data-tooltip"
         assert "meta-tooltip" in (attrs.get("class") or ""), \
             f"{wrap_id} lost the meta-tooltip class"
-    for btn_id in ("dm-enrich-arm-btn", "dm-enrich-save-btn",
-                   "dm-enrich-tick-btn"):
+    for btn_id in ("dm-enrich-arm-btn", "dm-enrich-tick-btn"):
         attrs = parser.by_id[btn_id]
         assert not attrs.get("data-tooltip"), \
             f"{btn_id} must not carry the tooltip — it sits on the wrapper span"
+
+    # Every plan setting is visible, always: the balance and the spread limits
+    # decide what a run can ever reach, so a disclosure hid the one explanation
+    # for a target the plan could not meet.
+    assert "dm-enrich-advanced" not in src, \
+        "the plan settings must not go back behind a disclosure"
+
+    # Display ID is the one field that cannot write on every keystroke, so it
+    # commits on blur and on Enter. Losing either handler leaves an edit that
+    # looks saved and is not.
+    disp = parser.by_id["edit-collection-display-id"]
+    assert "dmDisplayIdInput" in (disp.get("oninput") or "")
+    assert "dmDisplayIdCommit" in (disp.get("onblur") or "")
+    assert "Enter" in (disp.get("onkeydown") or "")
+
+    js = (Path(__file__).resolve().parents[2] / "web_interface" / "static" / "js"
+          / "data_management.js").read_text()
+    for fn in ("function dmDisplayIdInput", "function dmDisplayIdCommit",
+               "function _dmAutoSaveCollection", "function dmEnrichAutoSaveNow"):
+        assert fn in js, f"{fn} is gone — the modal has no Save button to fall back on"
 
 
 # --------------------------------------------------------------------------- #

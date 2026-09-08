@@ -51,13 +51,19 @@
         <!-- The title bar stays put while the modal scrolls. This modal is
              several screens tall, and the shared .close is positioned against
              the modal rather than the viewport, so it used to scroll out of
-             reach. Save rides along with it: it is the only other thing you
-             want at any scroll position, which is also why the old Cancel is
-             gone - the [x] beside it already does that. -->
+             reach.
+             A single collection has no Save button: every field below writes
+             itself the moment it changes, and this bar reports that in the
+             status word beside the [x]. The button survives for the MULTI
+             collection edit only, where a click would otherwise rewrite every
+             selected collection the instant a tag chip is ticked. -->
         <div class="edit-collection-header">
             <h2 style="margin: 0;">Edit Collection: <span id="edit-collection-id-display"></span></h2>
             <div class="edit-collection-header-actions">
-                <button type="button" class="action-btn" id="save-collection-btn" onclick="dm_saveAnnotation()">Save</button>
+                <span id="edit-collection-save-state" class="dm-save-state text-xs"
+                    role="status" aria-live="polite"></span>
+                <button type="button" class="action-btn" id="save-collection-btn"
+                    onclick="dm_saveAnnotation()" style="display: none;">Apply to all selected</button>
                 <span class="close" onclick="closeEditCollectionModal()" aria-label="Close">&times;</span>
             </div>
         </div>
@@ -70,11 +76,26 @@
              column when the modal is too narrow for two. -->
         <div class="edit-collection-fields">
             <div class="edit-collection-col">
+                <!-- The one free-text field in the modal, so the one that
+                     cannot save on every keystroke: it commits when you leave
+                     it or press Enter. The button appears only while the box
+                     differs from what is stored, and is replaced by a green
+                     tick once the write lands - so an edited ID never looks
+                     the same as a saved one. -->
                 <div class="form-group">
                     <label for="edit-collection-display-id" class="text-sm"
                         style="display: block; margin-bottom: 5px; color: var(--color-text-secondary);">Display ID:</label>
-                    <input type="text" id="edit-collection-display-id" class="control-input"
-                        style="width: 100%; padding: 8px;">
+                    <div class="dm-inline-save">
+                        <input type="text" id="edit-collection-display-id" class="control-input"
+                            style="flex: 1; min-width: 0; padding: 8px;"
+                            oninput="dmDisplayIdInput()" onblur="dmDisplayIdCommit()"
+                            onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.blur(); }">
+                        <button type="button" class="action-btn text-sm" id="edit-collection-display-id-save"
+                            onmousedown="event.preventDefault(); dmDisplayIdCommit();"
+                            style="display: none; padding: 6px 12px;">Save</button>
+                        <span id="edit-collection-display-id-tick" class="dm-save-tick"
+                            style="display: none;" aria-hidden="true">&#10003;</span>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -141,14 +162,18 @@ A plan stops when its annotation target is met, or when nothing processable is l
                 into the collection's most recent activities.
             </p>
             <div id="dm-enrich-panel" style="border: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 10px 12px;">
-                <div style="display: flex; align-items: baseline; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;">
-                    <div class="text-sm" style="display: flex; align-items: baseline; gap: 6px; color: var(--color-text-secondary);">
-                        <span id="dm-enrich-progress"></span>{{ card_info(
-                        "What the chart, the numbers and the bar mean.
+                <!-- The collection's size, and how much of it is already
+                     analysable. The ready-day count used to hide inside the
+                     (i) tooltip; it is a live figure, so it belongs on the
+                     line itself and the tooltip is left to explain. -->
+                <div class="dm-enrich-headline">
+                    <span id="dm-enrich-progress"></span>
+                    <span id="dm-enrich-ready-days" class="dm-enrich-ready"></span>{{ card_info(
+                    "What the chart, the numbers and the bar mean.
 
 The chart below is the person's viewing over time: one bar per active day, split by enrichment state (same colours as the coverage bar under it). The dotted line is the ten-item analysis floor.
 
-The red line in the chart is an ESTIMATE of where each day's annotated count would end up if the plan ran to its target with the current settings: whole recent days filled to the top by the deep dive, capped days scattered back through the months by the spread. Move the target or the Advanced settings and it redraws. The real spread picks its days at random, so treat the line as the shape of the outcome, not the exact days.
+The red line in the chart is an ESTIMATE of where each day's annotated count would end up if the plan ran to its target with the current settings: whole recent days filled to the top by the deep dive, capped days scattered back through the months by the spread. Move the target or any of the plan settings and it redraws. The real spread picks its days at random, so treat the line as the shape of the outcome, not the exact days.
 
 A day is analysis-ready once at least ten of the videos watched that day have been annotated. Days are the unit every analysis works in, and about fourteen ready days is the point where the tabs start to have something to say.
 
@@ -161,28 +186,27 @@ Hatched - failed for good: the scrape failed permanently (deleted post, blocked 
 The red mark on the coverage bar is the annotation target - move it with the slider below. The plan goes idle when the green zone reaches it.
 
 Everything here is measured from the data itself, not from the plan, so it stays true even when videos are scraped or annotated some other way.") }}
-                    </div>
                 </div>
                 <!-- Per-day activity, stacked by enrichment state. Display
                      only (staticPlot). Dotted line: the analysis floor. Red
                      line: the plan-estimate overlay, redrawn live from the
-                     target and the Advanced settings. -->
+                     target and the plan settings. -->
                 <div id="dm-enrich-daily-chart" style="height: 140px; display: none; margin: 2px 0 4px 0;"></div>
 
-                
-
                 <!-- Coverage bar: display only. Zones sum to the collection's
-                     unique videos; the marker is the annotation target. The
-                     target's log-scaled slider sits beside the number field
-                     below, deliberately NOT bar-width: the bar's axis is
-                     linear coverage, the slider's is logarithmic, and giving
-                     them the same length would invite reading one against the
-                     other. -->
+                     unique videos; the red marker is the annotation target and
+                     the grey one is where coverage stood when this run was
+                     armed. The target's log-scaled slider sits beside the
+                     number below, deliberately NOT bar-width: the bar's axis
+                     is linear coverage, the slider's is logarithmic, and
+                     giving them the same length would invite reading one
+                     against the other. -->
                 <div class="dm-enrich-bar" id="dm-enrich-bar">
                     <div class="dm-enrich-bar-seg annotated" id="dm-enrich-bar-annotated"></div>
                     <div class="dm-enrich-bar-seg scraped" id="dm-enrich-bar-scraped"></div>
                     <div class="dm-enrich-bar-spacer"></div>
                     <div class="dm-enrich-bar-seg failed" id="dm-enrich-bar-failed"></div>
+                    <div class="dm-enrich-bar-start" id="dm-enrich-bar-start" style="display: none;"></div>
                     <div class="dm-enrich-bar-marker" id="dm-enrich-bar-marker" style="display: none;"></div>
                 </div>
                 <div class="dm-enrich-legend text-xs" id="dm-enrich-legend">
@@ -192,95 +216,118 @@ Everything here is measured from the data itself, not from the plan, so it stays
                     <span><span class="sw failed"></span><span id="dm-enrich-leg-failed">failed for good</span></span>
                 </div>
 
-                <div style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin: 12px 0 0 0;">
-                    <label class="text-sm" style="display: block;">
-                        <span class="meta-tooltip tooltip-wide" data-tooltip="The goal: keep enriching until this many of the collection's videos are annotated. Set it with the slider - logarithmic, so small careful targets get most of the travel; the far right is everything reachable.
+                <!-- How far the current run has come. The chart and the bar
+                     show the state of the collection; this shows the state of
+                     the RUN - where coverage stood when the plan was armed,
+                     where it stands now, and where it stops. Hidden until a
+                     plan has been armed at least once. -->
+                <div class="dm-enrich-run" id="dm-enrich-run" style="display: none;">
+                    <div class="dm-enrich-run-head">
+                        <span class="text-sm" id="dm-enrich-run-title"></span>{{ card_info(
+                        "How far this run of automatic enrichment has come.
+
+Started is how many of the collection's videos were annotated at the moment the plan was armed. Now is what it is this instant. Target is where the plan stops. The meter fills as the gap between started and target closes.
+
+Arming an idle or stopped plan begins a NEW run, and the start point moves to wherever coverage stands then. Resuming a paused plan keeps the run it already had.
+
+All three are measured from the data, not from the plan's own bookkeeping - so videos annotated by any other means move them too, and nothing is ever counted twice.") }}
+                        <span class="text-sm dm-enrich-run-pct" id="dm-enrich-run-pct"></span>
+                    </div>
+                    <div class="dm-enrich-run-meter">
+                        <div class="dm-enrich-run-fill" id="dm-enrich-run-fill"></div>
+                    </div>
+                    <div class="dm-enrich-run-legend text-xs" id="dm-enrich-run-legend"></div>
+                    <div class="text-xs dm-enrich-run-cursors" id="dm-enrich-run-cursors"></div>
+                </div>
+
+                <!-- The plan's settings. All of them visible, all of the time:
+                     the balance and the spread limits decide what the run can
+                     ever reach, so hiding them behind a disclosure hid the one
+                     explanation for a target the plan could not meet. One
+                     label style throughout, one grid, sub-fields a step
+                     smaller than the fields that own them. -->
+                <div class="dm-enrich-settings">
+                    <div class="dm-enrich-field dm-enrich-field--wide">
+                        <span class="dm-enrich-label meta-tooltip tooltip-wide" data-tooltip="The goal: keep enriching until this many of the collection's videos are annotated. Set it with the slider - logarithmic, so small careful targets get most of the travel; the far right is everything reachable.
 
 A target is a state, not an allowance - videos annotated by any other means (a manual queue, another plan) count toward it, so nothing is ever paid for twice. When the target is met the plan goes idle; to continue, raise the target and arm again.
 
 The plan always takes the cheapest route: already-scraped but unannotated videos are annotated first, and new scraping starts only once that backlog is clear.
 
 The loop can overshoot slightly - it always scrapes whole days, so the last cycle may scrape past the target - but annotation stops at the target. And the target cannot exceed what is reachable: videos that failed for good are outside it.">Annotation target</span>
-                        <div style="display: flex; align-items: baseline; gap: 6px; padding: 6px 0;">
-                            <span id="dm-enrich-target" class="text-body"
-                                style="font-weight: var(--weight-bold); min-width: 60px;"></span>
-                            <span id="dm-enrich-target-pct" class="text-xs" style="color: var(--color-text-muted);"></span>
+                        <div class="dm-enrich-target-row">
+                            <span id="dm-enrich-target" class="dm-enrich-target-value"></span>
+                            <span id="dm-enrich-target-pct" class="text-sm dm-enrich-target-pct"></span>
+                            <input type="range" id="dm-enrich-target-slider" min="0" max="1000" step="1"
+                                class="dm-enrich-target-slider" oninput="dmEnrichSliderInput()">
                         </div>
-                    </label>
-                    <input type="range" id="dm-enrich-target-slider" min="0" max="1000" step="1"
-                        style="width: 200px; margin-bottom: 8px;" oninput="dmEnrichSliderInput()">
-                    <label class="text-sm" style="display: block;">
-                        <span class="meta-tooltip tooltip-wide" data-tooltip="How many videos each cycle queues for scraping, split between the two ways of choosing days (under Advanced).
+                        <div id="dm-enrich-target-readout" class="text-xs dm-enrich-hint"></div>
+                        <div id="dm-enrich-target-warning" class="text-xs dm-enrich-warn" style="display: none;"></div>
+                    </div>
+
+                    <div class="dm-enrich-field">
+                        <span class="dm-enrich-label meta-tooltip tooltip-wide" data-tooltip="How many videos each cycle queues for scraping, split between the two ways of choosing days by the balance beside this.
 
 Auto (recommended) picks the number of videos per cycle for the shortest total time: up to 2,000 (one annotation batch - roughly what can be scraped while the previous batch is being annotated) and never more than the target still needs, with a margin for the videos that fail along the way, based on this plan's own recent runs. The final cycle may take only part of a day, so the target is reached without an extra cycle. Untick it to set a number by hand.
 
 Smaller cycles report back sooner and keep the spend visible; larger ones waste less time waiting between steps. A cycle can go a little over the number, because neither half will ever take part of a day - a partly covered day is worth almost nothing to the analyses.">Items per cycle</span>
-                        <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="dm-enrich-inline">
                             <input type="number" id="dm-enrich-cycle-items" class="control-input" min="1" step="50"
-                                style="width: 110px; padding: 6px;" oninput="dmEnrichReadoutRefresh()">
-                            <label class="text-xs" style="display: flex; align-items: center; gap: 4px; color: var(--color-text-secondary);">
+                                style="width: 96px;" oninput="dmEnrichReadoutRefresh()">
+                            <label class="dm-enrich-check text-xs">
                                 <input type="checkbox" id="dm-enrich-cycle-auto"
                                     onchange="dmEnrichCycleAutoToggle()">Auto</label>
                         </div>
-                    </label>
-                    <span id="dm-enrich-target-readout" class="text-xs" style="color: var(--color-text-muted); margin-bottom: 10px;"></span>
-                </div>
-                <div id="dm-enrich-target-warning" class="text-xs"
-                    style="display: none; margin-top: 4px; color: var(--color-warning-text);"></div>
+                    </div>
 
-                <div style="margin-top: 12px;">
-                    <button type="button" class="dm-enrich-advanced-toggle" id="dm-enrich-advanced-toggle"
-                        onclick="dmEnrichToggleAdvanced()"><span class="caret">&#9656;</span>Advanced</button>
-                </div>
-                <div id="dm-enrich-advanced" style="display: none; margin-top: 10px;">
-                <div style="display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;">
-                    <div style="min-width: 240px;">
-                        <span class="text-sm meta-tooltip tooltip-wide" data-tooltip="How each cycle is divided between two ways of choosing days.
+                    <div class="dm-enrich-field">
+                        <span class="dm-enrich-label meta-tooltip tooltip-wide" data-tooltip="Optional. Nothing before this date is ever processed, by either half of the cycle. Leave it empty to work back through the person's whole history.">Earliest date</span>
+                        <input type="date" id="dm-enrich-earliest" class="control-input"
+                            style="width: 100%; max-width: 170px;" oninput="dmEnrichChartRefresh()">
+                    </div>
+
+                    <div class="dm-enrich-field">
+                        <span class="dm-enrich-label meta-tooltip tooltip-wide" data-tooltip="How each cycle is divided between two ways of choosing days.
 
 Deep dive takes every video from the most recent days, one whole day after another, working backwards - quiet days with only one or two videos included, because a short viewing session is still a session. This is the only thing that makes viewing sessions analysable, and it gives the trends and correlations honest day-by-day totals. With any deep dive at all, the plan can eventually cover the whole collection - which is what Explore and the per-video analyses want.
 
-Spread takes a few whole days out of each month instead (bounded by the limits beside this slider), walking back through the person's history. This is what covers the long arc: the year-scale trends, the breadth of topics, and extra usable days for the correlations.
+Spread takes a few whole days out of each month instead (bounded by the spread limits beside this slider), walking back through the person's history. This is what covers the long arc: the year-scale trends, the breadth of topics, and extra usable days for the correlations.
 
 Both take WHOLE days on purpose. Every analysis here groups by the day, and the correlations drop any day with fewer than ten annotated videos - so a thin scattering of videos across every day achieves almost nothing. That ten-video floor only limits which days the spread picks; it never stops the deep dive.">Deep dive / spread balance</span>
                         <input type="range" id="dm-enrich-sample-share" min="0" max="100" step="5"
-                            style="width: 100%; margin-top: 6px;" oninput="dmEnrichChartRefresh()">
-                        <div class="text-xs" style="display: flex; justify-content: space-between; color: var(--color-text-muted);">
+                            style="width: 100%;" oninput="dmEnrichChartRefresh()">
+                        <div class="dm-enrich-range-ends">
                             <span>only deep dive</span>
                             <span>only spread</span>
                         </div>
                     </div>
-                    <div style="border: 1px solid var(--color-border); border-radius: 3px; padding: 8px 12px 10px 12px;">
-                        <div class="text-xs" style="color: var(--color-text-muted); margin-bottom: 6px;">Spread limits</div>
-                        <div style="display: flex; gap: 16px; align-items: flex-end;">
-                            <label class="text-sm" style="display: block;">
-                                <span class="meta-tooltip tooltip-wide" data-tooltip="How many whole days, at most, the spread takes out of each calendar month as it works backwards.
+
+                    <div class="dm-enrich-field">
+                        <span class="dm-enrich-label">Spread limits</span>
+                        <div class="dm-enrich-inline">
+                            <label class="dm-enrich-sub">
+                                <span class="dm-enrich-sublabel meta-tooltip tooltip-wide" data-tooltip="How many whole days, at most, the spread takes out of each calendar month as it works backwards.
 
 The days are drawn at random from those with at least ten videos (the analysis floor) that the deep dive has not already taken - but the same way every time, so re-running a plan picks the same days rather than churning.
 
-Random rather than the busiest days: always choosing the busiest would make the person's viewing look heavier than it was.">Max days / month</span><br>
+Random rather than the busiest days: always choosing the busiest would make the person's viewing look heavier than it was.">Max days / month</span>
                                 <input type="number" id="dm-enrich-days-per-month" class="control-input" min="0" max="31"
-                                    style="width: 64px; padding: 6px; margin-top: 4px;" oninput="dmEnrichChartRefresh()">
+                                    style="width: 72px;" oninput="dmEnrichChartRefresh()">
                             </label>
-                            <label class="text-sm" style="display: block;">
-                                <span class="meta-tooltip tooltip-wide" data-tooltip="The most videos the spread will process on one of its sampled days, counting the ones already scraped. A day that is already at this number is skipped.
+                            <label class="dm-enrich-sub">
+                                <span class="dm-enrich-sublabel meta-tooltip tooltip-wide" data-tooltip="The most videos the spread will process on one of its sampled days, counting the ones already scraped. A day that is already at this number is skipped.
 
 At least 10 - below the analysis floor, a spread day could never qualify. At most 1,000: this caps one day, it is not a budget.
 
-Deep-dive days are not capped - they take the whole day, however busy it was.">Max items / day</span><br>
+Deep-dive days are not capped - they take the whole day, however busy it was.">Max items / day</span>
                                 <input type="number" id="dm-enrich-day-cap" class="control-input" min="10" max="1000"
-                                    style="width: 64px; padding: 6px; margin-top: 4px;" oninput="dmEnrichChartRefresh()">
+                                    style="width: 72px;" oninput="dmEnrichChartRefresh()">
                             </label>
                         </div>
                     </div>
-                    <label class="text-sm" style="display: block;">
-                        <span class="meta-tooltip tooltip-wide" data-tooltip="Optional. Nothing before this date is ever processed, by either half of the cycle. Leave it empty to work back through the person's whole history.">Earliest date</span><br>
-                        <input type="date" id="dm-enrich-earliest" class="control-input"
-                            style="width: 150px; padding: 6px; margin-top: 4px;" oninput="dmEnrichChartRefresh()">
-                    </label>
-                </div>
                 </div>
 
-                <div style="margin-top: 14px; display: flex; align-items: baseline; gap: 6px;">
+                <div class="dm-enrich-status-row">
                     <div id="dm-enrich-status-line" class="text-sm" style="color: var(--color-text-secondary);">
                         Loading enrichment plan...
                     </div>{{ card_info(
@@ -296,7 +343,7 @@ This line is a summary and refreshes itself while work is in flight. What happen
                 </div>
                 <div style="margin-top: 8px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <span class="meta-tooltip tooltip-wide" id="dm-enrich-arm-wrap"
-                        data-tooltip="Arm switches on automatic enrichment for this collection: it is picked up automatically from then on, and keeps going until the annotation target is reached or there is nothing left to process. Arming always saves the settings above first - there is no separate save step on this path.
+                        data-tooltip="Arm switches on automatic enrichment for this collection: it is picked up automatically from then on, and keeps going until the annotation target is reached or there is nothing left to process. Arming saves the settings above first - and once a plan exists, every change to them is saved by itself, so there is no save step on any path.
 
 There is only ever ONE plan per collection - if a colleague armed it already, this updates that same plan rather than starting a second one, and the last person to save wins on the settings.
 
@@ -305,12 +352,6 @@ The scrape and annotation queues are shared by the whole hub, and automatic enri
 While the plan runs the button reads Pause: nothing new starts, anything already queued still finishes. On a paused plan it reads Resume. On a finished plan it reads Arm again - raise the annotation target first, or there is nothing for it to do."><button
                         type="button" class="action-btn text-sm" id="dm-enrich-arm-btn"
                         onclick="dmEnrichToggleArmed()">Arm</button></span>
-                    <span class="meta-tooltip tooltip-wide" id="dm-enrich-save-wrap"
-                        data-tooltip="Store the settings above without arming or pausing anything. Enabled only while something differs from the saved plan - Arm saves too, so this is for changing a plan (say, raising the target) without touching its state.
-
-Changing a setting does not undo work already done - it applies from the next cycle onwards. Separate from the modal's own Save button at the top, which never touches these."><button
-                        type="button" class="action-btn btn-secondary text-sm" id="dm-enrich-save-btn"
-                        onclick="dmEnrichSave()">Save settings</button></span>
                     <span id="dm-enrich-msg" class="text-xs" style="color: var(--color-text-tertiary);"></span>
                     <span class="meta-tooltip tooltip-wide" id="dm-enrich-tick-wrap" style="margin-left: auto;"
                         data-tooltip="Runs one step of automatic enrichment right now instead of waiting for the next automatic cycle. A manual nudge and diagnostic - it does not arm anything, and one click advances the plan by exactly one step: queue the next batch of videos to scrape, start the scraper or the annotator, or consolidate finished results.
@@ -324,7 +365,7 @@ Hover again once the panel has loaded - this tip then says what a cycle would ac
                      plan's own events plus the scraper, annotator and
                      consolidation runs the plan shares. Loaded on open. -->
                 <div style="margin-top: 12px; display: flex; align-items: baseline; gap: 6px;">
-                    <button type="button" class="dm-enrich-advanced-toggle" id="dm-enrich-history-toggle"
+                    <button type="button" class="dm-disclosure-toggle" id="dm-enrich-history-toggle"
                         onclick="dmEnrichHistoryToggle()"><span class="caret">&#9656;</span>History</button>{{ card_info(
                     "What happened to this collection, newest first: the plan armed, paused or stopped; each batch of videos queued to scrape; each batch queued for annotation; and every scraper, annotator and consolidation run the plan shares with the rest of the hub - including runs someone started by hand, and videos queued elsewhere that were processed first.
 
@@ -338,22 +379,20 @@ The full history for every collection, with a collection filter, is under Data M
             </div>
         </div>
 
-        <!-- Read-only metadata. The Edit Collections table shows only what you
-             need to find a collection; everything else it holds is reported
-             here, for the one collection or for each of the selected ones.
-             Last, and collapsed: for a single collection it ends in the
-             full-height personality view (rendered by my_collections.js),
-             which is worth a click but not worth a screen every time the
-             modal opens. Nothing inside is rendered until it is expanded. -->
+        <!-- Read-only. For ONE collection this is its persona - the
+             donated-data view a participant sees on My Collections (rendered
+             by my_collections.js), over a line of metadata. For several it is
+             a metadata row each, so a bulk edit can be checked against what it
+             will touch; the button says "Collection details" then, because a
+             table of rows is not a persona.
+             Last, and collapsed: the persona is a full screen on its own, and
+             costs a request. Nothing inside is rendered until it is expanded. -->
         <div class="form-group" style="margin-top: 24px;">
-            <button type="button" class="dm-enrich-advanced-toggle" id="edit-collection-details-toggle"
+            <button type="button" class="dm-disclosure-toggle" id="edit-collection-details-toggle"
                 aria-expanded="false"
-                onclick="dmToggleCollectionDetails()"><span class="caret">&#9656;</span>Collection details</button>
+                onclick="dmToggleCollectionDetails()"><span class="caret">&#9656;</span><span
+                    class="dm-disclosure-label">Collection persona</span></button>
             <div id="edit-collection-details-panel" style="display: none;">
-                <p class="text-xs" style="margin: 6px 0 10px 0; color: var(--color-text-muted);">
-                    Read-only. A single collection also gets its donated-data view; several
-                    get a row each, so a bulk edit can be checked against what it will touch.
-                </p>
                 <div id="edit-collection-details" class="text-sm"
                     style="border: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 8px 10px;">
                 </div>

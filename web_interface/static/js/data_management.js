@@ -6397,6 +6397,119 @@ let bulkEditMode = false;
 let bulkOriginalTagsMap = {};  // collectionId -> original tags array
 let bulkPartialTags = new Set(); // tags present on some but not all selected collections
 let hiddenUserTouched = false; // track if user explicitly changed hidden checkbox
+// The display ID as last WRITTEN, not as currently typed. Every autosave
+// carries the whole record, so without this a tag ticked mid-edit would
+// persist a half-typed ID (the box commits on blur/Enter, not per keystroke).
+let _dmSavedDisplayId = '';
+// Saves are chained, never parallel: the endpoint rewrites one shared JSON
+// file, and two in-flight writes would race for it.
+let _dmSaveChain = Promise.resolve();
+// Whether anything was written while the modal was open — the table behind it
+// is refreshed on close, once, instead of after every field.
+let _dmSavedAnything = false;
+
+
+// The modal's only save feedback for a single collection. tone: 'ok' | 'err'
+// | '' (in progress). The 'ok' word clears itself; an error stays put.
+function _dmSetSaveState(text, tone = '') {
+    const el = document.getElementById('edit-collection-save-state');
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = `dm-save-state text-xs${tone ? ' ' + tone : ''}`;
+    if (tone === 'ok') {
+        const stamp = (el._dmStamp = (el._dmStamp || 0) + 1);
+        setTimeout(() => {
+            if (el._dmStamp === stamp && el.textContent === text) el.textContent = '';
+        }, 2500);
+    }
+}
+
+
+// Write the single collection's whole record — tags, hidden, account, and the
+// display ID as last committed. Called by every field in the modal the moment
+// it changes; there is no Save button on this path.
+function _dmAutoSaveCollection() {
+    if (bulkEditMode || !currentEditCollectionId) return Promise.resolve(false);
+    const cid = currentEditCollectionId;
+    const hiddenCheckbox = document.getElementById('edit-collection-hidden');
+    const payload = {
+        collection_id: cid,
+        display_collection_id: _dmSavedDisplayId,
+        tags: [...currentEditCollectionTags],
+        hidden: hiddenCheckbox ? !!hiddenCheckbox.checked : false,
+        ..._dmAccountPayload(false),
+    };
+    _dmSetSaveState('Saving\u2026');
+    // Set before the write, not in its callback: closeEditCollectionModal
+    // reads this synchronously, and a display ID committed BY closing would
+    // otherwise leave the table behind the modal showing the old name.
+    _dmSavedAnything = true;
+    _dmSaveChain = _dmSaveChain
+        .catch(() => {})
+        .then(() => fetch('/api/manage/collection/save_annotation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            body: JSON.stringify(payload),
+        }))
+        .then(r => r.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                _dmSetSaveState(`Not saved: ${data.error || 'unknown error'}`, 'err');
+                return false;
+            }
+            _dmSetSaveState('Saved', 'ok');
+            // Keep the row behind the modal honest without re-rendering the
+            // whole table on every tick of a checkbox.
+            const obj = availableCollections.find(
+                c => (typeof c === 'object' ? c.id : c) === cid);
+            if (obj && typeof obj === 'object') {
+                obj.tags = [...payload.tags];
+                obj.hidden = payload.hidden;
+                obj.displayId = payload.display_collection_id;
+                if ('user_id' in payload) obj.user_id = payload.user_id;
+            }
+            return true;
+        })
+        .catch(err => {
+            console.error('Error saving collection:', err);
+            _dmSetSaveState('Not saved \u2014 check your connection', 'err');
+            return false;
+        });
+    return _dmSaveChain;
+}
+
+
+// Display ID commits on blur or Enter, not per keystroke. While the box
+// differs from what is stored it offers a Save button; a write leaves a green
+// tick behind, so an edited ID never looks like a saved one.
+function dmDisplayIdInput() {
+    if (bulkEditMode) return;
+    const input = document.getElementById('edit-collection-display-id');
+    const btn = document.getElementById('edit-collection-display-id-save');
+    const tick = document.getElementById('edit-collection-display-id-tick');
+    if (!input) return;
+    const dirty = input.value !== _dmSavedDisplayId;
+    if (btn) btn.style.display = dirty ? '' : 'none';
+    if (tick && dirty) tick.style.display = 'none';
+}
+window.dmDisplayIdInput = dmDisplayIdInput;
+
+function dmDisplayIdCommit() {
+    if (bulkEditMode || !currentEditCollectionId) return;
+    const input = document.getElementById('edit-collection-display-id');
+    const btn = document.getElementById('edit-collection-display-id-save');
+    const tick = document.getElementById('edit-collection-display-id-tick');
+    if (!input || input.value === _dmSavedDisplayId) return;
+    _dmSavedDisplayId = input.value;
+    if (btn) btn.style.display = 'none';
+    _dmAutoSaveCollection().then(ok => {
+        if (!ok || !tick) return;
+        tick.style.display = '';
+        const stamp = (tick._dmStamp = (tick._dmStamp || 0) + 1);
+        setTimeout(() => { if (tick._dmStamp === stamp) tick.style.display = 'none'; }, 3000);
+    });
+}
+window.dmDisplayIdCommit = dmDisplayIdCommit;
 
 function openEditCollectionModal(collectionObj) {
     if (typeof collectionObj === 'string') {
@@ -6418,12 +6531,25 @@ function openEditCollectionModal(collectionObj) {
     displayIdInput.value = collectionObj.displayId || currentEditCollectionId;
     displayIdInput.disabled = false;
     displayIdInput.placeholder = '';
+    _dmSavedDisplayId = displayIdInput.value;
+    dmDisplayIdInput();
+    const tick = document.getElementById('edit-collection-display-id-tick');
+    if (tick) tick.style.display = 'none';
+    _dmSetSaveState('');
+    _dmSavedAnything = false;
 
     const hiddenCheckbox = document.getElementById('edit-collection-hidden');
     if (hiddenCheckbox) {
         hiddenCheckbox.checked = !!collectionObj.hidden;
         hiddenCheckbox.indeterminate = false;
-        hiddenCheckbox.onchange = null;
+        hiddenCheckbox.onchange = () => _dmAutoSaveCollection();
+    }
+
+    // A single collection saves itself; the button is the bulk edit's alone.
+    const saveBtn = document.getElementById('save-collection-btn');
+    if (saveBtn) {
+        saveBtn.style.display = 'none';
+        saveBtn.disabled = false;
     }
 
     const deleteBtn = document.getElementById('delete-collection-btn');
@@ -6450,6 +6576,10 @@ function _dmFillAccountSelect(selected, bulk) {
     if (!sel) return;
     sel.disabled = true;
     sel.innerHTML = '<option value="">Loading accounts...</option>';
+    // Autosave only once the options are in: a change event can only come
+    // from the operator after that, and until then _dmAccountPayload sees a
+    // disabled select and leaves the stored account alone.
+    sel.onchange = bulk ? null : () => _dmAutoSaveCollection();
     loadAccounts(true).then(accounts => {
         populateAccountSelect(sel, accounts, {
             blankLabel: '— no account —',
@@ -6496,6 +6626,13 @@ function _dmResetCollectionDetails(objs) {
     if (btn) {
         btn.classList.remove('open');
         btn.setAttribute('aria-expanded', 'false');
+        // One collection gets its persona (the donated-data view); several get
+        // a metadata row each, which is not a persona and must not claim to be.
+        const label = btn.querySelector('.dm-disclosure-label');
+        if (label) {
+            label.textContent = (objs && objs.length === 1)
+                ? 'Collection persona' : 'Collection details';
+        }
     }
     const box = document.getElementById('edit-collection-details');
     if (box) box.innerHTML = '';
@@ -6613,6 +6750,12 @@ function _dmRenderCollectionDetails(objs) {
 }
 
 function closeEditCollectionModal() {
+    // A display ID typed but never committed still counts as an edit — the
+    // box has no other way out, and closing is how most people leave it. Same
+    // for a plan setting still inside its debounce: opening the next
+    // collection resets the panel, which would drop the write silently.
+    dmDisplayIdCommit();
+    dmEnrichAutoSaveFlush();
     document.getElementById('editCollectionModal').style.display = 'none';
     currentEditCollectionId = null;
     bulkEditMode = false;
@@ -6622,6 +6765,14 @@ function closeEditCollectionModal() {
         displayIdInput.disabled = false;
         displayIdInput.placeholder = '';
     }
+    // The table behind the modal is re-rendered once, on the way out, rather
+    // than after each autosaved field — a re-render drops the scroll position
+    // and the multi-select.
+    if (_dmSavedAnything) {
+        _dmSavedAnything = false;
+        _dmSaveChain.catch(() => {}).then(() => loadAvailableCollections());
+    }
+    _dmSetSaveState('');
     updateEditSelectedButton();
 }
 
@@ -6701,6 +6852,9 @@ function dm_toggleTag(tag) {
         currentEditCollectionTags.push(tag);
     }
     dm_renderTags();
+    // Single collection: a tick IS the save. Bulk waits for the button — one
+    // tick there rewrites every selected collection.
+    _dmAutoSaveCollection();
 }
 
 function dm_addNewTag() {
@@ -6719,9 +6873,12 @@ function dm_addNewTag() {
         });
         input.value = '';
         dm_renderTags();
+        _dmAutoSaveCollection();
     }
 }
 
+// The bulk edit's Apply. A single collection no longer reaches this: every
+// field there writes itself (_dmAutoSaveCollection), and the button is hidden.
 function dm_saveAnnotation() {
     if (!currentEditCollectionId && !bulkEditMode) return;
 
@@ -6882,6 +7039,16 @@ let dmEnrichRefreshTimer = null;
 // True from a tick's dispatch until it reports back — keeps the input-driven
 // button refresh from re-enabling the tick button mid-poll.
 let dmEnrichTickInFlight = false;
+// The plan settings save themselves, debounced: a slider drag is one write,
+// not one per pixel. These two say a write is pending or in flight, which is
+// also what stops an incoming render from overwriting the form under the
+// operator's hands.
+let dmEnrichAutoSaveTimer = null;
+let dmEnrichAutoSaveInFlight = false;
+// The site-wide switch, remembered from the last GET: an autosave POST does
+// not report it, and re-fetching the whole panel just to learn it would
+// re-render the form mid-edit.
+let dmEnrichEnabledSiteWide = true;
 
 // The status strip's words for what the machinery is doing right now.
 const DM_ENRICH_ACTIVITY_LABELS = {
@@ -6936,7 +7103,7 @@ function dmEnrichFillSettings(settings, progress = {}) {
         autoBox.checked = settings.cycle_items_auto ?? true;
     }
     set('dm-enrich-sample-share', Math.round((settings.sample_share ?? 0.5) * 100));
-    set('dm-enrich-days-per-month', settings.a_days_per_month ?? 2);
+    set('dm-enrich-days-per-month', settings.a_days_per_month ?? 15);
     set('dm-enrich-day-cap', settings.a_day_cap ?? 50);
     set('dm-enrich-earliest', settings.earliest_date || '');
     // The target: the stored goal, or — for a plan that has never had one — a
@@ -7007,6 +7174,22 @@ function dmEnrichDrawMarker(target) {
     marker.style.left = `${(frac * 100).toFixed(2)}%`;
 }
 
+// The quieter second marker: where the green zone stood when this run was
+// armed, so the bar shows what the run itself has bought.
+function dmEnrichDrawStartMarker(progress) {
+    const el = document.getElementById('dm-enrich-bar-start');
+    if (!el) return;
+    const total = progress.unique_items || 0;
+    const start = progress.run_start_annotated;
+    if (!dmEnrichArmed || !total || start === null || start === undefined) {
+        el.style.display = 'none';
+        return;
+    }
+    el.style.display = '';
+    el.style.left = `${(100 * Math.max(0, Math.min(1, start / total))).toFixed(2)}%`;
+    el.title = `${Number(start).toLocaleString()} videos were annotated when this run was armed`;
+}
+
 // "roughly 3 hours" / "roughly 1\u20132 days" from a cycle count. A cycle is
 // dominated by the annotation batch plus worker turnaround; observed prod
 // cycles run about one to three hours, so the range is honest, not precise.
@@ -7075,8 +7258,8 @@ function dmEnrichSliderInput() {
     dmEnrichChartRefresh();
 }
 
-// Shared by the Data Management "Advanced" disclosures (the enrichment plan
-// modal, the annotation-queue block): flip the panel and rotate the caret.
+// Shared by the Data Management disclosures (History, Collection persona, the
+// annotation-queue block): flip the panel and rotate the caret.
 function dmToggleAdvanced(panelId, btnId) {
     const panel = document.getElementById(panelId);
     const btn = document.getElementById(btnId);
@@ -7085,10 +7268,6 @@ function dmToggleAdvanced(panelId, btnId) {
     panel.style.display = open ? '' : 'none';
     btn.classList.toggle('open', open);
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-}
-
-function dmEnrichToggleAdvanced() {
-    dmToggleAdvanced('dm-enrich-advanced', 'dm-enrich-advanced-toggle');
 }
 
 function dmEnrichReadSettings() {
@@ -7127,13 +7306,14 @@ function dmEnrichTickTooltip(armed, state, progress) {
                + 'before this collection\'s own.';
     if (!armed) {
         return 'Disabled: this collection has no plan yet, so a cycle has '
-             + 'nothing to run. Press Arm (or edit a setting and save) first.';
+             + 'nothing to run. Press Arm first \u2014 that is what creates the '
+             + 'plan, with the settings shown here.';
     }
     const target = progress.annotation_target ?? 0;
     const annotated = progress.target_floor ?? 0;
     if (!target) {
         return 'No annotation target is set, so a cycle will find nothing to '
-             + 'do. Pick a target below and save it first. ' + base;
+             + 'do. Pick a target below first. ' + base;
     }
     if (annotated >= target) {
         return `Disabled: the annotation target (${target.toLocaleString()}) `
@@ -7297,7 +7477,7 @@ function dmEnrichTargetWarning(target) {
 }
 
 // Full re-render from the cached daily series — fired by the target slider
-// and every Advanced setting the estimate line depends on. The readout and
+// and every plan setting the estimate line depends on. The readout and
 // the reachability warning depend on the same inputs, so they ride along.
 function dmEnrichChartRefresh() {
     if (dmEnrichDailyCache) dmEnrichRenderChart(dmEnrichDailyCache);
@@ -7387,6 +7567,7 @@ function dmEnrichDrawBar(progress) {
     if (bar) bar.style.display = show ? '' : 'none';
     if (slider) slider.style.display = show ? '' : 'none';
     if (legend) legend.style.display = show ? '' : 'none';
+    dmEnrichDrawStartMarker(progress);
     if (!show) return;
 
     const annotated = seg('dm-enrich-bar-annotated', progress.unique_annotated);
@@ -7406,14 +7587,14 @@ function dmEnrichDrawBar(progress) {
 }
 
 function dmEnrichRender(data) {
-    // One delegated listener keeps Save's dirty state honest for every input
-    // in the panel — sliders and number fields alike bubble 'input' here.
+    // One delegated listener carries every input in the panel — sliders and
+    // number fields alike bubble 'input' here — into the autosave.
     const panel = document.getElementById('dm-enrich-panel');
     if (panel && !panel._dmEnrichDirtyHooked) {
         panel._dmEnrichDirtyHooked = true;
-        panel.addEventListener('input', dmEnrichButtonsRefresh);
-        // Checkboxes reliably fire 'change'; the refresh is idempotent.
-        panel.addEventListener('change', dmEnrichButtonsRefresh);
+        panel.addEventListener('input', dmEnrichPanelChanged);
+        // Checkboxes reliably fire 'change'; the handler is idempotent.
+        panel.addEventListener('change', dmEnrichPanelChanged);
     }
     dmEnrichArmed = !!data.armed;
     const progress = data.progress || {};
@@ -7454,36 +7635,43 @@ function dmEnrichRender(data) {
         statusEl.textContent = line;
     }
 
-    // Right of the status: just the collection's size. The day-shaped figures
-    // and the cursors live in the (i) beside it — appended to its static
-    // tooltip text, since they are the only dynamic facts a tooltip carries.
+    // Above the chart: the collection's size, and how much of it is already
+    // analysable. Both are live figures, so both sit on the line — the ready-day
+    // count used to hide inside the (i), where a number that moves every cycle
+    // is exactly the wrong thing to keep. The tooltip explains; the line reports.
     const progEl = document.getElementById('dm-enrich-progress');
+    const videos = progress.unique_items || 0;
     if (progEl) {
-        const videos = progress.unique_items || 0;
         progEl.textContent = videos
             ? `${videos.toLocaleString()} videos watched over ${progress.total_days} days`
             : '';
-        const info = progEl.nextElementSibling;
-        if (info && info.dataset && info.dataset.tooltip !== undefined) {
-            if (!info._baseTip) info._baseTip = info.dataset.tooltip;
-            let extra = '';
-            if (videos) {
-                extra = `\n\nRight now: ${progress.qualifying_days} analysis-ready `
-                      + `day(s), of the ~${progress.milestone_days} needed.`;
-                if (progress.b_cursor || progress.a_cursor) {
-                    extra += ` The deep dive has worked back to ${progress.b_cursor || '\u2014'},`
-                           + ` the spread to ${progress.a_cursor || '\u2014'}.`;
-                }
-            }
-            info.dataset.tooltip = info._baseTip + extra;
-            info.setAttribute('aria-label', info.dataset.tooltip);
-        }
+    }
+    const readyEl = document.getElementById('dm-enrich-ready-days');
+    if (readyEl) {
+        const ready = progress.qualifying_days || 0;
+        const need = progress.milestone_days || 0;
+        // Past the milestone the "of the ~14 needed" half is not just
+        // redundant, it reads as a shortfall ("46 of the ~14").
+        readyEl.textContent = !videos ? ''
+            : (ready >= need
+                ? `${ready.toLocaleString()} analysis-ready days`
+                : `${ready.toLocaleString()} of the ~${need} analysis-ready days needed`);
     }
 
     dmEnrichDrawBar(progress);
-    // Settings first: the chart's estimate line reads the Advanced inputs.
-    dmEnrichFillSettings(data.settings || {}, progress);
+    // Settings first: the chart's estimate line reads the plan inputs.
+    // A render that lands while a write is pending or in flight must NOT
+    // refill the form — that is the operator still typing, and the values
+    // coming back are the ones they have already moved past. The figures the
+    // chart and the readout need are refreshed either way.
+    if (dmEnrichFormBusy()) {
+        dmEnrichTargetBounds(progress);
+        dmEnrichTargetSync(dmEnrichTargetValue);
+    } else {
+        dmEnrichFillSettings(data.settings || {}, progress);
+    }
     dmEnrichRenderChart(progress.daily);
+    dmEnrichRenderRun(progress);
     // The reachability warning needs the daily cache the chart just set.
     dmEnrichReadoutRefresh();
 
@@ -7501,33 +7689,160 @@ function dmEnrichRender(data) {
     if (tickWrap) {
         tickWrap.dataset.tooltip = dmEnrichTickTooltip(dmEnrichArmed, dmEnrichState, progress);
     }
-    // The saved-settings snapshot Save's dirty check compares against: the
-    // form as just filled from the plan, via the same reader Save uses.
-    dmEnrichSavedSettings = JSON.stringify(dmEnrichReadSettings());
+    // The baseline the autosave's dirty check compares against: the form as
+    // just filled from the plan, via the same reader the autosave writes with.
+    // Skipped mid-write, or a pending edit would be marked already saved.
+    if (!dmEnrichFormBusy()) {
+        dmEnrichSavedSettings = JSON.stringify(dmEnrichReadSettings());
+    }
     dmEnrichButtonsRefresh();
     dmEnrichScheduleRefresh(data);
 }
 
 
-// Save is enabled only while the form differs from the saved plan (Arm always
-// saves too, so a clean form leaves nothing for Save to do). The tick button
-// is disabled when there is no plan to run, or its target is already met; the
-// tooltip that explains each disabled state sits on the button's WRAPPER span,
-// which still hovers when the button inside it is disabled.
-function dmEnrichButtonsRefresh() {
-    const saveBtn = document.getElementById('dm-enrich-save-btn');
-    if (saveBtn) {
-        const dirty = dmEnrichSavedSettings !== null
-            && JSON.stringify(dmEnrichReadSettings()) !== dmEnrichSavedSettings;
-        saveBtn.disabled = !dirty;
-        saveBtn.textContent = dirty ? 'Save changes' : 'Save settings';
+// --- Run progress ---------------------------------------------------------
+// Where this run started, where it stands now, and where it stops. The chart
+// and the coverage bar describe the collection; only this describes the run,
+// which is what "how far has it come" actually asks. The start point is the
+// annotated count recorded when the plan was armed (the ledger's
+// run_start_annotated), so it survives edits, pauses and hand-queued work.
+function dmEnrichRenderRun(progress) {
+    const box = document.getElementById('dm-enrich-run');
+    if (!box) return;
+    const total = progress.unique_items || 0;
+    const target = progress.annotation_target || 0;
+    const now = progress.target_floor ?? 0;
+    const start = progress.run_start_annotated;
+    if (!dmEnrichArmed || !total || !target || start === null || start === undefined) {
+        box.style.display = 'none';
+        return;
     }
+    box.style.display = '';
+
+    const span = Math.max(1, target - start);
+    const done = Math.max(0, Math.min(span, now - start));
+    const pct = Math.round(100 * done / span);
+    const pctOf = (n) => `${(100 * n / total).toFixed(total > 2000 ? 1 : 0)}%`;
+
+    const title = document.getElementById('dm-enrich-run-title');
+    if (title) {
+        const when = fypFmtDate(progress.run_started_at, '');
+        const label = dmEnrichState === 'running' ? 'This run'
+            : (dmEnrichState === 'paused' ? 'This run (paused)' : 'Last run');
+        title.textContent = when ? `${label}, armed ${when}` : label;
+    }
+    const pctEl = document.getElementById('dm-enrich-run-pct');
+    if (pctEl) pctEl.textContent = `${pct}% of the way`;
+    const fill = document.getElementById('dm-enrich-run-fill');
+    if (fill) fill.style.width = `${pct}%`;
+
+    const legend = document.getElementById('dm-enrich-run-legend');
+    if (legend) {
+        legend.innerHTML = '';
+        const item = (label, value) => {
+            const span_ = document.createElement('span');
+            const b = document.createElement('b');
+            b.textContent = value;
+            span_.append(`${label} `, b);
+            legend.appendChild(span_);
+        };
+        item('started at', `${start.toLocaleString()} (${pctOf(start)})`);
+        item('now', `${now.toLocaleString()} (${pctOf(now)})`);
+        item('target', `${target.toLocaleString()} (${pctOf(target)})`);
+        item('still to annotate', Math.max(0, target - now).toLocaleString());
+    }
+
+    // How far back through the person's history each half of the cycle has
+    // walked — the other half of "how far has it come", and previously buried
+    // in the chart's tooltip.
+    const cursors = document.getElementById('dm-enrich-run-cursors');
+    if (cursors) {
+        cursors.textContent = (progress.b_cursor || progress.a_cursor)
+            ? `Deep dive has worked back to ${progress.b_cursor || '\u2014'}`
+              + ` \u00b7 spread to ${progress.a_cursor || '\u2014'}`
+            : '';
+    }
+}
+
+
+// The tick button is disabled when there is no plan to run, or its target is
+// already met; the tooltip that explains each disabled state sits on the
+// button's WRAPPER span, which still hovers when the button inside it is
+// disabled.
+function dmEnrichButtonsRefresh() {
     const tickBtn = document.getElementById('dm-enrich-tick-btn');
     if (tickBtn) {
         const target = dmEnrichProgressCache.annotation_target ?? 0;
         const met = target > 0 && (dmEnrichProgressCache.target_floor ?? 0) >= target;
         tickBtn.disabled = dmEnrichTickInFlight || !dmEnrichArmed || met;
     }
+}
+
+
+// Any panel input: keep the tick button honest, then schedule the write.
+function dmEnrichPanelChanged() {
+    dmEnrichButtonsRefresh();
+    dmEnrichAutoSaveSoon();
+}
+
+
+// True while a settings write is pending or in flight — the window in which
+// an incoming render must leave the form alone.
+function dmEnrichFormBusy() {
+    return dmEnrichAutoSaveTimer !== null || dmEnrichAutoSaveInFlight;
+}
+
+
+// The plan's settings have no Save button: a change writes itself, debounced
+// so that dragging a slider is one write rather than one per pixel. There is
+// one thing autosave cannot do — CREATE a plan. Merely opening the modal
+// prefills a suggested target, and writing that would arm-by-accident every
+// collection an operator so much as looked at; so before a plan exists, the
+// settings are held and Arm saves them (which is what Arm has always done).
+function dmEnrichAutoSaveSoon() {
+    if (!dmEnrichCollectionId || dmEnrichSavedSettings === null) return;
+    if (JSON.stringify(dmEnrichReadSettings()) === dmEnrichSavedSettings) return;
+    if (!dmEnrichArmed) {
+        dmEnrichMsg('Not armed yet \u2014 press Arm to start with these settings.');
+        return;
+    }
+    if (dmEnrichAutoSaveTimer) clearTimeout(dmEnrichAutoSaveTimer);
+    dmEnrichMsg('Saving\u2026');
+    dmEnrichAutoSaveTimer = setTimeout(dmEnrichAutoSaveNow, 900);
+}
+
+
+// Write a pending settings change NOW instead of at the end of its debounce —
+// for anything that is about to overtake it (closing the modal, Arm, a tick).
+function dmEnrichAutoSaveFlush() {
+    if (!dmEnrichAutoSaveTimer) return Promise.resolve();
+    clearTimeout(dmEnrichAutoSaveTimer);
+    dmEnrichAutoSaveTimer = null;
+    return dmEnrichAutoSaveNow();
+}
+
+
+function dmEnrichAutoSaveNow() {
+    dmEnrichAutoSaveTimer = null;
+    if (!dmEnrichCollectionId || !dmEnrichArmed) return Promise.resolve();
+    const settings = dmEnrichReadSettings();
+    const body = JSON.stringify(settings);
+    if (body === dmEnrichSavedSettings) return Promise.resolve();
+    dmEnrichAutoSaveInFlight = true;
+    // No re-fetch after the write: the POST answers with the plan and its
+    // progress, and a second GET would re-render the form the operator is
+    // still holding.
+    return dmEnrichPost({ settings }, 'Saving\u2026', { reload: false })
+        .then(saved => {
+            dmEnrichAutoSaveInFlight = false;
+            if (!saved) return;
+            // The baseline is what was SENT, not what the form says now:
+            // anything changed since stays dirty and schedules its own write.
+            dmEnrichSavedSettings = body;
+            dmEnrichMsg(dmEnrichTargetValue > 0
+                ? `Saved \u2014 target ${dmEnrichTargetValue.toLocaleString()}.`
+                : 'Saved.', 'ok');
+        });
 }
 
 
@@ -7588,10 +7903,17 @@ function dmEnrichResetPanel() {
     }
     const warn = document.getElementById('dm-enrich-target-warning');
     if (warn) warn.style.display = 'none';
+    const runBox = document.getElementById('dm-enrich-run');
+    if (runBox) runBox.style.display = 'none';
     dmEnrichProgressCache = {};
     dmEnrichDailyCache = null;
     dmEnrichTargetValue = 0;
     dmEnrichSavedSettings = null;
+    if (dmEnrichAutoSaveTimer) {
+        clearTimeout(dmEnrichAutoSaveTimer);
+        dmEnrichAutoSaveTimer = null;
+    }
+    dmEnrichAutoSaveInFlight = false;
     if (dmEnrichRefreshTimer) {
         clearTimeout(dmEnrichRefreshTimer);
         dmEnrichRefreshTimer = null;
@@ -7630,15 +7952,20 @@ function dmEnrichLoad(collectionId) {
         .then(data => {
             if (dmEnrichCollectionId !== collectionId) return; // modal moved on
             if (data.error) { dmEnrichMsg(data.error, true); return; }
+            dmEnrichEnabledSiteWide = !!data.enabled_site_wide;
             dmEnrichRender(data);
             if (dmEnrichHistoryOpen) dmEnrichHistoryLoad();
         })
         .catch(err => dmEnrichMsg(`Could not load the enrichment plan: ${err}`, true));
 }
 
-function dmEnrichPost(payload, busyMsg) {
+// opts.reload: re-fetch the whole panel afterwards. Arm/Pause do (the state
+// change is worth the authoritative read); an autosave does not — the second
+// render would land on a form the operator is still using.
+function dmEnrichPost(payload, busyMsg, opts = {}) {
     const cid = dmEnrichCollectionId;
     if (!cid) return Promise.resolve(null);
+    const reload = opts.reload !== false;
     dmEnrichMsg(busyMsg || 'Saving...');
     return fetch(`/api/manage/collections/${encodeURIComponent(cid)}/enrichment`, {
         method: 'POST',
@@ -7649,24 +7976,21 @@ function dmEnrichPost(payload, busyMsg) {
         .then(data => {
             if (dmEnrichCollectionId !== cid) return null;
             if (data.error) { dmEnrichMsg(data.error, true); return null; }
-            dmEnrichRender({ ...data, enabled_site_wide: true });
-            // Re-fetch for the authoritative enabled_site_wide + progress.
-            dmEnrichLoad(cid);
+            // The POST does not report the site-wide switch; the last GET did.
+            dmEnrichRender({ ...data, enabled_site_wide: dmEnrichEnabledSiteWide });
+            if (reload) dmEnrichLoad(cid);
             return data;
         })
         .catch(err => { dmEnrichMsg(`Save failed: ${err}`, true); return null; });
 }
 
-function dmEnrichSave() {
-    const summary = dmEnrichTargetValue > 0
-        ? `Settings saved \u2014 target ${dmEnrichTargetValue.toLocaleString()}.`
-        : 'Settings saved.';
-    dmEnrichPost({ settings: dmEnrichReadSettings() }).then(d => {
-        if (d) dmEnrichMsg(summary, 'ok');
-    });
-}
-
 async function dmEnrichToggleArmed() {
+    // This POST sends the settings itself; a debounce still ticking would
+    // repeat the write a second later for nothing.
+    if (dmEnrichAutoSaveTimer) {
+        clearTimeout(dmEnrichAutoSaveTimer);
+        dmEnrichAutoSaveTimer = null;
+    }
     const next = (dmEnrichArmed && dmEnrichState === 'running') ? 'paused' : 'running';
     const extra = {};
     if (next === 'running') {
@@ -8046,6 +8370,9 @@ function dmEnrichTick() {
 }
 
 async function _dmEnrichTickAfterGate(cid) {
+    // Settings first: a cycle run by hand must use what the panel shows, not
+    // what the plan held before the operator's last edit finished its debounce.
+    await dmEnrichAutoSaveFlush();
     // A manual cycle drains the shared queues exactly like an automatic one
     // (2026-09-04's hour of someone else's backlog started on this button).
     const gate = await dmEnrichQueueGate('Run a cycle');
@@ -8305,6 +8632,22 @@ function openEditSelectedCollections() {
     displayIdInput.value = '';
     displayIdInput.disabled = true;
     displayIdInput.placeholder = 'Multiple collections selected';
+    _dmSavedDisplayId = '';
+    const dispSave = document.getElementById('edit-collection-display-id-save');
+    if (dispSave) dispSave.style.display = 'none';
+    const dispTick = document.getElementById('edit-collection-display-id-tick');
+    if (dispTick) dispTick.style.display = 'none';
+    _dmSetSaveState('');
+    _dmSavedAnything = false;
+
+    // Bulk keeps an explicit apply: here a single tag chip would otherwise
+    // rewrite every selected collection the instant it is ticked.
+    const saveBtn = document.getElementById('save-collection-btn');
+    if (saveBtn) {
+        saveBtn.style.display = '';
+        saveBtn.disabled = false;
+        saveBtn.textContent = `Apply to ${selectedIds.length} collections`;
+    }
 
     // Hidden checkbox: check if all, none, or mixed
     const hiddenCheckbox = document.getElementById('edit-collection-hidden');

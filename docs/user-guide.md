@@ -413,23 +413,47 @@ added, activity count, active days, its **automatic-enrichment state**
 **scraped/annotated coverage** (the same figures a participant sees on
 My Collections; the last event date lives in the edit modal).
 
+For **one** collection the modal has no Save button: ticking a tag, picking an
+account and switching *Hide Collection* each write immediately, and the title
+bar says *Saving…* then *Saved*. **Display ID** is the exception — free text
+cannot be written per keystroke, so it commits when you leave the box or press
+Enter, offering a *Save* button while it differs from what is stored and a
+green tick once the write lands. A **multi-collection** edit keeps an explicit
+*Apply to N collections*, because there one tag chip rewrites every selected
+collection. The read-only block at the foot of the modal is the
+**Collection persona** for a single collection (the donated-data view the
+participant sees on My Collections) and a metadata row per collection —
+labelled *Collection details* — for several.
+
 The edit modal's **Automatic enrichment** panel arms a collection to scrape
 and annotate itself toward an **annotation target** — a number of unique
-videos to have annotated, set with a log-scaled slider. The panel shows a
+videos to have annotated, set with a log-scaled slider. The panel shows the
+collection's size and how many **analysis-ready days** it already has, a
 per-day activity chart (stacked by enrichment state, with a red line
 estimating where each day would land under the current settings), a linear
 coverage bar with the target marked on it, and a live readout translating
 the target into items, estimated cost (with the active model) and cycles.
+Once a plan has been armed, a **run meter** under the bar reports the run
+itself: how many videos were annotated when it was armed, how many are now,
+the target, and how far back through the history each half of the cycle has
+walked. Arming an Idle or stopped plan starts a new run and moves that
+starting line; resuming a paused one keeps it.
 The loop always annotates the already-scraped backlog first, then splits
 new scraping between a recent-days **deep dive** and a capped **spread**
-across the history (the balance slider and the spread's month/day limits
-live under *Advanced*); what one of the two cannot spend the other uses.
+across the history; what one of the two cannot spend the other uses. The
+balance slider and the spread's limits (by default up to 15 days a month, 50
+videos a day) sit with the rest of the plan settings, all of them visible at
+once — they decide what a run can ever reach, which is the one explanation
+for a target the plan cannot meet.
 With *Auto* items per cycle, each cycle is one annotation job's worth
 (2,000), sized up for the videos expected to fail on the way — measured
 from the plan's own recent runs — so the target is met without a trailing
 cycle for the shortfall; the last slice may buy part of a day. An amber
 warning appears when the settings cannot reach the chosen target. The target is a running total: to continue a
-finished (Idle) plan, raise the target and press *Arm again*. Arming runs
+finished (Idle) plan, raise the target and press *Arm again*. Changing any
+setting on an existing plan saves itself, and applies from the next cycle;
+before a plan exists there is nothing to save to, so *Arm* is what stores
+them. Arming runs
 the first cycle at once (the slice is cut and the scraper started); the
 later cycles follow on their own. Automatic ticking also requires the
 site-wide switch in Admin → Site Settings; *Run a cycle now* works

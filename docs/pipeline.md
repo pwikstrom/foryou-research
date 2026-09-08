@@ -185,9 +185,13 @@ that backlog is clear. Slices then interleave two processes that both buy
 **whole collection-days** (the unit every analysis floors on): Process B
 ("deep dive") takes consecutive recent days uncapped (what Sessions needs),
 Process A ("spread") samples up to `a_days_per_month` whole days per month
-backwards through history, capped at `a_day_cap` per day (the
-Timelines/Correlations long arc), with `sample_share` splitting each
-cycle's items between them. With any deep-dive share above zero the plan
+backwards through history (default 15), capped at `a_day_cap` per day
+(default 50 — the Timelines/Correlations long arc), with `sample_share`
+splitting each cycle's items between them. Arming stamps
+`run_started_at` and `run_start_annotated` on the ledger entry — the
+annotated count read from the DATA at that moment — which is what the
+modal's run meter measures against; a resume keeps them, a re-arm
+replaces them. With any deep-dive share above zero the plan
 can eventually reach everything processable; only at 100% spread (or under
 an `earliest_date` floor) do the spread limits cap the final coverage — the
 panel warns when the chosen target sits above that line. Plans, cursors and

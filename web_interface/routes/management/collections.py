@@ -476,7 +476,10 @@ def save_collection_enrichment(collection_id):
     nothing — every video already processed or failed for good is skipped, so
     it picks up exactly what is left (2026-09-08: a plan whose deep dive had
     skipped every quiet day sat with both cursors at the oldest month, and a
-    re-arm would have found nothing to do).
+    re-arm would have found nothing to do). Arming also stamps the run's
+    starting line — ``run_started_at`` and the annotated count at that moment —
+    which is the only thing that lets the panel say how far a RUN has come
+    rather than how far the collection has. Resuming a paused plan keeps it.
     """
     from ...services import collection_enrichment as ce
     from ...collection_accounts import load_owner_map
@@ -499,10 +502,21 @@ def save_collection_enrichment(collection_id):
         patch["settings"] = ce.normalize_settings(data["settings"])
 
     existing = ce.get_plan(cid)
+    prev_state = (existing or {}).get("state")
     if existing is not None and patch.get("state") == ce.STATE_RUNNING \
             and existing.get("state") == ce.STATE_DONE:
         patch["a_cursor"] = None
         patch["b_cursor"] = None
+    # A run's starting line, for the panel's run-progress meter. Arming starts
+    # a NEW run, so the line moves to wherever coverage stands now; resuming a
+    # paused plan continues the run it already had, so it does not. Read from
+    # the data (progress), never from the ledger's own counters — work done by
+    # hand or by another route counts toward the same target.
+    if patch.get("state") == ce.STATE_RUNNING and prev_state not in (
+            ce.STATE_RUNNING, ce.STATE_PAUSED):
+        patch["run_started_at"] = ce.now_iso()
+        patch["run_start_annotated"] = int(
+            ce.progress(cid, existing or {}).get("target_floor") or 0)
     if existing is None:
         try:
             owner = (load_owner_map() or {}).get(cid)
@@ -524,15 +538,14 @@ def save_collection_enrichment(collection_id):
                 ({"settings": patch["settings"]} if "settings" in patch else {}),
     )
     entry = ce.get_plan(cid)
-    _journal_plan_save(cid, patch, (existing or {}).get("state"), entry or {},
+    _journal_plan_save(cid, patch, prev_state, entry or {},
                        queue_choice=data.get("queue_choice"),
                        foreign_queued=data.get("foreign_queued"))
     # Arming used to change a ledger entry and nothing else: the first slice
     # waited for the hourly heartbeat (up to an hour, on 2026-09-05 the
     # better part of one). Arm now means "start" — one tick, right away.
     ticked = None
-    if patch.get("state") == ce.STATE_RUNNING and \
-            (existing or {}).get("state") != ce.STATE_RUNNING:
+    if patch.get("state") == ce.STATE_RUNNING and prev_state != ce.STATE_RUNNING:
         ticked = _tick_now(cid)
     return jsonify({"status": "success", "armed": entry is not None,
                     "settings": (entry or {}).get("settings"),
