@@ -819,6 +819,117 @@ def _by_day(activity: pd.DataFrame, status: pd.DataFrame | None,
 MAX_SPREAD_DAYS = 31
 
 
+# How long the steps of a cycle take until a collection has runs of its own
+# to measure: observed prod figures (2026-09-09: 1,289 scraped in 18 min;
+# a 1,055-video batch job in 20 min, a 14-video one in 6; consolidations
+# 1-2.5 min).
+DEFAULT_TIMING = {
+    "scrape_per_min": 70.0,          # videos the scraper gets through per minute
+    "annotate_fixed_min": 8.0,       # a batch job's turnaround however small
+    "annotate_per_video_min": 0.01,  # ...plus about a minute per 100 videos
+    "consolidate_min": 2.0,          # one core-only consolidation
+}
+_TIMING_RUNS = 3
+_TIMING_MIN_SCRAPE = 100     # a retry batch of 4 says nothing about the rate
+_TIMING_MIN_ANNOTATE = 10
+
+
+def expected_timing(collection_id: str, platform: str | None) -> dict:
+    """How long each step of a cycle takes, measured from the collection's
+    recent runs in the enrichment history — the panel's time estimate.
+
+    Three measurements, each over the last few runs and falling back to
+    :data:`DEFAULT_TIMING` when there are too few: the scraper's rate (a
+    ``scrape.finished`` paired with the ``queue.drained`` that started it),
+    the batch annotator's turnaround (its ``queue.drained`` to
+    ``annotate.finished``; the fixed part is what is left after the per-video
+    slope, which stays at the default), and a core-only consolidation
+    (``refresh.finished`` events of origin "Consolidate enrichment data" that
+    skipped the downstream steps carry their own ``started_ts``).
+
+    Returns:
+        ``{**DEFAULT_TIMING keys, "measured": {"scrape", "annotate",
+        "consolidate"}}`` — the figures in minutes, and which of them came
+        from this collection's own runs. Never raises.
+    """
+    out = dict(DEFAULT_TIMING)
+    out["measured"] = {"scrape": False, "annotate": False, "consolidate": False}
+    try:
+        from web_interface.services import enrichment_journal as journal
+        events = list(reversed(journal.read(collection_id=collection_id,
+                                            platform=platform, limit=160)))
+
+        def when(value):
+            try:
+                return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                return None
+
+        def detail(e):
+            d = e.get("detail")
+            return d if isinstance(d, dict) else {}
+
+        def paired(finish_kind, is_start, attempts_of, floor):
+            """(attempts, minutes) for each finish paired with its start."""
+            found = []
+            for i, e in enumerate(events):
+                if e.get("kind") != finish_kind:
+                    continue
+                for s in reversed(events[:i]):
+                    if s.get("kind") == finish_kind:
+                        break            # the previous run's finish: no start in between
+                    if s.get("kind") == "queue.drained" and is_start(s):
+                        t0, t1 = when(s.get("ts")), when(e.get("ts"))
+                        n = attempts_of(e)
+                        if t0 and t1 and t1 > t0 and n >= floor:
+                            found.append((n, (t1 - t0).total_seconds() / 60))
+                        break
+            return found[-_TIMING_RUNS:]
+
+        worker = lambda e: str(detail(e).get("worker") or "")  # noqa: E731
+        scrapes = paired(
+            "scrape.finished",
+            lambda s: (not platform or str(s.get("platform") or "") == platform)
+                      and not worker(s).startswith("queue_annotator"),
+            lambda e: sum(int(detail(e).get(k) or 0) for k in ("ok", "permanent", "transient")),
+            _TIMING_MIN_SCRAPE)
+        if scrapes:
+            minutes = sum(m for _, m in scrapes)
+            if minutes > 0:
+                out["scrape_per_min"] = round(max(5.0, min(500.0, sum(n for n, _ in scrapes) / minutes)), 1)
+                out["measured"]["scrape"] = True
+
+        annotates = paired(
+            "annotate.finished",
+            lambda s: worker(s).startswith("queue_annotator"),
+            lambda e: int(detail(e).get("ok") or 0) + int(detail(e).get("fail") or 0),
+            _TIMING_MIN_ANNOTATE)
+        if annotates:
+            slope = out["annotate_per_video_min"]
+            fixed = sorted(m - n * slope for n, m in annotates)[len(annotates) // 2]
+            out["annotate_fixed_min"] = round(max(3.0, min(30.0, fixed)), 1)
+            out["measured"]["annotate"] = True
+
+        consolidations = []
+        for e in events:
+            d = detail(e)
+            if e.get("kind") != "refresh.finished" or d.get("origin") != "Consolidate enrichment data":
+                continue
+            if int(d.get("studies") or 0):
+                continue             # a full downstream refresh, not a consolidation
+            t0, t1 = when(d.get("started_ts")), when(e.get("ts"))
+            if t0 and t1 and t1 > t0:
+                consolidations.append((t1 - t0).total_seconds() / 60)
+        consolidations = consolidations[-_TIMING_RUNS:]
+        if consolidations:
+            median = sorted(consolidations)[len(consolidations) // 2]
+            out["consolidate_min"] = round(max(0.5, min(15.0, median)), 1)
+            out["measured"]["consolidate"] = True
+    except Exception as exc:
+        logger.error(f"collection_enrichment.expected_timing failed: {exc}")
+    return out
+
+
 def spread_days_per_month(collection_id: str, entry: dict,
                           activity: pd.DataFrame | None = None,
                           status: pd.DataFrame | None = None,
@@ -1054,6 +1165,12 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         # None on a plan armed before this was recorded.
         "run_started_at": entry.get("run_started_at"),
         "run_start_annotated": entry.get("run_start_annotated"),
+        # Where the LAST run ended, stamped when the plan closed: the meter of
+        # a finished run reads these and stands still while the operator moves
+        # the target to prepare the next one (2026-09-09).
+        "run_finished_at": entry.get("run_finished_at"),
+        "run_end_annotated": entry.get("run_end_annotated"),
+        "run_end_target": entry.get("run_end_target"),
         "stall_count": int(entry.get("stall_count") or 0),
         "last_error": entry.get("last_error"),
         "last_cycle_at": entry.get("last_cycle_at"),

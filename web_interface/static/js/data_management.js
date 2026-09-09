@@ -7039,6 +7039,13 @@ let dmEnrichDayCapValue = 50;
 // What the last target-based estimate placed, per process, in days — the
 // line under the cap slider reads it.
 let dmEnrichEstimateStats = null;
+// How long a cycle's steps take, from the GET payload: measured from this
+// collection's recent runs, or the Hub's typical figures until it has some.
+const DM_ENRICH_DEFAULT_TIMING = {
+    scrape_per_min: 70, annotate_fixed_min: 8, annotate_per_video_min: 0.01,
+    consolidate_min: 2, measured: { scrape: false, annotate: false, consolidate: false },
+};
+let dmEnrichTiming = null;
 // The dirty check's baseline: the form as last filled from the saved plan
 // (serialized via dmEnrichReadSettings). null until the first render.
 let dmEnrichSavedSettings = null;
@@ -7368,16 +7375,52 @@ function dmEnrichDrawStartMarker(progress) {
     el.title = `${Number(start).toLocaleString()} videos were annotated when this run was armed`;
 }
 
-// "roughly 3 hours" / "roughly 1\u20132 days" from a cycle count. A cycle is
-// dominated by the annotation batch plus worker turnaround; observed prod
-// cycles run about one to three hours, so the range is honest, not precise.
-function dmEnrichCyclesDuration(cycles) {
-    const loH = cycles * 1, hiH = cycles * 3;
-    if (hiH < 48) {
-        return loH === hiH ? `roughly ${loH} h` : `roughly ${loH}\u2013${hiH} h`;
+// How long the plan will take to annotate `more` videos, from the measured
+// step timings. A cycle is: scrape a slice, consolidate, then annotate that
+// slice WHILE the next slice scrapes, consolidate — so from the second
+// slice on a cycle costs the longer of its annotation and the next scrape,
+// plus the two consolidations. Already-scraped videos (the backlog sweep)
+// go straight to annotation alongside the first scrape.
+function dmEnrichTimeEstimate(more) {
+    const t = dmEnrichTiming || DM_ENRICH_DEFAULT_TIMING;
+    const cap = DM_ENRICH_AUTO_CYCLE_CAP;
+    const c = t.consolidate_min || 2;
+    const scrape = n => (n > 0 ? n / (t.scrape_per_min || 70) : 0);
+    const annotate = n => (n > 0 ? (t.annotate_fixed_min || 8) + n * (t.annotate_per_video_min || 0.01) : 0);
+    const yieldRate = Math.min(1, Math.max(0.5, Number(dmEnrichProgressCache.last_yield) || 0.85));
+
+    const scrapedAwaiting = Math.max(0, (dmEnrichProgressCache.unique_scraped || 0)
+                                        - (dmEnrichProgressCache.unique_annotated || 0));
+    const backlog = Math.min(more, scrapedAwaiting);
+    const rest = more - backlog;
+    const slices = rest > 0 ? Math.max(1, Math.ceil(rest / cap)) : 0;
+    const perSlice = slices ? rest / slices : 0;
+    const perScrape = perSlice / yieldRate;      // cut more than needed: some fail
+
+    let minutes = 0;
+    if (backlog) {
+        // The sweep annotates while the first slice (if any) scrapes.
+        minutes += Math.max(annotate(backlog), scrape(perScrape)) + c * (slices ? 2 : 1);
+    } else if (slices) {
+        minutes += scrape(perScrape) + c;
     }
-    const loD = Math.max(1, Math.round(loH / 24)), hiD = Math.max(1, Math.round(hiH / 24));
-    return loD === hiD ? `roughly ${loD} day(s)` : `roughly ${loD}\u2013${hiD} days`;
+    for (let i = 1; i <= slices; i++) {
+        const next = i < slices ? scrape(perScrape) : 0;
+        minutes += Math.max(annotate(perSlice), next) + c * (next ? 2 : 1);
+    }
+    return { minutes, cycles: slices + (backlog ? 1 : 0), measured: t.measured || {} };
+}
+
+// "about 40 min" / "about 2 h 10 min" / "about 1.5 days".
+function dmEnrichMinutesLabel(minutes) {
+    if (minutes < 60) return `about ${Math.max(5, Math.round(minutes / 5) * 5)} min`;
+    if (minutes < 24 * 60) {
+        const m = Math.round(minutes / 10) * 10;
+        const h = Math.floor(m / 60), r = m % 60;
+        return r ? `about ${h} h ${r} min` : `about ${h} h`;
+    }
+    const d = (minutes / 1440).toFixed(1).replace(/\.0$/, '');
+    return `about ${d} day${d === '1' ? '' : 's'}`;
 }
 
 function dmEnrichTargetReadout(target) {
@@ -7401,10 +7444,13 @@ function dmEnrichTargetReadout(target) {
         text += ` Estimated cost${model ? ` using ${model}` : ''}: `
               + `$${usd < 10 ? usd.toFixed(2) : Math.round(usd).toLocaleString()}.`;
     }
-    const cycleItems = dmEnrichEffectiveCycleItems();
-    const cycles = Math.ceil(more / cycleItems);
-    text += ` Estimated time to reach the target: ${dmEnrichCyclesDuration(cycles)}`
-          + ` (${cycles.toLocaleString()} cycle${cycles === 1 ? '' : 's'}).`;
+    const est = dmEnrichTimeEstimate(more);
+    const m = est.measured || {};
+    const basis = (m.scrape || m.annotate || m.consolidate)
+        ? 'from this collection\u2019s recent runs'
+        : 'typical figures, nothing measured for this collection yet';
+    text += ` Estimated time to reach the target: ${dmEnrichMinutesLabel(est.minutes)}`
+          + ` (${est.cycles.toLocaleString()} cycle${est.cycles === 1 ? '' : 's'}; ${basis}).`;
     el.textContent = text;
 }
 
@@ -7877,6 +7923,7 @@ function dmEnrichRender(data) {
     dmEnrichSyncTableRow(dmEnrichCollectionId, dmEnrichArmed ? dmEnrichState : null);
 
     if (data.cost_per_1000 !== undefined) dmEnrichCostPer1000 = data.cost_per_1000;
+    if (data.timing) dmEnrichTiming = data.timing;
 
     // The status strip (bottom of the panel, above the buttons): the plan's
     // state, then the live activity. Everything else the line once narrated
@@ -7987,8 +8034,13 @@ function dmEnrichRenderRun(progress) {
     const box = document.getElementById('dm-enrich-run');
     if (!box) return;
     const total = progress.unique_items || 0;
-    const target = progress.annotation_target || 0;
-    const now = progress.target_floor ?? 0;
+    // A finished run is history: its meter reads the target it ended with
+    // and the count it ended at, not the target the operator is now moving
+    // to prepare the next run (it used to slide with the slider).
+    const finished = dmEnrichState === 'done'
+        && progress.run_end_target != null && progress.run_end_annotated != null;
+    const target = finished ? progress.run_end_target : (progress.annotation_target || 0);
+    const now = finished ? progress.run_end_annotated : (progress.target_floor ?? 0);
     const start = progress.run_start_annotated;
     if (!dmEnrichArmed || !total || !target || start === null || start === undefined) {
         box.style.display = 'none';
@@ -8006,7 +8058,9 @@ function dmEnrichRenderRun(progress) {
         const when = fypFmtDate(progress.run_started_at, '');
         const label = dmEnrichState === 'running' ? 'This run'
             : (dmEnrichState === 'paused' ? 'This run (paused)' : 'Last run');
-        title.textContent = when ? `${label}, armed ${when}` : label;
+        const ended = finished ? fypFmtDate(progress.run_finished_at, '') : '';
+        title.textContent = (when ? `${label}, armed ${when}` : label)
+                          + (ended ? `, finished ${ended}` : '');
     }
     const pctEl = document.getElementById('dm-enrich-run-pct');
     if (pctEl) pctEl.textContent = `${pct}% of the way`;
@@ -8024,9 +8078,14 @@ function dmEnrichRenderRun(progress) {
             legend.appendChild(span_);
         };
         item('started at', `${start.toLocaleString()} (${pctOf(start)})`);
-        item('now', `${now.toLocaleString()} (${pctOf(now)})`);
+        item(finished ? 'finished at' : 'now', `${now.toLocaleString()} (${pctOf(now)})`);
         item('target', `${target.toLocaleString()} (${pctOf(target)})`);
-        item('still to annotate', Math.max(0, target - now).toLocaleString());
+        if (finished) {
+            item('', now >= target ? 'target reached'
+                     : `stopped ${(target - now).toLocaleString()} short of the target`);
+        } else {
+            item('still to annotate', Math.max(0, target - now).toLocaleString());
+        }
     }
 
     // How far back through the person's history each half of the cycle has
@@ -8243,6 +8302,7 @@ function dmEnrichResetPanel() {
     dmEnrichEarliest = '';
     dmEnrichDayCapValue = 50;
     dmEnrichEstimateStats = null;
+    dmEnrichTiming = null;
     const earliestRow = document.getElementById('dm-enrich-earliest-row');
     if (earliestRow) earliestRow.style.display = 'none';
     const handle = document.querySelector('#dm-enrich-chart-wrap .dm-enrich-earliest-handle');

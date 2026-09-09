@@ -1961,3 +1961,71 @@ def test_the_supervisor_sizes_every_cycle_automatically(tick, monkeypatch):
     tick["run"]()
     # 150 to annotate at the default 85% yield plus the 5% margin: 186 to cut.
     assert seen["cycle_items"] == 186
+
+
+# --------------------------------------------------------------------------- #
+# The time estimate's measured timings, and a finished run's frozen meter
+# --------------------------------------------------------------------------- #
+
+def _journal_doc(events):
+    import web_interface.services.enrichment_journal as journal
+    return {"version": journal.VERSION, "events": events}
+
+
+def test_expected_timing_falls_back_to_the_defaults(store):
+    out = ce.expected_timing("c1", "tiktok")
+    assert {k: out[k] for k in ce.DEFAULT_TIMING} == ce.DEFAULT_TIMING
+    assert out["measured"] == {"scrape": False, "annotate": False, "consolidate": False}
+
+
+def test_expected_timing_is_measured_from_the_collections_runs(store):
+    """user_data_tiktok_7 on 2026-09-09: 1,289 scraped in 18 min, 1,055
+    annotated in 20 min, consolidations of 1 and 2.5 min. The tiny 4-video
+    retry batch is ignored (it says nothing about the rate)."""
+    import web_interface.services.enrichment_journal as journal
+    ev = [
+        {"ts": "2026-09-09T04:15:52+00:00", "kind": "queue.drained", "platform": "tiktok",
+         "detail": {"queued": 1289}},
+        {"ts": "2026-09-09T04:33:52+00:00", "kind": "scrape.finished", "platform": "tiktok",
+         "detail": {"worker": "queue_scraper_tiktok", "ok": 1056, "permanent": 228, "transient": 5}},
+        {"ts": "2026-09-09T04:33:55+00:00", "kind": "queue.drained", "platform": "tiktok",
+         "detail": {"queued": 4}},
+        {"ts": "2026-09-09T04:34:11+00:00", "kind": "scrape.finished", "platform": "tiktok",
+         "detail": {"worker": "queue_scraper_tiktok", "ok": 0, "permanent": 0, "transient": 4}},
+        {"ts": "2026-09-09T04:34:29+00:00", "kind": "refresh.finished",
+         "detail": {"origin": "Consolidate enrichment data", "studies": 0,
+                    "started_ts": "2026-09-09T04:33:29+00:00"}},
+        {"ts": "2026-09-09T04:34:39+00:00", "kind": "queue.drained",
+         "detail": {"worker": "queue_annotator_batch", "queued": 1055}},
+        {"ts": "2026-09-09T04:54:39+00:00", "kind": "annotate.finished",
+         "detail": {"worker": "queue_annotator_batch", "ok": 1040, "fail": 15}},
+        {"ts": "2026-09-09T04:56:52+00:00", "kind": "refresh.finished",
+         "detail": {"origin": "Consolidate enrichment data", "studies": 0,
+                    "started_ts": "2026-09-09T04:54:22+00:00"}},
+        # The full downstream refresh is not a consolidation.
+        {"ts": "2026-09-09T05:09:00+00:00", "kind": "refresh.finished",
+         "detail": {"origin": "Consolidate enrichment data", "studies": 14,
+                    "started_ts": "2026-09-09T04:56:48+00:00"}},
+    ]
+    store[journal.JOURNAL_FILENAME] = _journal_doc(ev)
+    out = ce.expected_timing("c1", "tiktok")
+    assert out["measured"] == {"scrape": True, "annotate": True, "consolidate": True}
+    assert out["scrape_per_min"] == round(1289 / 18, 1)
+    assert out["annotate_fixed_min"] == round(20 - 1055 * 0.01, 1)   # 9.5
+    assert out["consolidate_min"] == 2.5                               # median of 1.0, 2.5
+
+
+def test_closing_a_plan_stamps_where_the_run_ended(tick, monkeypatch):
+    """The meter of a finished run must read the run's own target and end
+    count — it used to slide with the target slider afterwards."""
+    tick["plans"] = {"c1": {**_entry(annotation_target=100, cycle_items_auto=True),
+                            "platform": "tiktok"}}
+    monkeypatch.setattr(ce, "load_status", lambda ids: None)
+    monkeypatch.setattr(ce, "_annotated_unique", lambda activity, status: 100)
+    tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_DONE
+    assert entry["run_end_target"] == 100 and entry["run_end_annotated"] == 100
+    assert entry["run_finished_at"]
+    prog = {k: v for k, v in ce.progress("c1", entry).items() if k.startswith("run_")}
+    assert prog["run_end_target"] == 100 and prog["run_end_annotated"] == 100

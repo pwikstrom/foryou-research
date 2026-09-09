@@ -456,6 +456,9 @@ def get_collection_enrichment(collection_id):
         # Per-1000-items annotation estimate for the target readout (None when
         # the active backend has no pricing, e.g. a local model).
         "cost_per_1000": _annotation_cost_estimate(1000),
+        # How long a cycle's steps take here, measured from this collection's
+        # recent runs (the Hub's typical figures until it has some).
+        "timing": ce.expected_timing(collection_id, (entry or {}).get("platform")),
     }
     return jsonify(payload)
 
@@ -518,6 +521,10 @@ def save_collection_enrichment(collection_id):
         patch["run_started_at"] = ce.now_iso()
         patch["run_start_annotated"] = int(
             ce.progress(cid, existing or {}).get("target_floor") or 0)
+        # The previous run's end belongs to the previous run.
+        patch["run_finished_at"] = None
+        patch["run_end_annotated"] = None
+        patch["run_end_target"] = None
     if existing is None:
         try:
             owner = (load_owner_map() or {}).get(cid)

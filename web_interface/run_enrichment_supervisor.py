@@ -1092,7 +1092,8 @@ def _plan(reporter, plans: dict) -> dict | None:
                                                margin=CUT_MARGIN, pending=pending)
                 if auto_items == 0:
                     target = int(settings.get("annotation_target") or 0)
-                    if target and ce._annotated_unique(activity, status) >= target:
+                    annotated = ce._annotated_unique(activity, status)
+                    if target and annotated >= target:
                         # The target is MET. This branch used to `continue`,
                         # so an Auto plan that reached its target exactly read
                         # "Running" for ever (2026-09-05: 10,570/10,570,
@@ -1103,7 +1104,7 @@ def _plan(reporter, plans: dict) -> dict | None:
                             continue
                         _close_plan(reporter, cid, entry, platform,
                                     f"Idle — the annotation target ({target:,} videos) "
-                                    f"is reached", target, {})
+                                    f"is reached", target, {}, annotated)
                         reporter.log(f"{cid}: annotation target met; plan complete.")
                         continue
                     # Target headroom is fully covered by pending work (queued
@@ -1148,7 +1149,7 @@ def _plan(reporter, plans: dict) -> dict | None:
                            "or failed for good")
                 _close_plan(reporter, cid, entry, platform, why, target,
                             {"a_cursor": result["a_cursor"],
-                             "b_cursor": result["b_cursor"]})
+                             "b_cursor": result["b_cursor"]}, annotated)
                 reporter.log(f"{cid}: nothing left to enrich; plan complete.")
                 continue
 
@@ -1317,10 +1318,19 @@ def _still_finishing(reporter, cid: str, entry: dict, platform: str | None,
 
 
 def _close_plan(reporter, cid: str, entry: dict, platform: str | None,
-                why: str, target: int, patch: dict) -> None:
-    """Mark a plan Idle: the ledger, the history line and the owner's note."""
+                why: str, target: int, patch: dict, annotated: int | None = None) -> None:
+    """Mark a plan Idle: the ledger, the history line and the owner's note.
+
+    Also stamps where the run ended (``run_finished_at``, ``run_end_annotated``,
+    ``run_end_target``), so the panel's meter of a finished run keeps reading
+    the run as it was and not the target the operator is now moving.
+    """
+    now = ce.now_iso()
     ce.save_plan(cid, {**patch, "state": ce.STATE_DONE, "platform": platform,
-                       "finished_at": ce.now_iso(), FINISHING_KEY: None})
+                       "finished_at": now, FINISHING_KEY: None,
+                       "run_finished_at": now,
+                       "run_end_annotated": (int(annotated) if annotated is not None else None),
+                       "run_end_target": int(target or 0)})
     journal.record("plan.done", why,
                    collection_id=cid, platform=platform,
                    actor="enrichment_supervisor", target=target)

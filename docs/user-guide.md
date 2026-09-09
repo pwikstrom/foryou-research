@@ -432,11 +432,17 @@ collection's size and how many **analysis-ready days** it already has, a
 per-day activity chart (stacked by enrichment state, with a red line
 estimating where each day would land under the current settings), a linear
 coverage bar with the target marked on it, and a live readout translating
-the target into items, estimated cost (with the active model) and cycles.
+the target into items, estimated cost (with the active model) and the time
+to reach it — worked out from how fast this collection's own recent scrapes,
+annotation batches and consolidations ran, or from the Hub's typical figures
+until it has runs of its own.
 Once a plan has been armed, a **run meter** under the bar reports the run
 itself: how many videos were annotated when it was armed, how many are now,
 the target, and how far back through the history each half of the cycle has
-walked. Arming an Idle or stopped plan starts a new run and moves that
+walked. When a run has finished the meter stands still at the target it
+ended with and the count it ended at ("target reached", or how far short it
+stopped), so moving the target to prepare the next run does not rewrite the
+last one. Arming an Idle or stopped plan starts a new run and moves that
 starting line; resuming a paused one keeps it.
 The loop always annotates the already-scraped backlog first, then splits
 new scraping between a recent-days **deep dive** and a capped **random daily sample**
