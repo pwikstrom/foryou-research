@@ -7187,7 +7187,7 @@ function _dmEnrichSliderToCap(pos) {
 function dmEnrichCapSync(cap) {
     dmEnrichDayCapValue = cap;
     const el = document.getElementById('dm-enrich-day-cap-value');
-    if (el) el.textContent = cap ? `${Number(cap).toLocaleString()} videos` : '';
+    if (el) el.textContent = cap ? `${Number(cap).toLocaleString()} items` : '';
     const slider = document.getElementById('dm-enrich-day-cap-slider');
     if (slider && !slider.disabled) slider.value = String(_dmEnrichCapToSlider(cap));
 }
@@ -7418,7 +7418,7 @@ function dmEnrichReadoutRefresh() {
 function dmEnrichTargetSync(target) {
     dmEnrichTargetValue = target;
     const el = document.getElementById('dm-enrich-target');
-    if (el) el.textContent = target ? Number(target).toLocaleString() : '';
+    if (el) el.textContent = target ? `${Number(target).toLocaleString()} items` : '';
     const slider = document.getElementById('dm-enrich-target-slider');
     if (slider && !slider.disabled) slider.value = String(_dmEnrichTargetToSlider(target));
     dmEnrichDrawMarker(target);
@@ -7431,7 +7431,7 @@ function dmEnrichSliderInput() {
     const target = _dmEnrichSliderToTarget(Number(slider.value));
     dmEnrichTargetValue = target;
     const el = document.getElementById('dm-enrich-target');
-    if (el) el.textContent = target ? Number(target).toLocaleString() : '';
+    if (el) el.textContent = target ? `${Number(target).toLocaleString()} items` : '';
     dmEnrichDrawMarker(target);
     dmEnrichTargetReadout(target);
     dmEnrichChartRefresh();
@@ -7604,12 +7604,19 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
         // What the three sliders add up to, in days — for the line under
         // the cap slider. Only the target-bound run counts; the reachability
         // probe (override) is not a plan.
+        // Analysis-ready = at least minDay annotated videos on the day; the
+        // count after the plan includes the days that are ready already.
+        let readyNow = 0, readyAfter = 0;
+        for (let i = 0; i < n; i++) {
+            if ((daily.annotated[i] || 0) >= minDay) readyNow += 1;
+            if ((daily.annotated[i] || 0) + planned[i] >= minDay) readyAfter += 1;
+        }
         dmEnrichEstimateStats = {
             deepDays: ddDays.size,
             spreadDays,
             daysPerMonth,
-            qualifyingDays: daily.dates.filter((d, i) =>
-                (!earliest || d >= earliest) && (daily.total[i] || 0) >= minDay).length,
+            readyNow,
+            readyAfter,
             share,
         };
     }
@@ -7656,17 +7663,14 @@ function dmEnrichDaysReadout() {
         el.textContent = dmEnrichTargetValue ? 'nothing more to buy \u2014 the target is already met' : '';
         return;
     }
-    const minDay = dmEnrichProgressCache.min_day_items || 10;
     const days = (n, what) => `\u2248 ${n.toLocaleString()} ${what} day${n === 1 ? '' : 's'}`;
     const parts = [];
-    if (st.spreadDays) {
-        parts.push(days(st.spreadDays, 'spread')
-                   + (st.daysPerMonth ? `, about ${st.daysPerMonth} a month,` : '')
-                   + ` of the ${st.qualifyingDays.toLocaleString()} days with at least `
-                   + `${minDay} videos`);
-    } else {
-        parts.push(st.share > 0 ? 'no spread days' : 'no spread days (only deep dive)');
-    }
+    // The total after the plan, already-ready days included, with the
+    // spread's density as the aside that explains where the new ones come from.
+    parts.push(days(st.readyAfter, 'analysis-ready')
+               + ` (${st.readyNow.toLocaleString()} already`
+               + (st.spreadDays && st.daysPerMonth
+                   ? `; the spread adds about ${st.daysPerMonth} a month)` : ')'));
     if (st.deepDays) {
         parts.push(days(st.deepDays, 'deep-dive'));
     } else {
@@ -7772,9 +7776,13 @@ function dmEnrichRenderChart(daily) {
     ];
     const planned = _dmEnrichPlanEstimate(daily);
     if (planned.some(v => v > 0)) {
+        // The line stops at the earliest date: nothing before it is ever
+        // enriched, so the estimate has nothing to say there (null = gap).
+        const earliest = dmEnrichEarliest || '';
         traces.push({
-            type: 'scatter', mode: 'lines', x: xs,
-            y: dates.map((_, i) => (daily.annotated[i] || 0) + planned[i]),
+            type: 'scatter', mode: 'lines', x: xs, connectgaps: false,
+            y: dates.map((d, i) => (earliest && d < earliest)
+                ? null : (daily.annotated[i] || 0) + planned[i]),
             line: { color: getCSSVar('--color-danger') || '#c0392b',
                     width: 1.5, shape: 'hvh' },
             hoverinfo: 'skip',
@@ -7840,7 +7848,7 @@ function dmEnrichDrawBar(progress) {
 
     const put = (id, label, n) => {
         const el = document.getElementById(id);
-        if (el) el.textContent = `${label} ${n.toLocaleString()}`;
+        if (el) el.textContent = `${label} ${n.toLocaleString()} (${Math.round(100 * n / total)}%)`;
     };
     put('dm-enrich-leg-annotated', 'annotated', annotated);
     put('dm-enrich-leg-scraped', 'awaiting annotation', awaiting);
