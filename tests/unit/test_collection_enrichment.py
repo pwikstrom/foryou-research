@@ -1711,6 +1711,13 @@ def test_enrichment_panel_buttons_keep_their_handlers():
         assert needle in js, f"{needle} is gone from the modal script"
     assert "no gap longer than 15 minutes" in src, \
         "the headline tooltip no longer says what a viewing session is"
+    # The estimate mirrors the planner: the server's draw ranks, the cap
+    # charged with everything already scraped, the burnt-free backlog.
+    for needle in ("function _dmEnrichSampleMonths", "daily.draw", "unique_awaiting",
+                   "(daily.failed[i] || 0) + planned[i] - swept[i]"):
+        assert needle in js, f"{needle} is gone — the estimate drifted from the planner again"
+    assert "Items per sampled day (random daily sample)" in src, \
+        "the cap control lost its label"
 
 
 # --------------------------------------------------------------------------- #
@@ -2331,3 +2338,44 @@ def test_journal_stays_quiet_when_a_batch_finishes_no_sitting(tick):
     queued = next(e for e in events if e["kind"] == "slice.queued")
     assert queued["detail"]["sessions"] == 0
     assert "viewing session" not in queued["message"]
+
+
+def test_progress_ships_the_draw_ranks_the_planner_samples_by(monkeypatch):
+    """Each day's place in its month's salted draw — the same ranking take_a
+    draws from, over the month's active days — so the panel's estimate can
+    walk the planner's own days rather than the newest ones."""
+    days = {f"2026-08-{d:02d}": 12 for d in (3, 9, 17, 24, 28)}
+    days.update({f"2026-07-{d:02d}": 12 for d in (5, 15)})
+    activity = _activity(days)
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status", lambda i=None: None)
+    daily = ce.progress("c1", _entry())["daily"]
+    assert len(daily["draw"]) == len(daily["dates"]) == 7
+    for month in ("2026-07", "2026-08"):
+        stamps = [pd.Timestamp(d) for d in daily["dates"] if d.startswith(month)]
+        ranked = ce.stable_rank(stamps, salt=f"c1:{month}")
+        got = {d: r for d, r in zip(daily["dates"], daily["draw"]) if d.startswith(month)}
+        assert got == {_day_key(d): pos for pos, d in enumerate(ranked)}
+    # The prefix the planner takes is the same prefix, whichever days qualify.
+    eligible = [pd.Timestamp(d) for d in daily["dates"] if d.startswith("2026-08")][1:]
+    assert ce.stable_sample(eligible, 2, salt="c1:2026-08") == \
+        sorted(eligible, key=lambda d: daily["draw"][daily["dates"].index(_day_key(d))])[:2]
+
+
+def _day_key(day):
+    return pd.Timestamp(day).strftime("%Y-%m-%d")
+
+
+def test_progress_carries_the_yield_and_the_burnt_free_backlog(monkeypatch):
+    """The time estimate needs the plan's measured yield and the backlog the
+    handoff will actually annotate: scraped, not annotated, not burnt."""
+    activity = _activity({"2026-08-27": 6})
+    ids = list(activity["item_id"])
+    status = _status(ids, scraped=ids[:5], annotated=ids[:2], annotated_fail=[ids[2]])
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status", lambda i=None: status)
+    out = ce.progress("c1", {**_entry(), "last_yield": 0.82})
+    assert out["last_yield"] == 0.82
+    assert out["unique_scraped"] == 5 and out["unique_annotated"] == 2
+    assert out["unique_awaiting"] == 2          # ids 3 and 4; id 2 burnt
+    assert out["unique_failed"] == 1

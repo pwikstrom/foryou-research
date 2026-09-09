@@ -455,13 +455,17 @@ new scraping between a recent-days **deep dive** and a capped **random daily sam
 across the history; what one of the two cannot spend the other uses. The
 plan's settings are three full-width sliders, each with its value on the
 label line: the annotation target, the balance between deep dive and random
-daily sample, and the sample's cap on items per day (logarithmic, from the ten-video floor to
+daily sample, and the sample's **items per sampled day** (logarithmic, from the ten-video floor to
 the collection's busiest day; 50 by default). On each day it samples, the
-random daily sample takes **whole viewing sessions** first (the one that
-crosses the cap included, so a day can go a little over it) and only then
-single videos up to the cap — a scattering of single videos never adds up
-to a session anyone can analyse, so ready sessions build up across the
-whole history and not only in the recent days the deep dive covers. How
+random daily sample takes **whole viewing sessions** first and only then
+single videos up to that number — a scattering of single videos never adds
+up to a session anyone can analyse, so ready sessions build up across the
+whole history and not only in the recent days the deep dive covers. The
+sample stops adding to a day once it holds that many items, counting the
+ones already scraped or failed for good; because the session that reaches
+the number is taken whole, a day of long sessions can go well over it, and
+for a person whose sittings are long the number mostly decides how many
+sessions each sampled day gets. How
 many days a month the random daily sample takes is not a setting: a line
 under the cap slider says what the three sliders add up to — how many
 analysis-ready days, deep-dive days (every video of the day annotated or

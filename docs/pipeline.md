@@ -209,7 +209,14 @@ than swapping them, the deep dive's partial day takes them newest first, and
 a sitting that runs past midnight is taken whole from the day it started.
 `plan_cycle` reports `sessions` — the candidate sessions whose last
 unscraped items are in the slice — and the journal's `slice.queued` carries
-it. The handoff still clamps annotation to the target, so a run's very last
+it. The modal's estimate mirrors the planner's day pick: `progress()` ships
+each day's place in its month's salted draw (`daily.draw`, the same
+`stable_rank` `take_a` samples from — a hash order keeps its relative order
+on any subset), charges everything already scraped on a day (annotated,
+awaiting, failed for good) against the cap as the planner's quota does, and
+takes the measured `last_yield` and the burnt-free backlog
+(`unique_awaiting`) for its time estimate (2026-09-09, after checking the
+panel against a Python re-implementation on a live collection). The handoff still clamps annotation to the target, so a run's very last
 session can end part-annotated, exactly like its partial last day; a later
 target raise completes it first. `progress()["sessions"]`
 (`_session_figures`: total / candidates / ready, plus the incomplete

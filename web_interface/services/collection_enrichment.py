@@ -1344,6 +1344,9 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         "last_error": entry.get("last_error"),
         "last_cycle_at": entry.get("last_cycle_at"),
         "last_batch": entry.get("last_batch"),
+        # The plan's measured yield (scraped and annotated per video cut),
+        # for the panel's time estimate; None until a cycle has run.
+        "last_yield": entry.get("last_yield"),
         # What Auto resolved cycle_items to last cycle (None in manual mode) —
         # the panel's disabled input displays it.
         "last_auto_cycle_items": entry.get("last_auto_cycle_items"),
@@ -1356,7 +1359,7 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         "milestone_days": MILESTONE_DAYS,
         "total_items": 0, "scraped_items": 0, "annotated_items": 0,
         "unique_items": 0, "unique_scraped": 0, "unique_annotated": 0,
-        "unique_failed": 0,
+        "unique_failed": 0, "unique_awaiting": 0,
         "total_days": 0, "qualifying_days": 0, "milestone_pct": 0.0,
         "oldest_day": None, "newest_day": None,
         "target_floor": 0, "target_ceiling": 0,
@@ -1389,10 +1392,14 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
             u_annotated = _uflag("annotated_ok")
             u_failed = (~u_annotated
                         & (_uflag("annotated_fail") | (_uflag("scrape_fail") & ~u_scraped)))
+            # The backlog the handoff annotates first: scraped, not yet
+            # annotated, and not burnt (a failed annotation never re-queues).
+            u_awaiting = u_scraped & ~u_annotated & ~_uflag("annotated_fail")
         else:
             u_scraped = np.zeros(len(unique_ids), dtype=bool)
             u_annotated = np.zeros(len(unique_ids), dtype=bool)
             u_failed = np.zeros(len(unique_ids), dtype=bool)
+            u_awaiting = np.zeros(len(unique_ids), dtype=bool)
 
         # Per-row failed mask, day-aligned like `scraped`/`annotated` above.
         if status is not None and not status.empty:
@@ -1427,12 +1434,24 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         agg = grouped.agg(_n=("_ann", "size"), _a=("_ann", "sum"),
                           _w=("_await", "sum"), _f=("_fail", "sum"))
         agg = agg.sort_index()
+        # Each day's place in its month's salted draw — the very ranking the
+        # random daily sample takes its days from (plan_cycle's take_a), so
+        # the panel's estimate can land on the planner's own days rather
+        # than the newest ones. Ranked over every active day: a hash order
+        # keeps its relative order on any subset, so the planner's draw
+        # among the eligible days is this order restricted to them.
+        draw: dict = {}
+        for month, days in pd.Series(list(agg.index), index=agg.index).groupby(
+                [_month_key(d) for d in agg.index]):
+            for pos, day in enumerate(stable_rank(list(days), salt=f"{collection_id}:{month}")):
+                draw[day] = pos
         daily = {
             "dates": [_day_key(d) for d in agg.index],
             "annotated": [int(v) for v in agg["_a"]],
             "awaiting": [int(v) for v in agg["_w"]],
             "failed": [int(v) for v in agg["_f"]],
             "total": [int(v) for v in agg["_n"]],
+            "draw": [int(draw.get(d, 0)) for d in agg.index],
         }
 
         out.update({
@@ -1444,6 +1463,7 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
             "unique_scraped": int(u_scraped.sum()),
             "unique_annotated": int(u_annotated.sum()),
             "unique_failed": int(u_failed.sum()),
+            "unique_awaiting": int(u_awaiting.sum()),
             # The window of targets that do anything: below what is already
             # annotated the plan is instantly complete, above everything that
             # has not permanently failed it can never finish. Still a ceiling,

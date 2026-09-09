@@ -7389,8 +7389,12 @@ function dmEnrichTimeEstimate(more) {
     const annotate = n => (n > 0 ? (t.annotate_fixed_min || 8) + n * (t.annotate_per_video_min || 0.01) : 0);
     const yieldRate = Math.min(1, Math.max(0.5, Number(dmEnrichProgressCache.last_yield) || 0.85));
 
-    const scrapedAwaiting = Math.max(0, (dmEnrichProgressCache.unique_scraped || 0)
-                                        - (dmEnrichProgressCache.unique_annotated || 0));
+    // The backlog the handoff annotates first: scraped, not annotated, and
+    // not burnt (a burnt annotation is failed for good, never re-queued).
+    const scrapedAwaiting = dmEnrichProgressCache.unique_awaiting !== undefined
+        ? Math.max(0, dmEnrichProgressCache.unique_awaiting || 0)
+        : Math.max(0, (dmEnrichProgressCache.unique_scraped || 0)
+                      - (dmEnrichProgressCache.unique_annotated || 0));
     const backlog = Math.min(more, scrapedAwaiting);
     const rest = more - backlog;
     const slices = rest > 0 ? Math.max(1, Math.ceil(rest / cap)) : 0;
@@ -7634,27 +7638,37 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
     //    that give the spread its share — mirrors the planner's derivation
     //    (spread_days_per_month), on the same per-day quotas this estimate
     //    then places. Newest month first.
-    const daysPerMonth = _dmEnrichSpreadDays(daily, sp, {
-        ddDays, dayCap, minDay, earliest, awaiting, unscraped, planned, swept,
-    });
-    let month = '', taken = 0, spreadDays = 0;
-    for (let i = n - 1; i >= 0 && sp > 0; i--) {
-        if (earliest && daily.dates[i] < earliest) break;
-        const m = daily.dates[i].slice(0, 7);
-        if (m !== month) { month = m; taken = 0; }
-        if (taken >= daysPerMonth || ddDays.has(i)) continue;
-        if ((daily.total[i] || 0) < minDay) continue;
-        const capRoom = dayCap - ((daily.annotated[i] || 0) + awaiting(i) + planned[i] - swept[i]);
-        const list = sessByDay && sessByDay[i];
-        // A day with sessions to complete takes them whole, the one that
-        // crosses the cap included — so the day (and the sample's share)
-        // may overshoot by one session, as the planner's does. A day
-        // without takes single items, bounded by the share, as before.
-        const take = list && list.length
-            ? _dmEnrichDayTake(list, Math.max(0, capRoom), unscraped(i))
-            : Math.min(unscraped(i), Math.max(0, capRoom), sp);
-        if (take <= 0) continue;
-        planned[i] += take; sp -= take; taken += 1; spreadDays += 1;
+    // The day's room under the cap, as the planner counts it: everything
+    // already scraped on the day — annotated, awaiting, failed for good —
+    // is charged against the cap (the sweep's take is already in the
+    // awaiting count, hence `swept`).
+    const capRoom = (i) => dayCap - ((daily.annotated[i] || 0) + awaiting(i)
+        + (daily.failed[i] || 0) + planned[i] - swept[i]);
+    const months = _dmEnrichSampleMonths(daily, { ddDays, minDay, earliest, unscraped });
+    const daysPerMonth = _dmEnrichSpreadDays(months, sp, { capRoom, unscraped });
+    let spreadDays = 0;
+    // Months newest first; within a month the first `daysPerMonth` days in
+    // the planner's own draw order. A drawn day already at the cap uses
+    // its slot and adds nothing, as it does in the planner.
+    outer: for (const idxs of months) {
+        let taken = 0;
+        for (const i of idxs) {
+            if (sp <= 0) break outer;
+            if (taken >= daysPerMonth) break;
+            taken += 1;
+            const room = Math.max(0, capRoom(i));
+            if (room <= 0) continue;
+            const list = sessByDay && sessByDay[i];
+            // A day with sessions to complete takes them whole, the one that
+            // crosses the cap included — so the day (and the sample's share)
+            // may overshoot by one session, as the planner's does. A day
+            // without takes single items, bounded by the share, as before.
+            const take = list && list.length
+                ? _dmEnrichDayTake(list, room, unscraped(i))
+                : Math.min(unscraped(i), room, sp);
+            if (take <= 0) continue;
+            planned[i] += take; sp -= take; spreadDays += 1;
+        }
     }
     // 4. Whatever the spread could not place goes back to the deep dive, as
     //    the planner's reallocation does — so with any deep-dive share at all
@@ -7756,29 +7770,42 @@ function _dmEnrichDayTake(sessions, room, unscraped) {
 // The spread's density for the estimate: per month, the qualifying days' cap
 // room in the order the estimate walks them, then the smallest uniform
 // days-per-month whose summed room covers what the spread must place.
-function _dmEnrichSpreadDays(daily, want, ctx) {
-    if (want <= 0) return 0;
-    const { ddDays, dayCap, minDay, earliest, awaiting, unscraped, planned, swept } = ctx;
-    const n = daily.dates.length;
-    const quotas = {};
-    for (let i = n - 1; i >= 0; i--) {
-        if (earliest && daily.dates[i] < earliest) break;
-        if (ddDays.has(i) || (daily.total[i] || 0) < minDay) continue;
-        const capRoom = dayCap - ((daily.annotated[i] || 0) + awaiting(i) + planned[i]
-            - ((swept && swept[i]) || 0));
-        const room = Math.min(unscraped(i), Math.max(0, capRoom));
-        if (room <= 0) continue;
-        const m = daily.dates[i].slice(0, 7);
-        (quotas[m] = quotas[m] || []).push(room);
-    }
-    const months = Object.values(quotas);
-    if (!months.length) return 0;
-    const densest = Math.min(31, Math.max(...months.map(q => q.length)));
+function _dmEnrichSpreadDays(months, want, ctx) {
+    if (want <= 0 || !months.length) return 0;
+    const { capRoom, unscraped } = ctx;
+    // Per month, what each drawn day can still take under the cap, in draw
+    // order — zero for a day already at the cap, which still uses a slot.
+    const quotas = months.map(idxs => idxs.map(i => Math.min(unscraped(i), Math.max(0, capRoom(i)))));
+    const densest = Math.min(31, Math.max(...quotas.map(q => q.length)));
     for (let d = 1; d <= densest; d++) {
-        const capacity = months.reduce((a, q) => a + q.slice(0, d).reduce((x, y) => x + y, 0), 0);
+        const capacity = quotas.reduce((a, q) => a + q.slice(0, d).reduce((x, y) => x + y, 0), 0);
         if (capacity >= want) return d;
     }
     return densest;
+}
+
+// The days the random daily sample can draw from, per month newest first,
+// each month's days in the order the planner draws them: the salted ranking
+// the server ships as `daily.draw` (the same ranking the planner samples
+// by, so the estimate lands on the planner's own days), else newest first
+// on a payload without it. A day qualifies as the planner's does — at least
+// the analysis floor of items, something left to scrape, not a deep-dive
+// day — whatever its room under the cap.
+function _dmEnrichSampleMonths(daily, ctx) {
+    const { ddDays, minDay, earliest, unscraped } = ctx;
+    const n = daily.dates.length;
+    const draw = Array.isArray(daily.draw) && daily.draw.length === n ? daily.draw : null;
+    const byMonth = new Map();
+    for (let i = n - 1; i >= 0; i--) {
+        if (earliest && daily.dates[i] < earliest) break;
+        if (ddDays.has(i) || (daily.total[i] || 0) < minDay || unscraped(i) <= 0) continue;
+        const m = daily.dates[i].slice(0, 7);
+        if (!byMonth.has(m)) byMonth.set(m, []);
+        byMonth.get(m).push(i);
+    }
+    const months = [...byMonth.values()];
+    if (draw) for (const idxs of months) idxs.sort((a, b) => draw[a] - draw[b]);
+    return months;
 }
 
 // The line under the cap slider: what the three sliders add up to, in days
