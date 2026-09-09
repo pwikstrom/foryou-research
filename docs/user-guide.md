@@ -452,7 +452,12 @@ cycle for the shortfall; the last slice may buy part of a day, and is never
 smaller than 200 videos, so a plan ends in one cycle rather than a trail of
 tiny ones and may finish up to 200 videos past its target. An amber
 warning appears when the settings cannot reach the chosen target. The target is a running total: to continue a
-finished (Idle) plan, raise the target and press *Arm again*. Changing any
+finished (Idle) plan, raise the target — until it is raised the button reads
+*Raise the target to arm* and is disabled, because a plan armed on a met
+target closes itself again on its first cycle. Idle with headroom left reads
+plain *Arm* (arming from Idle restarts the walk at the newest day); only a
+plan that *Needs attention* reads *Arm again*, and the cause shown beside the
+status has to be fixed first or it stops the same way. Changing any
 setting on an existing plan saves itself, and applies from the next cycle;
 before a plan exists there is nothing to save to, so *Arm* is what stores
 them. Arming runs

@@ -250,7 +250,7 @@ All three are measured from the data, not from the plan's own bookkeeping - so v
                     <div class="dm-enrich-field dm-enrich-field--wide">
                         <span class="dm-enrich-label meta-tooltip tooltip-wide" data-tooltip="The goal: keep enriching until this many of the collection's videos are annotated. Set it with the slider - logarithmic, so small careful targets get most of the travel; the far right is everything reachable.
 
-A target is a state, not an allowance - videos annotated by any other means (a manual queue, another plan) count toward it, so nothing is ever paid for twice. When the target is met the plan goes idle; to continue, raise the target and arm again.
+A target is a state, not an allowance - videos annotated by any other means (a manual queue, another plan) count toward it, so nothing is ever paid for twice. When the target is met the plan goes idle; to continue, raise the target and arm it.
 
 The plan always takes the cheapest route: already-scraped but unannotated videos are annotated first, and new scraping starts only once that backlog is clear.
 
@@ -349,7 +349,7 @@ There is only ever ONE plan per collection - if a colleague armed it already, th
 
 The scrape and annotation queues are shared by the whole hub, and automatic enrichment works through them in order - whatever is already queued is processed before this collection's own videos. If videos queued elsewhere are waiting (from Queue videos for scraping on the Scrape page, say), a dialog shows how many and whose, and asks whether to process them first or remove them.
 
-While the plan runs the button reads Pause: nothing new starts, anything already queued still finishes. On a paused plan it reads Resume. On a finished plan it reads Arm again - raise the annotation target first, or there is nothing for it to do."><button
+While the plan runs the button reads Pause: nothing new starts, anything already queued still finishes. On a paused plan it reads Resume. On an idle plan it reads Arm: arming from idle starts a fresh walk from the newest day, which costs nothing because everything already annotated or failed for good is skipped. If the annotation target is already met there is nothing to arm, so the button reads Raise the target to arm until the target is raised. On a plan that needs attention it reads Arm again - fix the cause shown beside the status first, or it stops the same way."><button
                         type="button" class="action-btn text-sm" id="dm-enrich-arm-btn"
                         onclick="dmEnrichToggleArmed()">Arm</button></span>
                     <span id="dm-enrich-msg" class="text-xs" style="color: var(--color-text-tertiary);"></span>

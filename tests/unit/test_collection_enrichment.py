@@ -1638,6 +1638,21 @@ def test_enrichment_panel_buttons_keep_their_handlers():
                "function _dmAutoSaveCollection", "function dmEnrichAutoSaveNow"):
         assert fn in js, f"{fn} is gone — the modal has no Save button to fall back on"
 
+    # Arming an Idle plan whose target is already met does nothing: the
+    # supervisor closes it again on its first cycle, having reset both cursors
+    # and moved the run's starting line on the way. The button therefore names
+    # the operator's actual next step and goes disabled, and the wrapper
+    # tooltip says why — "Arm again" only warned, and did not stop the click.
+    assert "'Raise the target to arm'" in js, \
+        "the Arm button no longer names the next step when the target is met"
+    assert "function dmEnrichArmTooltip" in js, \
+        "a disabled Arm button with no reason on its wrapper is a dead end"
+    # "again" is the warning word, and only Needs attention still earns it:
+    # an Idle plan with headroom left restarts its walk from the newest day,
+    # which is an Arm like any other.
+    assert "dmEnrichState === 'blocked' ? 'Arm again'" in js, \
+        "Arm again must be the Needs-attention label alone"
+
 
 # --------------------------------------------------------------------------- #
 # Live activity for the status strip

@@ -7675,16 +7675,9 @@ function dmEnrichRender(data) {
     // The reachability warning needs the daily cache the chart just set.
     dmEnrichReadoutRefresh();
 
-    const armBtn = document.getElementById('dm-enrich-arm-btn');
-    if (armBtn) {
-        const running = dmEnrichArmed && dmEnrichState === 'running';
-        armBtn.disabled = false;
-        armBtn.textContent = running ? 'Pause'
-            : (dmEnrichState === 'paused' ? 'Resume'
-            : ((dmEnrichState === 'done' || dmEnrichState === 'blocked')
-                ? 'Arm again' : 'Arm'));
-        armBtn.classList.toggle('dm-enrich-armed-pulse', running);
-    }
+    // The Arm button is set by dmEnrichButtonsRefresh (called at the end of
+    // this render) rather than here: its wording depends on the target the
+    // form is showing, which the operator can move without a render.
     const tickWrap = document.getElementById('dm-enrich-tick-wrap');
     if (tickWrap) {
         tickWrap.dataset.tooltip = dmEnrichTickTooltip(dmEnrichArmed, dmEnrichState, progress);
@@ -7765,11 +7758,44 @@ function dmEnrichRenderRun(progress) {
 }
 
 
-// The tick button is disabled when there is no plan to run, or its target is
-// already met; the tooltip that explains each disabled state sits on the
-// button's WRAPPER span, which still hovers when the button inside it is
-// disabled.
+// The panel's two live buttons: what Arm says and whether either can be
+// pressed. Both go dead when the annotation target is met — there is nothing
+// left for a cycle to do — and the tooltip that explains each disabled state
+// sits on the button's WRAPPER span, which still hovers when the button
+// inside it is disabled. Called on every render AND on every panel input,
+// because the target the operator is typing decides both.
 function dmEnrichButtonsRefresh() {
+    // The target Arm would actually apply: the form's live value, because Arm
+    // posts the settings along with the state. Raising the target is how a met
+    // plan becomes armable again, and the button has to say so as the slider
+    // moves — not a save and a render later. The tick button starts no save,
+    // so it stays on the saved plan's target.
+    const armTarget = dmEnrichTargetValue || dmEnrichProgressCache.annotation_target || 0;
+    const floor = dmEnrichProgressCache.target_floor ?? 0;
+
+    const armBtn = document.getElementById('dm-enrich-arm-btn');
+    if (armBtn) {
+        const running = dmEnrichArmed && dmEnrichState === 'running';
+        // Idle with the target met is the one state where arming does
+        // nothing: the supervisor closes the plan again on its next cycle,
+        // after the re-arm has reset both cursors and moved the run's
+        // starting line for no work. Name the actual next step instead —
+        // the word "again" only warns, it does not tell the operator what
+        // to do, and it did not stop them clicking (2026-09-09).
+        const stuck = dmEnrichState === 'done' && armTarget > 0 && floor >= armTarget;
+        armBtn.disabled = stuck;
+        armBtn.textContent = running ? 'Pause'
+            : (dmEnrichState === 'paused' ? 'Resume'
+            : (stuck ? 'Raise the target to arm'
+            // Idle with headroom left is a genuinely fresh start — arming an
+            // idle plan resets its cursors and walks again from the newest
+            // day — so it is an Arm. Only Needs attention keeps the warning
+            // word: there the fault is still there unless it has been fixed.
+            : (dmEnrichState === 'blocked' ? 'Arm again' : 'Arm')));
+        armBtn.classList.toggle('dm-enrich-armed-pulse', running);
+        dmEnrichArmTooltip(stuck ? armTarget : 0, floor);
+    }
+
     const tickBtn = document.getElementById('dm-enrich-tick-btn');
     if (tickBtn) {
         const target = dmEnrichProgressCache.annotation_target ?? 0;
@@ -7779,7 +7805,26 @@ function dmEnrichButtonsRefresh() {
 }
 
 
-// Any panel input: keep the tick button honest, then schedule the write.
+// Why the Arm button is disabled, ahead of the panel's standing explanation
+// of what Arm does. On the WRAPPER span, like the tick button's: a disabled
+// button eats its own hover tooltip in most browsers. Pass target 0 to put
+// the standing text back.
+let _dmEnrichArmTooltipBase = null;
+function dmEnrichArmTooltip(target, floor) {
+    const wrap = document.getElementById('dm-enrich-arm-wrap');
+    if (!wrap) return;
+    if (_dmEnrichArmTooltipBase === null) _dmEnrichArmTooltipBase = wrap.dataset.tooltip || '';
+    wrap.dataset.tooltip = target
+        ? `Nothing to arm: the annotation target of ${target.toLocaleString()} `
+          + `videos is already met (${floor.toLocaleString()} annotated), so a `
+          + `plan armed now would stop again on its first cycle. Raise the `
+          + `target above ${floor.toLocaleString()} and this button turns back `
+          + `into Arm.\n\n${_dmEnrichArmTooltipBase}`
+        : _dmEnrichArmTooltipBase;
+}
+
+
+// Any panel input: keep the two buttons honest, then schedule the write.
 function dmEnrichPanelChanged() {
     dmEnrichButtonsRefresh();
     dmEnrichAutoSaveSoon();
