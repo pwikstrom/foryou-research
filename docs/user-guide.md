@@ -448,7 +448,7 @@ the collection's busiest day; 50 by default). How many days a month the
 random daily sample takes is not a setting: a line under the cap slider
 says what the three sliders add up to — how many analysis-ready days the
 collection will have after the plan (days already ready included, and how
-many days a month the sample adds) and how many deep-dive days it will buy. The earliest date is set on the chart itself: drag the handle at
+many days a month the sample adds) and how many deep-dive days it will add. The earliest date is set on the chart itself: drag the handle at
 the start of the window (there is no end handle — a plan always reaches
 the newest day), nudge it a day at a time, or *Full history* to clear it.
 Only the balance at 100% random daily sample, the per-day cap and an earliest date can
@@ -456,7 +456,7 @@ leave a target out of reach, and the amber warning names them.
 Each cycle is sized automatically — there is no items-per-cycle knob —
 as one annotation job's worth (2,000), sized up for the videos expected to
 fail on the way, measured from the plan's own recent runs, so the target
-is met without a trailing cycle for the shortfall; the last slice may buy
+is met without a trailing cycle for the shortfall; the last slice may take
 part of a day, and is never smaller than 200 videos, so a plan ends in one
 cycle rather than a trail of tiny ones and may finish up to 200 videos
 past its target. An amber

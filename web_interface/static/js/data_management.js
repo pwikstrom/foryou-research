@@ -7353,7 +7353,7 @@ function dmEnrichDrawMarker(target) {
 }
 
 // The quieter second marker: where the green zone stood when this run was
-// armed, so the bar shows what the run itself has bought.
+// armed, so the bar shows what the run itself has added.
 function dmEnrichDrawStartMarker(progress) {
     const el = document.getElementById('dm-enrich-bar-start');
     if (!el) return;
@@ -7664,15 +7664,15 @@ function _dmEnrichSpreadDays(daily, want, ctx) {
 
 // The line under the cap slider: what the three sliders add up to, in days
 // — the unit every analysis works in. Both counts are what the plan would
-// buy on top of what is already annotated.
+// add on top of what is already annotated.
 function dmEnrichDaysReadout() {
     const el = document.getElementById('dm-enrich-days-readout');
     if (!el) return;
     const st = dmEnrichEstimateStats;
     if (!dmEnrichDailyCache) { el.textContent = ''; return; }
     if (!st) {
-        // Nothing to place: the target is met (or unset), so no days are bought.
-        el.textContent = dmEnrichTargetValue ? 'nothing more to buy \u2014 the target is already met' : '';
+        // Nothing to place: the target is met (or unset), so no days are added.
+        el.textContent = dmEnrichTargetValue ? 'nothing more to process \u2014 the target is already met' : '';
         return;
     }
     // Both counts now and after the plan, so the line reads as a change.
