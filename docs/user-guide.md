@@ -249,7 +249,11 @@ fresher map is available.
 
 Sessions explores individual viewing sessions and the **binges** inside them —
 runs of consecutive videos whose content stays semantically close together on
-the AI embeddings.
+the AI embeddings. A viewing session is one sitting with the app: a run of
+activity with no gap longer than 15 minutes, fixed when the collection is
+ingested. A session can only be analysed once every video in it is annotated,
+which is why the automatic enrichment loop takes whole sessions (see *Edit Collections* under section 3)
+and counts the collection's **analysis-ready sessions**.
 
 **Left rail: the session table.** All of the active study's sessions, one
 row each; sort by clicking any column heading. A collapsible **Filters**
@@ -428,8 +432,10 @@ labelled *Collection details* — for several.
 The edit modal's **Automatic enrichment** panel arms a collection to scrape
 and annotate itself toward an **annotation target** — a number of unique
 videos to have annotated, set with a log-scaled slider. The panel shows the
-collection's size and how many **analysis-ready days** it already has, a
-per-day activity chart (stacked by enrichment state, with a red line
+collection's size, how many **analysis-ready days** it already has (at least
+ten annotated videos on the day) and how many **analysis-ready sessions**
+(a sitting of at least ten plays with every video annotated or failed for
+good — what the Sessions tab can work with), a per-day activity chart (stacked by enrichment state, with a red line
 estimating where each day would land under the current settings), a linear
 coverage bar with the target marked on it, and a live readout translating
 the target into items, estimated cost (with the active model) and the time
@@ -450,11 +456,17 @@ across the history; what one of the two cannot spend the other uses. The
 plan's settings are three full-width sliders, each with its value on the
 label line: the annotation target, the balance between deep dive and random
 daily sample, and the sample's cap on items per day (logarithmic, from the ten-video floor to
-the collection's busiest day; 50 by default). How many days a month the
-random daily sample takes is not a setting: a line under the cap slider
-says what the three sliders add up to — how many analysis-ready days the
-collection will have after the plan (days already ready included, and how
-many days a month the sample adds) and how many deep-dive days it will add. The earliest date is set on the chart itself: drag the handle at
+the collection's busiest day; 50 by default). On each day it samples, the
+random daily sample takes **whole viewing sessions** first (the one that
+crosses the cap included, so a day can go a little over it) and only then
+single videos up to the cap — a scattering of single videos never adds up
+to a session anyone can analyse, so ready sessions build up across the
+whole history and not only in the recent days the deep dive covers. How
+many days a month the random daily sample takes is not a setting: a line
+under the cap slider says what the three sliders add up to — how many
+analysis-ready days, deep-dive days (every video of the day annotated or
+failed for good) and analysis-ready sessions the collection has now and
+about how many it will have after the plan. The earliest date is set on the chart itself: drag the handle at
 the start of the window (there is no end handle — a plan always reaches
 the newest day), nudge it a day at a time, or *Full history* to clear it.
 Only the balance at 100% random daily sample, the per-day cap and an earliest date can

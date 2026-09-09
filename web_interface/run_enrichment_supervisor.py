@@ -1121,7 +1121,8 @@ def _plan(reporter, plans: dict) -> dict | None:
                                     expected_yield, pending)
             result = ce.plan_cycle(cid, entry, activity=activity, status=status,
                                    expected_yield=expected_yield, pending=pending,
-                                   margin=CUT_MARGIN)
+                                   margin=CUT_MARGIN,
+                                   session_min_plays=ce.session_min_plays())
             items = result["item_ids"]
 
             if not items:
@@ -1189,15 +1190,19 @@ def _plan(reporter, plans: dict) -> dict | None:
                 "stall_count": stalls + 1,   # cleared by the next successful handoff
                 "last_cycle_at": ce.now_iso(),
                 "last_batch": {"a": result["a"], "b": result["b"],
-                               "total": len(items)},
+                               "total": len(items),
+                               "sessions": int(result.get("sessions") or 0)},
                 "last_yield": round(float(result.get("yield") or 1.0), 3),
                 "last_error": None,
                 # A raised target can put a finishing plan back to work.
                 FINISHING_KEY: None,
             })
+            sessions_done = int(result.get("sessions") or 0)
             reporter.log(f"{cid}: queued {len(items)} item(s) to scrape "
-                         f"({result['b']} deep-dive, {result['a']} random daily sample); "
-                         f"back to {result['b_cursor']} / {result['a_cursor']}."
+                         f"({result['b']} deep-dive, {result['a']} random daily sample"
+                         + (f", finishing {sessions_done} viewing session(s)"
+                            if sessions_done else "")
+                         + f"); back to {result['b_cursor']} / {result['a_cursor']}."
                          + (f" Partial day {result['partial_day']} — the plan's last slice."
                             if result.get("partial_day") else ""))
             message = (f"Next batch queued for scraping — {len(items):,} video(s) "
@@ -1208,6 +1213,12 @@ def _plan(reporter, plans: dict) -> dict | None:
                        + "); "
                        f"the deep dive now reaches back to {result['b_cursor'] or '—'}, "
                        f"the random daily sample to {result['a_cursor'] or '—'}")
+            if sessions_done:
+                # Scraping, not annotation: the handoff still clamps the
+                # annotation to the target, so the run's very last session
+                # can end part-annotated (like its partial last day).
+                message += (f"; this batch takes the last unscraped items of "
+                            f"{sessions_done:,} viewing session(s)")
             if result.get("partial_day"):
                 message += (f"; only part of {result['partial_day']} — the last batch needed "
                             f"to reach the target, allowing for the ~{1 - expected_yield:.0%} "
@@ -1219,6 +1230,7 @@ def _plan(reporter, plans: dict) -> dict | None:
                            collection_id=cid, platform=platform,
                            actor="enrichment_supervisor", queued=len(items),
                            deep_dive=result["b"], spread=result["a"],
+                           sessions=sessions_done,
                            b_cursor=result["b_cursor"], a_cursor=result["a_cursor"],
                            auto_items=auto_items, expected_yield=round(expected_yield, 3),
                            spread_days=result.get("spread_days"),

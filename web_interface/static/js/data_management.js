@@ -7599,11 +7599,17 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
     const awaiting = (i) => daily.awaiting[i] || 0;
     const unscraped = (i) => Math.max(0, (daily.total[i] || 0) - (daily.annotated[i] || 0)
         - (daily.failed[i] || 0) - awaiting(i));
+    // The viewing sessions still to complete, by start day — what a cut
+    // day takes whole before single items (null on a payload without them).
+    const sessByDay = _dmEnrichSessionsByDay();
 
     // 1. The backlog sweep: already-scraped videos are annotated first.
+    //    Remembered per day: they are already in the day's scraped count,
+    //    so the cap room below must not charge them twice.
+    const swept = new Array(n).fill(0);
     for (let i = n - 1; i >= 0 && remaining > 0; i--) {
         const take = Math.min(awaiting(i), remaining);
-        planned[i] += take; remaining -= take;
+        planned[i] += take; swept[i] += take; remaining -= take;
     }
     // 2. What is left splits between the processes by the spread share.
     let dd = Math.round(remaining * (1 - share));
@@ -7629,7 +7635,7 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
     //    (spread_days_per_month), on the same per-day quotas this estimate
     //    then places. Newest month first.
     const daysPerMonth = _dmEnrichSpreadDays(daily, sp, {
-        ddDays, dayCap, minDay, earliest, awaiting, unscraped, planned,
+        ddDays, dayCap, minDay, earliest, awaiting, unscraped, planned, swept,
     });
     let month = '', taken = 0, spreadDays = 0;
     for (let i = n - 1; i >= 0 && sp > 0; i--) {
@@ -7638,8 +7644,15 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
         if (m !== month) { month = m; taken = 0; }
         if (taken >= daysPerMonth || ddDays.has(i)) continue;
         if ((daily.total[i] || 0) < minDay) continue;
-        const capRoom = dayCap - ((daily.annotated[i] || 0) + awaiting(i) + planned[i]);
-        const take = Math.min(unscraped(i), Math.max(0, capRoom), sp);
+        const capRoom = dayCap - ((daily.annotated[i] || 0) + awaiting(i) + planned[i] - swept[i]);
+        const list = sessByDay && sessByDay[i];
+        // A day with sessions to complete takes them whole, the one that
+        // crosses the cap included — so the day (and the sample's share)
+        // may overshoot by one session, as the planner's does. A day
+        // without takes single items, bounded by the share, as before.
+        const take = list && list.length
+            ? _dmEnrichDayTake(list, Math.max(0, capRoom), unscraped(i))
+            : Math.min(unscraped(i), Math.max(0, capRoom), sp);
         if (take <= 0) continue;
         planned[i] += take; sp -= take; taken += 1; spreadDays += 1;
     }
@@ -7657,6 +7670,12 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
         // now and after the plan, days already there included, so the line
         // can say "from X1 to X2".
         let readyNow = 0, readyAfter = 0, deepNow = 0, deepAfter = 0;
+        // Analysis-ready sessions: every item of a session with at least
+        // the Sessions tab's minimum plays annotated or failed for good.
+        // What the plan places on a day is handed to that day's sessions
+        // in the server's order, whole sessions first; a day the plan
+        // covers to the top completes every session that started on it.
+        let sessionsDone = 0;
         for (let i = 0; i < n; i++) {
             const total = daily.total[i] || 0;
             if (!total) continue;
@@ -7665,8 +7684,27 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
             if (ann >= minDay) readyNow += 1;
             if (ann + planned[i] >= minDay) readyAfter += 1;
             if (ann + fail >= total) deepNow += 1;
-            if (ann + fail + planned[i] >= total) deepAfter += 1;
+            const covered = ann + fail + planned[i] >= total;
+            if (covered) deepAfter += 1;
+            const list = sessByDay && sessByDay[i];
+            if (!list) continue;
+            if (covered) { sessionsDone += list.length; continue; }
+            // Sittings with nothing left to scrape are finished by the
+            // backlog sweep whatever the order; the rest go in the
+            // server's order until one no longer fits.
+            let left = planned[i];
+            const rest = [];
+            for (const s of list) {
+                if (s.n > 0) { rest.push(s); continue; }
+                if (s.w <= left) { left -= s.w; sessionsDone += 1; }
+            }
+            for (const s of rest) {
+                if (s.n + s.w > left) break;
+                left -= s.n + s.w; sessionsDone += 1;
+            }
         }
+        const sessionsNow = sessByDay
+            ? ((dmEnrichProgressCache.sessions || {}).ready || 0) : null;
         dmEnrichEstimateStats = {
             deepDays: ddDays.size,
             spreadDays,
@@ -7675,10 +7713,44 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
             readyAfter,
             deepNow,
             deepAfter,
+            sessionsNow,
+            sessionsAfter: sessByDay ? sessionsNow + sessionsDone : null,
             share,
         };
     }
     return planned;
+}
+
+// The collection's viewing sessions not yet analysis-ready, grouped by the
+// index of the day they started on, in the server's newest-first order —
+// from the GET payload (collection_enrichment._session_figures): per
+// session, the items still to scrape (n) and those awaiting annotation
+// (w). null when the payload carries none (an older server), and the
+// estimate then places single items alone, as it always did.
+function _dmEnrichSessionsByDay() {
+    const per = (dmEnrichProgressCache.sessions || {}).per;
+    if (!per || !Array.isArray(per.d)) return null;
+    const byDay = {};
+    for (let k = 0; k < per.d.length; k++) {
+        const d = per.d[k];
+        if (d === undefined || d === null || d < 0) continue;
+        (byDay[d] = byDay[d] || []).push({ n: per.n[k] || 0, w: per.w[k] || 0 });
+    }
+    return byDay;
+}
+
+// What a cut day takes: whole viewing sessions, in order, until the room
+// is met — the session that crosses the line included — then single items
+// up to the room. The planner's _pick_in_day, on the counts the estimate
+// has; never more than the day still has to scrape.
+function _dmEnrichDayTake(sessions, room, unscraped) {
+    if (room <= 0) return 0;
+    let take = 0;
+    for (const s of sessions) {
+        if (take >= room) break;
+        take += s.n;
+    }
+    return Math.min(Math.max(take, room), unscraped);
 }
 
 // The spread's density for the estimate: per month, the qualifying days' cap
@@ -7686,13 +7758,14 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
 // days-per-month whose summed room covers what the spread must place.
 function _dmEnrichSpreadDays(daily, want, ctx) {
     if (want <= 0) return 0;
-    const { ddDays, dayCap, minDay, earliest, awaiting, unscraped, planned } = ctx;
+    const { ddDays, dayCap, minDay, earliest, awaiting, unscraped, planned, swept } = ctx;
     const n = daily.dates.length;
     const quotas = {};
     for (let i = n - 1; i >= 0; i--) {
         if (earliest && daily.dates[i] < earliest) break;
         if (ddDays.has(i) || (daily.total[i] || 0) < minDay) continue;
-        const capRoom = dayCap - ((daily.annotated[i] || 0) + awaiting(i) + planned[i]);
+        const capRoom = dayCap - ((daily.annotated[i] || 0) + awaiting(i) + planned[i]
+            - ((swept && swept[i]) || 0));
         const room = Math.min(unscraped(i), Math.max(0, capRoom));
         if (room <= 0) continue;
         const m = daily.dates[i].slice(0, 7);
@@ -7722,10 +7795,15 @@ function dmEnrichDaysReadout() {
         return;
     }
     // Both counts now and after the plan, so the line reads as a change.
-    const span = (what, now, after) => `${what} days from ${now.toLocaleString()} `
+    const span = (what, now, after) => `${what} from ${now.toLocaleString()} `
         + `to \u2248 ${after.toLocaleString()}`;
-    el.textContent = `These settings will take ${span('analysis-ready', st.readyNow, st.readyAfter)}`
-        + ` and ${span('deep-dive', st.deepNow, st.deepAfter)}.`;
+    const days = span('analysis-ready days', st.readyNow, st.readyAfter);
+    const deep = span('deep-dive days', st.deepNow, st.deepAfter);
+    // The sessions clause only where the server reports sessions.
+    el.textContent = st.sessionsAfter === null || st.sessionsAfter === undefined
+        ? `These settings will take ${days} and ${deep}.`
+        : `These settings will take ${days}, ${deep}, and `
+          + `${span('analysis-ready sessions', st.sessionsNow, st.sessionsAfter)}.`;
 }
 
 // What the CURRENT settings can ever reach: the estimate run with no target
@@ -7987,6 +8065,16 @@ function dmEnrichRender(data) {
             : (ready >= need
                 ? `${ready.toLocaleString()} analysis-ready days`
                 : `${ready.toLocaleString()} of the ~${need} analysis-ready days needed`);
+    }
+    // Viewing sessions the researcher can analyse now — whole sittings, every
+    // item annotated or failed for good — beside the ready days. Blank on a
+    // payload without the figure.
+    const sessEl = document.getElementById('dm-enrich-ready-sessions');
+    if (sessEl) {
+        const sessions = progress.sessions;
+        const ready = sessions ? (sessions.ready || 0) : 0;
+        sessEl.textContent = (!videos || !sessions) ? ''
+            : `${ready.toLocaleString()} analysis-ready session${ready === 1 ? '' : 's'}`;
     }
 
     dmEnrichDrawBar(progress);
@@ -8295,7 +8383,7 @@ function dmEnrichResetPanel() {
     for (const id of ['dm-enrich-target', 'dm-enrich-target-pct',
                       'dm-enrich-target-readout', 'dm-enrich-target-warning',
                       'dm-enrich-day-cap-value', 'dm-enrich-days-readout',
-                      'dm-enrich-earliest-value']) {
+                      'dm-enrich-earliest-value', 'dm-enrich-ready-sessions']) {
         const el = document.getElementById(id);
         if (el) el.textContent = '';
     }

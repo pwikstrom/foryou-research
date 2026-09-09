@@ -192,7 +192,29 @@ that backlog is clear. Slices then interleave two processes that both buy
 Process A (the **random daily sample** in the UI; "spread" in the code) samples whole days per month backwards through
 history, capped at `a_day_cap` per day (default 50 — the
 Timelines/Correlations long arc), with `sample_share` splitting each
-cycle's items between them. **How many days a month the spread samples is
+cycle's items between them. **Within a cut day — the spread's capped days
+and the deep dive's partial last day — the cutter takes whole viewing
+sessions first** (`_pick_in_day`, 2026-09-09): the day's candidate
+sessions (at least the Sessions tab's `min_session_plays`, resolved by
+`session_min_plays()` from the admin store and passed into the pure
+planner), the session that crosses the cap included, then single items up
+to the cap. A scattering of items never yields a session anyone can
+analyse; whole sittings do, and this is what puts analysable sessions
+across the whole history rather than only inside the deep-dive window.
+Sessions are keyed by their local start timestamp (`load_activity`'s
+`session` column, with `session_plays` counting the session's play rows;
+the positional `session_id` renumbers on a re-ingest), the spread draws
+them in a salted ranking of their own so a raised cap adds sessions rather
+than swapping them, the deep dive's partial day takes them newest first, and
+a sitting that runs past midnight is taken whole from the day it started.
+`plan_cycle` reports `sessions` — the candidate sessions whose last
+unscraped items are in the slice — and the journal's `slice.queued` carries
+it. The handoff still clamps annotation to the target, so a run's very last
+session can end part-annotated, exactly like its partial last day; a later
+target raise completes it first. `progress()["sessions"]`
+(`_session_figures`: total / candidates / ready, plus the incomplete
+candidates' per-session counts, newest first) feeds the modal's
+"analysis-ready sessions" figure and its estimate line. **How many days a month the spread samples is
 derived, not set** (`collection_enrichment.spread_days_per_month`,
 2026-09-09): the fewest days, the same in every month still ahead of the
 spread's cursor, whose capped videos cover the spread's share of what the
@@ -284,7 +306,12 @@ hosted or local Qwen alternatives, model-scoped shard store). The Sessions
 tab's artifacts (session index, binge episodes, low-entropy windows) are
 built by `fyp/analysis/session_explorer.py` + `entropy_metrics.py` over a
 dense random-access embedding sidecar (`fyp/analysis/embedding_store.py`),
-as a batch-and-chained `sessions_refresh` worker. Within each link the
+as a batch-and-chained `sessions_refresh` worker. The session boundaries
+themselves are older than any of this: `session_id` is stamped on every
+activity row at ingest (`fyp/ingest/base.py` `assign_session_ids`, a
+`[sessions] session_gap_s` = 900 s gap rule on `utc_timestamp` alone), which
+is what lets the enrichment planner sample whole sessions before anything
+is scraped (it keys them by local start timestamp, not the positional id). Within each link the
 per-session segmentation — pure Python, and nearly all of a rebuild's wall
 time — runs on a forked process pool over (collection, session-chunk) work
 units (`[sessions] workers`, default one per core less one; serial where
