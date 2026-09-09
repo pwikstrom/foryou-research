@@ -7621,6 +7621,15 @@ function dmEnrichRender(data) {
             line += ` \u00b7 ${actLabel}`;
             const msg = (act.message || '').trim();
             if (msg) line += ` \u2014 ${msg.length > 90 ? msg.slice(0, 87) + '\u2026' : msg}`;
+        } else if (dmEnrichArmed && dmEnrichState === 'running' && progress.finishing) {
+            // Nothing more to scrape; the plan closes once its last queued
+            // videos are annotated and consolidated. Said here rather than
+            // "waiting for the next cycle", which promises work that is not
+            // coming.
+            const n = Number((progress.finishing || {}).pending || 0);
+            line += ' \u00b7 finishing \u2014 the plan closes once the'
+                  + (n ? ` ${n.toLocaleString()}` : '')
+                  + ' queued videos are annotated and consolidated';
         } else if (dmEnrichArmed && dmEnrichState === 'running') {
             const next = dmEnrichNextLabel(progress);
             line += ' \u00b7 waiting for the next cycle'

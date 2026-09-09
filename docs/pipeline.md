@@ -238,7 +238,16 @@ otherwise fold in, so the no-plans path settles that debt before the quiet
 finalize — and a worker completion still dispatches a tick while the loop
 owes a settle or its own deferred refresh (`process_routes.loop_owes_work`),
 not only while a plan is armed; the Dataset Assembly banner reads the same
-flag and says the loop has the consolidation in hand. Every one of these decisions is written to the **enrichment
+flag and says the loop has the consolidation in hand. (4) **A plan with
+nothing more to scrape stays Running while its own videos are still queued
+for, or inside, an annotation job** (`entry["finishing"]`, one
+`plan.finishing` history line, bounded by `FINISHING_MAX_H`): the planner
+used to close it in the very tick that handed its last batch to the
+annotator, so the history read "Idle" before "Annotator started" and the
+panel said "Idle · annotating now" for the whole batch; now the owed
+consolidation's completion ticks the loop, the pending count reaches zero,
+and the plan closes (`plan.done`) with the quiet finalize following in the
+same tick. Every one of these decisions is written to the **enrichment
 history** (`services/enrichment_journal.py`, `cache/enrichment_journal.json`,
 a bounded ring): plans armed/paused/parked, queues built/emptied/drained
 (with the split between the armed plans' own slices and everything else),

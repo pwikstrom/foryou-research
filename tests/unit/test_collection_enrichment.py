@@ -1696,3 +1696,113 @@ def test_activity_reports_the_running_worker():
         out = ce.activity("tiktok")
     assert out == {"kind": "waiting", "worker": None, "message": None,
                    "started_at": None}
+
+
+def _exhausted(monkeypatch):
+    monkeypatch.setattr(ce, "plan_cycle",
+                        lambda cid, entry, **kw: {
+                            "item_ids": [], "a_cursor": "2026-03", "b_cursor": None,
+                            "a": 0, "b": 0, "exhausted": True,
+                            "platform": "tiktok"})
+
+
+def test_an_exhausted_plan_stays_running_until_its_last_batch_settles(tick, monkeypatch):
+    """user_data_tiktok_7, 2026-09-09: the boundary tick handed 1,055 videos to
+    the annotator and closed the plan in the same breath, so the history read
+    "Idle" two seconds before "Annotator started". The plan now waits, Running,
+    until those videos are annotated and consolidated."""
+    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.services.enrichment_journal as journal
+
+    plan = {**_entry(), "platform": "tiktok"}
+    # The fixture reads plans from `tick["plans"]` and writes patches to the
+    # store; seed the store too so the merged ledger entry is whole.
+    tick["store"][ce.LEDGER_FILENAME] = {"c1": dict(plan)}
+    tick["plans"] = {"c1": plan}
+    tick["handoff"] = {"c1": ["2026-08-27#0", "2026-08-27#1", "2026-08-27#2"]}
+    _exhausted(monkeypatch)
+    rep = tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_RUNNING
+    assert entry[sup.FINISHING_KEY]["pending"] == 3
+    assert [n for n, _ in tick["started"]] == ["queue_annotator"]
+    kinds = [e["kind"] for e in tick["store"][journal.JOURNAL_FILENAME]["events"]]
+    assert "plan.finishing" in kinds and "plan.done" not in kinds
+    assert rep.data[-1]["action"] == "annotate"
+
+    # A second tick while the job runs neither closes the plan nor repeats the line.
+    tick["plans"] = {"c1": entry}
+    tick["handoff"] = {}
+    tick["annotate_busy"] = True
+    tick["started"].clear()
+    tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_RUNNING
+    kinds = [e["kind"] for e in tick["store"][journal.JOURNAL_FILENAME]["events"]]
+    assert kinds.count("plan.finishing") == 1
+
+    # The batch is annotated and consolidated: the queue is empty, nothing is
+    # claimed — the plan closes on this tick, and the hold is cleared.
+    tick["store"][ce.ANNOTATE_QUEUE_FILENAME] = []
+    tick["annotate_busy"] = False
+    tick["plans"] = {"c1": entry}
+    rep = tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_DONE and entry.get("finished_at")
+    assert entry.get(sup.FINISHING_KEY) is None
+    kinds = [e["kind"] for e in tick["store"][journal.JOURNAL_FILENAME]["events"]]
+    assert kinds[-1] == "plan.done"
+    assert tick["started"] == []
+
+
+def test_a_met_target_also_waits_for_the_videos_in_flight(tick, monkeypatch):
+    """The Auto target-met exit closes the plan the same way: not while any of
+    the collection's videos are inside an annotation job."""
+    import web_interface.run_enrichment_supervisor as sup
+
+    tick["plans"] = {"c1": {**_entry(annotation_target=100, cycle_items_auto=True),
+                            "platform": "tiktok"}}
+    monkeypatch.setattr(ce, "load_status", lambda ids: None)
+    monkeypatch.setattr(ce, "_annotated_unique", lambda activity, status: 100)
+    tick["store"][ce.LEDGER_FILENAME] = {"c1": dict(tick["plans"]["c1"])}
+    tick["claimed"] = {"2026-08-27#0", "2026-08-27#1"}
+    tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_RUNNING
+    assert entry[sup.FINISHING_KEY]["pending"] == 2
+
+    tick["claimed"] = set()
+    tick["plans"] = {"c1": entry}
+    tick["run"]()
+    assert tick["store"][ce.LEDGER_FILENAME]["c1"]["state"] == ce.STATE_DONE
+
+
+def test_a_finishing_plan_closes_after_the_bound(tick, monkeypatch):
+    """A claim file a crashed annotator left behind must not hold a finished
+    plan open for ever."""
+    import web_interface.run_enrichment_supervisor as sup
+    from datetime import datetime, timedelta, timezone
+
+    stale = (datetime.now(timezone.utc)
+             - timedelta(hours=sup.FINISHING_MAX_H + 1)).isoformat()
+    tick["plans"] = {"c1": {**_entry(), "platform": "tiktok",
+                            sup.FINISHING_KEY: {"since": stale, "pending": 2}}}
+    tick["claimed"] = {"2026-08-27#0", "2026-08-27#1"}
+    _exhausted(monkeypatch)
+    tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_DONE
+    assert entry.get(sup.FINISHING_KEY) is None
+
+
+def test_a_raised_target_puts_a_finishing_plan_back_to_work(tick, monkeypatch):
+    import web_interface.run_enrichment_supervisor as sup
+
+    plan = {**_entry(), "platform": "tiktok",
+            sup.FINISHING_KEY: {"since": ce.now_iso(), "pending": 2}}
+    tick["store"][ce.LEDGER_FILENAME] = {"c1": dict(plan)}
+    tick["plans"] = {"c1": plan}
+    tick["run"]()                       # the fixture's plan_cycle cuts 5 items
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_RUNNING and entry["cycles"] == 1
+    assert entry.get(sup.FINISHING_KEY) is None

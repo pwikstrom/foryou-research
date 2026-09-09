@@ -451,7 +451,10 @@ from the plan's own recent runs — so the target is met without a trailing
 cycle for the shortfall; the last slice may buy part of a day, and is never
 smaller than 200 videos, so a plan ends in one cycle rather than a trail of
 tiny ones and may finish up to 200 videos past its target. An amber
-warning appears when the settings cannot reach the chosen target. The target is a running total: to continue a
+warning appears when the settings cannot reach the chosen target. A plan
+with nothing more to scrape stays *Running* (the status line reads
+*finishing*) until the videos it last queued are annotated and
+consolidated, and only then turns Idle. The target is a running total: to continue a
 finished (Idle) plan, raise the target — until it is raised the button reads
 *Raise the target to arm* and is disabled, because a plan armed on a met
 target closes itself again on its first cycle. Idle with headroom left reads

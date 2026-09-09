@@ -935,6 +935,9 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         # What Auto resolved cycle_items to last cycle (None in manual mode) —
         # the panel's disabled input displays it.
         "last_auto_cycle_items": entry.get("last_auto_cycle_items"),
+        # {since, pending} while the plan has nothing more to scrape and waits
+        # for its last queued videos to be annotated; None otherwise.
+        "finishing": entry.get("finishing") or None,
         "milestone_days": MILESTONE_DAYS,
         "total_items": 0, "scraped_items": 0, "annotated_items": 0,
         "unique_items": 0, "unique_scraped": 0, "unique_annotated": 0,

@@ -76,6 +76,21 @@ ANNOTATE_HELD_KEY = "annotate_held"
 # no-plans path may settle it; an operator's manual runs never set it.
 SETTLE_OWED_KEY = "settle_owed"
 
+# Ledger entry key: set while a plan has nothing more to scrape but its own
+# videos are still queued for, or inside, an annotation job. The plan stays
+# Running until those are annotated and consolidated, and closes then. Until
+# 2026-09-09 the planner closed it the moment nothing was left to cut — in
+# the same tick that handed 1,055 videos to the annotator, so the history
+# read "Idle" two seconds before "Annotator started" and the panel said
+# "Idle · annotating now" for the 35 minutes the plan's last batch took.
+FINISHING_KEY = "finishing"
+
+# ...but not for ever: a claim file left behind by a crashed annotator would
+# otherwise hold a finished plan open indefinitely. Past this age the plan
+# closes with the pending videos noted; a whole batch job turns around well
+# inside it.
+FINISHING_MAX_H = 6
+
 
 def _admin_kill_switch() -> bool:
     """True when automatic enrichment is enabled site-wide.
@@ -1078,20 +1093,18 @@ def _plan(reporter, plans: dict) -> dict | None:
                 if auto_items == 0:
                     target = int(settings.get("annotation_target") or 0)
                     if target and ce._annotated_unique(activity, status) >= target:
-                        # Nothing pending — the target is simply MET. This
-                        # branch used to `continue`, so an Auto plan that
-                        # reached its target exactly read "Running" for ever
-                        # (2026-09-05: 10,570/10,570, ticking nothing_to_do
-                        # every hour). Close it the way plan_cycle would.
-                        ce.save_plan(cid, {"state": ce.STATE_DONE, "platform": platform,
-                                           "finished_at": ce.now_iso()})
+                        # The target is MET. This branch used to `continue`,
+                        # so an Auto plan that reached its target exactly read
+                        # "Running" for ever (2026-09-05: 10,570/10,570,
+                        # ticking nothing_to_do every hour). Close it the way
+                        # plan_cycle would — once nothing of the collection's
+                        # is still being annotated.
+                        if _still_finishing(reporter, cid, entry, platform, pending):
+                            continue
+                        _close_plan(reporter, cid, entry, platform,
+                                    f"Idle — the annotation target ({target:,} videos) "
+                                    f"is reached", target, {})
                         reporter.log(f"{cid}: annotation target met; plan complete.")
-                        journal.record("plan.done",
-                                       f"Idle — the annotation target ({target:,} videos) "
-                                       f"is reached",
-                                       collection_id=cid, platform=platform,
-                                       actor="enrichment_supervisor", target=target)
-                        _notify_owner(reporter, cid, entry)
                         continue
                     # Target headroom is fully covered by pending work (queued
                     # or in an in-flight job) — cutting more would overshoot.
@@ -1109,10 +1122,8 @@ def _plan(reporter, plans: dict) -> dict | None:
             items = result["item_ids"]
 
             if not items:
-                ce.save_plan(cid, {"state": ce.STATE_DONE, "platform": platform,
-                                   "a_cursor": result["a_cursor"],
-                                   "b_cursor": result["b_cursor"],
-                                   "finished_at": ce.now_iso()})
+                if _still_finishing(reporter, cid, entry, platform, pending):
+                    continue
                 target = int(settings.get("annotation_target") or 0)
                 if status is None:
                     status = ce.load_status(activity["item_id"].unique())
@@ -1133,11 +1144,10 @@ def _plan(reporter, plans: dict) -> dict | None:
                 else:
                     why = ("Idle — every video in the collection is processed, "
                            "or failed for good")
+                _close_plan(reporter, cid, entry, platform, why, target,
+                            {"a_cursor": result["a_cursor"],
+                             "b_cursor": result["b_cursor"]})
                 reporter.log(f"{cid}: nothing left to enrich; plan complete.")
-                journal.record("plan.done", why,
-                               collection_id=cid, platform=platform,
-                               actor="enrichment_supervisor", target=target)
-                _notify_owner(reporter, cid, entry)
                 continue
 
             # A cycle that enqueues work but never produces a scrape is chasing
@@ -1179,6 +1189,8 @@ def _plan(reporter, plans: dict) -> dict | None:
                                "total": len(items)},
                 "last_yield": round(float(result.get("yield") or 1.0), 3),
                 "last_error": None,
+                # A raised target can put a finishing plan back to work.
+                FINISHING_KEY: None,
             })
             reporter.log(f"{cid}: queued {len(items)} item(s) to scrape "
                          f"({result['b']} deep-dive, {result['a']} spread); "
@@ -1213,6 +1225,60 @@ def _plan(reporter, plans: dict) -> dict | None:
             reporter.log(f"Planning for {cid} failed: {exc}")
             ce.save_plan(cid, {"last_error": str(exc)})
     return None
+
+
+def _still_finishing(reporter, cid: str, entry: dict, platform: str | None,
+                     pending: int) -> bool:
+    """Hold a plan that has nothing more to scrape while its own videos are
+    still queued for, or inside, an annotation job.
+
+    The plan is Running until that work is annotated and consolidated — the
+    consolidation's completion ticks the loop, the pending count reaches
+    zero, and the next call lets the caller close the plan. The hold is
+    recorded once (``entry["finishing"]`` and one history line) and bounded
+    by :data:`FINISHING_MAX_H`.
+
+    Returns:
+        True when the caller must leave the plan open this tick.
+    """
+    pending = int(pending or 0)
+    if pending <= 0:
+        return False
+    held = entry.get(FINISHING_KEY)
+    since = (held or {}).get("since") if isinstance(held, dict) else None
+    if since:
+        try:
+            age_h = (datetime.now(timezone.utc)
+                     - datetime.fromisoformat(str(since))).total_seconds() / 3600
+        except (TypeError, ValueError):
+            age_h = None
+        if age_h is not None and age_h >= FINISHING_MAX_H:
+            reporter.log(f"{cid}: {pending} video(s) still pending annotation after "
+                         f"{age_h:.0f} h of finishing; closing the plan anyway.")
+            return False
+        reporter.log(f"{cid}: nothing more to scrape; {pending} video(s) still being "
+                     f"annotated — the plan closes when they are consolidated.")
+        return True
+    ce.save_plan(cid, {FINISHING_KEY: {"since": ce.now_iso(), "pending": pending}})
+    reporter.log(f"{cid}: nothing more to scrape; waiting for {pending} queued video(s) "
+                 f"to be annotated before the plan closes.")
+    journal.record("plan.finishing",
+                   f"Finishing — nothing more to scrape; the plan closes once the "
+                   f"{pending:,} video(s) already queued are annotated and consolidated",
+                   collection_id=cid, platform=platform,
+                   actor="enrichment_supervisor", pending=pending)
+    return True
+
+
+def _close_plan(reporter, cid: str, entry: dict, platform: str | None,
+                why: str, target: int, patch: dict) -> None:
+    """Mark a plan Idle: the ledger, the history line and the owner's note."""
+    ce.save_plan(cid, {**patch, "state": ce.STATE_DONE, "platform": platform,
+                       "finished_at": ce.now_iso(), FINISHING_KEY: None})
+    journal.record("plan.done", why,
+                   collection_id=cid, platform=platform,
+                   actor="enrichment_supervisor", target=target)
+    _notify_owner(reporter, cid, entry)
 
 
 def _notify_owner(reporter, cid: str, entry: dict) -> None:

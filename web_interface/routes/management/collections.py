@@ -498,6 +498,7 @@ def save_collection_enrichment(collection_id):
             # be revived deliberately from the modal.
             patch["stall_count"] = 0
             patch["last_error"] = None
+            patch["finishing"] = None
     if isinstance(data.get("settings"), dict):
         patch["settings"] = ce.normalize_settings(data["settings"])
 
