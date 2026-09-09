@@ -7485,6 +7485,15 @@ body:has(.public-page) {
     flex-wrap: wrap;
 }
 .dm-enrich-sub { display: block; }
+/* A figure the plan derives (the spread's days a month): sits on the input
+   baseline beside the real inputs, read-only by design. */
+.dm-enrich-derived {
+    display: inline-block;
+    padding: 6px 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+}
 .dm-enrich-check {
     display: flex;
     align-items: center;

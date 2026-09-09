@@ -1116,6 +1116,8 @@ def _plan(reporter, plans: dict) -> dict | None:
                 reporter.log(f"{cid}: auto items-per-cycle = {auto_items:,} "
                              f"(sized for an expected {expected_yield:.0%} yield).")
 
+            entry = _spread_density(reporter, cid, entry, settings, activity, status,
+                                    expected_yield, pending)
             result = ce.plan_cycle(cid, entry, activity=activity, status=status,
                                    expected_yield=expected_yield, pending=pending,
                                    margin=CUT_MARGIN)
@@ -1132,10 +1134,10 @@ def _plan(reporter, plans: dict) -> dict | None:
                     why = (f"Idle — the annotation target ({target:,} videos) is "
                            f"reached, or covered by videos already queued")
                 elif float(settings.get("sample_share") or 0) >= 1:
-                    why = ("Idle — the plan has processed every day the spread is "
-                           "allowed to pick, and is still short of the target; "
-                           "moving the balance toward the deep dive lets it "
-                           "cover the rest of the collection")
+                    why = ("Idle — the plan has processed every day the spread can "
+                           "sample, and is still short of the target; moving the "
+                           "balance toward the deep dive, or raising the items "
+                           "per day, lets it cover the rest of the collection")
                 elif settings.get("earliest_date"):
                     why = (f"Idle — every video since the earliest date "
                            f"({settings['earliest_date']}) is processed or "
@@ -1199,7 +1201,10 @@ def _plan(reporter, plans: dict) -> dict | None:
                             if result.get("partial_day") else ""))
             message = (f"Next batch queued for scraping — {len(items):,} video(s) "
                        f"({result['b']:,} from the deep dive into recent days, "
-                       f"{result['a']:,} from the spread across the history); "
+                       f"{result['a']:,} from the spread across the history"
+                       + (f", up to {result.get('spread_days')} day(s) a month"
+                          if result["a"] and result.get("spread_days") else "")
+                       + "); "
                        f"the deep dive now reaches back to {result['b_cursor'] or '—'}, "
                        f"the spread to {result['a_cursor'] or '—'}")
             if result.get("partial_day"):
@@ -1215,6 +1220,7 @@ def _plan(reporter, plans: dict) -> dict | None:
                            deep_dive=result["b"], spread=result["a"],
                            b_cursor=result["b_cursor"], a_cursor=result["a_cursor"],
                            auto_items=auto_items, expected_yield=round(expected_yield, 3),
+                           spread_days=result.get("spread_days"),
                            last_slice=bool(result.get("last_slice")),
                            partial_day=result.get("partial_day"),
                            cycle=int(entry.get("cycles") or 0) + 1)
@@ -1225,6 +1231,46 @@ def _plan(reporter, plans: dict) -> dict | None:
             reporter.log(f"Planning for {cid} failed: {exc}")
             ce.save_plan(cid, {"last_error": str(exc)})
     return None
+
+
+def _spread_density(reporter, cid: str, entry: dict, settings: dict, activity,
+                    status, expected_yield: float, pending: int) -> dict:
+    """The spread's days-per-month for this run — derived once and stored.
+
+    Derived at the start of a walk (no ``a_cursor``) and again whenever one
+    of its inputs changes (target, balance, per-day cap, earliest date), so a
+    raised target re-sizes the density for the months still ahead. Between
+    those, the stored value holds, and the density stays uniform across the
+    history whatever the months turn out to hold. Returns the entry with the
+    density on it; on any failure the entry is returned untouched and
+    ``plan_cycle`` derives for itself.
+    """
+    basis = {"target": int(settings.get("annotation_target") or 0),
+             "share": float(settings.get("sample_share") or 0.0),
+             "cap": int(settings.get("a_day_cap") or 0),
+             "earliest": settings.get("earliest_date") or None}
+    if (entry.get("spread_days_per_month") is not None
+            and entry.get("a_cursor") is not None
+            and entry.get("spread_days_basis") == basis):
+        return entry
+    try:
+        derived = ce.spread_days_per_month(cid, entry, activity=activity, status=status,
+                                           expected_yield=expected_yield,
+                                           pending=pending, margin=CUT_MARGIN)
+    except Exception as exc:
+        reporter.log(f"{cid}: could not derive the spread's days per month: {exc}")
+        return entry
+    patch = {"spread_days_per_month": int(derived["days"]),
+             "spread_days_basis": basis}
+    ce.save_plan(cid, patch)
+    if derived["days"]:
+        reporter.log(f"{cid}: the spread samples up to {derived['days']} day(s) a month — "
+                     f"{derived['videos']:,} video(s) wanted from it over "
+                     f"{derived['months']} month(s), {derived['capacity']:,} available "
+                     f"at that density"
+                     + ("; even the densest walk falls short" if derived["exhausted"] else "")
+                     + ".")
+    return {**entry, **patch}
 
 
 def _still_finishing(reporter, cid: str, entry: dict, platform: str | None,

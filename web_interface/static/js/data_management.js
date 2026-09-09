@@ -7103,7 +7103,6 @@ function dmEnrichFillSettings(settings, progress = {}) {
         autoBox.checked = settings.cycle_items_auto ?? true;
     }
     set('dm-enrich-sample-share', Math.round((settings.sample_share ?? 0.5) * 100));
-    set('dm-enrich-days-per-month', settings.a_days_per_month ?? 15);
     set('dm-enrich-day-cap', settings.a_day_cap ?? 50);
     set('dm-enrich-earliest', settings.earliest_date || '');
     // The target: the stored goal, or — for a plan that has never had one — a
@@ -7277,7 +7276,6 @@ function dmEnrichReadSettings() {
         cycle_items: num('dm-enrich-cycle-items'),
         cycle_items_auto: !!document.getElementById('dm-enrich-cycle-auto')?.checked,
         sample_share: num('dm-enrich-sample-share') / 100,
-        a_days_per_month: num('dm-enrich-days-per-month'),
         a_day_cap: num('dm-enrich-day-cap'),
         earliest_date: document.getElementById('dm-enrich-earliest')?.value || null,
     };
@@ -7352,9 +7350,10 @@ function dmEnrichChartShapes() {
 // The red estimate line: where each day's annotated count would land if the
 // plan ran to the current target with the current settings. A deliberately
 // rough client-side mirror of the planner — backlog first, then whole recent
-// days for the deep dive, then capped days per month walking backwards for
-// the spread (which in reality draws its days at random; here the newest
-// eligible ones stand in). The shape of the outcome, not the exact days.
+// days for the deep dive, then capped days per month — as many as the
+// target needs — walking backwards for the spread (which in reality draws
+// its days at random; here the newest eligible ones stand in). The shape of
+// the outcome, not the exact days.
 function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
     const n = daily.dates.length;
     const planned = new Array(n).fill(0);
@@ -7369,7 +7368,6 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
         return Number.isFinite(v) && v > 0 ? v : dflt;
     };
     const share = (Number(document.getElementById('dm-enrich-sample-share')?.value) || 0) / 100;
-    const daysPerMonth = num('dm-enrich-days-per-month', 0);
     const dayCap = num('dm-enrich-day-cap', 50);
     const minDay = dmEnrichProgressCache.min_day_items || 10;
     const earliest = document.getElementById('dm-enrich-earliest')?.value || '';
@@ -7402,7 +7400,14 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
         return budget;
     };
     deepDive(dd);
-    // 3. Spread: up to daysPerMonth capped days per month, newest month first.
+    // 3. Spread: the fewest capped days per month, uniform across the months,
+    //    that give the spread its share — mirrors the planner's derivation
+    //    (spread_days_per_month), on the same per-day quotas this estimate
+    //    then places. Newest month first.
+    const daysPerMonth = _dmEnrichSpreadDays(daily, sp, {
+        ddDays, dayCap, minDay, earliest, awaiting, unscraped, planned,
+    });
+    if (remainingOverride === null) dmEnrichSpreadDaysShow(daysPerMonth, share, sp);
     let month = '', taken = 0;
     for (let i = n - 1; i >= 0 && sp > 0; i--) {
         if (earliest && daily.dates[i] < earliest) break;
@@ -7422,9 +7427,45 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
     return planned;
 }
 
+// The spread's density for the estimate: per month, the qualifying days' cap
+// room in the order the estimate walks them, then the smallest uniform
+// days-per-month whose summed room covers what the spread must place.
+function _dmEnrichSpreadDays(daily, want, ctx) {
+    if (want <= 0) return 0;
+    const { ddDays, dayCap, minDay, earliest, awaiting, unscraped, planned } = ctx;
+    const n = daily.dates.length;
+    const quotas = {};
+    for (let i = n - 1; i >= 0; i--) {
+        if (earliest && daily.dates[i] < earliest) break;
+        if (ddDays.has(i) || (daily.total[i] || 0) < minDay) continue;
+        const capRoom = dayCap - ((daily.annotated[i] || 0) + awaiting(i) + planned[i]);
+        const room = Math.min(unscraped(i), Math.max(0, capRoom));
+        if (room <= 0) continue;
+        const m = daily.dates[i].slice(0, 7);
+        (quotas[m] = quotas[m] || []).push(room);
+    }
+    const months = Object.values(quotas);
+    if (!months.length) return 0;
+    const densest = Math.min(31, Math.max(...months.map(q => q.length)));
+    for (let d = 1; d <= densest; d++) {
+        const capacity = months.reduce((a, q) => a + q.slice(0, d).reduce((x, y) => x + y, 0), 0);
+        if (capacity >= want) return d;
+    }
+    return densest;
+}
+
+// The read-only "Days / month" figure beside the per-day cap.
+function dmEnrichSpreadDaysShow(days, share, want) {
+    const el = document.getElementById('dm-enrich-days-per-month');
+    if (!el) return;
+    if (share <= 0) el.textContent = '\u2014 (only deep dive)';
+    else if (!want) el.textContent = '\u2014';
+    else el.textContent = `about ${days}`;
+}
+
 // What the CURRENT settings can ever reach: the estimate run with no target
 // bound. Only two things make this fall short of the reachable ceiling — a
-// 100%-spread balance (its month/day limits and the analysis floor cap the
+// 100%-spread balance (the per-day cap and the analysis floor cap the
 // total) and an earliest-date floor; any deep-dive share walks the whole
 // history eventually, quiet days included. Same code path as the red line,
 // so it moves with it.
@@ -7461,7 +7502,7 @@ function dmEnrichTargetWarning(target) {
     const fixes = [];
     if (share >= 1) {
         causes.push('the balance set to only spread');
-        fixes.push('move the balance toward the deep dive');
+        fixes.push('move the balance toward the deep dive or raise the items per day');
     }
     if (earliest) {
         causes.push('the earliest date');

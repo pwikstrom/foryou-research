@@ -189,10 +189,20 @@ handoff outranks the plan step in the tick, new scraping starts only once
 that backlog is clear. Slices then interleave two processes that both buy
 **whole collection-days** (the unit every analysis floors on): Process B
 ("deep dive") takes consecutive recent days uncapped (what Sessions needs),
-Process A ("spread") samples up to `a_days_per_month` whole days per month
-backwards through history (default 15), capped at `a_day_cap` per day
-(default 50 — the Timelines/Correlations long arc), with `sample_share`
-splitting each cycle's items between them. Arming stamps
+Process A ("spread") samples whole days per month backwards through
+history, capped at `a_day_cap` per day (default 50 — the
+Timelines/Correlations long arc), with `sample_share` splitting each
+cycle's items between them. **How many days a month the spread samples is
+derived, not set** (`collection_enrichment.spread_days_per_month`,
+2026-09-09): the fewest days, the same in every month still ahead of the
+spread's cursor, whose capped videos cover the spread's share of what the
+target still needs — so the target is the only quantity knob and a
+"max days / month" can no longer sit below it. The supervisor derives it
+at the start of a walk and again when the target, balance, cap or earliest
+date changes (`entry["spread_days_per_month"]` + `spread_days_basis`), and
+`plan_cycle` derives for itself when no value is stored. It walks the same
+salted ranking the cutter draws from (`stable_rank`), so a higher density
+is a superset of a lower one. Arming stamps
 `run_started_at` and `run_start_annotated` on the ledger entry — the
 annotated count read from the DATA at that moment — which is what the
 modal's run meter measures against; a resume keeps them, a re-arm

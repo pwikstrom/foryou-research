@@ -89,10 +89,15 @@ def _entry(**settings) -> dict:
     # Manual cycle sizing unless a test says otherwise: these tests pin the
     # slice cutter's arithmetic against an explicit cycle_items, and the Auto
     # path (now the shipped default) sizes the cycle from the target instead.
-    return {"state": ce.STATE_RUNNING,
-            "settings": {**ce.DEFAULT_SETTINGS, "cycle_items_auto": False,
-                         "annotation_target": 1_000_000, **settings},
-            "spent_items": 0}
+    # The spread's days per month is derived from the target in production;
+    # the cutter tests pin it directly on the entry, as the supervisor stores it.
+    entry = {"state": ce.STATE_RUNNING,
+             "settings": {**ce.DEFAULT_SETTINGS, "cycle_items_auto": False,
+                          "annotation_target": 1_000_000, **settings},
+             "spent_items": 0}
+    if "a_days_per_month" in settings:
+        entry["spread_days_per_month"] = entry["settings"].pop("a_days_per_month")
+    return entry
 
 
 # --------------------------------------------------------------------------- #
@@ -541,13 +546,15 @@ def test_save_plan_merges_settings_and_delete_drops(store):
     assert "c1" not in store[ce.LEDGER_FILENAME]
 
 
-def test_default_spread_limits_are_fifteen_days_of_fifty():
-    """15 x 50 gives the spread half a month of usable days per month walked —
-    what the long-arc analyses (Timelines, Correlations) need. At the old 2 the
-    spread bought so few days that the deep dive did nearly all the work
-    whatever the balance slider said."""
-    assert ce.DEFAULT_SETTINGS["a_days_per_month"] == 15
+def test_the_spreads_density_is_derived_not_a_setting():
+    """Two quantity knobs (a target and a days-per-month limit) had to agree or
+    one won silently — on 2026-09-09 a 4,400 target sat above what 9 x 40 over
+    six months could buy, and the plan idled short by construction. The cap
+    stays (it says what one sampled day is worth); the density follows from
+    the target. A stored value from an old ledger entry is dropped."""
+    assert "a_days_per_month" not in ce.DEFAULT_SETTINGS
     assert ce.DEFAULT_SETTINGS["a_day_cap"] == 50
+    assert "a_days_per_month" not in ce.normalize_settings({"a_days_per_month": 9})
 
 
 def test_normalize_settings_clamps_nonsense():
@@ -616,6 +623,8 @@ def tick(monkeypatch, store):
                             "in_flight": list(entry.get("in_flight") or [])})
     monkeypatch.setattr(ce, "load_activity",
                         lambda cid: _activity({"2026-08-27": 30}, cid=cid))
+    # The spread-density derivation reads enrichment status; none here.
+    monkeypatch.setattr(ce, "load_status", lambda ids: None)
     if world["cycle"] is None:
         monkeypatch.setattr(ce, "plan_cycle",
                             lambda cid, entry, **kw: {
@@ -1549,9 +1558,8 @@ def test_progress_daily_series_stacks_per_active_day(monkeypatch):
 
 
 def test_normalize_settings_bounds_the_spread_knobs():
-    out = ce.normalize_settings({"a_day_cap": 3, "a_days_per_month": 99})
+    out = ce.normalize_settings({"a_day_cap": 3})
     assert out["a_day_cap"] == 10          # never below the analysis floor
-    assert out["a_days_per_month"] == 31
     assert ce.normalize_settings({"a_day_cap": 5000})["a_day_cap"] == 1000
     assert ce.DEFAULT_SETTINGS["sample_share"] == 0.5
 
@@ -1806,3 +1814,129 @@ def test_a_raised_target_puts_a_finishing_plan_back_to_work(tick, monkeypatch):
     entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
     assert entry["state"] == ce.STATE_RUNNING and entry["cycles"] == 1
     assert entry.get(sup.FINISHING_KEY) is None
+
+
+# --------------------------------------------------------------------------- #
+# The spread's density is derived from the target
+# --------------------------------------------------------------------------- #
+
+def _six_months(per_day=40, days=(3, 9, 17, 24, 28)):
+    return _activity({f"2026-{m:02d}-{d:02d}": per_day for m in range(3, 9) for d in days})
+
+
+def test_spread_days_is_the_fewest_uniform_density_that_covers_its_share():
+    """Six months of 40-video days, cap 40, only spread: 600 videos need three
+    days a month (2 x 6 x 40 = 480 falls short; 3 x 6 x 40 = 720 covers it)."""
+    entry = _entry(annotation_target=600, sample_share=1.0, a_day_cap=40)
+    out = ce.spread_days_per_month("c1", entry, activity=_six_months(), status=None)
+    assert out == {"days": 3, "videos": 600, "capacity": 720, "months": 6,
+                   "exhausted": False}
+
+
+def test_spread_days_measures_only_its_own_share_and_the_cut_needed():
+    """Half the balance and an 80% yield: 600 x 0.5 / 0.8 = 375 must be cut
+    by the spread — two days a month (480) cover it."""
+    entry = _entry(annotation_target=600, sample_share=0.5, a_day_cap=40)
+    out = ce.spread_days_per_month("c1", entry, activity=_six_months(), status=None,
+                                   expected_yield=0.8)
+    assert out["videos"] == 375 and out["days"] == 2
+
+
+def test_spread_days_caps_at_the_history_and_says_so():
+    entry = _entry(annotation_target=5_000, sample_share=1.0, a_day_cap=40)
+    out = ce.spread_days_per_month("c1", entry, activity=_six_months(), status=None)
+    assert out["days"] == 5 and out["capacity"] == 1_200 and out["exhausted"]
+
+
+def test_spread_days_is_zero_with_no_spread_share_or_no_target():
+    activity = _six_months()
+    assert ce.spread_days_per_month("c1", _entry(sample_share=0.0), activity=activity,
+                                    status=None)["days"] == 0
+    assert ce.spread_days_per_month("c1", _entry(annotation_target=0), activity=activity,
+                                    status=None)["days"] == 0
+
+
+def test_spread_days_looks_only_at_the_months_still_ahead_of_the_cursor():
+    """Mid-walk (cursor at 2026-06) only March-May remain: 300 videos over
+    three months need three days a month, not two over six."""
+    entry = {**_entry(annotation_target=300, sample_share=1.0, a_day_cap=40),
+             "a_cursor": "2026-06"}
+    out = ce.spread_days_per_month("c1", entry, activity=_six_months(), status=None)
+    assert out["months"] == 3 and out["days"] == 3
+
+
+def test_spread_days_skips_days_under_the_floor_and_subtracts_scraped():
+    activity = _activity({"2026-07-01": 20, "2026-07-02": 5, "2026-07-03": 20})
+    ids = [f"2026-07-01#{i}" for i in range(20)]
+    status = _status(ids, scraped=ids[:15])
+    entry = _entry(annotation_target=25, sample_share=1.0, a_day_cap=20)
+    out = ce.spread_days_per_month("c1", entry, activity=activity, status=status)
+    # The 5-video day never qualifies; day 1 has 5 of cap left, day 3 has 20:
+    # one day (the better-ranked of the two) cannot be relied on for 25.
+    assert out["days"] == 2 and out["capacity"] == 25
+
+
+def test_a_higher_density_is_a_superset_of_a_lower_one():
+    """stable_sample draws a prefix of stable_rank, so raising the density adds
+    days to a month rather than swapping them."""
+    days = [pd.Timestamp(f"2026-07-{d:02d}") for d in range(1, 20)]
+    two = ce.stable_sample(days, 2, salt="c1:2026-07")
+    five = ce.stable_sample(days, 5, salt="c1:2026-07")
+    assert five[:2] == two
+    assert ce.stable_rank(days, salt="c1:2026-07")[:5] == five
+
+
+def test_plan_cycle_derives_the_density_when_none_is_stored():
+    """A direct call (or a plan cut before the supervisor stored a density)
+    derives it from the same inputs and reports what it used."""
+    entry = _entry(cycle_items=1_000, annotation_target=600, sample_share=1.0,
+                   a_day_cap=40)
+    out = ce.plan_cycle("c1", entry, activity=_six_months(), status=None)
+    assert out["spread_days"] == 3
+    # 3 days x 40 in the newest month, walked until the 600-cut budget is met.
+    assert out["a"] >= 600 - 40 and all(i.startswith("2026-0") for i in out["item_ids"])
+
+
+def test_plan_cycle_honours_a_stored_density():
+    entry = _entry(cycle_items=1_000, annotation_target=600, sample_share=1.0,
+                   a_day_cap=40, a_days_per_month=1)
+    out = ce.plan_cycle("c1", entry, activity=_six_months(), status=None)
+    assert out["spread_days"] == 1 and out["a"] == 6 * 40
+
+
+def test_tick_stores_the_density_once_per_walk_and_rederives_on_a_new_target(tick, monkeypatch):
+    """The supervisor derives at the start of a walk and again when an input
+    changes; between those the stored density holds so the sampling stays
+    uniform across the history."""
+    monkeypatch.setattr(ce, "load_activity", lambda cid: _six_months(per_day=10))
+    plan = {**_entry(annotation_target=100, sample_share=0.5, a_day_cap=10),
+            "platform": "tiktok"}
+    tick["store"][ce.LEDGER_FILENAME] = {"c1": dict(plan)}
+    tick["plans"] = {"c1": plan}
+    tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["spread_days_per_month"] >= 1
+    assert entry["spread_days_basis"]["target"] == 100
+    first = entry["spread_days_per_month"]
+
+    # Mid-walk with the same inputs: nothing is re-derived. (The fake queue
+    # keeps what the first tick cut; empty it so the tick reaches the planner.)
+    entry["a_cursor"] = "2026-07"
+    entry["spread_days_per_month"] = 99          # a sentinel the derivation would never produce
+    tick["plans"] = {"c1": entry}
+    tick["scrape_queues"] = {}
+    tick["run"]()
+    assert tick["store"][ce.LEDGER_FILENAME]["c1"]["spread_days_per_month"] == 99
+
+    # A raised target re-derives for the months still ahead.
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    entry["settings"] = {**entry["settings"], "annotation_target": 1_000}
+    tick["plans"] = {"c1": entry}
+    tick["scrape_queues"] = {}
+    tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["spread_days_per_month"] != 99
+    assert entry["spread_days_basis"]["target"] == 1_000
+    # Ten times the target over the four months still ahead: denser than the
+    # first derivation, up to the densest those months allow (5 days each).
+    assert 5 >= entry["spread_days_per_month"] > first

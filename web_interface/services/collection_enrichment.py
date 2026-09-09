@@ -115,12 +115,13 @@ DEFAULT_SETTINGS = {
     # defaults cannot flip an existing plan's choice.
     "cycle_items_auto": True,
     "sample_share": 0.5,      # fraction of the cycle given to Process A
-    # A: whole days sampled per calendar month, and the ceiling on one such
-    # day. 15 x 50 gives the spread half a month of usable days to work with
-    # per month walked, which is what the long-arc analyses (Timelines,
-    # Correlations) actually need; at 2 the spread bought so few days that the
-    # deep dive did nearly all the work whatever the balance said.
-    "a_days_per_month": 15,
+    # A: the ceiling on one sampled day. How many days a month the spread
+    # samples is NOT a setting any more (2026-09-09): it is derived from the
+    # target — see spread_days_per_month — because two quantity knobs (a
+    # target and a days-per-month limit) had to agree or one won silently,
+    # and on 2026-09-09 a 4,400 target sat above what 9 x 40 over six months
+    # could ever buy, so the plan idled short by construction. A stored
+    # ``a_days_per_month`` in an old ledger entry is inert.
     "a_day_cap": 50,
     "min_day_items": 10,      # the spread skips days below this (the
                               # Correlations floor); the deep dive never does
@@ -264,7 +265,6 @@ def normalize_settings(raw: dict | None) -> dict:
     _int("cycle_items", 1, 20_000)
     out["cycle_items_auto"] = bool(raw.get("cycle_items_auto",
                                            DEFAULT_SETTINGS["cycle_items_auto"]))
-    _int("a_days_per_month", 0, 31)
     # Floor 10: a cap under the min_day_items analysis floor would buy spread
     # days that can never qualify. Ceiling 1,000: one day's cap, not a budget.
     _int("a_day_cap", 10, 1_000)
@@ -511,13 +511,19 @@ def stable_sample(keys, k: int, salt: str = "") -> list:
         return []
     if k >= len(keys):
         return keys
+    return stable_rank(keys, salt)[:k]
+
+
+def stable_rank(keys, salt: str = "") -> list:
+    """Every key in the order :func:`stable_sample` draws them — so a draw of
+    ``k`` is always a prefix of a draw of ``k + 1``: raising the spread's
+    density adds days to a month, it never reshuffles the ones already taken."""
     salted = salt.encode("utf-8")
-    ranked = sorted(
+    return sorted(
         keys,
         key=lambda key: hashlib.blake2b(salted + str(key).encode("utf-8"),
                                         digest_size=8).digest(),
     )
-    return ranked[:k]
 
 
 # --------------------------------------------------------------------------- #
@@ -629,36 +635,22 @@ def plan_cycle(collection_id: str, entry: dict,
     a_share = int(round(budget * float(settings["sample_share"])))
     b_share = budget - a_share
 
-    # Per-day view: total size (for the min_day_items floor) and the ids still
-    # worth scraping. Computed once and shared by both processes.
-    items = activity["item_id"].to_numpy()
-    need_scrape = _scrapeable_mask(items, status)
-    activity = activity.assign(_need=need_scrape)
-
-    floor_ts = None
-    if settings.get("earliest_date"):
-        try:
-            floor_ts = pd.Timestamp(settings["earliest_date"]).normalize()
-        except (TypeError, ValueError):
-            floor_ts = None
-
-    by_day: dict[pd.Timestamp, dict] = {}
-    for day, grp in activity.groupby("day", observed=True):
-        day = pd.Timestamp(day)
-        if floor_ts is not None and day < floor_ts:
-            continue
-        by_day[day] = {
-            "total": int(len(grp)),
-            "scraped": int((~grp["_need"]).sum()),
-            # Sorted so a re-plan from the same cursor yields a byte-identical
-            # slice regardless of parquet row order.
-            "need": sorted(str(i) for i in grp.loc[grp["_need"], "item_id"]),
-        }
+    by_day = _by_day(activity, status, _earliest_ts(settings))
     if not by_day:
         return {**empty, "platform": platform, "exhausted": True}
 
     all_days = sorted(by_day, reverse=True)
     min_day = int(settings["min_day_items"])
+    # The spread's density: what the supervisor derived and stored for this
+    # run, else derived here from the same inputs (a plan cut before the
+    # supervisor stored one, or a direct call).
+    days_per_month = entry.get("spread_days_per_month")
+    if days_per_month is None:
+        days_per_month = spread_days_per_month(
+            collection_id, entry, activity=activity, status=status,
+            expected_yield=expected_yield, pending=pending, margin=margin,
+            by_day=by_day)["days"]
+    days_per_month = int(days_per_month or 0)
     item_day = {i: _day_key(day) for day, info in by_day.items() for i in info["need"]}
 
     # ---- Process B: whole days, uncapped, newest first ---------------------
@@ -727,7 +719,7 @@ def plan_cycle(collection_id: str, entry: dict,
                         and _day_key(d) not in covered]
             # Seeded draw among qualifying days rather than "the busiest days":
             # picking the busiest would bias Timelines' trends toward heavy-usage days.
-            for day in stable_sample(eligible, int(settings["a_days_per_month"]),
+            for day in stable_sample(eligible, days_per_month,
                                      salt=f"{collection_id}:{month}"):
                 info = by_day[day]
                 quota = int(settings["a_day_cap"]) - info["scraped"]
@@ -785,7 +777,139 @@ def plan_cycle(collection_id: str, entry: dict,
         "last_slice": bool(last_slice),
         "partial_day": partial_day,
         "yield": yield_,
+        "spread_days": days_per_month,
     }
+
+
+def _earliest_ts(settings: dict):
+    if not settings.get("earliest_date"):
+        return None
+    try:
+        return pd.Timestamp(settings["earliest_date"]).normalize()
+    except (TypeError, ValueError):
+        return None
+
+
+def _by_day(activity: pd.DataFrame, status: pd.DataFrame | None,
+            floor_ts=None) -> dict:
+    """Per-day view of a collection: total size (for the ``min_day_items``
+    floor), how many are already scraped, and the ids still worth scraping.
+    Shared by both processes of :func:`plan_cycle` and by the spread's
+    density derivation, so they see one and the same collection."""
+    items = activity["item_id"].to_numpy()
+    activity = activity.assign(_need=_scrapeable_mask(items, status))
+    by_day: dict[pd.Timestamp, dict] = {}
+    for day, grp in activity.groupby("day", observed=True):
+        day = pd.Timestamp(day)
+        if floor_ts is not None and day < floor_ts:
+            continue
+        by_day[day] = {
+            "total": int(len(grp)),
+            "scraped": int((~grp["_need"]).sum()),
+            # Sorted so a re-plan from the same cursor yields a byte-identical
+            # slice regardless of parquet row order.
+            "need": sorted(str(i) for i in grp.loc[grp["_need"], "item_id"]),
+        }
+    return by_day
+
+
+# The spread never samples more days a month than this, whatever the target.
+MAX_SPREAD_DAYS = 31
+
+
+def spread_days_per_month(collection_id: str, entry: dict,
+                          activity: pd.DataFrame | None = None,
+                          status: pd.DataFrame | None = None,
+                          expected_yield: float = 1.0, pending: int = 0,
+                          margin: float = 0.0, by_day: dict | None = None) -> dict:
+    """How many days a month the spread must sample to deliver its share of
+    the target — the density that used to be the "max days / month" setting.
+
+    The target says how much to buy and the balance says what share of it
+    the spread buys; the per-day cap says what one sampled day is worth. The
+    days per month follow: the smallest uniform density at which the months
+    still ahead of the spread's cursor hold enough capped videos. Uniform,
+    so Timelines sees the same sampling density across the whole history,
+    and the smallest, so the spread spends no more days than the target
+    needs. Walks the same salted ranking :func:`plan_cycle` draws from, so a
+    density of ``n`` takes exactly the first ``n`` of that ranking in every
+    month, and a later raise adds days rather than replacing them.
+
+    Args:
+        collection_id: Salts the per-month ranking, as in :func:`plan_cycle`.
+        entry: The ledger entry (settings and ``a_cursor``).
+        activity, status: Pre-loaded, else loaded here.
+        expected_yield, pending, margin: As for :func:`plan_cycle` — the
+            spread's share is measured against what must be CUT for the
+            target to come back annotated.
+        by_day: A pre-built :func:`_by_day` view, when the caller has one.
+
+    Returns:
+        ``{"days", "videos", "capacity", "months", "exhausted"}``: the
+        density; the videos the spread is asked for; what the months ahead
+        can supply at that density; how many months lie ahead; and whether
+        even the densest walk falls short (the deep dive covers the rest
+        when it has any share — at 100% spread the plan will stop short).
+    """
+    settings = {**DEFAULT_SETTINGS, **(entry.get("settings") or {})}
+    out = {"days": 0, "videos": 0, "capacity": 0, "months": 0, "exhausted": False}
+    share = float(settings.get("sample_share") or 0.0)
+    target = int(settings.get("annotation_target") or 0)
+    if share <= 0 or target <= 0:
+        return out
+    if activity is None:
+        activity = load_activity(collection_id)
+    if activity is None or activity.empty:
+        return out
+    if status is None:
+        status = load_status(activity["item_id"].unique())
+    remaining = max(0, target - _annotated_unique(activity, status) - max(0, int(pending or 0)))
+    try:
+        yield_ = min(1.0, max(0.5, float(expected_yield or 1.0)))
+    except (TypeError, ValueError):
+        yield_ = 1.0
+    try:
+        margin_ = max(0.0, float(margin or 0.0))
+    except (TypeError, ValueError):
+        margin_ = 0.0
+    videos = int(math.ceil(remaining / yield_ * (1.0 + margin_) * share))
+    out["videos"] = videos
+    if videos <= 0:
+        return out
+
+    if by_day is None:
+        by_day = _by_day(activity, status, _earliest_ts(settings))
+    cursor = entry.get("a_cursor")
+    min_day = int(settings["min_day_items"])
+    cap = int(settings["a_day_cap"])
+    # The months the spread has still to walk, each with its qualifying days
+    # in draw order and what each day can still supply under the cap.
+    per_month: dict[str, list] = {}
+    for day, info in by_day.items():
+        month = _month_key(day)
+        if cursor and month >= str(cursor):
+            continue
+        if info["total"] < min_day or not info["need"]:
+            continue
+        per_month.setdefault(month, []).append(day)
+    if not per_month:
+        out["exhausted"] = True
+        return out
+    quotas = {
+        month: [max(0, min(cap - by_day[d]["scraped"], len(by_day[d]["need"])))
+                for d in stable_rank(days, salt=f"{collection_id}:{month}")]
+        for month, days in per_month.items()
+    }
+    out["months"] = len(quotas)
+    densest = min(MAX_SPREAD_DAYS, max(len(q) for q in quotas.values()))
+    capacity = 0
+    for n in range(1, densest + 1):
+        capacity = sum(sum(q[:n]) for q in quotas.values())
+        if capacity >= videos:
+            out.update(days=n, capacity=capacity)
+            return out
+    out.update(days=densest, capacity=capacity, exhausted=True)
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -938,6 +1062,9 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         # {since, pending} while the plan has nothing more to scrape and waits
         # for its last queued videos to be annotated; None otherwise.
         "finishing": entry.get("finishing") or None,
+        # The spread's derived density for the current run (None before the
+        # first cycle) — the panel shows it beside the per-day cap.
+        "spread_days_per_month": entry.get("spread_days_per_month"),
         "milestone_days": MILESTONE_DAYS,
         "total_items": 0, "scraped_items": 0, "annotated_items": 0,
         "unique_items": 0, "unique_scraped": 0, "unique_annotated": 0,

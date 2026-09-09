@@ -441,10 +441,13 @@ starting line; resuming a paused one keeps it.
 The loop always annotates the already-scraped backlog first, then splits
 new scraping between a recent-days **deep dive** and a capped **spread**
 across the history; what one of the two cannot spend the other uses. The
-balance slider and the spread's limits (by default up to 15 days a month, 50
-videos a day) sit with the rest of the plan settings, all of them visible at
-once — they decide what a run can ever reach, which is the one explanation
-for a target the plan cannot meet.
+balance slider and the spread's cap (by default 50 videos a day) sit with
+the rest of the plan settings, all of them visible at once. How many days a
+month the spread samples is not a setting: the panel shows it, read-only,
+derived from the target, the balance and the cap — the fewest days a month,
+uniform across the history, that give the spread its share of the target.
+Only the balance at 100% spread, the per-day cap and an earliest date can
+leave a target out of reach, and the amber warning names them.
 With *Auto* items per cycle, each cycle is one annotation job's worth
 (2,000), sized up for the videos expected to fail on the way — measured
 from the plan's own recent runs — so the target is met without a trailing

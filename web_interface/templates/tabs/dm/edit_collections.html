@@ -303,17 +303,8 @@ Both take WHOLE days on purpose. Every analysis here groups by the day, and the 
                     </div>
 
                     <div class="dm-enrich-field">
-                        <span class="dm-enrich-label">Spread limits</span>
+                        <span class="dm-enrich-label">Spread</span>
                         <div class="dm-enrich-inline">
-                            <label class="dm-enrich-sub">
-                                <span class="dm-enrich-sublabel meta-tooltip tooltip-wide" data-tooltip="How many whole days, at most, the spread takes out of each calendar month as it works backwards.
-
-The days are drawn at random from those with at least ten videos (the analysis floor) that the deep dive has not already taken - but the same way every time, so re-running a plan picks the same days rather than churning.
-
-Random rather than the busiest days: always choosing the busiest would make the person's viewing look heavier than it was.">Max days / month</span>
-                                <input type="number" id="dm-enrich-days-per-month" class="control-input" min="0" max="31"
-                                    style="width: 72px;" oninput="dmEnrichChartRefresh()">
-                            </label>
                             <label class="dm-enrich-sub">
                                 <span class="dm-enrich-sublabel meta-tooltip tooltip-wide" data-tooltip="The most videos the spread will process on one of its sampled days, counting the ones already scraped. A day that is already at this number is skipped.
 
@@ -323,6 +314,14 @@ Deep-dive days are not capped - they take the whole day, however busy it was.">M
                                 <input type="number" id="dm-enrich-day-cap" class="control-input" min="10" max="1000"
                                     style="width: 72px;" oninput="dmEnrichChartRefresh()">
                             </label>
+                            <span class="dm-enrich-sub">
+                                <span class="dm-enrich-sublabel meta-tooltip tooltip-wide" data-tooltip="How many whole days the spread samples out of each calendar month as it works backwards. Not a setting: it follows from the target, the balance and the items per day - the fewest days a month, the same in every month, that give the spread its share of the target.
+
+The days are drawn at random from those with at least ten videos (the analysis floor) that the deep dive has not already taken - but the same way every time, so raising the target adds days to a month rather than swapping them.
+
+Random rather than the busiest days: always choosing the busiest would make the person's viewing look heavier than it was.">Days / month</span>
+                                <span id="dm-enrich-days-per-month" class="dm-enrich-derived">&mdash;</span>
+                            </span>
                         </div>
                     </div>
                 </div>
