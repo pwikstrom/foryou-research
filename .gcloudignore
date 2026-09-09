@@ -39,6 +39,10 @@ dmypy.json
 .pytype/
 
 
+# pytest
+.pytest_cache/
+
+
 # Cython debug symbols
 cython_debug/
 
@@ -59,6 +63,8 @@ __pycache__/
 
 # Git stuff
 .git/
+# In a worktree .git is a FILE (a `gitdir:` pointer), which `.git/` misses.
+.git
 .gitignore
 .gitattributes
 
