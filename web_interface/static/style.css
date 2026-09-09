@@ -7651,6 +7651,14 @@ body:has(.public-page) {
 /* Display ID / User account beside Tags / Hide Collection. Two explicit
    tracks rather than auto-fit: auto-fit leaves a collapsed third track and
    its gutter unused at this width, so the pair would not fill the modal. */
+/* The Edit Collection modal's two blocks (Collection settings, Automatic
+   enrichment) share one panel: heading + explanation above, this below. */
+.dm-block-panel {
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-bg-elevated);
+    padding: 10px 12px;
+}
+
 .edit-collection-fields {
     display: grid;
     grid-template-columns: 1fr 1fr;

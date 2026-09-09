@@ -70,10 +70,24 @@
 
         <input type="hidden" id="edit-collection-id" value="">
 
-        <!-- Display ID / User account beside Tags / Hide Collection. Stacked,
+        <!-- Display ID / User account beside Tags / Hide Collection, in a
+             block laid out like Automatic enrichment below it: a heading with
+             its (i), a line of explanation, then the bordered panel. Stacked,
              these four short controls filled a screen on their own and pushed
              the enrichment panel below the fold. The grid folds back to one
              column when the modal is too narrow for two. -->
+        <div class="form-group" id="edit-collection-settings-group">
+            <h3 class="text-body" style="margin: 0 0 4px 0; color: var(--color-text-primary);">Collection settings{{ card_info(
+                "How this collection is named and filed.
+
+Display ID is the name shown everywhere in the Hub instead of the stored collection id. User account links the collection to the participant it belongs to. Tags group collections for filtering and study building. Hide Collection keeps it out of the study interface without deleting anything.
+
+Every change here saves itself; the Display ID commits when you leave the box or press Enter.") }}</h3>
+            <p class="text-xs" style="margin: 0 0 10px 0; color: var(--color-text-muted);">
+                The collection's name, the participant it belongs to, its tags, and
+                whether it is shown in the study interface.
+            </p>
+            <div class="dm-block-panel">
         <div class="edit-collection-fields">
             <div class="edit-collection-col">
                 <!-- The one free-text field in the modal, so the one that
@@ -136,6 +150,8 @@
                 </div>
             </div>
         </div>
+            </div>
+        </div>
 
         <!-- Automatic enrichment: the per-collection A+B loop (deep-dive recent
              days + a random daily sample of whole days back through history). Single
@@ -161,7 +177,10 @@ A plan stops when its annotation target is met, or when nothing processable is l
                 videos spanning the timeline and a deep dive to get maximum coverage
                 into the collection's most recent activities.
             </p>
-            <div id="dm-enrich-panel" style="border: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 10px 12px;">
+            <div id="dm-enrich-panel" class="dm-block-panel">
+                <!-- Shown from the moment the panel opens until the plan has
+                     loaded; everything below stays blank meanwhile. -->
+                <div id="dm-enrich-loading" class="text-sm" style="color: var(--color-text-muted);">Loading&hellip;</div>
                 <!-- The collection's size, and how much of it is already
                      analysable. The ready-day count used to hide inside the
                      (i) tooltip; it is a live figure, so it belongs on the
@@ -175,7 +194,7 @@ The chart below is the person's viewing over time: one bar per active day, split
 
 The red line in the chart is an ESTIMATE of where each day's annotated count would end up if the plan ran to its target with the current settings: whole recent days filled to the top by the deep dive, capped days scattered back through the months by the random daily sample. Move the target or any of the plan settings and it redraws. The real spread picks its days at random, so treat the line as the shape of the outcome, not the exact days.
 
-A day is analysis-ready once at least ten of the videos watched that day have been annotated. Days are the unit every analysis works in, and about fourteen ready days is the point where the tabs start to have something to say.
+A day is analysis-ready once at least ten of the items played that day have been annotated. Days are the unit every analysis works in, and about fourteen ready days is the point where the tabs start to have something to say. A deep-dive day is one where EVERY item played that day is annotated (or failed for good) - the whole-day coverage the Sessions analysis needs.
 
 The bar shows the collection's videos, left to right:
 Green - annotated: scraped AND annotated, ready for every analysis.
@@ -307,7 +326,7 @@ Both take WHOLE days on purpose. Every analysis here groups by the day, and the 
 
 How many days a month the random daily sample takes is not a setting: it follows from the target, the balance and this cap - the fewest days a month, the same in every month, that give the random daily sample its share of the target. The line below says what the three sliders add up to. The days are drawn at random from those with at least ten videos that the deep dive has not already taken - the same way every time, so raising the target adds days to a month rather than swapping them.
 
-Deep-dive days are not capped - they take the whole day, however busy it was.">Max items / day (random daily sample)</span>
+Deep-dive days are not capped - they take the whole day, however busy it was. A day counts as a deep-dive day once every item played that day is annotated or has failed for good; the line below says how many the collection has now and how many it will have after this plan.">Max items / day (random daily sample)</span>
                             <span id="dm-enrich-day-cap-value" class="dm-enrich-inline-value"></span>
                         </div>
                         <input type="range" id="dm-enrich-day-cap-slider" min="0" max="1000" step="1"

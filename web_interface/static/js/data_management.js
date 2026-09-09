@@ -7605,12 +7605,21 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
         // What the three sliders add up to, in days — for the line under
         // the cap slider. Only the target-bound run counts; the reachability
         // probe (override) is not a plan.
-        // Analysis-ready = at least minDay annotated videos on the day; the
-        // count after the plan includes the days that are ready already.
-        let readyNow = 0, readyAfter = 0;
+        // Analysis-ready = at least minDay annotated items on the day. A
+        // deep-dive day = every item played that day annotated or failed
+        // for good (whole-day coverage, what Sessions needs). Both counted
+        // now and after the plan, days already there included, so the line
+        // can say "from X1 to X2".
+        let readyNow = 0, readyAfter = 0, deepNow = 0, deepAfter = 0;
         for (let i = 0; i < n; i++) {
-            if ((daily.annotated[i] || 0) >= minDay) readyNow += 1;
-            if ((daily.annotated[i] || 0) + planned[i] >= minDay) readyAfter += 1;
+            const total = daily.total[i] || 0;
+            if (!total) continue;
+            const ann = daily.annotated[i] || 0;
+            const fail = daily.failed[i] || 0;
+            if (ann >= minDay) readyNow += 1;
+            if (ann + planned[i] >= minDay) readyAfter += 1;
+            if (ann + fail >= total) deepNow += 1;
+            if (ann + fail + planned[i] >= total) deepAfter += 1;
         }
         dmEnrichEstimateStats = {
             deepDays: ddDays.size,
@@ -7618,6 +7627,8 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
             daysPerMonth,
             readyNow,
             readyAfter,
+            deepNow,
+            deepAfter,
             share,
         };
     }
@@ -7664,17 +7675,11 @@ function dmEnrichDaysReadout() {
         el.textContent = dmEnrichTargetValue ? 'nothing more to buy \u2014 the target is already met' : '';
         return;
     }
-    const days = (n, what) => `\u2248 ${n.toLocaleString()} ${what} day${n === 1 ? '' : 's'}`;
-    // The total after the plan, already-ready days included, with the random
-    // sample's density as the aside that explains where the new ones come from.
-    const ready = days(st.readyAfter, 'analysis-ready')
-               + ` (${st.readyNow.toLocaleString()} already`
-               + (st.spreadDays && st.daysPerMonth
-                   ? `; the random daily sample adds about ${st.daysPerMonth} days a month)` : ')');
-    const deep = st.deepDays
-        ? days(st.deepDays, 'deep-dive')
-        : (st.share < 1 ? 'no deep-dive days' : 'no deep-dive days (only random daily sample)');
-    el.textContent = `These settings will give ${ready} and ${deep}.`;
+    // Both counts now and after the plan, so the line reads as a change.
+    const span = (what, now, after) => `${what} days from ${now.toLocaleString()} `
+        + `to \u2248 ${after.toLocaleString()}`;
+    el.textContent = `These settings will take ${span('analysis-ready', st.readyNow, st.readyAfter)}`
+        + ` and ${span('deep-dive', st.deepNow, st.deepAfter)}.`;
 }
 
 // What the CURRENT settings can ever reach: the estimate run with no target
@@ -7865,6 +7870,8 @@ function dmEnrichRender(data) {
         panel.addEventListener('change', dmEnrichPanelChanged);
     }
     dmEnrichArmed = !!data.armed;
+    const loadingEl = document.getElementById('dm-enrich-loading');
+    if (loadingEl) loadingEl.style.display = 'none';
     const progress = data.progress || {};
     dmEnrichState = progress.state || null;
     dmEnrichSyncTableRow(dmEnrichCollectionId, dmEnrichArmed ? dmEnrichState : null);
@@ -7920,7 +7927,7 @@ function dmEnrichRender(data) {
     const videos = progress.unique_items || 0;
     if (progEl) {
         progEl.textContent = videos
-            ? `${videos.toLocaleString()} videos watched over ${progress.total_days} days`
+            ? `${videos.toLocaleString()} items played over ${progress.total_days} days`
             : '';
     }
     const readyEl = document.getElementById('dm-enrich-ready-days');
@@ -8027,10 +8034,16 @@ function dmEnrichRenderRun(progress) {
     // in the chart's tooltip.
     const cursors = document.getElementById('dm-enrich-run-cursors');
     if (cursors) {
-        cursors.textContent = (progress.b_cursor || progress.a_cursor)
-            ? `Deep dive has worked back to ${progress.b_cursor || '\u2014'}`
-              + ` \u00b7 random daily sample to ${progress.a_cursor || '\u2014'}`
-            : '';
+        // Only the halves that have moved: a plan with no deep-dive share
+        // used to read "Deep dive has worked back to —".
+        const walked = [];
+        if (progress.b_cursor) walked.push(`Deep dive has worked back to ${progress.b_cursor}`);
+        if (progress.a_cursor) {
+            walked.push(walked.length
+                ? `random daily sample to ${progress.a_cursor}`
+                : `Random daily sample has worked back to ${progress.a_cursor}`);
+        }
+        cursors.textContent = walked.join(' \u00b7 ');
     }
 }
 
@@ -8213,7 +8226,9 @@ function dmEnrichScheduleRefresh(data) {
 // collection's charts for the seconds the fetch takes (reported 2026-08-31).
 function dmEnrichResetPanel() {
     const statusEl = document.getElementById('dm-enrich-status-line');
-    if (statusEl) statusEl.textContent = 'Loading enrichment plan\u2026';
+    if (statusEl) statusEl.textContent = '';
+    const loadingEl = document.getElementById('dm-enrich-loading');
+    if (loadingEl) loadingEl.style.display = '';
     const historyEl = document.getElementById('dm-enrich-history-list');
     if (historyEl) historyEl.innerHTML = '';
     const progEl = document.getElementById('dm-enrich-progress');
