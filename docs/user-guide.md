@@ -441,19 +441,25 @@ starting line; resuming a paused one keeps it.
 The loop always annotates the already-scraped backlog first, then splits
 new scraping between a recent-days **deep dive** and a capped **spread**
 across the history; what one of the two cannot spend the other uses. The
-balance slider and the spread's cap (by default 50 videos a day) sit with
-the rest of the plan settings, all of them visible at once. How many days a
-month the spread samples is not a setting: the panel shows it, read-only,
-derived from the target, the balance and the cap — the fewest days a month,
-uniform across the history, that give the spread its share of the target.
+plan's settings are three full-width sliders, each with its value on the
+label line: the annotation target, the deep dive / spread balance, and the
+spread's cap on videos per day (logarithmic, from the ten-video floor to
+the collection's busiest day; 50 by default). How many days a month the
+spread samples is not a setting: a line under the cap slider says what the
+three sliders add up to — how many spread days (of the days with at least
+ten videos, and how many a month) and how many deep-dive days the plan
+will buy. The earliest date is set on the chart itself: drag the handle at
+the start of the window (there is no end handle — a plan always reaches
+the newest day), nudge it a day at a time, or *Full history* to clear it.
 Only the balance at 100% spread, the per-day cap and an earliest date can
 leave a target out of reach, and the amber warning names them.
-With *Auto* items per cycle, each cycle is one annotation job's worth
-(2,000), sized up for the videos expected to fail on the way — measured
-from the plan's own recent runs — so the target is met without a trailing
-cycle for the shortfall; the last slice may buy part of a day, and is never
-smaller than 200 videos, so a plan ends in one cycle rather than a trail of
-tiny ones and may finish up to 200 videos past its target. An amber
+Each cycle is sized automatically — there is no items-per-cycle knob —
+as one annotation job's worth (2,000), sized up for the videos expected to
+fail on the way, measured from the plan's own recent runs, so the target
+is met without a trailing cycle for the shortfall; the last slice may buy
+part of a day, and is never smaller than 200 videos, so a plan ends in one
+cycle rather than a trail of tiny ones and may finish up to 200 videos
+past its target. An amber
 warning appears when the settings cannot reach the chosen target. A plan
 with nothing more to scrape stays *Running* (the status line reads
 *finishing*) until the videos it last queued are annotated and

@@ -7031,6 +7031,14 @@ function dmEnrichMsg(text, tone = '') {
 let dmEnrichProgressCache = {};
 let dmEnrichCostPer1000 = null;
 let dmEnrichTargetValue = 0;
+// Two more values with no input element of their own: the earliest date is
+// set by a handle on the chart, the spread's per-day cap by a log slider.
+// These variables are what the form reads and the autosave writes.
+let dmEnrichEarliest = '';
+let dmEnrichDayCapValue = 50;
+// What the last target-based estimate placed, per process, in days — the
+// line under the cap slider reads it.
+let dmEnrichEstimateStats = null;
 // The dirty check's baseline: the form as last filled from the saved plan
 // (serialized via dmEnrichReadSettings). null until the first render.
 let dmEnrichSavedSettings = null;
@@ -7064,47 +7072,20 @@ const DM_ENRICH_ACTIVITY_LABELS = {
 const DM_ENRICH_AUTO_CYCLE_CAP = 2000;
 
 function dmEnrichEffectiveCycleItems() {
-    const auto = !!document.getElementById('dm-enrich-cycle-auto')?.checked;
-    if (!auto) {
-        return Number(document.getElementById('dm-enrich-cycle-items')?.value) || 400;
-    }
+    // Always automatic (the manual knob went on 2026-09-09): the supervisor
+    // sizes each cycle as min(target headroom, one annotation job), and the
+    // readout's cycle count uses the same rule on the panel's figures.
     const target = dmEnrichTargetValue || 0;
     const annotated = dmEnrichProgressCache.target_floor ?? 0;
     const remaining = Math.max(1, target - annotated);
     return Math.min(remaining, DM_ENRICH_AUTO_CYCLE_CAP);
 }
 
-// Auto disables the number input and shows what the supervisor resolved last
-// cycle (or the client-side estimate before the first one).
-function dmEnrichCycleAutoApply() {
-    const box = document.getElementById('dm-enrich-cycle-auto');
-    const input = document.getElementById('dm-enrich-cycle-items');
-    if (!box || !input) return;
-    input.disabled = box.checked;
-    if (box.checked) {
-        input.value = dmEnrichProgressCache.last_auto_cycle_items
-            || dmEnrichEffectiveCycleItems();
-    }
-}
-
-function dmEnrichCycleAutoToggle() {
-    dmEnrichCycleAutoApply();
-    dmEnrichReadoutRefresh();
-}
-
 function dmEnrichFillSettings(settings, progress = {}) {
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-    set('dm-enrich-cycle-items', settings.cycle_items ?? 400);
-    const autoBox = document.getElementById('dm-enrich-cycle-auto');
-    if (autoBox) {
-        // Auto by default: a collection with no plan yet receives the server
-        // defaults verbatim (cycle_items_auto true), and a saved plan carries
-        // its own stored choice.
-        autoBox.checked = settings.cycle_items_auto ?? true;
-    }
     set('dm-enrich-sample-share', Math.round((settings.sample_share ?? 0.5) * 100));
-    set('dm-enrich-day-cap', settings.a_day_cap ?? 50);
-    set('dm-enrich-earliest', settings.earliest_date || '');
+    dmEnrichEarliest = settings.earliest_date || '';
+    dmEnrichDayCapValue = Number(settings.a_day_cap) || 50;
     // The target: the stored goal, or — for a plan that has never had one — a
     // suggested starter (current annotated + 2,000, inside the reachable
     // window). A suggestion only prefills the display; nothing is saved until
@@ -7118,8 +7099,11 @@ function dmEnrichFillSettings(settings, progress = {}) {
     dmEnrichTargetValue = target;
     dmEnrichTargetBounds(progress);
     dmEnrichTargetSync(target);
-    // After the target is known: Auto's displayed value depends on it.
-    dmEnrichCycleAutoApply();
+    // The cap slider's window is the collection's day sizes, which the
+    // progress payload carries; the chart (and so the handle) comes later.
+    dmEnrichCapBounds();
+    dmEnrichCapSync(dmEnrichDayCapValue);
+    dmEnrichEarliestSync();
 }
 
 // ---- Annotation target: number field + log slider + bar marker ------------ #
@@ -7161,6 +7145,201 @@ function _dmEnrichSliderToTarget(pos) {
     // exact — the top of the slider must be the ceiling itself.
     if (pos >= 1000) return win.hi;
     return Math.min(win.hi, Math.max(win.lo, Math.round(raw / 10) * 10));
+}
+
+// ---- Spread cap: log slider from the analysis floor to the busiest day --- #
+// The cap says what one sampled day is worth; its useful values run from the
+// ten-video floor to the collection's busiest day, and like the target most
+// of the sensible ones sit low, so the scale is logarithmic too.
+function _dmEnrichCapWindow() {
+    const daily = dmEnrichDailyCache || dmEnrichProgressCache.daily || null;
+    const totals = (daily && daily.total) || [];
+    let busiest = 0;
+    for (const v of totals) if (v > busiest) busiest = v;
+    const lo = dmEnrichProgressCache.min_day_items || 10;
+    const hi = Math.min(1000, busiest);
+    return hi > lo ? { lo, hi } : null;
+}
+
+function dmEnrichCapBounds() {
+    const slider = document.getElementById('dm-enrich-day-cap-slider');
+    if (!slider) return;
+    const win = _dmEnrichCapWindow();
+    slider.disabled = !win;
+    slider.style.opacity = win ? '' : '0.4';
+}
+
+function _dmEnrichCapToSlider(cap) {
+    const win = _dmEnrichCapWindow();
+    if (!win || cap <= win.lo) return 0;
+    if (cap >= win.hi) return 1000;
+    return Math.round(1000 * Math.log(cap / win.lo) / Math.log(win.hi / win.lo));
+}
+
+function _dmEnrichSliderToCap(pos) {
+    const win = _dmEnrichCapWindow();
+    if (!win) return dmEnrichDayCapValue;
+    if (pos >= 1000) return win.hi;
+    const raw = win.lo * Math.pow(win.hi / win.lo, pos / 1000);
+    return Math.min(win.hi, Math.max(win.lo, Math.round(raw)));
+}
+
+function dmEnrichCapSync(cap) {
+    dmEnrichDayCapValue = cap;
+    const el = document.getElementById('dm-enrich-day-cap-value');
+    if (el) el.textContent = cap ? `${Number(cap).toLocaleString()} videos` : '';
+    const slider = document.getElementById('dm-enrich-day-cap-slider');
+    if (slider && !slider.disabled) slider.value = String(_dmEnrichCapToSlider(cap));
+}
+
+function dmEnrichCapSliderInput() {
+    const slider = document.getElementById('dm-enrich-day-cap-slider');
+    if (!slider) return;
+    dmEnrichCapSync(_dmEnrichSliderToCap(Number(slider.value)));
+    dmEnrichChartRefresh();
+}
+
+// ---- Earliest date: a handle on the chart, day steppers, Full history --- #
+// The same control as the Define Study modal's window start, minus the end:
+// a plan always reaches the newest day. Unset means the whole history, and
+// the handle then rests on the first day.
+function _dmEnrichDaySpan() {
+    const dates = (dmEnrichDailyCache && dmEnrichDailyCache.dates) || [];
+    return dates.length ? { lo: dates[0], hi: dates[dates.length - 1] } : null;
+}
+
+// Set the earliest date (clamped to the history; the first day means unset).
+// fire=false redraws the readout and the handle only — a drag calls that per
+// frame and fires once on release, so the estimate runs once per drag.
+function dmEnrichEarliestSet(iso, opts = {}) {
+    const span = _dmEnrichDaySpan();
+    let value = iso || '';
+    if (value && span) value = value <= span.lo ? '' : _clampIso(value, span.lo, span.hi);
+    const changed = value !== dmEnrichEarliest;
+    dmEnrichEarliest = value;
+    dmEnrichEarliestSync();
+    if (opts.fire !== false && changed) {
+        dmEnrichChartRefresh();
+        dmEnrichPanelChanged();
+    }
+    return changed;
+}
+
+function dmEnrichEarliestStep(delta) {
+    const span = _dmEnrichDaySpan();
+    if (!span) return;
+    dmEnrichEarliestSet(_shiftIsoDate(dmEnrichEarliest || span.lo, delta));
+}
+
+function dmEnrichEarliestReset() {
+    dmEnrichEarliestSet('');
+}
+
+function dmEnrichEarliestSync() {
+    const span = _dmEnrichDaySpan();
+    const row = document.getElementById('dm-enrich-earliest-row');
+    if (row) row.style.display = span ? '' : 'none';
+    const valueEl = document.getElementById('dm-enrich-earliest-value');
+    if (valueEl) {
+        valueEl.textContent = dmEnrichEarliest || (span ? 'full history' : '');
+        valueEl.title = dmEnrichEarliest
+            ? 'Nothing before this date is processed'
+            : (span ? `The plan may reach back to ${span.lo}, the first day with activity` : '');
+    }
+    const reset = document.getElementById('dm-enrich-earliest-reset');
+    if (reset) reset.disabled = !dmEnrichEarliest;
+    const steps = document.querySelectorAll('.dm-enrich-earliest-step');
+    if (steps.length === 2 && span) {
+        steps[0].disabled = !dmEnrichEarliest;                       // already at the first day
+        steps[1].disabled = (dmEnrichEarliest || span.lo) >= span.hi;
+    }
+    _dmEnrichPositionEarliestHandle();
+}
+
+function _dmEnrichEnsureEarliestHandle() {
+    const wrap = document.getElementById('dm-enrich-chart-wrap');
+    if (!wrap) return null;
+    let handle = wrap.querySelector('.dm-enrich-earliest-handle');
+    if (handle) return handle;
+    handle = document.createElement('div');
+    handle.className = 'dm-enrich-earliest-handle';
+    handle.style.display = 'none';
+    handle.title = 'Drag to set the earliest date the plan reaches back to';
+    handle.innerHTML = '<span class="dm-enrich-earliest-handle__rule"></span>'
+                     + '<span class="dm-enrich-earliest-handle__grip"></span>';
+    handle.addEventListener('mousedown', _dmEnrichBeginEarliestDrag);
+    wrap.appendChild(handle);
+    return handle;
+}
+
+// Put the handle on the day it selects. Read from the drawn axis, so it is
+// right after a responsive resize too (Plotly's afterplot calls this).
+function _dmEnrichPositionEarliestHandle() {
+    const handle = _dmEnrichEnsureEarliestHandle();
+    if (!handle) return;
+    const chartDiv = document.getElementById('dm-enrich-daily-chart');
+    const fullLayout = chartDiv && chartDiv._fullLayout;
+    const span = _dmEnrichDaySpan();
+    if (!span || !fullLayout || !fullLayout.xaxis || !chartDiv._plotlyInited
+            || chartDiv.style.display === 'none') {
+        handle.style.display = 'none';
+        return;
+    }
+    const xa = fullLayout.xaxis;
+    const ya = fullLayout.yaxis;
+    // Bars are anchored at noon, so the handle sits on the centre of its day.
+    const px = xa._offset + xa.d2p(_isoDayMs(dmEnrichEarliest || span.lo) + 43200000);
+    if (!isFinite(px)) { handle.style.display = 'none'; return; }
+    const clamped = Math.max(xa._offset, Math.min(xa._offset + xa._length, px));
+    handle.style.display = '';
+    handle.style.top = `${chartDiv.offsetTop + (ya._offset || 0)}px`;
+    handle.style.height = `${ya._length || chartDiv.clientHeight}px`;
+    handle.style.left = `${chartDiv.offsetLeft + clamped}px`;
+}
+
+function _dmEnrichBeginEarliestDrag(ev) {
+    if (ev.button !== 0) return;
+    const chartDiv = document.getElementById('dm-enrich-daily-chart');
+    const fullLayout = chartDiv && chartDiv._fullLayout;
+    if (!fullLayout || !fullLayout.xaxis) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const xa = fullLayout.xaxis;
+    const rect = chartDiv.getBoundingClientRect();
+    const wrap = document.getElementById('dm-enrich-chart-wrap');
+    const span = _dmEnrichDaySpan();
+    wrap?.classList.add('dragging-range');
+    document.body.classList.add('study-range-dragging');
+
+    let pending = null, frame = null, moved = false;
+    const apply = () => {
+        frame = null;
+        if (pending == null) return;
+        const iso = pending;
+        pending = null;
+        if (dmEnrichEarliestSet(iso, { fire: false })) moved = true;
+    };
+    const onMove = (e) => {
+        const inAxis = Math.max(xa._offset, Math.min(xa._offset + xa._length,
+                                                     e.clientX - rect.left)) - xa._offset;
+        const iso = _toIsoDate(xa.p2d(inAxis));
+        if (!iso) return;
+        pending = span ? _clampIso(iso, span.lo, span.hi) : iso;
+        if (frame == null) frame = requestAnimationFrame(apply);
+    };
+    const onUp = () => {
+        window.removeEventListener('mousemove', onMove, true);
+        window.removeEventListener('mouseup', onUp, true);
+        if (frame != null) { cancelAnimationFrame(frame); apply(); }
+        wrap?.classList.remove('dragging-range');
+        document.body.classList.remove('study-range-dragging');
+        if (moved) {
+            dmEnrichChartRefresh();
+            dmEnrichPanelChanged();
+        }
+    };
+    window.addEventListener('mousemove', onMove, true);
+    window.addEventListener('mouseup', onUp, true);
 }
 
 function dmEnrichDrawMarker(target) {
@@ -7231,6 +7410,7 @@ function dmEnrichTargetReadout(target) {
 // The readout depends on Items per cycle too; its input calls this.
 function dmEnrichReadoutRefresh() {
     dmEnrichTargetReadout(dmEnrichTargetValue);
+    dmEnrichDaysReadout();
 }
 
 // One value, four widgets: keep the display box, the slider, the marker and
@@ -7273,11 +7453,9 @@ function dmEnrichReadSettings() {
     const num = (id) => Number(document.getElementById(id)?.value);
     return {
         annotation_target: dmEnrichTargetValue,
-        cycle_items: num('dm-enrich-cycle-items'),
-        cycle_items_auto: !!document.getElementById('dm-enrich-cycle-auto')?.checked,
         sample_share: num('dm-enrich-sample-share') / 100,
-        a_day_cap: num('dm-enrich-day-cap'),
-        earliest_date: document.getElementById('dm-enrich-earliest')?.value || null,
+        a_day_cap: dmEnrichDayCapValue,
+        earliest_date: dmEnrichEarliest || null,
     };
 }
 
@@ -7361,16 +7539,15 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
     let remaining = remainingOverride !== null
         ? remainingOverride
         : Math.max(0, (dmEnrichTargetValue || 0) - annotatedTotal);
-    if (!remaining) return planned;
+    if (!remaining) {
+        if (remainingOverride === null) dmEnrichEstimateStats = null;
+        return planned;
+    }
 
-    const num = (id, dflt) => {
-        const v = Number(document.getElementById(id)?.value);
-        return Number.isFinite(v) && v > 0 ? v : dflt;
-    };
     const share = (Number(document.getElementById('dm-enrich-sample-share')?.value) || 0) / 100;
-    const dayCap = num('dm-enrich-day-cap', 50);
+    const dayCap = dmEnrichDayCapValue || 50;
     const minDay = dmEnrichProgressCache.min_day_items || 10;
-    const earliest = document.getElementById('dm-enrich-earliest')?.value || '';
+    const earliest = dmEnrichEarliest || '';
 
     const awaiting = (i) => daily.awaiting[i] || 0;
     const unscraped = (i) => Math.max(0, (daily.total[i] || 0) - (daily.annotated[i] || 0)
@@ -7407,8 +7584,7 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
     const daysPerMonth = _dmEnrichSpreadDays(daily, sp, {
         ddDays, dayCap, minDay, earliest, awaiting, unscraped, planned,
     });
-    if (remainingOverride === null) dmEnrichSpreadDaysShow(daysPerMonth, share, sp);
-    let month = '', taken = 0;
+    let month = '', taken = 0, spreadDays = 0;
     for (let i = n - 1; i >= 0 && sp > 0; i--) {
         if (earliest && daily.dates[i] < earliest) break;
         const m = daily.dates[i].slice(0, 7);
@@ -7418,12 +7594,25 @@ function _dmEnrichPlanEstimate(daily, remainingOverride = null) {
         const capRoom = dayCap - ((daily.annotated[i] || 0) + awaiting(i) + planned[i]);
         const take = Math.min(unscraped(i), Math.max(0, capRoom), sp);
         if (take <= 0) continue;
-        planned[i] += take; sp -= take; taken += 1;
+        planned[i] += take; sp -= take; taken += 1; spreadDays += 1;
     }
     // 4. Whatever the spread could not place goes back to the deep dive, as
     //    the planner's reallocation does — so with any deep-dive share at all
     //    the estimate walks the whole history.
     if (share < 1 && sp > 0) deepDive(sp);
+    if (remainingOverride === null) {
+        // What the three sliders add up to, in days — for the line under
+        // the cap slider. Only the target-bound run counts; the reachability
+        // probe (override) is not a plan.
+        dmEnrichEstimateStats = {
+            deepDays: ddDays.size,
+            spreadDays,
+            daysPerMonth,
+            qualifyingDays: daily.dates.filter((d, i) =>
+                (!earliest || d >= earliest) && (daily.total[i] || 0) >= minDay).length,
+            share,
+        };
+    }
     return planned;
 }
 
@@ -7454,13 +7643,36 @@ function _dmEnrichSpreadDays(daily, want, ctx) {
     return densest;
 }
 
-// The read-only "Days / month" figure beside the per-day cap.
-function dmEnrichSpreadDaysShow(days, share, want) {
-    const el = document.getElementById('dm-enrich-days-per-month');
+// The line under the cap slider: what the three sliders add up to, in days
+// — the unit every analysis works in. Both counts are what the plan would
+// buy on top of what is already annotated.
+function dmEnrichDaysReadout() {
+    const el = document.getElementById('dm-enrich-days-readout');
     if (!el) return;
-    if (share <= 0) el.textContent = '\u2014 (only deep dive)';
-    else if (!want) el.textContent = '\u2014';
-    else el.textContent = `about ${days}`;
+    const st = dmEnrichEstimateStats;
+    if (!dmEnrichDailyCache) { el.textContent = ''; return; }
+    if (!st) {
+        // Nothing to place: the target is met (or unset), so no days are bought.
+        el.textContent = dmEnrichTargetValue ? 'nothing more to buy \u2014 the target is already met' : '';
+        return;
+    }
+    const minDay = dmEnrichProgressCache.min_day_items || 10;
+    const days = (n, what) => `\u2248 ${n.toLocaleString()} ${what} day${n === 1 ? '' : 's'}`;
+    const parts = [];
+    if (st.spreadDays) {
+        parts.push(days(st.spreadDays, 'spread')
+                   + (st.daysPerMonth ? `, about ${st.daysPerMonth} a month,` : '')
+                   + ` of the ${st.qualifyingDays.toLocaleString()} days with at least `
+                   + `${minDay} videos`);
+    } else {
+        parts.push(st.share > 0 ? 'no spread days' : 'no spread days (only deep dive)');
+    }
+    if (st.deepDays) {
+        parts.push(days(st.deepDays, 'deep-dive'));
+    } else {
+        parts.push(st.share < 1 ? 'no deep-dive days' : 'no deep-dive days (only spread)');
+    }
+    el.textContent = parts.join(' \u00b7 ');
 }
 
 // What the CURRENT settings can ever reach: the estimate run with no target
@@ -7497,7 +7709,7 @@ function dmEnrichTargetWarning(target) {
         return;
     }
     const share = (Number(document.getElementById('dm-enrich-sample-share')?.value) || 0) / 100;
-    const earliest = document.getElementById('dm-enrich-earliest')?.value || '';
+    const earliest = dmEnrichEarliest || '';
     const causes = [];
     const fixes = [];
     if (share >= 1) {
@@ -7537,7 +7749,9 @@ function dmEnrichRenderChart(daily) {
         if (div._plotlyInited && window.Plotly) {
             window.Plotly.purge(div);
             div._plotlyInited = false;
+            div._dmEnrichAfterplotHooked = false;
         }
+        dmEnrichEarliestSync();
         return;
     }
     div.style.display = '';
@@ -7588,6 +7802,13 @@ function dmEnrichRenderChart(daily) {
     window.Plotly.react(div, traces, layout,
                         { staticPlot: true, displayModeBar: false, responsive: true });
     div._plotlyInited = true;
+    // The earliest-date handle rides on the drawn axis: place it now, and
+    // again whenever Plotly redraws (responsive resizes move the axis).
+    if (!div._dmEnrichAfterplotHooked && typeof div.on === 'function') {
+        div._dmEnrichAfterplotHooked = true;
+        div.on('plotly_afterplot', _dmEnrichPositionEarliestHandle);
+    }
+    dmEnrichEarliestSync();
 }
 
 // Draw the coverage bar: four zones that sum to the collection's unique
@@ -7992,10 +8213,21 @@ function dmEnrichResetPanel() {
     const progEl = document.getElementById('dm-enrich-progress');
     if (progEl) progEl.textContent = '';
     for (const id of ['dm-enrich-target', 'dm-enrich-target-pct',
-                      'dm-enrich-target-readout', 'dm-enrich-target-warning']) {
+                      'dm-enrich-target-readout', 'dm-enrich-target-warning',
+                      'dm-enrich-day-cap-value', 'dm-enrich-days-readout',
+                      'dm-enrich-earliest-value']) {
         const el = document.getElementById(id);
         if (el) el.textContent = '';
     }
+    dmEnrichEarliest = '';
+    dmEnrichDayCapValue = 50;
+    dmEnrichEstimateStats = null;
+    const earliestRow = document.getElementById('dm-enrich-earliest-row');
+    if (earliestRow) earliestRow.style.display = 'none';
+    const handle = document.querySelector('#dm-enrich-chart-wrap .dm-enrich-earliest-handle');
+    if (handle) handle.style.display = 'none';
+    const capSlider = document.getElementById('dm-enrich-day-cap-slider');
+    if (capSlider) capSlider.disabled = true;
     const warn = document.getElementById('dm-enrich-target-warning');
     if (warn) warn.style.display = 'none';
     const runBox = document.getElementById('dm-enrich-run');
@@ -8019,6 +8251,7 @@ function dmEnrichResetPanel() {
         if (chart._plotlyInited && window.Plotly) {
             window.Plotly.purge(chart);
             chart._plotlyInited = false;
+            chart._dmEnrichAfterplotHooked = false;
         }
     }
     for (const id of ['dm-enrich-bar', 'dm-enrich-legend']) {

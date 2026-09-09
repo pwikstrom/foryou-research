@@ -616,10 +616,6 @@ def _journal_plan_save(cid: str, patch: dict, prev_state, entry: dict, *,
             else:
                 kind, verb = "plan.armed", "Armed"
             message = f"{verb} by {actor} — target {target:,} videos annotated"
-            if settings.get("cycle_items_auto"):
-                message += ", videos per cycle chosen automatically"
-            else:
-                message += f", {int(settings.get('cycle_items') or 0):,} videos per cycle"
             try:
                 n_foreign = int(foreign_queued or 0)
             except (TypeError, ValueError):

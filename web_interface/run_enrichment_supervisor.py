@@ -1081,11 +1081,11 @@ def _plan(reporter, plans: dict) -> dict | None:
                 continue
 
             settings = {**ce.DEFAULT_SETTINGS, **(entry.get("settings") or {})}
-            auto_items = None
-            status = None
             expected_yield = _expected_yield(cid, platform)
             pending = _pending_annotations(activity)
-            if settings.get("cycle_items_auto"):
+            # The cycle is always sized automatically (the manual knob went
+            # on 2026-09-09; a stored cycle_items_auto=False is ignored).
+            if True:
                 status = ce.load_status(activity["item_id"].unique())
                 auto_items = _auto_cycle_items(entry, activity, status,
                                                expected_yield=expected_yield,

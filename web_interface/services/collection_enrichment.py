@@ -105,7 +105,8 @@ DEFAULT_SETTINGS = {
     # 100%. A target is idempotent: annotation done by any other means counts
     # toward it, and re-opening a finished plan is just raising the number.
     "annotation_target": 0,
-    "cycle_items": 400,       # items enqueued per cycle (ignored when auto)
+    "cycle_items": 400,       # the cutter's budget; the supervisor overwrites
+                              # it with the automatic size every cycle
     # Auto: the supervisor sizes each cycle itself — min(target headroom, one
     # full set of concurrent annotation jobs) — so a cycle's annotation is
     # ~one batch-job turnaround. True is the default the panel shows for a
@@ -263,8 +264,9 @@ def normalize_settings(raw: dict | None) -> dict:
 
     _int("annotation_target", 0, 10_000_000)
     _int("cycle_items", 1, 20_000)
-    out["cycle_items_auto"] = bool(raw.get("cycle_items_auto",
-                                           DEFAULT_SETTINGS["cycle_items_auto"]))
+    # Always automatic since 2026-09-09: the panel has no items-per-cycle
+    # knob any more, and a stored False from before is ignored on save.
+    out["cycle_items_auto"] = True
     # Floor 10: a cap under the min_day_items analysis floor would buy spread
     # days that can never qualify. Ceiling 1,000: one day's cap, not a budget.
     _int("a_day_cap", 10, 1_000)

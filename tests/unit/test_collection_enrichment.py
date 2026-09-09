@@ -1199,9 +1199,11 @@ def test_tick_auto_mode_injects_the_effective_cycle_items(tick, monkeypatch):
     assert entry["last_auto_cycle_items"] == 500
 
 
-def test_normalize_settings_round_trips_cycle_items_auto():
+def test_normalize_settings_always_sizes_cycles_automatically():
+    """The manual items-per-cycle knob is gone (2026-09-09): a saved False,
+    from a plan armed before, is ignored on the next save."""
     assert ce.normalize_settings({"cycle_items_auto": True})["cycle_items_auto"] is True
-    assert ce.normalize_settings({"cycle_items_auto": False})["cycle_items_auto"] is False
+    assert ce.normalize_settings({"cycle_items_auto": False})["cycle_items_auto"] is True
     # Auto is the default a new plan starts with: the panel shows the server
     # defaults for a collection with no plan, so this is what the RA sees.
     assert ce.normalize_settings({})["cycle_items_auto"] is True
@@ -1940,3 +1942,22 @@ def test_tick_stores_the_density_once_per_walk_and_rederives_on_a_new_target(tic
     # Ten times the target over the four months still ahead: denser than the
     # first derivation, up to the densest those months allow (5 days each).
     assert 5 >= entry["spread_days_per_month"] > first
+
+
+def test_the_supervisor_sizes_every_cycle_automatically(tick, monkeypatch):
+    """A ledger entry that still says cycle_items_auto=False (armed before
+    the knob went) is sized like any other: the cutter receives the automatic
+    size, not the stored cycle_items."""
+    seen = {}
+
+    def fake_cycle(cid, entry, **kw):
+        seen["cycle_items"] = entry["settings"]["cycle_items"]
+        return {"item_ids": ["x1"], "a_cursor": None, "b_cursor": "2026-08-27",
+                "a": 0, "b": 1, "exhausted": False, "platform": "tiktok"}
+
+    monkeypatch.setattr(ce, "plan_cycle", fake_cycle)
+    tick["plans"] = {"c1": {**_entry(annotation_target=150, cycle_items=7),
+                            "platform": "tiktok"}}
+    tick["run"]()
+    # 150 to annotate at the default 85% yield plus the 5% margin: 186 to cut.
+    assert seen["cycle_items"] == 186

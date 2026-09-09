@@ -191,7 +191,26 @@ Everything here is measured from the data itself, not from the plan, so it stays
                      only (staticPlot). Dotted line: the analysis floor. Red
                      line: the plan-estimate overlay, redrawn live from the
                      target and the plan settings. -->
-                <div id="dm-enrich-daily-chart" style="height: 140px; display: none; margin: 2px 0 4px 0;"></div>
+                <div class="dm-enrich-chart-wrap" id="dm-enrich-chart-wrap">
+                    <div id="dm-enrich-daily-chart" style="height: 140px; display: none; margin: 2px 0 4px 0;"></div>
+                </div>
+                <!-- The earliest date the plan may reach back to, set on the
+                     chart itself: drag the handle (the start of the window,
+                     as in the Define Study modal; there is no end - a plan
+                     always reaches the newest day), nudge it a day at a time,
+                     or clear it to the whole history. No date box: the
+                     timeline IS the control. -->
+                <div class="dm-enrich-earliest-row text-xs" id="dm-enrich-earliest-row" style="display: none;">
+                    <span class="meta-tooltip tooltip-wide" data-tooltip="Optional. Nothing before this date is ever processed, by either half of the cycle. Drag the handle on the chart to set it (or nudge it a day at a time with the buttons); Full history clears it, so the plan works back through the person's whole history.">Earliest date</span>
+                    <button type="button" class="btn-discreet dm-enrich-earliest-step" title="One day earlier"
+                        onclick="dmEnrichEarliestStep(-1)">&minus;</button>
+                    <span id="dm-enrich-earliest-value" class="dm-enrich-earliest-value"></span>
+                    <button type="button" class="btn-discreet dm-enrich-earliest-step" title="One day later"
+                        onclick="dmEnrichEarliestStep(1)">+</button>
+                    <button type="button" class="btn-discreet text-xxs" id="dm-enrich-earliest-reset"
+                        title="Clear the earliest date: the plan may reach back through the whole history"
+                        onclick="dmEnrichEarliestReset()">Full history</button>
+                </div>
 
                 <!-- Coverage bar: display only. Zones sum to the collection's
                      unique videos; the red marker is the annotation target and
@@ -240,62 +259,42 @@ All three are measured from the data, not from the plan's own bookkeeping - so v
                     <div class="text-xs dm-enrich-run-cursors" id="dm-enrich-run-cursors"></div>
                 </div>
 
-                <!-- The plan's settings. All of them visible, all of the time:
-                     the balance and the spread limits decide what the run can
-                     ever reach, so hiding them behind a disclosure hid the one
-                     explanation for a target the plan could not meet. One
-                     label style throughout, one grid, sub-fields a step
-                     smaller than the fields that own them. -->
+                <!-- The plan's settings: three sliders, each full width with
+                     its value on the label line. Items per cycle is always
+                     automatic (there is no knob), and the earliest date is
+                     set on the chart above. The balance and the per-day cap
+                     decide what a run can ever reach, so they stay in view. -->
                 <div class="dm-enrich-settings">
-                    <div class="dm-enrich-field dm-enrich-field--wide">
-                        <span class="dm-enrich-label meta-tooltip tooltip-wide" data-tooltip="The goal: keep enriching until this many of the collection's videos are annotated. Set it with the slider - logarithmic, so small careful targets get most of the travel; the far right is everything reachable.
+                    <div class="dm-enrich-field">
+                        <div class="dm-enrich-slider-head">
+                            <span class="dm-enrich-label meta-tooltip tooltip-wide" data-tooltip="The goal: keep enriching until this many of the collection's videos are annotated. Set it with the slider - logarithmic, so small careful targets get most of the travel; the far right is everything reachable.
 
 A target is a state, not an allowance - videos annotated by any other means (a manual queue, another plan) count toward it, so nothing is ever paid for twice. When the target is met the plan goes idle; to continue, raise the target and arm it.
 
-The plan always takes the cheapest route: already-scraped but unannotated videos are annotated first, and new scraping starts only once that backlog is clear.
+The plan always takes the cheapest route: already-scraped but unannotated videos are annotated first, and new scraping starts only once that backlog is clear. Each cycle is sized automatically - up to one annotation batch (2,000 videos), never more than the target still needs, with a margin for the videos that fail on the way.
 
 The loop can overshoot slightly - it always scrapes whole days, so the last cycle may scrape past the target - but annotation stops at the target. And the target cannot exceed what is reachable: videos that failed for good are outside it.">Annotation target</span>
-                        <div class="dm-enrich-target-row">
-                            <span id="dm-enrich-target" class="dm-enrich-target-value"></span>
-                            <span id="dm-enrich-target-pct" class="text-sm dm-enrich-target-pct"></span>
-                            <input type="range" id="dm-enrich-target-slider" min="0" max="1000" step="1"
-                                class="dm-enrich-target-slider" oninput="dmEnrichSliderInput()">
+                            <span id="dm-enrich-target" class="dm-enrich-inline-value"></span>
+                            <span id="dm-enrich-target-pct" class="dm-enrich-inline-value"></span>
                         </div>
+                        <input type="range" id="dm-enrich-target-slider" min="0" max="1000" step="1"
+                            class="dm-enrich-slider" oninput="dmEnrichSliderInput()">
                         <div id="dm-enrich-target-readout" class="text-xs dm-enrich-hint"></div>
                         <div id="dm-enrich-target-warning" class="text-xs dm-enrich-warn" style="display: none;"></div>
                     </div>
 
                     <div class="dm-enrich-field">
-                        <span class="dm-enrich-label meta-tooltip tooltip-wide" data-tooltip="How many videos each cycle queues for scraping, split between the two ways of choosing days by the balance beside this.
-
-Auto (recommended) picks the number of videos per cycle for the shortest total time: up to 2,000 (one annotation batch - roughly what can be scraped while the previous batch is being annotated) and never more than the target still needs, with a margin for the videos that fail along the way, based on this plan's own recent runs. The final cycle may take only part of a day, so the target is reached without an extra cycle; it is never smaller than 200 videos, so the plan may finish up to 200 past its target rather than trail off in tiny cycles. Untick it to set a number by hand.
-
-Smaller cycles report back sooner and keep the spend visible; larger ones waste less time waiting between steps. A cycle can go a little over the number, because neither half will ever take part of a day - a partly covered day is worth almost nothing to the analyses.">Items per cycle</span>
-                        <div class="dm-enrich-inline">
-                            <input type="number" id="dm-enrich-cycle-items" class="control-input" min="1" step="50"
-                                style="width: 96px;" oninput="dmEnrichReadoutRefresh()">
-                            <label class="dm-enrich-check text-xs">
-                                <input type="checkbox" id="dm-enrich-cycle-auto"
-                                    onchange="dmEnrichCycleAutoToggle()">Auto</label>
-                        </div>
-                    </div>
-
-                    <div class="dm-enrich-field">
-                        <span class="dm-enrich-label meta-tooltip tooltip-wide" data-tooltip="Optional. Nothing before this date is ever processed, by either half of the cycle. Leave it empty to work back through the person's whole history.">Earliest date</span>
-                        <input type="date" id="dm-enrich-earliest" class="control-input"
-                            style="width: 100%; max-width: 170px;" oninput="dmEnrichChartRefresh()">
-                    </div>
-
-                    <div class="dm-enrich-field">
-                        <span class="dm-enrich-label meta-tooltip tooltip-wide" data-tooltip="How each cycle is divided between two ways of choosing days.
+                        <div class="dm-enrich-slider-head">
+                            <span class="dm-enrich-label meta-tooltip tooltip-wide" data-tooltip="How each cycle is divided between two ways of choosing days.
 
 Deep dive takes every video from the most recent days, one whole day after another, working backwards - quiet days with only one or two videos included, because a short viewing session is still a session. This is the only thing that makes viewing sessions analysable, and it gives the trends and correlations honest day-by-day totals. With any deep dive at all, the plan can eventually cover the whole collection - which is what Explore and the per-video analyses want.
 
-Spread takes a few whole days out of each month instead (bounded by the spread limits beside this slider), walking back through the person's history. This is what covers the long arc: the year-scale trends, the breadth of topics, and extra usable days for the correlations.
+Spread takes whole days out of each month instead - as many a month as the target needs, capped per day by the slider below - walking back through the person's history. This is what covers the long arc: the year-scale trends, the breadth of topics, and extra usable days for the correlations.
 
 Both take WHOLE days on purpose. Every analysis here groups by the day, and the correlations drop any day with fewer than ten annotated videos - so a thin scattering of videos across every day achieves almost nothing. That ten-video floor only limits which days the spread picks; it never stops the deep dive.">Deep dive / spread balance</span>
+                        </div>
                         <input type="range" id="dm-enrich-sample-share" min="0" max="100" step="5"
-                            style="width: 100%;" oninput="dmEnrichChartRefresh()">
+                            class="dm-enrich-slider" oninput="dmEnrichChartRefresh()">
                         <div class="dm-enrich-range-ends">
                             <span>only deep dive</span>
                             <span>only spread</span>
@@ -303,26 +302,17 @@ Both take WHOLE days on purpose. Every analysis here groups by the day, and the 
                     </div>
 
                     <div class="dm-enrich-field">
-                        <span class="dm-enrich-label">Spread</span>
-                        <div class="dm-enrich-inline">
-                            <label class="dm-enrich-sub">
-                                <span class="dm-enrich-sublabel meta-tooltip tooltip-wide" data-tooltip="The most videos the spread will process on one of its sampled days, counting the ones already scraped. A day that is already at this number is skipped.
+                        <div class="dm-enrich-slider-head">
+                            <span class="dm-enrich-label meta-tooltip tooltip-wide" data-tooltip="The most videos the spread will process on one of its sampled days, counting the ones already scraped. A day that is already at this number is skipped. Logarithmic, from the ten-video analysis floor up to the collection's busiest day.
 
-At least 10 - below the analysis floor, a spread day could never qualify. At most 1,000: this caps one day, it is not a budget.
+How many days a month the spread samples is not a setting: it follows from the target, the balance and this cap - the fewest days a month, the same in every month, that give the spread its share of the target. The line below says what the three sliders add up to. The days are drawn at random from those with at least ten videos that the deep dive has not already taken - the same way every time, so raising the target adds days to a month rather than swapping them.
 
-Deep-dive days are not capped - they take the whole day, however busy it was.">Max items / day</span>
-                                <input type="number" id="dm-enrich-day-cap" class="control-input" min="10" max="1000"
-                                    style="width: 72px;" oninput="dmEnrichChartRefresh()">
-                            </label>
-                            <span class="dm-enrich-sub">
-                                <span class="dm-enrich-sublabel meta-tooltip tooltip-wide" data-tooltip="How many whole days the spread samples out of each calendar month as it works backwards. Not a setting: it follows from the target, the balance and the items per day - the fewest days a month, the same in every month, that give the spread its share of the target.
-
-The days are drawn at random from those with at least ten videos (the analysis floor) that the deep dive has not already taken - but the same way every time, so raising the target adds days to a month rather than swapping them.
-
-Random rather than the busiest days: always choosing the busiest would make the person's viewing look heavier than it was.">Days / month</span>
-                                <span id="dm-enrich-days-per-month" class="dm-enrich-derived">&mdash;</span>
-                            </span>
+Deep-dive days are not capped - they take the whole day, however busy it was.">Max items / day (spread)</span>
+                            <span id="dm-enrich-day-cap-value" class="dm-enrich-inline-value"></span>
                         </div>
+                        <input type="range" id="dm-enrich-day-cap-slider" min="0" max="1000" step="1"
+                            class="dm-enrich-slider" oninput="dmEnrichCapSliderInput()">
+                        <div id="dm-enrich-days-readout" class="text-xs dm-enrich-hint"></div>
                     </div>
                 </div>
 
