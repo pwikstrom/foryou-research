@@ -10,6 +10,12 @@ from fyp.fyp_config import (
     fyp_cf,
 )
 from fyp.ingest import registered_raw_locations
+from fyp.ingest.raw_names import (
+    display_id_owner,
+    display_key,
+    entry_display_id,
+    normalize_display_id,
+)
 from fyp.organize_datasets import (
     COLLECTIONS_LABEL,
 )
@@ -342,7 +348,28 @@ def save_collection_annotation():
         entry = annotations.get(str(collection_id))
         if not isinstance(entry, dict):
             entry = {}
-        entry["display_collection_id"] = data.get('display_collection_id', None)
+
+        # Display IDs are unique across the Hub: two collections answering to
+        # one name make every picker, legend and study selection ambiguous.
+        # Only a RENAME is checked — the bulk edit and the modal's autosave
+        # both resend the name a collection already has on every tag tick, and
+        # a collection that predates this guard must stay editable.
+        display_id = normalize_display_id(data.get('display_collection_id', None))
+        # An empty box is not "no name": the collection then shows its own id,
+        # so clearing a label is a rename onto that id and is checked as one.
+        new_display = display_id or str(collection_id)
+        previous_display = entry_display_id(collection_id, entry)
+        if display_key(new_display) != display_key(previous_display):
+            clash = display_id_owner(new_display, annotations, exclude=collection_id)
+            if clash:
+                return jsonify({
+                    "error": (f"Clearing the display ID would show this collection as "
+                              f"'{new_display}'" if not display_id
+                              else f"Display ID '{new_display}'")
+                             + f", which collection '{clash}' already uses. "
+                             + "Display IDs name one collection each — pick another.",
+                }), 409
+        entry["display_collection_id"] = display_id or None
         entry["annotation_tags"] = data.get('tags', [])
         entry["hidden"] = data.get('hidden', False)
         previous_user = entry.get("user_id")

@@ -7604,6 +7604,21 @@ body:has(.public-page) {
     line-height: 1;
 }
 
+/* A display ID two collections answer to. Writes have been unique-checked
+   since 2026-09-09, so this only marks older data - loud enough to find in a
+   long table, quiet enough not to read as an error. */
+.dm-dup-display-id {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--color-warning);
+    border: 1px solid var(--color-warning);
+    font-weight: var(--weight-normal);
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
 /* Display ID / User account beside Tags / Hide Collection. Two explicit
    tracks rather than auto-fit: auto-fit leaves a collapsed third track and
    its gutter unused at this width, so the pair would not fill the modal. */

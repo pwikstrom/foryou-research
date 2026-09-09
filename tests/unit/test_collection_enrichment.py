@@ -1638,6 +1638,20 @@ def test_enrichment_panel_buttons_keep_their_handlers():
                "function _dmAutoSaveCollection", "function dmEnrichAutoSaveNow"):
         assert fn in js, f"{fn} is gone — the modal has no Save button to fall back on"
 
+    # A display ID names one collection. The commit checks the name against
+    # the loaded table before it writes, and a name the endpoint refuses must
+    # be rolled back: every autosave resends the whole record, so a rejected
+    # ID left in place would ride along on the next tag tick and fail there.
+    assert "function _dmDisplayIdClash" in js, \
+        "the commit no longer checks the display ID against the other collections"
+    assert "_dmSavedDisplayId = rejected" in js, \
+        "a refused display ID stays in the record the next autosave sends"
+    # Both tables that show a collection BY NAME carry the flag: Edit
+    # Collections, where the rename happens, and the study picker, where
+    # picking the wrong one of two identical names is the actual damage.
+    assert js.count("idCell.appendChild(_dmDuplicateFlag())") == 2, \
+        "a table that lists collections by name lost its duplicate flag"
+
     # Arming an Idle plan whose target is already met does nothing: the
     # supervisor closes it again on its first cycle, having reset both cursors
     # and moved the run's starting line on the way. The button therefore names

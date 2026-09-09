@@ -418,7 +418,18 @@ account and switching *Hide Collection* each write immediately, and the title
 bar says *Saving…* then *Saved*. **Display ID** is the exception — free text
 cannot be written per keystroke, so it commits when you leave the box or press
 Enter, offering a *Save* button while it differs from what is stored and a
-green tick once the write lands. A **multi-collection** edit keeps an explicit
+green tick once the write lands. A display ID belongs to **one** collection:
+a name another collection already answers to — its display ID or its
+collection ID, ignoring case and spacing — is refused, and the modal says
+which collection holds it. Uploads get a unique display ID automatically
+(every TikTok export is called `user_data_tiktok.json`, so the second one
+becomes `user_data_tiktok (2)`). Collections that predate this rule keep
+their shared name until someone renames one: they carry a *duplicate* flag
+beside the name here and in the study collection picker (search for
+`duplicate` to list them), and the daily ops report lists them under
+**Duplicate display IDs**.
+
+A **multi-collection** edit keeps an explicit
 *Apply to N collections*, because there one tag chip rewrites every selected
 collection. The read-only block at the foot of the modal is the
 **Collection persona** for a single collection (the donated-data view the

@@ -7,7 +7,14 @@ a collection id. So nothing user-chosen is ever used as either. Every raw
 object written into a raw location gets a name allocated here, every new
 collection gets an id allocated here, and the original filename survives only
 as metadata (``original_filename`` in the ingestion manifest and ledger, and
-the default ``display_collection_id``).
+the seed of the default ``display_collection_id``).
+
+Display ids are the operator-facing half of the same contract. They are free
+text and mean nothing to the pipeline, but two collections sharing one name
+make a picker, a legend or a study selection ambiguous, so a name is unique
+across the Hub: allocation suffixes a colliding default ("user_data_tiktok",
+"user_data_tiktok (2)") and every rename is checked against
+:func:`display_id_owner` before it is written.
 
 A stored name looks like ``tiktok_ddp_20260906T112918Z_3f9a1c7b.json``: the
 platform and source so a bucket listing stays readable, an upload timestamp so
@@ -41,6 +48,7 @@ MANIFEST_PROVENANCE_KEYS: tuple[str, ...] = (
 
 _MAX_DISPLAY_LEN = 80
 _ALLOC_ATTEMPTS = 20
+_DISPLAY_SUFFIX_ATTEMPTS = 500
 
 
 
@@ -71,15 +79,35 @@ def stored_filename(platform: str | None, source: str | None, extension: str,
 
 
 
+def normalize_display_id(value) -> str:
+    """The stored form of a display label: whitespace collapsed, trimmed, and
+    length-capped. An empty result means "no label" — the collection then
+    shows its own id."""
+    return re.sub(r"\s+", " ", str(value or "")).strip()[:_MAX_DISPLAY_LEN]
+
+
+
+
+def display_key(value) -> str:
+    """The key two display labels collide on.
+
+    Case and stray whitespace are not enough to tell two collections apart in
+    a picker or a chart legend, so "Donor A" and "donor  a" are one name here.
+    """
+    return normalize_display_id(value).casefold()
+
+
+
+
 def display_label(original_filename: str | None, platform: str | None = None) -> str:
     """The default ``display_collection_id`` for an upload: the original
     filename's stem, whitespace-collapsed and length-capped, or a platform
     fallback when there is nothing usable."""
-    stem = os.path.splitext(os.path.basename(str(original_filename or "")))[0]
-    stem = re.sub(r"\s+", " ", stem).strip()
+    base = os.path.basename(str(original_filename or ""))
+    stem = normalize_display_id(os.path.splitext(base)[0])
     if not stem:
         stem = f"{str(platform or 'donation').capitalize()} donation"
-    return stem[:_MAX_DISPLAY_LEN]
+    return stem
 
 
 
@@ -161,6 +189,145 @@ def registered_raw_paths() -> list[str]:
 
 
 
+def known_display_keys(known_ids: set[str] | None = None,
+                       raw_paths: list[str] | None = None) -> set[str]:
+    """Every display key already spoken for.
+
+    Three things answer to a name: a collection's explicit
+    ``display_collection_id`` in the tags sidecar, the same field on an upload
+    still waiting in a raw location's manifest, and — for a collection nobody
+    ever labelled — its own collection id, which is what every listing falls
+    back to. All three go in, so a generated label never lands on a name the
+    operator already sees somewhere.
+
+    Args:
+        known_ids: A pre-loaded :func:`known_collection_ids` result.
+        raw_paths: The raw locations whose manifests to read.
+    """
+    from fyp.organize_datasets import COLLECTIONS_LABEL
+
+    ids = known_ids if known_ids is not None else known_collection_ids(raw_paths)
+    keys: set[str] = {display_key(cid) for cid in ids}
+
+    try:
+        fn = f"{COLLECTIONS_LABEL}_tags.json"
+        if data_io.exists(storage_location="recoded", filename=fn):
+            doc = data_io.load_json(storage_location="recoded", filename=fn, verbose=False) or {}
+            for entry in doc.values():
+                label = entry.get("display_collection_id") if isinstance(entry, dict) else None
+                if label:
+                    keys.add(display_key(label))
+    except Exception as exc:  # never let a bookkeeping read block an upload
+        logger.warning(f"[raw_names] could not read display ids from the tags sidecar: {exc}")
+
+    if raw_paths is None:
+        raw_paths = registered_raw_paths()
+    for raw_path in raw_paths:
+        try:
+            if data_io.exists(storage_location=raw_path, filename="ingestion_manifest.json"):
+                manifest = data_io.load_json(storage_location=raw_path,
+                                             filename="ingestion_manifest.json", verbose=False) or {}
+                for entry in manifest.values():
+                    label = (entry or {}).get("display_collection_id")
+                    if label:
+                        keys.add(display_key(label))
+        except Exception as exc:
+            logger.warning(f"[raw_names] could not read display ids in {raw_path}: {exc}")
+
+    keys.discard("")
+    return keys
+
+
+
+
+def unique_display_label(base: str, taken: set[str]) -> str:
+    """``base`` if that name is free, else ``base (2)``, ``base (3)``, …
+
+    The result is reserved in ``taken``, so three copies of
+    user_data_tiktok.json uploaded in one request come out as three distinct
+    names instead of one name three times.
+    """
+    label = normalize_display_id(base)
+    key = display_key(label)
+    if not key:
+        return label
+    if key not in taken:
+        taken.add(key)
+        return label
+    for n in range(2, _DISPLAY_SUFFIX_ATTEMPTS + 2):
+        candidate = _suffixed(label, f" ({n})")
+        if display_key(candidate) not in taken:
+            taken.add(display_key(candidate))
+            return candidate
+    # Practically unreachable: 500 same-named collections already exist.
+    candidate = _suffixed(label, f" ({secrets.token_hex(3)})")
+    taken.add(display_key(candidate))
+    return candidate
+
+
+
+
+def _suffixed(label: str, suffix: str) -> str:
+    """``label`` with ``suffix`` appended, trimming the label — not the
+    suffix — to stay inside the length cap."""
+    return normalize_display_id(label[:_MAX_DISPLAY_LEN - len(suffix)]) + suffix
+
+
+
+
+def entry_display_id(collection_id, entry) -> str:
+    """The name a collection answers to: its label, or its own id when it has
+    none (what every listing falls back to)."""
+    label = entry.get("display_collection_id") if isinstance(entry, dict) else None
+    return normalize_display_id(label) or str(collection_id)
+
+
+
+
+def display_id_owner(display_id, tags: dict, *, exclude=None) -> str | None:
+    """The collection already answering to ``display_id``, or None if free.
+
+    A collection answers to its label AND to its own collection id — the id is
+    what listings fall back to, and it is what the modal header, the tooltips
+    and the process logs show whatever the label says. So naming one
+    collection after another's id is a conflict too, the same way
+    :func:`known_display_keys` treats it at upload time.
+
+    ``exclude`` is the collection being renamed — a name never conflicts with
+    itself, so re-saving an existing record is not a rename.
+    """
+    key = display_key(display_id)
+    if not key:
+        return None
+    for cid, entry in (tags or {}).items():
+        if exclude is not None and str(cid) == str(exclude):
+            continue
+        if key in (display_key(cid), display_key(entry_display_id(cid, entry))):
+            return str(cid)
+    return None
+
+
+
+
+def duplicate_display_ids(tags: dict) -> dict[str, list[str]]:
+    """``{label: [collection ids]}`` for every name more than one collection
+    answers to. Empty while the invariant holds — writes have enforced it
+    since 2026-09-09, so anything here predates the guard.
+    """
+    by_key: dict[str, list[str]] = {}
+    labels: dict[str, str] = {}
+    for cid, entry in (tags or {}).items():
+        label = entry_display_id(cid, entry)
+        key = display_key(label)
+        if not key:
+            continue
+        by_key.setdefault(key, []).append(str(cid))
+        labels.setdefault(key, label)
+    return {labels[k]: sorted(v) for k, v in sorted(by_key.items()) if len(v) > 1}
+
+
+
+
 def raw_name_is_free(raw_path: str, filename: str) -> bool:
     """A stored name is free when nothing sits at it in the raw location or
     the archive (a withdrawn donation keeps its name there)."""
@@ -178,13 +345,17 @@ def raw_name_is_free(raw_path: str, filename: str) -> bool:
 
 def allocate_upload_identity(platform: str | None, source: str | None,
                              original_filename: str, raw_path: str,
-                             known_ids: set[str] | None = None) -> tuple[str, str, str]:
+                             known_ids: set[str] | None = None,
+                             known_displays: set[str] | None = None) -> tuple[str, str, str]:
     """Allocate the identity of one uploaded file.
 
     Returns ``(stored_filename, collection_id, display_collection_id)``:
     a fresh stored name that is free in ``raw_path`` and the archive, the
     collection id (the stored name's stem) checked against every known id,
-    and the display label derived from the original filename.
+    and a display label derived from the original filename and made unique
+    against every name already in use — the filename is the same for every
+    donor on a platform, so the raw stem would collide on the very next
+    upload.
 
     Args:
         platform: e.g. ``"tiktok"``.
@@ -194,12 +365,17 @@ def allocate_upload_identity(platform: str | None, source: str | None,
         raw_path: The raw storage location the file will be moved into.
         known_ids: Pre-loaded ``known_collection_ids()`` when allocating several
             files in one request.
+        known_displays: Pre-loaded ``known_display_keys()``, likewise. Both
+            sets are extended in place, so every file in a batch is allocated
+            against what the files before it took.
 
     Raises:
         RuntimeError: When no free name could be found (practically impossible).
     """
     if known_ids is None:
         known_ids = known_collection_ids()
+    if known_displays is None:
+        known_displays = known_display_keys(known_ids)
     ext = os.path.splitext(str(original_filename or ""))[1]
     for _ in range(_ALLOC_ATTEMPTS):
         name = stored_filename(platform, source, ext)
@@ -207,7 +383,8 @@ def allocate_upload_identity(platform: str | None, source: str | None,
         if cid in known_ids or not raw_name_is_free(raw_path, name):
             continue
         known_ids.add(cid)
-        return name, cid, display_label(original_filename, platform)
+        return name, cid, unique_display_label(
+            display_label(original_filename, platform), known_displays)
     raise RuntimeError("could not allocate a free name for the upload")
 
 

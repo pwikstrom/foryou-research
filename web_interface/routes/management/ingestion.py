@@ -218,10 +218,14 @@ def upload_ingestion_file():
     from fyp.ingest.raw_names import (
         allocate_upload_identity,
         known_collection_ids,
+        known_display_keys,
         manifest_entry,
     )
     from ...services.study_data import get_collection_tags
     known_ids = known_collection_ids()
+    # Display labels are allocated against the same batch-wide set, so two
+    # exports with the same filename in one request get two distinct names.
+    known_displays = known_display_keys(known_ids)
     if collection_id_mode == "single" and collection_id and collection_id in known_ids:
         current = (get_collection_tags() or {}).get(collection_id)
         current_owner = current.get("user_id") if isinstance(current, dict) else None
@@ -251,7 +255,7 @@ def upload_ingestion_file():
             original_name = os.path.basename(file.filename)
             filename, generated_cid, display_id = allocate_upload_identity(
                 target_platform, target_source, original_name, raw_path_key,
-                known_ids=known_ids)
+                known_ids=known_ids, known_displays=known_displays)
             temp_path = os.path.join(temp_dir, filename)
             file.save(temp_path)
 

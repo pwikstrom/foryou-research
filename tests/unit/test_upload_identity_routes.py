@@ -139,9 +139,15 @@ def test_participant_uploads_of_the_same_filename_get_distinct_identities(client
     assert e1["tz"] == "Australia/Melbourne" and e1["client_reviewed"] is True
     assert "client_reviewed" not in manifest[c2["filename"]]
 
+    # The label is the filename's stem, so the SECOND donor of the same export
+    # cannot have it: display IDs name one collection each.
+    assert c2["display_id"] == "user_data_tiktok (2)"
+    assert manifest[c2["filename"]]["display_collection_id"] == "user_data_tiktok (2)"
+
     tags = _tags(local_store)
     assert tags[c1["collection_id"]]["user_id"] == _VIEWER
     assert tags[c1["collection_id"]]["display_collection_id"] == "user_data_tiktok"
+    assert tags[c2["collection_id"]]["display_collection_id"] == "user_data_tiktok (2)"
 
 
 

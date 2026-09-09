@@ -140,6 +140,65 @@ def test_save_annotation_sets_and_preserves_link(env):
     assert by_id["c1"]["user_id"] is None
 
 
+def test_save_annotation_refuses_a_display_id_another_collection_holds(env):
+    """A display ID names one collection. Two rows answering to one name make
+    every picker, legend and study selection ambiguous, so a rename onto a
+    taken name is refused — but re-saving the name a collection already has
+    is not a rename, or a tag tick on grandfathered data could never save."""
+    store, client, um = env
+    store.files["recoded"]["collections_tags.json"]["c2"] = {
+        "display_collection_id": None, "annotation_tags": [], "hidden": False}
+
+    # c1 is "One"; c2 may not become it — case and spacing are not a difference.
+    r = client.post("/api/manage/collection/save_annotation", json={
+        "collection_id": "c2", "display_collection_id": "  one  ", "tags": []})
+    assert r.status_code == 409
+    assert "c1" in r.get_json()["error"]
+    assert store.files["recoded"]["collections_tags.json"]["c2"]["display_collection_id"] is None
+
+    # Nor onto c1's bare id, which is what an unlabelled collection shows.
+    r = client.post("/api/manage/collection/save_annotation", json={
+        "collection_id": "c2", "display_collection_id": "c1", "tags": []})
+    assert r.status_code == 409
+
+    # A free name lands, whitespace-normalised.
+    r = client.post("/api/manage/collection/save_annotation", json={
+        "collection_id": "c2", "display_collection_id": " Donor   Two ", "tags": []})
+    assert r.status_code == 200, r.get_json()
+    assert store.files["recoded"]["collections_tags.json"]["c2"]["display_collection_id"] == "Donor Two"
+
+    # Re-saving its own name is not a rename.
+    r = client.post("/api/manage/collection/save_annotation", json={
+        "collection_id": "c2", "display_collection_id": "Donor Two", "tags": ["t"]})
+    assert r.status_code == 200, r.get_json()
+
+    # Clearing the box is not "no name" — the collection then shows its own
+    # id, so it is a rename onto that id and is checked the same way.
+    store.files["recoded"]["collections_tags.json"]["c1"]["display_collection_id"] = "c2"
+    r = client.post("/api/manage/collection/save_annotation", json={
+        "collection_id": "c2", "display_collection_id": "", "tags": []})
+    assert r.status_code == 409
+    assert "c1" in r.get_json()["error"]
+    store.files["recoded"]["collections_tags.json"]["c1"]["display_collection_id"] = "One"
+    r = client.post("/api/manage/collection/save_annotation", json={
+        "collection_id": "c2", "display_collection_id": "", "tags": []})
+    assert r.status_code == 200, r.get_json()
+    assert store.files["recoded"]["collections_tags.json"]["c2"]["display_collection_id"] is None
+
+
+def test_save_annotation_lets_a_grandfathered_duplicate_still_be_edited(env):
+    """Data that predates the guard keeps its clashing name until someone
+    renames it; a bulk tag edit resends that name and must not be refused."""
+    store, client, um = env
+    store.files["recoded"]["collections_tags.json"]["c2"] = {
+        "display_collection_id": "One", "annotation_tags": [], "hidden": False}
+    r = client.post("/api/manage/collection/save_annotation", json={
+        "collection_id": "c2", "display_collection_id": "One", "tags": ["t9"]})
+    assert r.status_code == 200, r.get_json()
+    entry = store.files["recoded"]["collections_tags.json"]["c2"]
+    assert entry["display_collection_id"] == "One" and entry["annotation_tags"] == ["t9"]
+
+
 def test_collections_payload_labels_linked_account(env):
     store, client, um = env
     ca.set_collection_owner("c2", "member@example.test")

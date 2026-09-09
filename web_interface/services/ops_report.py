@@ -437,6 +437,17 @@ def collect_status(hours_back: int = 24) -> dict:
                   f"upload and no withdrawal record", orphaned)
         else:
             check(sec, "Linked collections missing from the dataset", "green", "None")
+        # Writes have enforced unique display IDs since 2026-09-09, so a name
+        # shared by two collections predates the guard and has to be renamed
+        # by hand — until then both show the same label in every picker.
+        from fyp.ingest.raw_names import duplicate_display_ids
+        dupes = duplicate_display_ids(tags)
+        if dupes:
+            check(sec, "Duplicate display IDs", "yellow",
+                  f"{len(dupes)} display ID(s) answer for more than one collection",
+                  [f"{label}: {', '.join(cids)}" for label, cids in dupes.items()])
+        else:
+            check(sec, "Duplicate display IDs", "green", "Every display ID is unique")
         meta_mtime = data_io.getmtime(storage_location="recoded",
                                       filename="collections_metadata.parquet")
         meta_dt = (datetime.fromtimestamp(meta_mtime, tz=timezone.utc)

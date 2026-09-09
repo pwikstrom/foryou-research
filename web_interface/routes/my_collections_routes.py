@@ -84,6 +84,7 @@ def api_my_upload():
     from fyp.ingest.raw_names import (
         allocate_upload_identity,
         known_collection_ids,
+        known_display_keys,
         manifest_entry,
     )
     from .. import activity_log
@@ -132,6 +133,7 @@ def api_my_upload():
         manifest = data_io.load_json(
             storage_location=raw_path_key, filename=MANIFEST_FILENAME, verbose=False) or {}
     known_ids = known_collection_ids()
+    known_displays = known_display_keys(known_ids)
 
     temp_dir = fyp_cf['paths']['temp']
     os.makedirs(temp_dir, exist_ok=True)
@@ -148,7 +150,8 @@ def api_my_upload():
             original_name = os.path.basename(file.filename)
             filename, cid, display_id = allocate_upload_identity(
                 source["source_platform"], source["data_source"],
-                original_name, raw_path_key, known_ids=known_ids)
+                original_name, raw_path_key, known_ids=known_ids,
+                known_displays=known_displays)
 
             temp_path = os.path.join(temp_dir, filename)
             file.save(temp_path)

@@ -123,6 +123,10 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
 
     const tbody = document.createElement('tbody');
 
+    // Picking collections for a study is picking them BY NAME, so a name two
+    // collections share has to say so here as well as in Edit Collections.
+    const duplicateDisplayKeys = _dmDuplicateDisplayKeys();
+
     availableCollections.forEach(itemInfo => {
         const item = typeof itemInfo === 'string' ? itemInfo : itemInfo.id;
 
@@ -153,6 +157,10 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
             }
             searchString = `${item} ${pDisplayId} ${pTags} ${pAccount} ${pActiveDays} ${pTotalEvents} ${pLastEvent} ${pAdded}`;
         }
+
+        const isDuplicateDisplayId = duplicateDisplayKeys.has(
+            _dmDisplayKey(pDisplayId || item));
+        if (isDuplicateDisplayId) searchString += ' duplicate';
 
         tr.setAttribute('data-search', searchString.toLowerCase());
 
@@ -190,10 +198,13 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
 
         tr.appendChild(tdCheck);
         const primaryId = pDisplayId ? pDisplayId : item;
-        const idCell = createCell(primaryId, true, item);
+        // Sort on the name alone: the duplicate flag below is part of the
+        // cell's text, and sorting would otherwise read it as part of it.
+        const idCell = createCell(primaryId, true, item, primaryId);
         idCell.style.maxWidth = '160px';
         idCell.style.overflow = 'hidden';
         idCell.style.textOverflow = 'ellipsis';
+        if (isDuplicateDisplayId) idCell.appendChild(_dmDuplicateFlag());
         tr.appendChild(idCell);
         tr.appendChild(createCell(pTags));
         tr.appendChild(createCell(pLastEvent, false, null, _dmSortTs(rawLastEvent)));
@@ -6219,6 +6230,11 @@ function renderEditActivityTable(container) {
 
     const tbody = document.createElement('tbody');
 
+    // Names shared by two collections can only be data that predates the
+    // uniqueness guard: they are flagged in the ID column so the operator can
+    // rename them, since nothing else tells the two rows apart at a glance.
+    const duplicateDisplayKeys = _dmDuplicateDisplayKeys();
+
     availableCollections.forEach(itemInfo => {
         const item = typeof itemInfo === 'string' ? itemInfo : itemInfo.id;
         let pAccount = '', pAccountId = '', pAdded = '', pDisplayId = '', pTags = '';
@@ -6252,6 +6268,12 @@ function renderEditActivityTable(container) {
                 + `${pAdded} ${fypFmtDate(rawAdded, '')} `
                 + `${_ENRICHMENT_STATE_LABELS[itemInfo.enrichment_state] || ''}`;
         }
+
+        // Searchable by the word too, so "duplicate" in the box collects
+        // every clashing row into one list to work through.
+        const isDuplicateDisplayId = duplicateDisplayKeys.has(
+            _dmDisplayKey(pDisplayId || item));
+        if (isDuplicateDisplayId) searchString += ' duplicate';
 
         const tr = document.createElement('tr');
         tr.className = 'edit-activity-item';
@@ -6304,10 +6326,13 @@ function renderEditActivityTable(container) {
         tr.appendChild(checkTd);
 
         const primaryId = pDisplayId ? pDisplayId : item;
-        const idCell = createCell(primaryId, true, item);
+        // Sort on the name alone: the duplicate flag below is part of the
+        // cell's text, and sorting would otherwise read it as part of it.
+        const idCell = createCell(primaryId, true, item, primaryId);
         idCell.style.maxWidth = '160px';
         idCell.style.overflow = 'hidden';
         idCell.style.textOverflow = 'ellipsis';
+        if (isDuplicateDisplayId) idCell.appendChild(_dmDuplicateFlag());
         tr.appendChild(idCell);
         const accountCell = createCell(pAccount, false, pAccountId || null);
         accountCell.style.maxWidth = '160px';
@@ -6409,6 +6434,68 @@ let _dmSaveChain = Promise.resolve();
 let _dmSavedAnything = false;
 
 
+// The name a collection answers to everywhere: its display ID, or its own
+// collection ID when it has none.
+function _dmDisplayName(c) {
+    if (!c) return '';
+    if (typeof c === 'string') return c;
+    return c.displayId || c.id || '';
+}
+
+
+// Two display IDs are the same name when only case or stray whitespace
+// separates them - the server folds them the same way.
+function _dmDisplayKey(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+
+// The marker appended to an ID cell whose name is not this collection's alone.
+function _dmDuplicateFlag() {
+    const wrap = document.createDocumentFragment();
+    const flag = document.createElement('span');
+    flag.className = 'dm-dup-display-id text-xs';
+    flag.textContent = 'duplicate';
+    flag.title = 'Another collection answers to this display ID. Open either '
+        + 'row in Edit Collections and give one of them a name of its own.';
+    wrap.appendChild(document.createTextNode(' '));
+    wrap.appendChild(flag);
+    return wrap;
+}
+
+
+// Every display ID more than one collection answers to, as a Set of keys.
+// Only non-empty when data predates the uniqueness guard.
+function _dmDuplicateDisplayKeys() {
+    const seen = new Set(), dupes = new Set();
+    (availableCollections || []).forEach(c => {
+        const key = _dmDisplayKey(_dmDisplayName(c));
+        if (!key) return;
+        if (seen.has(key)) dupes.add(key);
+        seen.add(key);
+    });
+    return dupes;
+}
+
+
+// The OTHER collection already using this display ID, or null. A collection
+// answers to its own ID as well as its display ID - the ID is what listings
+// fall back to and what this modal's header shows whatever the label says -
+// so naming one collection after another's ID is a clash too. The endpoint
+// enforces the same rule; this only means the operator hears about it while
+// the box is still in front of them rather than after the write.
+function _dmDisplayIdClash(value, collectionId) {
+    const key = _dmDisplayKey(value);
+    if (!key) return null;
+    const hit = (availableCollections || []).find(c => {
+        const id = typeof c === 'object' ? c.id : c;
+        return id !== collectionId
+            && (_dmDisplayKey(id) === key || _dmDisplayKey(_dmDisplayName(c)) === key);
+    });
+    return hit ? (typeof hit === 'object' ? hit.id : hit) : null;
+}
+
+
 // The modal's only save feedback for a single collection. tone: 'ok' | 'err'
 // | '' (in progress). The 'ok' word clears itself; an error stays put.
 function _dmSetSaveState(text, tone = '') {
@@ -6500,10 +6587,29 @@ function dmDisplayIdCommit() {
     const btn = document.getElementById('edit-collection-display-id-save');
     const tick = document.getElementById('edit-collection-display-id-tick');
     if (!input || input.value === _dmSavedDisplayId) return;
+    // A display ID belongs to one collection. Refuse the rename here rather
+    // than let the endpoint refuse it, so the box keeps what was typed and
+    // the Save button stays offered for the next attempt.
+    const clash = _dmDisplayIdClash(
+        input.value.trim() || currentEditCollectionId, currentEditCollectionId);
+    if (clash) {
+        _dmSetSaveState(`Not saved: ${clash} already uses that display ID`, 'err');
+        if (btn) btn.style.display = '';
+        if (tick) tick.style.display = 'none';
+        return;
+    }
+    const rejected = _dmSavedDisplayId;
     _dmSavedDisplayId = input.value;
     if (btn) btn.style.display = 'none';
     _dmAutoSaveCollection().then(ok => {
-        if (!ok || !tick) return;
+        if (!ok) {
+            // Every autosave carries the whole record, so a name the endpoint
+            // refused must not ride along on the next tag tick.
+            _dmSavedDisplayId = rejected;
+            if (btn) btn.style.display = '';
+            return;
+        }
+        if (!tick) return;
         tick.style.display = '';
         const stamp = (tick._dmStamp = (tick._dmStamp || 0) + 1);
         setTimeout(() => { if (tick._dmStamp === stamp) tick.style.display = 'none'; }, 3000);
