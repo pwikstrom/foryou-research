@@ -1134,8 +1134,8 @@ def _plan(reporter, plans: dict) -> dict | None:
                     why = (f"Idle — the annotation target ({target:,} videos) is "
                            f"reached, or covered by videos already queued")
                 elif float(settings.get("sample_share") or 0) >= 1:
-                    why = ("Idle — the plan has processed every day the spread can "
-                           "sample, and is still short of the target; moving the "
+                    why = ("Idle — the plan has processed every day the random daily "
+                           "sample can take, and is still short of the target; moving the "
                            "balance toward the deep dive, or raising the items "
                            "per day, lets it cover the rest of the collection")
                 elif settings.get("earliest_date"):
@@ -1195,18 +1195,18 @@ def _plan(reporter, plans: dict) -> dict | None:
                 FINISHING_KEY: None,
             })
             reporter.log(f"{cid}: queued {len(items)} item(s) to scrape "
-                         f"({result['b']} deep-dive, {result['a']} spread); "
+                         f"({result['b']} deep-dive, {result['a']} random daily sample); "
                          f"back to {result['b_cursor']} / {result['a_cursor']}."
                          + (f" Partial day {result['partial_day']} — the plan's last slice."
                             if result.get("partial_day") else ""))
             message = (f"Next batch queued for scraping — {len(items):,} video(s) "
                        f"({result['b']:,} from the deep dive into recent days, "
-                       f"{result['a']:,} from the spread across the history"
+                       f"{result['a']:,} from the random daily sample across the history"
                        + (f", up to {result.get('spread_days')} day(s) a month"
                           if result["a"] and result.get("spread_days") else "")
                        + "); "
                        f"the deep dive now reaches back to {result['b_cursor'] or '—'}, "
-                       f"the spread to {result['a_cursor'] or '—'}")
+                       f"the random daily sample to {result['a_cursor'] or '—'}")
             if result.get("partial_day"):
                 message += (f"; only part of {result['partial_day']} — the last batch needed "
                             f"to reach the target, allowing for the ~{1 - expected_yield:.0%} "
@@ -1264,7 +1264,7 @@ def _spread_density(reporter, cid: str, entry: dict, settings: dict, activity,
              "spread_days_basis": basis}
     ce.save_plan(cid, patch)
     if derived["days"]:
-        reporter.log(f"{cid}: the spread samples up to {derived['days']} day(s) a month — "
+        reporter.log(f"{cid}: the random daily sample takes up to {derived['days']} day(s) a month — "
                      f"{derived['videos']:,} video(s) wanted from it over "
                      f"{derived['months']} month(s), {derived['capacity']:,} available "
                      f"at that density"

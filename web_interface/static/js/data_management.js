@@ -7394,17 +7394,18 @@ function dmEnrichTargetReadout(target) {
     if (!target || !total) { el.textContent = ''; return; }
     const more = Math.max(0, target - annotated);
     if (!more) { el.textContent = 'already met'; return; }
-    const parts = [`${more.toLocaleString()} items will be annotated`];
+    let text = `These settings will annotate ${more.toLocaleString()} items.`;
     if (dmEnrichCostPer1000 && dmEnrichCostPer1000.est_cost_usd) {
         const usd = more * dmEnrichCostPer1000.est_cost_usd / 1000;
         const model = dmEnrichCostPer1000.model || dmEnrichCostPer1000.backend;
-        parts.push(`\u2248 $${usd < 10 ? usd.toFixed(2) : Math.round(usd).toLocaleString()}`
-                   + (model ? ` (${model})` : ''));
+        text += ` Estimated cost${model ? ` using ${model}` : ''}: `
+              + `$${usd < 10 ? usd.toFixed(2) : Math.round(usd).toLocaleString()}.`;
     }
     const cycleItems = dmEnrichEffectiveCycleItems();
     const cycles = Math.ceil(more / cycleItems);
-    parts.push(`\u2248 ${cycles.toLocaleString()} cycle(s), ${dmEnrichCyclesDuration(cycles)}`);
-    el.textContent = parts.join(' \u00b7 ');
+    text += ` Estimated time to reach the target: ${dmEnrichCyclesDuration(cycles)}`
+          + ` (${cycles.toLocaleString()} cycle${cycles === 1 ? '' : 's'}).`;
+    el.textContent = text;
 }
 
 // The readout depends on Items per cycle too; its input calls this.
@@ -7664,19 +7665,16 @@ function dmEnrichDaysReadout() {
         return;
     }
     const days = (n, what) => `\u2248 ${n.toLocaleString()} ${what} day${n === 1 ? '' : 's'}`;
-    const parts = [];
-    // The total after the plan, already-ready days included, with the
-    // spread's density as the aside that explains where the new ones come from.
-    parts.push(days(st.readyAfter, 'analysis-ready')
+    // The total after the plan, already-ready days included, with the random
+    // sample's density as the aside that explains where the new ones come from.
+    const ready = days(st.readyAfter, 'analysis-ready')
                + ` (${st.readyNow.toLocaleString()} already`
                + (st.spreadDays && st.daysPerMonth
-                   ? `; the spread adds about ${st.daysPerMonth} a month)` : ')'));
-    if (st.deepDays) {
-        parts.push(days(st.deepDays, 'deep-dive'));
-    } else {
-        parts.push(st.share < 1 ? 'no deep-dive days' : 'no deep-dive days (only spread)');
-    }
-    el.textContent = parts.join(' \u00b7 ');
+                   ? `; the random daily sample adds about ${st.daysPerMonth} days a month)` : ')');
+    const deep = st.deepDays
+        ? days(st.deepDays, 'deep-dive')
+        : (st.share < 1 ? 'no deep-dive days' : 'no deep-dive days (only random daily sample)');
+    el.textContent = `These settings will give ${ready} and ${deep}.`;
 }
 
 // What the CURRENT settings can ever reach: the estimate run with no target
@@ -7717,7 +7715,7 @@ function dmEnrichTargetWarning(target) {
     const causes = [];
     const fixes = [];
     if (share >= 1) {
-        causes.push('the balance set to only spread');
+        causes.push('the balance set to only random daily sample');
         fixes.push('move the balance toward the deep dive or raise the items per day');
     }
     if (earliest) {
@@ -8031,7 +8029,7 @@ function dmEnrichRenderRun(progress) {
     if (cursors) {
         cursors.textContent = (progress.b_cursor || progress.a_cursor)
             ? `Deep dive has worked back to ${progress.b_cursor || '\u2014'}`
-              + ` \u00b7 spread to ${progress.a_cursor || '\u2014'}`
+              + ` \u00b7 random daily sample to ${progress.a_cursor || '\u2014'}`
             : '';
     }
 }

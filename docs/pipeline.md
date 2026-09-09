@@ -189,7 +189,7 @@ handoff outranks the plan step in the tick, new scraping starts only once
 that backlog is clear. Slices then interleave two processes that both buy
 **whole collection-days** (the unit every analysis floors on): Process B
 ("deep dive") takes consecutive recent days uncapped (what Sessions needs),
-Process A ("spread") samples whole days per month backwards through
+Process A (the **random daily sample** in the UI; "spread" in the code) samples whole days per month backwards through
 history, capped at `a_day_cap` per day (default 50 — the
 Timelines/Correlations long arc), with `sample_share` splitting each
 cycle's items between them. **How many days a month the spread samples is
@@ -207,8 +207,8 @@ is a superset of a lower one. Arming stamps
 annotated count read from the DATA at that moment — which is what the
 modal's run meter measures against; a resume keeps them, a re-arm
 replaces them. With any deep-dive share above zero the plan
-can eventually reach everything processable; only at 100% spread (or under
-an `earliest_date` floor) do the spread limits cap the final coverage — the
+can eventually reach everything processable; only at a 100% random daily
+sample (or under an `earliest_date` floor) does its per-day cap bound the final coverage — the
 panel warns when the chosen target sits above that line. Plans, cursors and
 targets live in `cache/collection_enrichment.json`; they are armed from the
 Edit Collections modal, the site-wide switch is the

@@ -439,19 +439,19 @@ the target, and how far back through the history each half of the cycle has
 walked. Arming an Idle or stopped plan starts a new run and moves that
 starting line; resuming a paused one keeps it.
 The loop always annotates the already-scraped backlog first, then splits
-new scraping between a recent-days **deep dive** and a capped **spread**
+new scraping between a recent-days **deep dive** and a capped **random daily sample**
 across the history; what one of the two cannot spend the other uses. The
 plan's settings are three full-width sliders, each with its value on the
-label line: the annotation target, the deep dive / spread balance, and the
-spread's cap on videos per day (logarithmic, from the ten-video floor to
+label line: the annotation target, the balance between deep dive and random
+daily sample, and the sample's cap on items per day (logarithmic, from the ten-video floor to
 the collection's busiest day; 50 by default). How many days a month the
-spread samples is not a setting: a line under the cap slider says what the
-three sliders add up to — how many spread days (of the days with at least
-ten videos, and how many a month) and how many deep-dive days the plan
-will buy. The earliest date is set on the chart itself: drag the handle at
+random daily sample takes is not a setting: a line under the cap slider
+says what the three sliders add up to — how many analysis-ready days the
+collection will have after the plan (days already ready included, and how
+many days a month the sample adds) and how many deep-dive days it will buy. The earliest date is set on the chart itself: drag the handle at
 the start of the window (there is no end handle — a plan always reaches
 the newest day), nudge it a day at a time, or *Full history* to clear it.
-Only the balance at 100% spread, the per-day cap and an earliest date can
+Only the balance at 100% random daily sample, the per-day cap and an earliest date can
 leave a target out of reach, and the amber warning names them.
 Each cycle is sized automatically — there is no items-per-cycle knob —
 as one annotation job's worth (2,000), sized up for the videos expected to
