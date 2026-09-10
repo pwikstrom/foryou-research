@@ -105,7 +105,7 @@ dtype = "string[pyarrow]"
 section = "Activity"
 scale = "text"
 display_name = "Engagement activity"
-description = "Engagement activities (fave/comment/share/follow/save) folded into the leading play row of a session run. Null for most rows."
+description = "Engagement activities (fave/comment/share/follow/save) folded into the leading play row of a session run. Null for most rows. Comments carry no video ID in the platform export: one is linked to the play it followed within 180s, so the video is what was on screen at the time — not necessarily what the comment was posted on. The timestamp on this row is the play's, not the comment's."
 
 [[fields]]
 name = "tz_offset"
