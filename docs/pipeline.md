@@ -27,10 +27,35 @@ Notable behaviors:
   per platform in the canonical scrape schema with `scrape_status="donated"`,
   and used at consolidation as a lowest-precedence fallback for items that
   can't be scraped.
+- **Upload identity** (`fyp/ingest/raw_names.py`): a raw upload's stored
+  filename and its collection id are *generated* (platform, source, upload
+  time, random suffix); the browser's filename is provenance only, kept on
+  the manifest entry and as the default **display ID**. Every TikTok export
+  is called `user_data_tiktok.json`, and on 2026-09-06 one such upload was
+  skipped as "already processed" and clobbered an older donor's raw file on
+  the way in. Raw locations and the archive are append-only at the storage
+  layer (`data_io.move`/rename into them raise instead of overwriting), the
+  ingester reports a pending entry whose name is already taken rather than
+  skipping it, and an explicit collection id may append to an existing
+  collection only under the same account. Display IDs name one collection
+  each: `unique_display_label` suffixes ` (2)` at upload, a rename onto a
+  name another collection answers to (its display ID or its collection id,
+  case and whitespace ignored) is refused with a 409, and pre-existing
+  duplicates are flagged (`duplicate_display_ids`, an ops-report check and a
+  *duplicate* pill in Edit Collections and the study picker) rather than
+  renamed behind the operator's back. Only a rename is checked — the bulk
+  edit and the modal's autosave resend the stored name on every tag tick.
 - **Structure sentinel** (`fyp/core/structure_sentinel.py`): learns each
   platform's export structure and per-file sanity stats; a drifted upload is
   quarantined for admin review (Data Pipeline → Ingest Collections) instead
   of silently mis-ingested. Parse failures stay pending and are retried next refresh.
+  An admin's approval **sticks**: the sentinel reads the stored verdicts at
+  the start of a run and does not re-quarantine an approved file for
+  findings of a kind the approval covered (one learned file cannot move a
+  20-file baseline), and `save_ledger` merges this run's changes into the
+  stored ledger instead of overwriting it, so a review recorded while an
+  ingest run held the ledger in memory is never erased (2026-09-07: two
+  approved uploads stayed pending for that reason).
 - **Per-file intake report**: the load loop records each file's true raw row
   count (including too-small discards) and a per-file drop-reason breakdown —
   rows that couldn't be interpreted (`not_parseable`), rows missing
@@ -360,7 +385,12 @@ dispatched is decided one completion at a time from what each finished step
 reports — `map_niche_changed` / `map_cold_start` from the map, `studies_changed`
 from the study refresh, `embeddings_embedded_run` from the embeddings worker.
 A warm-started map rebuild that moves no video between niches therefore runs
-nothing downstream at all. Only a positive "nothing changed" prunes; an absent
+nothing downstream at all. (The map *is* warm-started: `video_map_refresh`
+seeds its k-means from the previous build's niches — each old niche's members
+averaged in the current PCA space, `n_init=1` — so an append refines the old
+partition instead of redrawing it and ~150/150 niche names carry over without
+a Gemini naming pass; `reset_labels`, a missing previous map, a changed niche
+count or a niche with under five surviving members cold-start instead.) Only a positive "nothing changed" prunes; an absent
 signal is unknown, and unknown always runs.
 
 The niche map's fingerprint for study-cache freshness is a hash over its
@@ -372,7 +402,18 @@ rebuild anyway.
 `sessions_refresh` runs in `stale_only` mode: it re-segments only the
 collections whose coverage windows or in-window play/annotated counts moved,
 and returns immediately when none did — a second line of defence behind the
-planner's own decision. `skip_if_busy` keeps it off the toes of a sessions run
+planner's own decision. An enrichment change is **scoped** too
+(`session_explorer.enrichment_change_scope`): because the embedding shards
+are append-only, a store whose previously recorded shards are all still
+present byte-identical has only grown, the vectors past the last build's
+count and the annotation rows past its `inference_ts` watermark (an epoch in
+seconds — read from Arrow, not via pandas) name the changed items, and only
+the collections holding them join the refresh as a merge. A rewritten or
+missing shard, a build predating the recorded shard set or watermark, or
+appends beyond `[sessions] rebaseline_fraction` (5 %) of the corpus since
+the last full build fall back to the full rebuild, which resets the
+baseline. Before 2026-09-03 any annotation batch rebuilt all covered
+collections (~8 min for 50 annotations). `skip_if_busy` keeps it off the toes of a sessions run
 already in flight (one is also chained after every study save, which is a plain
 chain rather than a run). It can still be run on its own from Data Pipeline →
 Dataset Assembly, where "Force full rebuild" re-segments every covered
