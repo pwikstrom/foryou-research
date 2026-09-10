@@ -159,7 +159,7 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
         }
 
         const isDuplicateDisplayId = duplicateDisplayKeys.has(
-            _dmDisplayKey(pDisplayId || item));
+            _dmDisplayKey(pDisplayId || item)) || _dmHasUnlistedTwin(itemInfo);
         if (isDuplicateDisplayId) searchString += ' duplicate';
 
         tr.setAttribute('data-search', searchString.toLowerCase());
@@ -204,7 +204,7 @@ function renderCollectionSelector(container, selectedList, readOnly = false) {
         idCell.style.maxWidth = '160px';
         idCell.style.overflow = 'hidden';
         idCell.style.textOverflow = 'ellipsis';
-        if (isDuplicateDisplayId) idCell.appendChild(_dmDuplicateFlag());
+        if (isDuplicateDisplayId) idCell.appendChild(_dmDuplicateFlag(itemInfo));
         tr.appendChild(idCell);
         tr.appendChild(createCell(pTags));
         tr.appendChild(createCell(pLastEvent, false, null, _dmSortTs(rawLastEvent)));
@@ -6272,7 +6272,7 @@ function renderEditActivityTable(container) {
         // Searchable by the word too, so "duplicate" in the box collects
         // every clashing row into one list to work through.
         const isDuplicateDisplayId = duplicateDisplayKeys.has(
-            _dmDisplayKey(pDisplayId || item));
+            _dmDisplayKey(pDisplayId || item)) || _dmHasUnlistedTwin(itemInfo);
         if (isDuplicateDisplayId) searchString += ' duplicate';
 
         const tr = document.createElement('tr');
@@ -6332,7 +6332,7 @@ function renderEditActivityTable(container) {
         idCell.style.maxWidth = '160px';
         idCell.style.overflow = 'hidden';
         idCell.style.textOverflow = 'ellipsis';
-        if (isDuplicateDisplayId) idCell.appendChild(_dmDuplicateFlag());
+        if (isDuplicateDisplayId) idCell.appendChild(_dmDuplicateFlag(itemInfo));
         tr.appendChild(idCell);
         const accountCell = createCell(pAccount, false, pAccountId || null);
         accountCell.style.maxWidth = '160px';
@@ -6450,14 +6450,34 @@ function _dmDisplayKey(value) {
 }
 
 
+// Twins the server found in the tags file that have no row in this listing:
+// a collection entry with no data, which cannot be renamed here — only
+// deleted. The listing is the dataset; the tags file is wider.
+function _dmUnlistedTwins(c) {
+    if (!c || typeof c !== 'object' || !Array.isArray(c.displayIdTwins)) return [];
+    const listed = new Set((availableCollections || []).map(x => typeof x === 'object' ? x.id : x));
+    return c.displayIdTwins.filter(id => !listed.has(id));
+}
+
+
+function _dmHasUnlistedTwin(c) {
+    return _dmUnlistedTwins(c).length > 0;
+}
+
+
 // The marker appended to an ID cell whose name is not this collection's alone.
-function _dmDuplicateFlag() {
+function _dmDuplicateFlag(c) {
     const wrap = document.createDocumentFragment();
     const flag = document.createElement('span');
     flag.className = 'dm-dup-display-id text-xs';
     flag.textContent = 'duplicate';
-    flag.title = 'Another collection answers to this display ID. Open either '
-        + 'row in Edit Collections and give one of them a name of its own.';
+    const unlisted = _dmUnlistedTwins(c);
+    flag.title = unlisted.length
+        ? 'A collection entry with no data also answers to this display ID and '
+          + 'has no row here: ' + unlisted.join(', ') + '. Delete that entry by id '
+          + '(the daily ops report lists it under "Leftover collection entries").'
+        : 'Another collection answers to this display ID. Open either '
+          + 'row in Edit Collections and give one of them a name of its own.';
     wrap.appendChild(document.createTextNode(' '));
     wrap.appendChild(flag);
     return wrap;

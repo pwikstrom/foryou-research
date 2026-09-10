@@ -8,6 +8,21 @@ Development began in November 2025 and ran privately through August 2026, so
 `0.1.0` is the first tagged release rather than a step on from an earlier
 public version. Entries below describe the Hub as it stands at that release.
 
+## [Unreleased]
+
+### Fixed
+
+- **Duplicate display IDs you could not find.** The *duplicate* pill and the
+  `duplicate` search word were computed from the Edit Collections listing,
+  which is the metadata table, while the ops report's check reads the tags
+  file. A twin that existed only as a tags entry with no data (leftovers from
+  verification signups) left the real collection looking uniquely named and
+  the report pointing at a page that showed nothing. The listing now sends
+  each row its display-ID twins from the tags file, so the pill shows and its
+  tooltip names the twin that has no row; the report marks the no-data side
+  of each pair and lists unowned, dataless entries under a new **Leftover
+  collection entries** check, with the delete-by-id route to clear them.
+
 ## [0.3.0] — 2026-09-10
 
 The automation release: enrichment of a collection now runs itself — an armed

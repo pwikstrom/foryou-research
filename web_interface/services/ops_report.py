@@ -430,22 +430,43 @@ def collect_status(hours_back: int = 24) -> dict:
         # through the cracks (2026-09-06: a pending file was skipped on a
         # name collision and its manifest entry cleaned, leaving only the
         # owner link behind — this check would have flagged it that morning).
-        orphaned = _linked_collections_missing(tags, pending_cids)
+        dataset_ids = _dataset_collection_ids()
+        withdrawn = _withdrawn_collection_ids()
+        orphaned = _linked_collections_missing(tags, pending_cids, dataset_ids, withdrawn)
         if orphaned:
             check(sec, "Linked collections missing from the dataset", "yellow",
                   f"{len(orphaned)} owned collection(s) have no data, no pending "
                   f"upload and no withdrawal record", orphaned)
         else:
             check(sec, "Linked collections missing from the dataset", "green", "None")
+        # The unowned counterpart: a tags entry with no owner, no data, no
+        # pending upload and no withdrawal is a leftover (2026-09-11: five
+        # entries from verification signups sat there since before the
+        # generated-id work). Edit Collections lists the dataset, so these
+        # never appear on a page — the delete endpoint is how they go.
+        leftovers = _leftover_tag_entries(tags, pending_cids, dataset_ids, withdrawn)
+        if leftovers:
+            check(sec, "Leftover collection entries", "yellow",
+                  f"{len(leftovers)} unowned collection entr"
+                  f"{'y' if len(leftovers) == 1 else 'ies'} with no data — not shown "
+                  f"in Edit Collections; delete by id "
+                  f"(POST /api/manage/collections/delete)", leftovers)
+        else:
+            check(sec, "Leftover collection entries", "green", "None")
         # Writes have enforced unique display IDs since 2026-09-09, so a name
         # shared by two collections predates the guard and has to be renamed
-        # by hand — until then both show the same label in every picker.
+        # by hand — until then both show the same label in every picker. An id
+        # with no data is a leftover: it has no row in Edit Collections, so
+        # renaming is not on offer for it — deleting it is the fix.
         from fyp.ingest.raw_names import duplicate_display_ids
         dupes = duplicate_display_ids(tags)
         if dupes:
             check(sec, "Duplicate display IDs", "yellow",
                   f"{len(dupes)} display ID(s) answer for more than one collection",
-                  [f"{label}: {', '.join(cids)}" for label, cids in dupes.items()])
+                  [f"{label}: " + ", ".join(
+                      cid if cid in dataset_ids else f"{cid} (no data)"
+                      for cid in cids)
+                   for label, cids in dupes.items()])
         else:
             check(sec, "Duplicate display IDs", "green", "Every display ID is unique")
         meta_mtime = data_io.getmtime(storage_location="recoded",
@@ -674,40 +695,81 @@ def _structure_review_check(queue: dict) -> tuple[str, str, list[str]]:
             [f"{r.get('filename')}: {r.get('status')}" for r in rows])
 
 
-def _linked_collections_missing(tags: dict, pending_cids: set) -> list[str]:
+def _dataset_collection_ids() -> set:
+    """Collection ids with a metadata row — what Edit Collections lists."""
+    import fyp.data_io as data_io
+    from fyp.organize_datasets import COLLECTIONS_LABEL
+    meta_fn = f"{COLLECTIONS_LABEL}_metadata.parquet"
+    if not data_io.exists(storage_location="recoded", filename=meta_fn):
+        return set()
+    meta = data_io.load_parquet(storage_location="recoded", filename=meta_fn)
+    if meta is None:
+        return set()
+    if "collection_id" in getattr(meta, "columns", []):
+        return {str(c) for c in meta["collection_id"].dropna().unique()}
+    return {str(c) for c in meta.index.dropna().unique()}
+
+
+def _withdrawn_collection_ids() -> set:
+    import fyp.data_io as data_io
+    if not data_io.exists(storage_location="recoded", filename="withdrawals.json"):
+        return set()
+    return {str(k) for k in (data_io.load_json(
+        storage_location="recoded", filename="withdrawals.json") or {})}
+
+
+def _tag_entries_without_data(tags: dict, pending_cids: set, dataset_ids: set,
+                              withdrawn: set, owned: bool) -> list[tuple[str, dict]]:
+    """Tags entries with no metadata row, no pending manifest entry and no
+    withdrawal record, split by whether they carry an owner."""
+    out = []
+    for cid, entry in sorted(tags.items()):
+        entry = entry if isinstance(entry, dict) else {}
+        if bool(entry.get("user_id")) != owned:
+            continue
+        cid = str(cid)
+        if cid in dataset_ids or cid in pending_cids or cid in withdrawn:
+            continue
+        out.append((cid, entry))
+    return out
+
+
+def _linked_collections_missing(tags: dict, pending_cids: set,
+                                dataset_ids: set | None = None,
+                                withdrawn: set | None = None) -> list[str]:
     """Owned collections (a truthy ``user_id`` in the tags sidecar) that have
     no metadata row, no pending manifest entry and no withdrawal record.
 
     Args:
         tags: The collections tags sidecar.
         pending_cids: Collection ids named by any raw location's manifest.
+        dataset_ids / withdrawn: Read from storage when not passed.
     """
-    import fyp.data_io as data_io
-    from fyp.organize_datasets import COLLECTIONS_LABEL
-    dataset_ids: set = set()
-    meta_fn = f"{COLLECTIONS_LABEL}_metadata.parquet"
-    if data_io.exists(storage_location="recoded", filename=meta_fn):
-        meta = data_io.load_parquet(storage_location="recoded", filename=meta_fn)
-        if meta is not None:
-            if "collection_id" in getattr(meta, "columns", []):
-                dataset_ids = {str(c) for c in meta["collection_id"].dropna().unique()}
-            else:
-                dataset_ids = {str(c) for c in meta.index.dropna().unique()}
-    withdrawn: set = set()
-    if data_io.exists(storage_location="recoded", filename="withdrawals.json"):
-        withdrawn = {str(k) for k in (data_io.load_json(
-            storage_location="recoded", filename="withdrawals.json") or {})}
+    if dataset_ids is None:
+        dataset_ids = _dataset_collection_ids()
+    if withdrawn is None:
+        withdrawn = _withdrawn_collection_ids()
+    return [f"{cid} (owner {entry['user_id']})" for cid, entry in
+            _tag_entries_without_data(tags, pending_cids, dataset_ids, withdrawn, owned=True)]
+
+
+def _leftover_tag_entries(tags: dict, pending_cids: set,
+                          dataset_ids: set | None = None,
+                          withdrawn: set | None = None) -> list[str]:
+    """Unowned tags entries with no metadata row, no pending manifest entry
+    and no withdrawal record — nothing claims them, nothing lists them, and
+    the only thing they do is hold a display ID (2026-09-11: four names each
+    answered for a real collection and one of these)."""
+    if dataset_ids is None:
+        dataset_ids = _dataset_collection_ids()
+    if withdrawn is None:
+        withdrawn = _withdrawn_collection_ids()
     out = []
-    for cid, entry in sorted(tags.items()):
-        if not isinstance(entry, dict) or not entry.get("user_id"):
-            continue
-        cid = str(cid)
-        if cid in dataset_ids or cid in pending_cids or cid in withdrawn:
-            continue
-        out.append(f"{cid} (owner {entry['user_id']})")
+    for cid, entry in _tag_entries_without_data(tags, pending_cids, dataset_ids,
+                                                withdrawn, owned=False):
+        label = entry.get("display_collection_id")
+        out.append(f"{cid} (display ID {label!r})" if label and label != cid else cid)
     return out
-
-
 
 
 def _stalled_queues(queue_now, stats_doc, now, max_age_days=STALE_QUEUE_DAYS):

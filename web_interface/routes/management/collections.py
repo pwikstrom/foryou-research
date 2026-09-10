@@ -259,6 +259,17 @@ def list_collections():
             from ...services import collection_enrichment as ce
             enrichment_plans = ce.load_plans()
 
+            # Display IDs shared with another tags entry. Computed over the
+            # tags file, not this listing, because the twin may have no
+            # metadata row at all (2026-09-11: leftover entries from
+            # verification signups) — the table would otherwise show one
+            # "Sally Smith" and no sign that the name is taken twice.
+            from fyp.ingest.raw_names import duplicate_display_ids
+            twins_of: dict[str, list[str]] = {}
+            for cids in duplicate_display_ids(annotations).values():
+                for cid in cids:
+                    twins_of[cid] = [c for c in cids if c != cid]
+
             # Make sure we don't have pd.NA or similar incompatible types for JSON serialization
             df = df.where(pd.notnull(df), None)
             
@@ -309,6 +320,7 @@ def list_collections():
                 plan = enrichment_plans.get(row_id)
                 item['enrichment_state'] = (plan.get('state')
                                             if isinstance(plan, dict) else None)
+                item['displayIdTwins'] = twins_of.get(row_id, [])
 
                 collections.append(item)
 

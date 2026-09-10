@@ -351,6 +351,62 @@ def test_linked_collection_missing_from_dataset_is_flagged(tmp_path, monkeypatch
 
 
 
+def test_leftover_tag_entries_are_the_unowned_counterpart(monkeypatch, tmp_path):
+    """2026-09-11: four display IDs each answered for a real collection and
+    a tags entry with no owner and no data (verification-signup leftovers).
+    The owned-orphan check skips them by design, and Edit Collections cannot
+    list them, so the report has to name them itself — and mark the no-data
+    side of each duplicate pair, since that side cannot be renamed."""
+    import json
+
+    import pandas as pd
+
+    from fyp.fyp_config import fyp_cf
+    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from web_interface.services.ops_report import (
+        _dataset_collection_ids, _leftover_tag_entries, _linked_collections_missing)
+
+    recoded = tmp_path / "recoded"
+    recoded.mkdir()
+    monkeypatch.setitem(fyp_cf["paths"], "recoded", str(recoded))
+    monkeypatch.setitem(fyp_cf["data_io"], "use_gcs_for_data", False)
+    meta = pd.DataFrame({"n": [1]}, index=pd.Index(["VERIFY2_Jenny.json"], name="collection_id"))
+    meta.to_parquet(recoded / f"{COLLECTIONS_LABEL}_metadata.parquet")
+    (recoded / "withdrawals.json").write_text(json.dumps({"withdrawn": {}}))
+
+    tags = {
+        "VERIFY2_Jenny.json": {"display_collection_id": "Jenny Jackson", "user_id": "abc@example.test"},
+        "4285c7a2-uuid": {"display_collection_id": "Jenny Jackson"},
+        "VERIFY2_Jade.json": {"display_collection_id": "Jade Jones", "user_id": None},
+        "bare_leftover": {},
+        "withdrawn": {},
+        "pending": {"display_collection_id": "Pending"},
+        "owned_orphan": {"user_id": "a"},
+    }
+    assert _dataset_collection_ids() == {"VERIFY2_Jenny.json"}
+    assert _leftover_tag_entries(tags, {"pending"}) == [
+        "4285c7a2-uuid (display ID 'Jenny Jackson')",
+        "VERIFY2_Jade.json (display ID 'Jade Jones')",
+        "bare_leftover",
+    ]
+    # The two checks partition the no-data entries by ownership.
+    assert _linked_collections_missing(tags, {"pending"}) == ["owned_orphan (owner a)"]
+
+
+def test_duplicate_display_id_lines_mark_the_side_with_no_data():
+    from fyp.ingest.raw_names import duplicate_display_ids
+
+    tags = {
+        "VERIFY2_Jenny.json": {"display_collection_id": "Jenny Jackson"},
+        "4285c7a2-uuid": {"display_collection_id": "jenny  jackson"},
+    }
+    dataset_ids = {"VERIFY2_Jenny.json"}
+    lines = [f"{label}: " + ", ".join(
+        cid if cid in dataset_ids else f"{cid} (no data)" for cid in cids)
+        for label, cids in duplicate_display_ids(tags).items()]
+    assert lines == ["Jenny Jackson: 4285c7a2-uuid (no data), VERIFY2_Jenny.json"]
+
+
 def test_structure_sentinel_check_follows_the_review_queue(monkeypatch):
     """2026-09-09: a file approved on 09-07 kept its verdict, and the check
     read every non-ok status as outstanding — two mornings of "Action needed"

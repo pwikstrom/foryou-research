@@ -45,6 +45,10 @@ Notable behaviors:
   *duplicate* pill in Edit Collections and the study picker) rather than
   renamed behind the operator's back. Only a rename is checked — the bulk
   edit and the modal's autosave resend the stored name on every tag tick.
+  The pill is computed over the tags file, not the listing (the listing
+  endpoint sends each row its `displayIdTwins`), because a twin can be a
+  tags entry with no metadata row; the ops report marks such an id
+  *(no data)* and names unowned ones under *Leftover collection entries*.
 - **Structure sentinel** (`fyp/core/structure_sentinel.py`): learns each
   platform's export structure and per-file sanity stats; a drifted upload is
   quarantined for admin review (Data Pipeline → Ingest Collections) instead

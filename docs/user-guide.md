@@ -445,7 +445,12 @@ becomes `user_data_tiktok (2)`). Collections that predate this rule keep
 their shared name until someone renames one: they carry a *duplicate* flag
 beside the name here and in the study collection picker (search for
 `duplicate` to list them), and the daily ops report lists them under
-**Duplicate display IDs**.
+**Duplicate display IDs**. The table lists the dataset, so a twin that is
+only a *collection entry* with no data — a leftover from a test or
+verification signup — has no row here and cannot be renamed; the flag's
+tooltip names it, the report marks it *(no data)* and lists it again under
+**Leftover collection entries**, and deleting it by id (the same delete
+endpoint the table's Delete button uses) clears both.
 
 A **multi-collection** edit keeps an explicit
 *Apply to N collections*, because there one tag chip rewrites every selected

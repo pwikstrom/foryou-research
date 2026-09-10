@@ -199,6 +199,21 @@ def test_save_annotation_lets_a_grandfathered_duplicate_still_be_edited(env):
     assert entry["display_collection_id"] == "One" and entry["annotation_tags"] == ["t9"]
 
 
+def test_collections_payload_names_display_id_twins_even_without_a_row(env):
+    """2026-09-11: the duplicate pill was computed from the listing, and the
+    listing is the metadata table — a twin that exists only in the tags file
+    (no data) left the real collection looking uniquely named while the ops
+    report said otherwise. The server names every twin from the tags file."""
+    store, client, um = env
+    tags = store.files["recoded"]["collections_tags.json"]
+    tags["c2"] = {"display_collection_id": "Sally Smith", "annotation_tags": [], "hidden": False}
+    tags["ghost-uuid"] = {"display_collection_id": "sally  smith"}
+    by_id = {c["id"]: c for c in client.get("/api/manage/collections").get_json()}
+    assert "ghost-uuid" not in by_id
+    assert by_id["c2"]["displayIdTwins"] == ["ghost-uuid"]
+    assert by_id["c1"]["displayIdTwins"] == []
+
+
 def test_collections_payload_labels_linked_account(env):
     store, client, um = env
     ca.set_collection_owner("c2", "member@example.test")

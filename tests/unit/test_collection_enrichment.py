@@ -1698,7 +1698,7 @@ def test_enrichment_panel_buttons_keep_their_handlers():
     # Both tables that show a collection BY NAME carry the flag: Edit
     # Collections, where the rename happens, and the study picker, where
     # picking the wrong one of two identical names is the actual damage.
-    assert js.count("idCell.appendChild(_dmDuplicateFlag())") == 2, \
+    assert js.count("idCell.appendChild(_dmDuplicateFlag(itemInfo))") == 2, \
         "a table that lists collections by name lost its duplicate flag"
 
     # Arming an Idle plan whose target is already met does nothing: the
