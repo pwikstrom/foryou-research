@@ -8,7 +8,16 @@ Development began in November 2025 and ran privately through August 2026, so
 `0.1.0` is the first tagged release rather than a step on from an earlier
 public version. Entries below describe the Hub as it stands at that release.
 
-## [Unreleased]
+## [0.3.0] — 2026-09-10
+
+The automation release: enrichment of a collection now runs itself — an armed
+plan scrapes, annotates and consolidates in cycles until a stated target is
+met, with a panel that sizes and narrates the work and a history that records
+it — and starting any Dataset Assembly card starts a dependency-pruned
+refresh run, drawn as a Gantt. Around that, the analysis refresh got several
+times faster at the corpus's current scale, uploads are stored under
+generated names so a same-named file can never clobber another, and CI is
+green again after nine days red.
 
 ### Added
 
@@ -609,5 +618,6 @@ integration, and a `scripts/verify.sh` gate combining lint, unit tests, the
 import-cycle and schema-hash guards, the golden suite, and an app import smoke
 test.
 
+[0.3.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.3.0
 [0.2.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.2.0
 [0.1.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.1.0
