@@ -185,7 +185,7 @@ foryou-research/
 │   ├── run_embeddings_refresh.py   # Embed not-yet-embedded annotated videos (Cloud Task)
 │   ├── run_video_map_refresh.py    # Cluster embedding store into niches + 2D map (Cloud Task)
 │   ├── run_sequence_refresh.py  # Refresh sequence-analysis artifacts (Cloud Task)
-│   ├── run_sessions_refresh.py  # Build the Sessions tab's session index + binge-episode/window artifacts (self-chaining Cloud Task; O(batch) memory, per-link shards, corpus-mean drift guard). Study-window-scoped: only collections in >=1 study, within the padded union of their studies' date windows. Incremental: stale_only mode refreshes only collections whose windows/in-window play count changed (merge publish replaces just their rows; per-collection provenance in sessions_meta.json); a targeted `collections` run also merges; no-args = force-full. **Enrichment staleness is global, not per-collection**: a changed embedding-store or annotation-corpus fingerprint forces a FULL rebuild, because the per-collection fingerprint comes from the activity file, which carries no enrichment columns (before 2026-08-16 it probed for an `annotated_ok` column that file never had, so new annotations could never mark anything stale and every stale_only run no-op'd). Chained automatically after every study save (pipeline_remaining, skip_if_busy)
+│   ├── run_sessions_refresh.py  # Build the Sessions tab's session index + binge-episode/window artifacts (self-chaining Cloud Task; O(batch) memory, per-link shards, corpus-mean drift guard). Study-window-scoped: only collections in >=1 study, within the padded union of their studies' date windows. Incremental: stale_only mode refreshes only collections whose windows/in-window play count changed (merge publish replaces just their rows; per-collection provenance in sessions_meta.json); a targeted `collections` run also merges; no-args = force-full. **Enrichment staleness is scoped when provable** (`enrichment_change_scope`, 2026-09-03): the embedding shards are append-only, so if every shard the previous build recorded is still present byte-identical, the vectors past its count and the annotation rows past its `inference_ts` watermark (an epoch in SECONDS) name the changed items, and only the collections holding them are re-segmented (merge). A rewritten/missing shard, a build predating the recorded shard set or watermark, or appends past `[sessions] rebaseline_fraction` (5%) of the corpus since the last FULL build → full rebuild, which resets the baseline. Before this, any enrichment change rebuilt every covered collection, because the per-collection fingerprint comes from the activity file, which carries no enrichment columns. Chained automatically after every study save (pipeline_remaining, skip_if_busy)
 │   ├── run_benchmark_parquet_read.py  # Benchmark parquet read paths (Cloud Task)
 │   ├── run_queue_annotator_batch.py   # Batch-mode Gemini annotation (Cloud Task)
 │   ├── run_ab_eval.py           # Prompt A/B eval run (Cloud Task)
@@ -300,6 +300,14 @@ The app runs on **Google Cloud Run** as two services sharing the same Docker ima
   (`<project-number>-compute@developer.gserviceaccount.com`)
 - Base image: `australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-base:latest`
 - App image: `australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-app:latest`
+
+**Build context:** `.gcloudignore` is the only filter that reaches Cloud
+Build — it excludes `.dockerignore` itself, so the docker step runs with no
+ignore file and `.dockerignore` matters only to a local `docker build`. Keep
+the two in step. A git worktree's `.git` is a *file* (a `gitdir:` pointer),
+which the `.git/` pattern never matched, so both files list bare `.git` and
+`.pytest_cache/` as well (2026-09-09; a build submitted from a worktree had
+baked a local path into the image).
 
 **Docker image structure (two layers):**
 - **Base image** (`Dockerfile.base`): Python 3.12-slim + gcc + Rust + all pip deps. Only rebuild when `requirements.txt` changes.

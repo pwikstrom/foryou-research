@@ -191,10 +191,16 @@ Two additions keep the heavy analysis paths O(batch) rather than O(corpus):
   within the padded union of their studies' date windows) and
   **incremental**: `stale_only` rebuilds just the collections whose windows
   or in-window play counts changed, merging their rows into the artifacts.
-  Enrichment staleness is deliberately *global* — a changed embedding-store
-  or annotation-corpus fingerprint forces a full rebuild, because the
-  per-collection fingerprint comes from the activity file, which carries no
-  enrichment columns. The chain pins one corpus-mean fingerprint at link 0
+  Enrichment staleness is **scoped** where it can be proven local
+  (`session_explorer.enrichment_change_scope`): the embedding shards are
+  append-only, so when every shard the previous build recorded is still
+  present byte-identical, the vectors past its count and the annotation rows
+  past its `inference_ts` watermark name exactly the items that changed, and
+  only the collections holding them are re-segmented. A rewritten or missing
+  shard, a build that predates the recorded shard set or watermark, or more
+  than `[sessions] rebaseline_fraction` (5 %) of vectors appended since the
+  last full build falls back to the full rebuild, which resets the baseline.
+  The chain pins one corpus-mean fingerprint at link 0
   and restarts (bounded) if the shard store moves mid-run. A sessions
   refresh is chained automatically after every study save. Read side:
   `routes/api_sessions_routes.py`, `templates/tabs/sessions.html`,

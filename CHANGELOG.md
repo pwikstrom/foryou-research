@@ -12,6 +12,32 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Added
 
+- **Refresh runs.** Starting *any* Dataset Assembly card — not only the
+  consolidation — starts a *refresh run*: the steps that read what it writes
+  are planned as its dependents, and each is dispatched only when an upstream
+  step reports that something actually changed (embeddings written, videos
+  that moved niche, study datasets rebuilt; a missing signal always runs).
+  The graph and its predicates live in one registry
+  (`services/refresh_pipeline.py`) instead of four literals kept in sync by
+  comment. A start dialog says what the run will do; the run is recorded in
+  `process_stats["refresh_pipeline"]` and drawn as a wall-clock Gantt above
+  the cards (every step every run, unplanned ones greyed, skipped ones
+  saying why, each bar's hover naming the scope it ran with), the transport
+  controls are coloured and an armed run is shown, and only one run happens
+  at a time. The run's **scope is what the consolidation touched** — its
+  affected studies and collections — and that scope wins even when the
+  semantic map moved videos between niches (widening every run whenever the
+  map moved was tried and reverted: a warm-started rebuild moves a couple of
+  percent of the corpus on almost every run).
+- **Download CSV on Admin → Active Users.** One row per active account,
+  24 flat columns — role, raw ISO dates, origin, the full participant
+  profile and collection/annotation counts — exported regardless of the
+  search box or participant toggle, with a UTF-8 BOM and formula-safe cells
+  so it opens cleanly in Excel, dated by the viewer's own calendar day.
+- **Analysis-ready sessions.** The Edit Collections enrichment panel counts
+  the collection's sessions the Sessions tab can work with (a sitting of at
+  least the tab's minimum plays with every video annotated or failed for
+  good), now and after the plan, beside its analysis-ready days.
 - **Enrichment History.** One durable, high-level record of what the
   enrichment machinery did, newest first: plans armed, paused or parked (and
   why), scrape queues built from a study, queues emptied, a queue handed to
@@ -48,10 +74,13 @@ public version. Entries below describe the Hub as it stands at that release.
   bounded by the target.
 - **The enrichment panel** (Edit Collections modal): per-day activity chart
   stacked by enrichment state with a live plan-estimate line, a zoned
-  coverage bar with the target marked on it, a log-scaled target slider with
-  item/cost/cycle estimates (using the active backend's pricing and model),
-  an amber warning when the settings cannot reach the chosen target, and an
-  *Auto enrichment* state column in the collections table.
+  coverage bar with the target marked on it, three full-width sliders
+  (the annotation target, log-scaled; the balance between the deep dive and
+  the random daily sample; and the sample's items per sampled day) with a
+  readout translating the target into items, cost (the active backend's
+  pricing and model) and time, an amber warning when the settings cannot
+  reach the chosen target, and an *Auto enrichment* state column in the
+  collections table.
 - **Tick outcome reporting.** "Run a cycle now" polls the supervisor's
   status and reports what the tick actually decided, instead of only that it
   was dispatched.
@@ -67,6 +96,124 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **Uploads are stored under generated names; display IDs name one
+  collection each.** Every TikTok export is called `user_data_tiktok.json`,
+  and on 2026-09-06 a participant's upload was silently skipped as "already
+  processed" and overwrote an older test collection's raw file. A raw
+  upload's stored filename and its collection id are now generated
+  (`fyp/ingest/raw_names.py`); the browser's filename survives only as
+  provenance and as the default display ID, made unique with a ` (2)`
+  suffix. Raw locations and the archive are append-only at the storage
+  layer, the ingester reports a pending entry whose name is taken instead of
+  skipping it, and an explicit collection id may append to an existing
+  collection only under the same account. Renaming a collection onto a name
+  another one answers to (its display ID or its collection id, case and
+  spacing ignored) is refused and the modal says who holds it; pre-existing
+  duplicates carry a *duplicate* pill in Edit Collections and the study
+  picker and a line in the daily ops report, and are never renamed behind
+  the operator's back.
+- **The structure sentinel accepts what a donor chose to donate.** A whole
+  section a file leaves out — a category unticked in TikTok's export, a
+  section pruned in the browser review, an empty list, an absent zip member
+  — is the uploader's choice: noted as withheld on the ledger entry, never a
+  finding. A quarantine now needs a change *inside* a section the file
+  contains (a known field gone from a present record, a path back with
+  another type). Two of the uploads that stalled on 2026-09-07 had been
+  quarantined for sections their donors simply had not given.
+- **The random daily sample takes whole viewing sessions.** Within each day
+  it samples (and in the deep dive's partial last day), the enrichment
+  planner takes the day's candidate sessions whole — the session that
+  crosses the per-day cap included — and only then single videos, because a
+  scattering of single items never adds up to a session anyone can analyse.
+  Ready sessions therefore build up across the whole history, not only
+  inside the deep-dive window. "Process A / spread" is called the **random
+  daily sample** everywhere in the UI and the history; its cap is *Items
+  per sampled day*. The estimate line under the sliders follows the
+  planner's own rules (a Python re-implementation on a live collection
+  agreed with every figure), charging failed-for-good videos against a
+  day's cap and drawing days in the planner's own salted order.
+- **The enrichment panel was rebuilt around three sliders.** Target, balance
+  and items per sampled day run the full width with their values on the
+  label line; the earliest date is set on the daily chart itself (a
+  draggable start handle, day steppers, *Full history*); the days-per-month
+  the sample takes is **derived from the target** rather than asked for
+  (two quantity knobs had to agree or one won silently, and a plan idled
+  short by construction); the items-per-cycle knob and the *Advanced*
+  disclosure are gone. A line under the sliders says what the settings add
+  up to — analysis-ready days, deep-dive days and analysis-ready sessions,
+  now and after the plan. The time estimate is measured from the
+  collection's own recent scrapes, annotation batches and consolidations in
+  the enrichment history (a 1,289-video cycle that took 42 min is modelled
+  at 44), falling back to the Hub's typical figures until it has runs of its
+  own. Arming stamps the run's starting line and a **run meter** reports
+  the run — annotated when armed, now, target, how far back each half has
+  walked; a finished run's meter stands still at the target it ended with
+  while the operator prepares the next one.
+- **The Edit Collection modal saves itself.** For one collection there is no
+  Save button: a tag tick, an account pick and Hide Collection write on
+  change, and the title bar says *Saving…* then *Saved*; the display ID
+  commits on blur or Enter. Plan settings autosave too, but only once a plan
+  exists — opening the modal prefills a suggested target, and writing that
+  would have armed every collection an operator looked at. The multi-
+  collection edit keeps an explicit *Apply*. The top block is now
+  *Collection settings* (Display ID, User account, Tags, Hide Collection),
+  the title bar is sticky with the close button on it, and *Collection
+  details* is a closed disclosure so opening the modal no longer costs a
+  persona request.
+- **A plan stays Running until its last videos are consolidated.** A plan
+  with nothing more to scrape used to close in the very tick that handed
+  its last batch to the annotator, so its history read "Idle" seconds
+  before "Annotator started" and the panel said "Idle · annotating now" for
+  half an hour. It now reads *finishing* while any of its videos are queued
+  for, or inside, an annotation job, and turns Idle when the owed
+  consolidation completes (bounded, so a stale claim cannot hold it open).
+- **The semantic map is warm-started.** Rebuilding the niche map re-ran
+  k-means from a fresh start every time, so appending 97 vectors to 620,000
+  redrew the boundaries enough that 60 of 150 niches lost their names and
+  were re-named through Gemini — 244 s of a 466 s run, for no real change.
+  The clustering now seeds from the previous build's niches (each old
+  niche's members averaged in the current PCA space), so an append refines
+  the old partition, niche identity is stable across rebuilds and the
+  naming pass is skipped; *reset labels* is the cold-start escape hatch for
+  a corpus that has genuinely drifted.
+- **A sessions refresh after an annotation batch re-segments only the
+  collections the batch touched.** Any enrichment change used to rebuild
+  every covered collection (~8 min for 50 annotations), because the
+  per-collection staleness fingerprint cannot see enrichment. The embedding
+  shards are append-only, so when the previously recorded shards are all
+  still present the new vectors and the annotation rows past the last
+  build's watermark name exactly the changed items; only their collections
+  are refreshed, as a merge. A rewritten shard, a build predating the
+  recorded shard set, or more than 5 % of the corpus appended since the
+  last full build falls back to a full rebuild.
+- **The analysis refresh got faster at the corpus scale it now runs at.**
+  Timelines batches run on a forked process pool (the thread pool was
+  GIL-bound, 786 s → 99 s), consolidation folds only the new batch files
+  into the consolidated frames instead of rebuilding from every file
+  (855 s → 42 s on a scrape fold, with a weekly shadow verification against
+  the full rebuild), the recode loads each enrichment blob once per run,
+  and the sessions refresh segments on a forked pool inside each chain link
+  (a full rebuild 40 → 7.4 min).
+- **A comment's video is inferred, and the tooltip says so.** TikTok's
+  export gives a comment no video ID — only a time and the text — so the
+  video a comment row is shown against is the play on screen at that moment
+  (the preceding play within 180 s). The caveat is in the field's own
+  description, so every surface that reads it carries it.
+- **The study editor's design report has a fixed slot** beside the study
+  name, so the mosaic, chart and collection list no longer jump when the
+  report arrives or clears, and the first study opened after a data change
+  explains that it is waiting for the corpus preview cells to build rather
+  than showing three silent spinners.
+- **The daily ops report reads the structure review queue and the scrape
+  failure rate**, not their leftovers. A verdict keeps its entry as
+  `approved` for ever, so the report said "Action needed" for a review that
+  was done and sent the reader to an empty panel; it now reads the same
+  queue the panel does. "New scrape-failure files (24h)" went yellow on a
+  file that was the day's failures merged into one ledger — a rewrite, not
+  new failures — while dead, private and removed posts are a standing
+  ~14 % of every queue; it is now a rate graded from the scraper's own
+  journal, Watch only when a platform's day or a 50+-attempt run fails over
+  30 %.
 - **No more tiny annotation batches.** A Gemini batch job costs about eight
   minutes of turnaround however small it is, so the loop no longer starts
   one for fewer than 500 videos while more scrapes are on their way — the
@@ -102,22 +249,26 @@ public version. Entries below describe the Hub as it stands at that release.
   twice. The expensive downstream analysis refresh is deferred while a plan
   runs: mid-plan consolidations are core-only and accumulate their impact,
   and the full chain runs once when the loop goes quiet (with a 24-hour
-  staleness backstop); the panel notes the deferral. A new *Auto* mode for
-  Items per cycle (default for new plans) sizes each cycle to fill one full
-  set of concurrent annotation jobs without overshooting the target. Together
-  these cut a representative 10,000-video plan from ~10 h to ~3 h at the same
-  cost.
+  staleness backstop); the panel notes the deferral. Cycles are sized
+  automatically (an *Auto* mode at first, then — from 2026-09-09 — always:
+  the items-per-cycle knob is gone) to fill one annotation job without
+  overshooting the target. Together these cut a representative 10,000-video
+  plan from ~10 h to ~3 h at the same cost.
 - **The enrichment panel narrates itself.** The status line moved down beside
   the buttons and now says what the machinery is doing right now — scraping,
   annotating, or consolidating, with the running worker's own progress note
   (server-derived from the worker statuses) — or, when armed and between
   steps, what the next tick will do; it refreshes itself while work is in
   flight. The buttons became state-aware: the primary button reads
-  Arm / Pause / Resume / Arm again as the plan's state dictates, *Save
-  settings* is enabled only while the form differs from the saved plan (Arm
-  always saves too), and *Run a cycle now* is disabled when there is no plan
-  to run or the target is already met — every tooltip, including the disabled
-  states' explanations, now lives on a wrapper so it still shows on hover.
+  Arm / Pause / Resume as the plan's state dictates (and, since 2026-09-09,
+  names the operator's next step — a met target reads *Raise the target to
+  arm* and is disabled, Idle with headroom reads plain *Arm*, only *Needs
+  attention* reads *Arm again*), settings on an existing plan save
+  themselves (the *Save settings* button is gone; before a plan exists, Arm
+  is what stores them), and *Run a cycle now* is disabled when there is no
+  plan to run or the target is already met — every tooltip, including the
+  disabled states' explanations, now lives on a wrapper so it still shows on
+  hover.
 - **The annotation queue block** leads with the everyday path — target study,
   the queue button, and the failed-attempts checkbox on one row under the
   title — with the re-annotation selection modes folded behind an *Advanced*
@@ -126,6 +277,48 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Fixed
 
+- **An approval of a quarantined upload did not stick.** Two uploads on
+  2026-09-07 were quarantined by the structure sentinel, approved, and never
+  ingested: the approval landed while an ingest run held the ledger in
+  memory, the run's save wrote the quarantine straight back, and the larger
+  file was re-quarantined by the same finding on every later run because
+  one learned file cannot move a 20-file baseline. The sentinel now honours
+  a stored approval for findings of the kind it covered, `save_ledger`
+  merges this run's changes into the stored ledger instead of overwriting
+  it, and approving a warn-only verdict no longer deletes the record of an
+  already-ingested file.
+- **A dead video was re-queued every 25 seconds.** A scrape batch in which
+  every video failed permanently returned before the failed-scrapes record
+  was written, so consolidation never marked them failed and the planner
+  re-cut the same video into a one-item slice on every tick. The record is
+  now written first. Separately, the annotation lane's no-drain guard
+  counted ticks on which it had deliberately held a small queue, and parked
+  every armed plan after three; the hold is decided first and clears the
+  strikes.
+- **A plan's tail shrank into a trail of one-video cycles** (134, 51, 59,
+  24 … 3, 1, 1, 1 videos on 2026-09-08, each a full scrape–consolidate
+  cycle). A slice is never smaller than 200 videos while the plan still
+  needs anything, so a plan ends in one cycle and may finish at most 200
+  videos past its target.
+- **A light viewer's collection was out of reach.** The planner skipped
+  every day under the ten-video floor for the deep dive as well as the
+  random daily sample, so a donor who watches one or two videos most days
+  had most of their collection unreachable (251 videos over 124 days; the
+  plan bought 46 and went Idle). The floor belongs to the sample only — a
+  one-video day is still a session. New plans also default to automatic
+  cycle sizing as intended (the default was never applied), and arming an
+  Idle plan again restarts its walk from the newest day instead of finding
+  nothing where the last walk ended.
+- **An "Everyone & Me" study drew a comb of hairlines for a histogram.**
+  A composed study's explorer metadata is base ∪ overlay merged
+  generically, which interleaved two histograms' parallel arrays (bin
+  centres against heights, tick positions against labels); the base's
+  arrays now stand in, flagged provisional, until the filter endpoint
+  recomputes the real distribution. Its filter lists also dropped the
+  owner's own values — including their own collection id, the one filter
+  the study exists for — and the metadata endpoint cold-built and *saved*
+  an artifact under the composed name that nothing could ever invalidate;
+  both fixed, and a composed study now saves nothing.
 - **A healthy enrichment plan was parked after three productive cycles.**
   The handoff reset the plan's stall counter, but the boundary tick's
   planning step read the plan entry snapshotted before the handoff and
@@ -179,6 +372,25 @@ public version. Entries below describe the Hub as it stands at that release.
   hard-coded white).
 - Study state remembered per account instead of one browser-wide key, and
   derived study keys are no longer persisted into `studies.json`.
+
+### Internal
+
+- **CI had been red since 2026-09-01.** pytest's `testpaths` is
+  `tests/unit`, so the golden suite runs only through
+  `tests/golden/run_safety_net.py`; a refactor of the batch annotator's
+  submit/poll phases orphaned `test_batch_worker.py` there and every push to
+  main failed until the test was rewritten against the job table on
+  2026-09-09.
+- **The build context no longer carries a worktree's `.git` or the pytest
+  cache.** A git worktree's `.git` is a file (a `gitdir:` pointer), which
+  the `.git/` pattern never matched, so builds submitted from a worktree
+  baked a local path into the image. Both `.dockerignore` and
+  `.gcloudignore` now list bare `.git` and `.pytest_cache/`; note that
+  `.gcloudignore` is the only filter that reaches Cloud Build, since it
+  excludes `.dockerignore` itself.
+- Every Cloud Tasks dispatch carries an explicit deadline capped at the
+  service's 30-minute maximum (a 3600 s deadline is a 400 at task
+  creation), and queue delivery attempts are logged.
 
 ## [0.2.0] — 2026-08-27
 

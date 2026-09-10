@@ -271,7 +271,7 @@ newly invited users, which also links into the public `/thehub` page
   scripts in `static/js/` (`admin_tab.js`, `my_stuff_tab.js`, ...). Add new
   admin functionality in those locations rather than in the shims.
 - Still-deferred frontend work: decomposing `static/js/data_management.js`
-  (~4.8 k lines), removing inline `onclick=` handlers, and hex-color/token
+  (~9.4 k lines), removing inline `onclick=` handlers, and hex-color/token
   cleanup — see the plan notes before attempting; the inline handlers pin
   functions to `window`.
 - Both Cloud Run services share `process_stats.json` on GCS — always

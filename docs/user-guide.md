@@ -174,7 +174,12 @@ the active study.
 Explore, including the free-text search and per-variable value search; the
 button at the bottom shows whether filters are applied), the video player in
 the centre, and a **Details** panel on the right listing the current video's
-full metadata — donation fields, scraped metadata and AI annotations.
+full metadata — donation fields, scraped metadata and AI annotations. One
+caveat carried in the field's own tooltip: a **comment** in a TikTok export
+has no video ID, only a time and the text, so the video it is shown against
+is the one that was on screen at that moment (the preceding play, within
+three minutes) — a comment that reads oddly against its video is the
+expected limit of the donated data, not an ingest error.
 
 **Navigating the result set.** The slider above the player scrubs through
 the selection in chronological order (the timestamp under the thumb shows
@@ -399,7 +404,12 @@ per registered platform source. The upload modal assigns a collection ID (use
 the filename, join an existing collection, or mint a new one), optional tags,
 and an optional donor timezone (the authoritative source for local-time
 conversion — recommended for YouTube/Instagram where the export's label can
-be ambiguous). "Process New Collections" parses the pending uploads into the
+be ambiguous). Whatever you pick, the file is *stored* under a generated
+name, and a new collection's display ID is taken from the filename and made
+unique with a ` (2)` suffix when needed — every TikTok export is called
+`user_data_tiktok.json`, so two donations can never overwrite or merge into
+each other, and joining an existing collection is only allowed under the
+same participant account. "Process New Collections" parses the pending uploads into the
 dataset; a **Structure review** panel quarantines uploads whose structure
 changed inside sections they contain (a renamed or retyped field, a parser
 that finds no rows) until you approve them — sections an uploader chose not
@@ -417,6 +427,10 @@ added, activity count, active days, its **automatic-enrichment state**
 **scraped/annotated coverage** (the same figures a participant sees on
 My Collections; the last event date lives in the edit modal).
 
+The modal's top block is **Collection settings** (Display ID, User account,
+Tags, Hide Collection) with the **Automatic enrichment** panel below it;
+**Collection details** and **History** sit behind disclosures, closed on open,
+and the title bar stays put while you scroll, with the close button on it.
 For **one** collection the modal has no Save button: ticking a tag, picking an
 account and switching *Hide Collection* each write immediately, and the title
 bar says *Saving…* then *Saved*. **Display ID** is the exception — free text
@@ -537,7 +551,11 @@ the study is shared with (roles or users; an unshared study is visible only to
 study managers — the one exception is the study chosen as the default under
 Admin → Site Settings, which everyone can see). The footer offers Delete,
 Rename (moves the study's artifacts in place, no rebuild), Duplicate, and
-**Save/Refresh Study**, which rebuilds the study dataset.
+**Save/Refresh Study**, which rebuilds the study dataset. The design report
+(what the current selection would yield) lives in a fixed slot beside the
+study name, so the form never jumps as it updates; the first study opened
+after a data change waits for the corpus preview cells to build, and the
+slot says so.
 
 **Scrape.** Per-study queueing and per-platform scraper workers. Pick a
 **Target Study** and press "Queue videos for scraping" (optionally including
@@ -593,7 +611,11 @@ grouped into Users, Annotation Pipeline, Data & Variables and System.*
   are set under Site Settings).
 - **Active Users** — every user with their annotation stats; click a row for
   a detail modal with the full activity log, password reset and account
-  deletion.
+  deletion. **Download CSV** (beside Refresh List) exports every active
+  account — role, dates, origin, the full profile and collection/annotation
+  counts, 24 columns — regardless of the search box or the participant
+  toggle; it opens cleanly in Excel (UTF-8 BOM, formula-safe cells) and is
+  dated by your own calendar day.
 - **User Roles** — the permission matrix deciding which tabs and sub-pages
   each role sees; add or delete custom roles. The admin role is fixed.
 - **User Annotations** — every human tag and note recorded across the Hub,
