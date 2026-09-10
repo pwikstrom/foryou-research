@@ -105,7 +105,8 @@ DEFAULT_SETTINGS = {
     # 100%. A target is idempotent: annotation done by any other means counts
     # toward it, and re-opening a finished plan is just raising the number.
     "annotation_target": 0,
-    "cycle_items": 400,       # items enqueued per cycle (ignored when auto)
+    "cycle_items": 400,       # the cutter's budget; the supervisor overwrites
+                              # it with the automatic size every cycle
     # Auto: the supervisor sizes each cycle itself — min(target headroom, one
     # full set of concurrent annotation jobs) — so a cycle's annotation is
     # ~one batch-job turnaround. True is the default the panel shows for a
@@ -115,12 +116,13 @@ DEFAULT_SETTINGS = {
     # defaults cannot flip an existing plan's choice.
     "cycle_items_auto": True,
     "sample_share": 0.5,      # fraction of the cycle given to Process A
-    # A: whole days sampled per calendar month, and the ceiling on one such
-    # day. 15 x 50 gives the spread half a month of usable days to work with
-    # per month walked, which is what the long-arc analyses (Timelines,
-    # Correlations) actually need; at 2 the spread bought so few days that the
-    # deep dive did nearly all the work whatever the balance said.
-    "a_days_per_month": 15,
+    # A: the ceiling on one sampled day. How many days a month the spread
+    # samples is NOT a setting any more (2026-09-09): it is derived from the
+    # target — see spread_days_per_month — because two quantity knobs (a
+    # target and a days-per-month limit) had to agree or one won silently,
+    # and on 2026-09-09 a 4,400 target sat above what 9 x 40 over six months
+    # could ever buy, so the plan idled short by construction. A stored
+    # ``a_days_per_month`` in an old ledger entry is inert.
     "a_day_cap": 50,
     "min_day_items": 10,      # the spread skips days below this (the
                               # Correlations floor); the deep dive never does
@@ -130,6 +132,27 @@ DEFAULT_SETTINGS = {
 # A collection becomes analytically alive somewhere around here: Timelines gates
 # at 14 active days and Correlations needs 10 qualifying collection-days.
 MILESTONE_DAYS = 14
+
+# The smallest viewing session worth taking whole: the Sessions tab's own play
+# floor (``[sessions] min_session_plays``, admin-adjustable), so the sessions
+# the planner completes are the sessions that tab will list. The shipped
+# default; :func:`session_min_plays` resolves the live value.
+DEFAULT_SESSION_MIN_PLAYS = 10
+
+
+def session_min_plays() -> int:
+    """The Sessions tab's play floor — the admin override if one was ever
+    saved, else the config seed — never below 1 (a floor of 0 means "no
+    floor" on that tab; here it would make every one-play sitting a session
+    to take whole, which is just the item-level cut with extra steps).
+
+    Resolved by the callers with a world to read (the supervisor, the
+    panel's progress figures) and passed into the pure planner."""
+    try:
+        from web_interface.admin_settings import get_session_floors
+        return max(1, int(get_session_floors()["sessions_min_plays"]))
+    except Exception:
+        return DEFAULT_SESSION_MIN_PLAYS
 
 # Consecutive cycles that enqueue work but yield no newly scraped item before the
 # plan parks itself. Stops a permanently unscrapeable tail burning cycles.
@@ -262,9 +285,9 @@ def normalize_settings(raw: dict | None) -> dict:
 
     _int("annotation_target", 0, 10_000_000)
     _int("cycle_items", 1, 20_000)
-    out["cycle_items_auto"] = bool(raw.get("cycle_items_auto",
-                                           DEFAULT_SETTINGS["cycle_items_auto"]))
-    _int("a_days_per_month", 0, 31)
+    # Always automatic since 2026-09-09: the panel has no items-per-cycle
+    # knob any more, and a stored False from before is ignored on save.
+    out["cycle_items_auto"] = True
     # Floor 10: a cap under the min_day_items analysis floor would buy spread
     # days that can never qualify. Ceiling 1,000: one day's cap, not a budget.
     _int("a_day_cap", 10, 1_000)
@@ -334,39 +357,86 @@ def load_activity(collection_id: str) -> pd.DataFrame | None:
     Deliberately does not go through ``preview_cache._prepare_preview_frame``:
     that cache is keyed by collection *set* and holds only two frames in memory,
     so driving it per-collection would evict the study-preview frames the admin
-    UI depends on. A single filtered four-column read is cheap enough.
+    UI depends on. A single filtered six-column read is cheap enough.
+
+    Two of the columns tie each row to a **viewing session** — a run of
+    activity with no gap over ``[sessions] session_gap_s``, stamped on every
+    row at ingest as ``session_id`` (``fyp.ingest.base.assign_session_ids``),
+    so the session frame exists before anything is scraped. ``session`` is
+    the session's local start time as an ISO string, the key the planner
+    samples by: stable across a re-ingest, where the positional
+    ``session_id`` renumbers. ``session_plays`` is how many play rows the
+    whole session holds — the Sessions tab's own size measure, so the two
+    agree on which sessions are big enough to analyse. Each (item, day) row
+    belongs to the session of the item's FIRST play that day; an item played
+    in two sittings on one day is attributed to the earlier one (the later
+    sitting's need is short by that item, and if the earlier sitting is taken
+    the item is annotated either way). Rows without a session id carry NaN /
+    0 and the planner treats them item by item.
 
     Returns:
-        A DataFrame with columns item_id, day (normalised Timestamp) and
-        source_platform, deduplicated per (item_id, day), or None.
+        A DataFrame with columns item_id, day (normalised Timestamp),
+        source_platform, session (str or NaN) and session_plays (int),
+        deduplicated per (item_id, day), or None.
     """
     try:
         df = data_io.load_parquet_selective(
             storage_location="recoded", filename=RECODED_FILENAME,
             columns=["collection_id", "item_id", "activity_type",
-                     "local_timestamp", "source_platform"],
+                     "local_timestamp", "source_platform", "session_id"],
             filters=[("collection_id", "in", [str(collection_id)])],
         )
         if df is None or df.empty:
             return None
-        df = df[df["activity_type"].astype(str).isin(_VIEW_TYPES)]
+        kind = df["activity_type"].astype(str)
+        df = df[kind.isin(_VIEW_TYPES)]
         if df.empty:
             return None
-        day = pd.to_datetime(df["local_timestamp"], errors="coerce").dt.normalize()
+        ts = pd.to_datetime(df["local_timestamp"], errors="coerce")
         out = pd.DataFrame({
             "item_id": df["item_id"].astype(str).to_numpy(),
-            "day": day.to_numpy(),
+            "day": ts.dt.normalize().to_numpy(),
             "source_platform": df["source_platform"].astype(str).to_numpy(),
+            "_ts": ts.to_numpy(),
+            "_is_play": (kind.loc[df.index] == "play").to_numpy(),
+            # A parquet written before session ids existed simply lacks the
+            # column (load_parquet_selective skips what the schema has not).
+            "_sid": (df["session_id"].to_numpy() if "session_id" in df.columns
+                     else np.full(len(df), None)),
         })
         out = out[out["day"].notna() & (out["item_id"] != "")]
         if out.empty:
             return None
-        # One row per (item, day): the same video replayed twice in a day is one
-        # unit of enrichment work, not two.
-        return out.drop_duplicates(subset=["item_id", "day"]).reset_index(drop=True)
+        return _collapse_to_item_days(out)
     except Exception as exc:
         logger.error(f"collection_enrichment: activity read for {collection_id} failed: {exc}")
         return None
+
+
+def _collapse_to_item_days(rows: pd.DataFrame) -> pd.DataFrame:
+    """One row per (item, day) with the session columns attached.
+
+    ``rows`` are view rows with ``_ts``, ``_is_play`` and ``_sid``. Session
+    facts (start, play count) are aggregated over ALL of a session's rows
+    first, then the rows collapse to the earliest play of each (item, day) —
+    the same video replayed twice in a day is one unit of enrichment work,
+    not two, and it belongs to the sitting it was first seen in.
+    """
+    rows = rows.sort_values("_ts", kind="mergesort")
+    sid = rows["_sid"]
+    has = sid.notna()
+    if has.any():
+        per_session = rows.loc[has].groupby("_sid", sort=False)
+        start = per_session["_ts"].min()
+        plays = per_session["_is_play"].sum()
+        start_iso = pd.to_datetime(start).dt.strftime("%Y-%m-%dT%H:%M:%S")
+        rows = rows.assign(session=sid.map(start_iso),
+                           session_plays=sid.map(plays).fillna(0).astype(int))
+    else:
+        rows = rows.assign(session=np.nan, session_plays=0)
+    out = rows.drop_duplicates(subset=["item_id", "day"])
+    return out[["item_id", "day", "source_platform",
+                "session", "session_plays"]].reset_index(drop=True)
 
 
 def collection_platform(activity: pd.DataFrame) -> str:
@@ -511,13 +581,19 @@ def stable_sample(keys, k: int, salt: str = "") -> list:
         return []
     if k >= len(keys):
         return keys
+    return stable_rank(keys, salt)[:k]
+
+
+def stable_rank(keys, salt: str = "") -> list:
+    """Every key in the order :func:`stable_sample` draws them — so a draw of
+    ``k`` is always a prefix of a draw of ``k + 1``: raising the spread's
+    density adds days to a month, it never reshuffles the ones already taken."""
     salted = salt.encode("utf-8")
-    ranked = sorted(
+    return sorted(
         keys,
         key=lambda key: hashlib.blake2b(salted + str(key).encode("utf-8"),
                                         digest_size=8).digest(),
     )
-    return ranked[:k]
 
 
 # --------------------------------------------------------------------------- #
@@ -536,7 +612,8 @@ def plan_cycle(collection_id: str, entry: dict,
                activity: pd.DataFrame | None = None,
                status: pd.DataFrame | None = None,
                expected_yield: float = 1.0, pending: int = 0,
-               margin: float = 0.0) -> dict:
+               margin: float = 0.0,
+               session_min_plays: int | None = None) -> dict:
     """Cut the next slice of work for one collection.
 
     Runs Process B and Process A against the collection's own budget share, then
@@ -560,6 +637,19 @@ def plan_cycle(collection_id: str, entry: dict,
       when what the target still needs is smaller than the next day: that much
       of the day is bought and the cursor is left ON the day, so raising the
       target later completes it before anything older is touched.
+    * **Within a day, whole viewing sessions first** (2026-09-09). Wherever
+      a day is cut rather than taken whole — the spread's capped days, the
+      deep dive's partial last day — the cut takes the day's candidate
+      sessions (at least ``session_min_plays`` plays, the Sessions tab's own
+      floor) whole, the one that crosses the line included, and only then
+      fills the remaining room item by item. A sample of scattered items
+      never yields a session anyone can analyse; a sample of whole sittings
+      does, across the whole history and not only in the deep-dive window.
+      The spread's sessions follow a salted ranking of their own (raising
+      the cap adds sessions, it never swaps them); the deep dive's partial
+      day takes its sessions newest first, as it walks. See
+      :func:`_pick_in_day`. Rows without a session id fall back to the
+      item draw.
 
     Args:
         collection_id: The collection being served.
@@ -573,19 +663,28 @@ def plan_cycle(collection_id: str, entry: dict,
             status cannot see them yet (without this the last slice was cut
             against a target 581 videos further away than it was, 2026-09-05).
         margin: Extra share to cut on top of the yield, for variance.
+        session_min_plays: The smallest session taken whole; None means the
+            shipped default. The planner is pure, so the live admin floor is
+            resolved by the caller (:func:`session_min_plays`).
 
     Returns:
         ``{"item_ids", "a_cursor", "b_cursor", "a", "b", "exhausted", "platform",
-        "last_slice", "partial_day", "yield"}``. ``exhausted`` is True when both
-        processes have walked off the end of the collection's history and there
-        is nothing left to buy; ``last_slice`` when the target, not the cycle
-        size, bounded the slice; ``partial_day`` names a day bought in part.
+        "last_slice", "partial_day", "yield", "spread_days", "sessions"}``.
+        ``exhausted`` is True when both processes have walked off the end of
+        the collection's history and there is nothing left to buy;
+        ``last_slice`` when the target, not the cycle size, bounded the
+        slice; ``partial_day`` names a day bought in part; ``sessions`` is
+        how many candidate sessions this slice takes the last unscraped
+        items of.
     """
     settings = {**DEFAULT_SETTINGS, **(entry.get("settings") or {})}
     empty = {"item_ids": [], "a_cursor": entry.get("a_cursor"),
              "b_cursor": entry.get("b_cursor"), "a": 0, "b": 0,
              "exhausted": False, "platform": "",
-             "last_slice": False, "partial_day": None, "yield": 1.0}
+             "last_slice": False, "partial_day": None, "yield": 1.0,
+             "sessions": 0}
+    session_floor = (DEFAULT_SESSION_MIN_PLAYS if session_min_plays is None
+                     else max(1, int(session_min_plays)))
 
     if activity is None:
         activity = load_activity(collection_id)
@@ -629,36 +728,23 @@ def plan_cycle(collection_id: str, entry: dict,
     a_share = int(round(budget * float(settings["sample_share"])))
     b_share = budget - a_share
 
-    # Per-day view: total size (for the min_day_items floor) and the ids still
-    # worth scraping. Computed once and shared by both processes.
-    items = activity["item_id"].to_numpy()
-    need_scrape = _scrapeable_mask(items, status)
-    activity = activity.assign(_need=need_scrape)
-
-    floor_ts = None
-    if settings.get("earliest_date"):
-        try:
-            floor_ts = pd.Timestamp(settings["earliest_date"]).normalize()
-        except (TypeError, ValueError):
-            floor_ts = None
-
-    by_day: dict[pd.Timestamp, dict] = {}
-    for day, grp in activity.groupby("day", observed=True):
-        day = pd.Timestamp(day)
-        if floor_ts is not None and day < floor_ts:
-            continue
-        by_day[day] = {
-            "total": int(len(grp)),
-            "scraped": int((~grp["_need"]).sum()),
-            # Sorted so a re-plan from the same cursor yields a byte-identical
-            # slice regardless of parquet row order.
-            "need": sorted(str(i) for i in grp.loc[grp["_need"], "item_id"]),
-        }
+    by_day = _by_day(activity, status, _earliest_ts(settings),
+                     session_min_plays=session_floor)
     if not by_day:
         return {**empty, "platform": platform, "exhausted": True}
 
     all_days = sorted(by_day, reverse=True)
     min_day = int(settings["min_day_items"])
+    # The spread's density: what the supervisor derived and stored for this
+    # run, else derived here from the same inputs (a plan cut before the
+    # supervisor stored one, or a direct call).
+    days_per_month = entry.get("spread_days_per_month")
+    if days_per_month is None:
+        days_per_month = spread_days_per_month(
+            collection_id, entry, activity=activity, status=status,
+            expected_yield=expected_yield, pending=pending, margin=margin,
+            by_day=by_day)["days"]
+    days_per_month = int(days_per_month or 0)
     item_day = {i: _day_key(day) for day, info in by_day.items() for i in info["need"]}
 
     # ---- Process B: whole days, uncapped, newest first ---------------------
@@ -686,9 +772,13 @@ def plan_cycle(collection_id: str, entry: dict,
                 if last_slice:
                     # The plan's last step: buy what the target still needs of
                     # this day and leave the cursor on it (not in `days`), so a
-                    # later target raise completes the day first.
-                    picked.extend(stable_sample(info["need"], room,
-                                                salt=f"{collection_id}:{_day_key(day)}:tail"))
+                    # later target raise completes the day first. Whole
+                    # sessions first, newest first — the walk's own order.
+                    picked.extend(_pick_in_day(
+                        info["need"],
+                        sorted(info["sessions"], key=lambda s: s[0], reverse=True),
+                        room, salt=f"{collection_id}:{_day_key(day)}:tail",
+                        taken=set(picked)))
                     return picked, days, False, _day_key(day)
                 if picked:
                     # Never split a day mid-plan: Sessions must not see a
@@ -703,8 +793,12 @@ def plan_cycle(collection_id: str, entry: dict,
         return picked, days, True, None
 
     # ---- Process A: whole sampled days, newest month first -----------------
-    def take_a(a_budget: int, covered: set[str]):
-        """Walk A from the saved cursor. Returns ``(picked, months_walked, done)``."""
+    def take_a(a_budget: int, covered: set[str], taken: set[str]):
+        """Walk A from the saved cursor. Returns ``(picked, months_walked, done)``.
+
+        ``taken`` — what the deep dive already holds — keeps a sampled
+        session's next-day items, or a day the deep dive took whole, from
+        being counted twice."""
         cursor = entry.get("a_cursor")
         picked: list[str] = []
         months_walked: list[str] = []
@@ -727,14 +821,22 @@ def plan_cycle(collection_id: str, entry: dict,
                         and _day_key(d) not in covered]
             # Seeded draw among qualifying days rather than "the busiest days":
             # picking the busiest would bias Timelines' trends toward heavy-usage days.
-            for day in stable_sample(eligible, int(settings["a_days_per_month"]),
+            for day in stable_sample(eligible, days_per_month,
                                      salt=f"{collection_id}:{month}"):
                 info = by_day[day]
                 quota = int(settings["a_day_cap"]) - info["scraped"]
                 if quota <= 0:
                     continue
-                picked.extend(stable_sample(info["need"], quota,
-                                            salt=f"{collection_id}:{_day_key(day)}"))
+                # The day's candidate sessions in a salted order of their
+                # own — keyed by the session, not its contents, so the
+                # order holds from cycle to cycle as the need shrinks — then
+                # the day's other items up to the cap.
+                by_key = dict(info["sessions"])
+                order = [(key, by_key[key]) for key in
+                         stable_rank(by_key, salt=f"{collection_id}:{_day_key(day)}:sessions")]
+                picked.extend(_pick_in_day(info["need"], order, quota,
+                                           salt=f"{collection_id}:{_day_key(day)}",
+                                           taken=taken))
                 if len(picked) >= a_budget:
                     full = True
                     break
@@ -748,7 +850,7 @@ def plan_cycle(collection_id: str, entry: dict,
     # Whatever B did not use is the spread's to spend (B's own overshoot never
     # eats into the spread's share); a zero share stays zero.
     a_alloc = max(a_share, budget - len(picked_b)) if a_share > 0 else 0
-    picked_a, a_months, a_done = take_a(a_alloc, b_covered)
+    picked_a, a_months, a_done = take_a(a_alloc, b_covered, set(picked_b))
 
     spare = budget - len(picked_b) - len(picked_a)
     if spare > 0 and b_share > 0 and not b_done and partial_day is None:
@@ -774,6 +876,11 @@ def plan_cycle(collection_id: str, entry: dict,
     extra_a = [i for i in picked_a if i not in seen and not seen.add(i)]
 
     picked = picked_b + extra_a
+    # The candidate sessions this slice finishes the scraping of — whole
+    # days and cut days alike — for the journal and the panel.
+    sessions_done = sum(1 for info in by_day.values()
+                        for _key, ids in info["sessions"]
+                        if ids and all(i in seen for i in ids))
     return {
         "item_ids": picked,
         "a_cursor": a_cursor,
@@ -785,7 +892,306 @@ def plan_cycle(collection_id: str, entry: dict,
         "last_slice": bool(last_slice),
         "partial_day": partial_day,
         "yield": yield_,
+        "spread_days": days_per_month,
+        "sessions": int(sessions_done),
     }
+
+
+def _earliest_ts(settings: dict):
+    if not settings.get("earliest_date"):
+        return None
+    try:
+        return pd.Timestamp(settings["earliest_date"]).normalize()
+    except (TypeError, ValueError):
+        return None
+
+
+def _by_day(activity: pd.DataFrame, status: pd.DataFrame | None,
+            floor_ts=None, session_min_plays: int = DEFAULT_SESSION_MIN_PLAYS) -> dict:
+    """Per-day view of a collection: total size (for the ``min_day_items``
+    floor), how many are already scraped, the ids still worth scraping, and
+    the day's **candidate sessions** — the viewing sessions starting that
+    day with at least ``session_min_plays`` plays and something left to
+    scrape, each as ``(key, need ids)`` with the session's need across ALL
+    its days (a sitting that runs past midnight is listed under the day it
+    started, whole). Sessions are listed in key order; the callers decide
+    the order they are taken in. A session starting before ``floor_ts`` is
+    not a candidate: its in-window items are still in their day's ``need``
+    and go item by item. Shared by both processes of :func:`plan_cycle` and
+    by the spread's density derivation, so they see one and the same
+    collection."""
+    items = activity["item_id"].to_numpy()
+    activity = activity.assign(_need=_scrapeable_mask(items, status))
+    by_day: dict[pd.Timestamp, dict] = {}
+    for day, grp in activity.groupby("day", observed=True):
+        day = pd.Timestamp(day)
+        if floor_ts is not None and day < floor_ts:
+            continue
+        by_day[day] = {
+            "total": int(len(grp)),
+            "scraped": int((~grp["_need"]).sum()),
+            # Sorted so a re-plan from the same cursor yields a byte-identical
+            # slice regardless of parquet row order.
+            "need": sorted(str(i) for i in grp.loc[grp["_need"], "item_id"]),
+            "sessions": [],
+        }
+    if by_day and "session" in activity.columns:
+        floor = max(1, int(session_min_plays or 1))
+        rows = activity[activity["_need"] & activity["session"].notna()
+                        & (activity["session_plays"] >= floor)]
+        for key, grp in rows.groupby("session", sort=True):
+            try:
+                start_day = pd.Timestamp(str(key)[:10])
+            except (TypeError, ValueError):
+                continue
+            info = by_day.get(start_day)
+            if info is None:
+                continue
+            info["sessions"].append((str(key), sorted(str(i) for i in grp["item_id"])))
+    return by_day
+
+
+def _pick_in_day(need: list, sessions: list, k: int, salt: str, taken: set) -> list:
+    """Cut about ``k`` of a day's remaining items, whole viewing sessions first.
+
+    ``sessions`` are the day's candidate sessions in the order to take them,
+    each ``(key, need ids)``. They are taken whole, one after another, until
+    ``k`` is met — the session that crosses the line included, so the cut
+    itself never leaves a sitting half-covered (the overshoot is bounded by
+    one session, the same class as an oversized deep-dive day). Any
+    shortfall is filled from the day's other items by the salted draw — the
+    sittings below the floor, and items of sessions listed under another
+    day — so a sampled day still reaches its cap for the day-shaped
+    analyses. ``taken`` holds the ids this cut already has (a straddling
+    session brings its next-day items with it) and is honoured and extended.
+    """
+    picked: list[str] = []
+    if k <= 0:
+        return picked
+    for _key, ids in sessions:
+        if len(picked) >= k:
+            break
+        fresh = [i for i in ids if i not in taken]
+        if not fresh:
+            continue
+        picked.extend(fresh)
+        taken.update(fresh)
+    short = k - len(picked)
+    if short > 0:
+        fill = stable_sample([i for i in need if i not in taken], short, salt=salt)
+        picked.extend(fill)
+        taken.update(fill)
+    return picked
+
+
+# The spread never samples more days a month than this, whatever the target.
+MAX_SPREAD_DAYS = 31
+
+
+# How long the steps of a cycle take until a collection has runs of its own
+# to measure: observed prod figures (2026-09-09: 1,289 scraped in 18 min;
+# a 1,055-video batch job in 20 min, a 14-video one in 6; consolidations
+# 1-2.5 min).
+DEFAULT_TIMING = {
+    "scrape_per_min": 70.0,          # videos the scraper gets through per minute
+    "annotate_fixed_min": 8.0,       # a batch job's turnaround however small
+    "annotate_per_video_min": 0.01,  # ...plus about a minute per 100 videos
+    "consolidate_min": 2.0,          # one core-only consolidation
+}
+_TIMING_RUNS = 3
+_TIMING_MIN_SCRAPE = 100     # a retry batch of 4 says nothing about the rate
+_TIMING_MIN_ANNOTATE = 10
+
+
+def expected_timing(collection_id: str, platform: str | None) -> dict:
+    """How long each step of a cycle takes, measured from the collection's
+    recent runs in the enrichment history — the panel's time estimate.
+
+    Three measurements, each over the last few runs and falling back to
+    :data:`DEFAULT_TIMING` when there are too few: the scraper's rate (a
+    ``scrape.finished`` paired with the ``queue.drained`` that started it),
+    the batch annotator's turnaround (its ``queue.drained`` to
+    ``annotate.finished``; the fixed part is what is left after the per-video
+    slope, which stays at the default), and a core-only consolidation
+    (``refresh.finished`` events of origin "Consolidate enrichment data" that
+    skipped the downstream steps carry their own ``started_ts``).
+
+    Returns:
+        ``{**DEFAULT_TIMING keys, "measured": {"scrape", "annotate",
+        "consolidate"}}`` — the figures in minutes, and which of them came
+        from this collection's own runs. Never raises.
+    """
+    out = dict(DEFAULT_TIMING)
+    out["measured"] = {"scrape": False, "annotate": False, "consolidate": False}
+    try:
+        from web_interface.services import enrichment_journal as journal
+        events = list(reversed(journal.read(collection_id=collection_id,
+                                            platform=platform, limit=160)))
+
+        def when(value):
+            try:
+                return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                return None
+
+        def detail(e):
+            d = e.get("detail")
+            return d if isinstance(d, dict) else {}
+
+        def paired(finish_kind, is_start, attempts_of, floor):
+            """(attempts, minutes) for each finish paired with its start."""
+            found = []
+            for i, e in enumerate(events):
+                if e.get("kind") != finish_kind:
+                    continue
+                for s in reversed(events[:i]):
+                    if s.get("kind") == finish_kind:
+                        break            # the previous run's finish: no start in between
+                    if s.get("kind") == "queue.drained" and is_start(s):
+                        t0, t1 = when(s.get("ts")), when(e.get("ts"))
+                        n = attempts_of(e)
+                        if t0 and t1 and t1 > t0 and n >= floor:
+                            found.append((n, (t1 - t0).total_seconds() / 60))
+                        break
+            return found[-_TIMING_RUNS:]
+
+        worker = lambda e: str(detail(e).get("worker") or "")  # noqa: E731
+        scrapes = paired(
+            "scrape.finished",
+            lambda s: (not platform or str(s.get("platform") or "") == platform)
+                      and not worker(s).startswith("queue_annotator"),
+            lambda e: sum(int(detail(e).get(k) or 0) for k in ("ok", "permanent", "transient")),
+            _TIMING_MIN_SCRAPE)
+        if scrapes:
+            minutes = sum(m for _, m in scrapes)
+            if minutes > 0:
+                out["scrape_per_min"] = round(max(5.0, min(500.0, sum(n for n, _ in scrapes) / minutes)), 1)
+                out["measured"]["scrape"] = True
+
+        annotates = paired(
+            "annotate.finished",
+            lambda s: worker(s).startswith("queue_annotator"),
+            lambda e: int(detail(e).get("ok") or 0) + int(detail(e).get("fail") or 0),
+            _TIMING_MIN_ANNOTATE)
+        if annotates:
+            slope = out["annotate_per_video_min"]
+            fixed = sorted(m - n * slope for n, m in annotates)[len(annotates) // 2]
+            out["annotate_fixed_min"] = round(max(3.0, min(30.0, fixed)), 1)
+            out["measured"]["annotate"] = True
+
+        consolidations = []
+        for e in events:
+            d = detail(e)
+            if e.get("kind") != "refresh.finished" or d.get("origin") != "Consolidate enrichment data":
+                continue
+            if int(d.get("studies") or 0):
+                continue             # a full downstream refresh, not a consolidation
+            t0, t1 = when(d.get("started_ts")), when(e.get("ts"))
+            if t0 and t1 and t1 > t0:
+                consolidations.append((t1 - t0).total_seconds() / 60)
+        consolidations = consolidations[-_TIMING_RUNS:]
+        if consolidations:
+            median = sorted(consolidations)[len(consolidations) // 2]
+            out["consolidate_min"] = round(max(0.5, min(15.0, median)), 1)
+            out["measured"]["consolidate"] = True
+    except Exception as exc:
+        logger.error(f"collection_enrichment.expected_timing failed: {exc}")
+    return out
+
+
+def spread_days_per_month(collection_id: str, entry: dict,
+                          activity: pd.DataFrame | None = None,
+                          status: pd.DataFrame | None = None,
+                          expected_yield: float = 1.0, pending: int = 0,
+                          margin: float = 0.0, by_day: dict | None = None) -> dict:
+    """How many days a month the spread must sample to deliver its share of
+    the target — the density that used to be the "max days / month" setting.
+
+    The target says how much to buy and the balance says what share of it
+    the spread buys; the per-day cap says what one sampled day is worth. The
+    days per month follow: the smallest uniform density at which the months
+    still ahead of the spread's cursor hold enough capped videos. Uniform,
+    so Timelines sees the same sampling density across the whole history,
+    and the smallest, so the spread spends no more days than the target
+    needs. Walks the same salted ranking :func:`plan_cycle` draws from, so a
+    density of ``n`` takes exactly the first ``n`` of that ranking in every
+    month, and a later raise adds days rather than replacing them.
+
+    Args:
+        collection_id: Salts the per-month ranking, as in :func:`plan_cycle`.
+        entry: The ledger entry (settings and ``a_cursor``).
+        activity, status: Pre-loaded, else loaded here.
+        expected_yield, pending, margin: As for :func:`plan_cycle` — the
+            spread's share is measured against what must be CUT for the
+            target to come back annotated.
+        by_day: A pre-built :func:`_by_day` view, when the caller has one.
+
+    Returns:
+        ``{"days", "videos", "capacity", "months", "exhausted"}``: the
+        density; the videos the spread is asked for; what the months ahead
+        can supply at that density; how many months lie ahead; and whether
+        even the densest walk falls short (the deep dive covers the rest
+        when it has any share — at 100% spread the plan will stop short).
+    """
+    settings = {**DEFAULT_SETTINGS, **(entry.get("settings") or {})}
+    out = {"days": 0, "videos": 0, "capacity": 0, "months": 0, "exhausted": False}
+    share = float(settings.get("sample_share") or 0.0)
+    target = int(settings.get("annotation_target") or 0)
+    if share <= 0 or target <= 0:
+        return out
+    if activity is None:
+        activity = load_activity(collection_id)
+    if activity is None or activity.empty:
+        return out
+    if status is None:
+        status = load_status(activity["item_id"].unique())
+    remaining = max(0, target - _annotated_unique(activity, status) - max(0, int(pending or 0)))
+    try:
+        yield_ = min(1.0, max(0.5, float(expected_yield or 1.0)))
+    except (TypeError, ValueError):
+        yield_ = 1.0
+    try:
+        margin_ = max(0.0, float(margin or 0.0))
+    except (TypeError, ValueError):
+        margin_ = 0.0
+    videos = int(math.ceil(remaining / yield_ * (1.0 + margin_) * share))
+    out["videos"] = videos
+    if videos <= 0:
+        return out
+
+    if by_day is None:
+        by_day = _by_day(activity, status, _earliest_ts(settings))
+    cursor = entry.get("a_cursor")
+    min_day = int(settings["min_day_items"])
+    cap = int(settings["a_day_cap"])
+    # The months the spread has still to walk, each with its qualifying days
+    # in draw order and what each day can still supply under the cap.
+    per_month: dict[str, list] = {}
+    for day, info in by_day.items():
+        month = _month_key(day)
+        if cursor and month >= str(cursor):
+            continue
+        if info["total"] < min_day or not info["need"]:
+            continue
+        per_month.setdefault(month, []).append(day)
+    if not per_month:
+        out["exhausted"] = True
+        return out
+    quotas = {
+        month: [max(0, min(cap - by_day[d]["scraped"], len(by_day[d]["need"])))
+                for d in stable_rank(days, salt=f"{collection_id}:{month}")]
+        for month, days in per_month.items()
+    }
+    out["months"] = len(quotas)
+    densest = min(MAX_SPREAD_DAYS, max(len(q) for q in quotas.values()))
+    capacity = 0
+    for n in range(1, densest + 1):
+        capacity = sum(sum(q[:n]) for q in quotas.values())
+        if capacity >= videos:
+            out.update(days=n, capacity=capacity)
+            return out
+    out.update(days=densest, capacity=capacity, exhausted=True)
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -928,20 +1334,36 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         # None on a plan armed before this was recorded.
         "run_started_at": entry.get("run_started_at"),
         "run_start_annotated": entry.get("run_start_annotated"),
+        # Where the LAST run ended, stamped when the plan closed: the meter of
+        # a finished run reads these and stands still while the operator moves
+        # the target to prepare the next one (2026-09-09).
+        "run_finished_at": entry.get("run_finished_at"),
+        "run_end_annotated": entry.get("run_end_annotated"),
+        "run_end_target": entry.get("run_end_target"),
         "stall_count": int(entry.get("stall_count") or 0),
         "last_error": entry.get("last_error"),
         "last_cycle_at": entry.get("last_cycle_at"),
         "last_batch": entry.get("last_batch"),
+        # The plan's measured yield (scraped and annotated per video cut),
+        # for the panel's time estimate; None until a cycle has run.
+        "last_yield": entry.get("last_yield"),
         # What Auto resolved cycle_items to last cycle (None in manual mode) —
         # the panel's disabled input displays it.
         "last_auto_cycle_items": entry.get("last_auto_cycle_items"),
+        # {since, pending} while the plan has nothing more to scrape and waits
+        # for its last queued videos to be annotated; None otherwise.
+        "finishing": entry.get("finishing") or None,
+        # The spread's derived density for the current run (None before the
+        # first cycle) — the panel shows it beside the per-day cap.
+        "spread_days_per_month": entry.get("spread_days_per_month"),
         "milestone_days": MILESTONE_DAYS,
         "total_items": 0, "scraped_items": 0, "annotated_items": 0,
         "unique_items": 0, "unique_scraped": 0, "unique_annotated": 0,
-        "unique_failed": 0,
+        "unique_failed": 0, "unique_awaiting": 0,
         "total_days": 0, "qualifying_days": 0, "milestone_pct": 0.0,
         "oldest_day": None, "newest_day": None,
         "target_floor": 0, "target_ceiling": 0,
+        "sessions": _session_figures(None, [], DEFAULT_SESSION_MIN_PLAYS),
     }
     try:
         activity = load_activity(collection_id)
@@ -970,10 +1392,14 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
             u_annotated = _uflag("annotated_ok")
             u_failed = (~u_annotated
                         & (_uflag("annotated_fail") | (_uflag("scrape_fail") & ~u_scraped)))
+            # The backlog the handoff annotates first: scraped, not yet
+            # annotated, and not burnt (a failed annotation never re-queues).
+            u_awaiting = u_scraped & ~u_annotated & ~_uflag("annotated_fail")
         else:
             u_scraped = np.zeros(len(unique_ids), dtype=bool)
             u_annotated = np.zeros(len(unique_ids), dtype=bool)
             u_failed = np.zeros(len(unique_ids), dtype=bool)
+            u_awaiting = np.zeros(len(unique_ids), dtype=bool)
 
         # Per-row failed mask, day-aligned like `scraped`/`annotated` above.
         if status is not None and not status.empty:
@@ -986,9 +1412,15 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         else:
             row_failed = np.zeros(len(items), dtype=bool)
 
+        # Four states that partition a row: annotated, awaiting annotation,
+        # failed for good, or still to scrape. A scraped video whose
+        # annotation burnt out is failed, not awaiting (it used to count as
+        # both, and the chart's "not yet scraped" remainder came up short by
+        # that many).
         frame = activity.assign(_ann=annotated,
-                                _await=scraped & ~annotated,
-                                _fail=row_failed)
+                                _await=scraped & ~annotated & ~row_failed,
+                                _fail=row_failed,
+                                _need=_scrapeable_mask(items, status))
         grouped = frame.groupby("day", observed=True)
         per_day = grouped["_ann"].sum()
         min_day = int(settings["min_day_items"])
@@ -1002,15 +1434,28 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         agg = grouped.agg(_n=("_ann", "size"), _a=("_ann", "sum"),
                           _w=("_await", "sum"), _f=("_fail", "sum"))
         agg = agg.sort_index()
+        # Each day's place in its month's salted draw — the very ranking the
+        # random daily sample takes its days from (plan_cycle's take_a), so
+        # the panel's estimate can land on the planner's own days rather
+        # than the newest ones. Ranked over every active day: a hash order
+        # keeps its relative order on any subset, so the planner's draw
+        # among the eligible days is this order restricted to them.
+        draw: dict = {}
+        for month, days in pd.Series(list(agg.index), index=agg.index).groupby(
+                [_month_key(d) for d in agg.index]):
+            for pos, day in enumerate(stable_rank(list(days), salt=f"{collection_id}:{month}")):
+                draw[day] = pos
         daily = {
             "dates": [_day_key(d) for d in agg.index],
             "annotated": [int(v) for v in agg["_a"]],
             "awaiting": [int(v) for v in agg["_w"]],
             "failed": [int(v) for v in agg["_f"]],
             "total": [int(v) for v in agg["_n"]],
+            "draw": [int(draw.get(d, 0)) for d in agg.index],
         }
 
         out.update({
+            "sessions": _session_figures(frame, daily["dates"], session_min_plays()),
             "total_items": int(len(items)),
             "scraped_items": int(scraped.sum()),
             "annotated_items": int(annotated.sum()),
@@ -1018,6 +1463,7 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
             "unique_scraped": int(u_scraped.sum()),
             "unique_annotated": int(u_annotated.sum()),
             "unique_failed": int(u_failed.sum()),
+            "unique_awaiting": int(u_awaiting.sum()),
             # The window of targets that do anything: below what is already
             # annotated the plan is instantly complete, above everything that
             # has not permanently failed it can never finish. Still a ceiling,
@@ -1034,6 +1480,46 @@ def progress(collection_id: str, entry: dict | None = None) -> dict:
         })
     except Exception as exc:
         logger.error(f"collection_enrichment.progress({collection_id}) failed: {exc}")
+    return out
+
+
+def _session_figures(frame: pd.DataFrame | None, dates: list, min_plays: int) -> dict:
+    """The panel's viewing-session figures, from the day-aligned status frame
+    :func:`progress` builds (``_ann``, ``_await``, ``_fail``, ``_need`` per
+    (item, day) row, plus the ``session`` columns of :func:`load_activity`).
+
+    A **candidate** session has at least ``min_plays`` plays (the Sessions
+    tab's floor); it is **analysis-ready** once every item in it is
+    annotated or has failed for good — whole-session coverage, the mirror of
+    a deep-dive day. ``per`` carries the candidates NOT yet ready, newest
+    first, as three parallel int lists the panel's estimate needs and
+    nothing more (it is polled while a run is active): ``d`` the index of
+    the session's start day in ``dates``, ``n`` the items still to scrape,
+    ``w`` the items scraped and awaiting annotation.
+    """
+    out = {"min_plays": int(min_plays), "total": 0, "candidates": 0, "ready": 0,
+           "per": {"d": [], "n": [], "w": []}}
+    if frame is None or frame.empty or "session" not in frame.columns:
+        return out
+    rows = frame[frame["session"].notna()]
+    if rows.empty:
+        return out
+    agg = rows.groupby("session", sort=True).agg(
+        _plays=("session_plays", "first"), _distinct=("item_id", "size"),
+        _a=("_ann", "sum"), _f=("_fail", "sum"), _w=("_await", "sum"),
+        _n=("_need", "sum"))
+    out["total"] = int(len(agg))
+    cand = agg[agg["_plays"] >= int(min_plays)]
+    ready = (cand["_a"] + cand["_f"]) >= cand["_distinct"]
+    out["candidates"] = int(len(cand))
+    out["ready"] = int(ready.sum())
+    todo = cand[~ready].sort_index(ascending=False)
+    day_idx = {d: i for i, d in enumerate(dates)}
+    out["per"] = {
+        "d": [day_idx.get(str(k)[:10], -1) for k in todo.index],
+        "n": [int(v) for v in todo["_n"]],
+        "w": [int(v) for v in todo["_w"]],
+    }
     return out
 
 

@@ -483,6 +483,9 @@ def get_collection_enrichment(collection_id):
         # Per-1000-items annotation estimate for the target readout (None when
         # the active backend has no pricing, e.g. a local model).
         "cost_per_1000": _annotation_cost_estimate(1000),
+        # How long a cycle's steps take here, measured from this collection's
+        # recent runs (the Hub's typical figures until it has some).
+        "timing": ce.expected_timing(collection_id, (entry or {}).get("platform")),
     }
     return jsonify(payload)
 
@@ -525,6 +528,7 @@ def save_collection_enrichment(collection_id):
             # be revived deliberately from the modal.
             patch["stall_count"] = 0
             patch["last_error"] = None
+            patch["finishing"] = None
     if isinstance(data.get("settings"), dict):
         patch["settings"] = ce.normalize_settings(data["settings"])
 
@@ -544,6 +548,10 @@ def save_collection_enrichment(collection_id):
         patch["run_started_at"] = ce.now_iso()
         patch["run_start_annotated"] = int(
             ce.progress(cid, existing or {}).get("target_floor") or 0)
+        # The previous run's end belongs to the previous run.
+        patch["run_finished_at"] = None
+        patch["run_end_annotated"] = None
+        patch["run_end_target"] = None
     if existing is None:
         try:
             owner = (load_owner_map() or {}).get(cid)
@@ -642,10 +650,6 @@ def _journal_plan_save(cid: str, patch: dict, prev_state, entry: dict, *,
             else:
                 kind, verb = "plan.armed", "Armed"
             message = f"{verb} by {actor} — target {target:,} videos annotated"
-            if settings.get("cycle_items_auto"):
-                message += ", videos per cycle chosen automatically"
-            else:
-                message += f", {int(settings.get('cycle_items') or 0):,} videos per cycle"
             try:
                 n_foreign = int(foreign_queued or 0)
             except (TypeError, ValueError):

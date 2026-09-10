@@ -76,6 +76,21 @@ ANNOTATE_HELD_KEY = "annotate_held"
 # no-plans path may settle it; an operator's manual runs never set it.
 SETTLE_OWED_KEY = "settle_owed"
 
+# Ledger entry key: set while a plan has nothing more to scrape but its own
+# videos are still queued for, or inside, an annotation job. The plan stays
+# Running until those are annotated and consolidated, and closes then. Until
+# 2026-09-09 the planner closed it the moment nothing was left to cut — in
+# the same tick that handed 1,055 videos to the annotator, so the history
+# read "Idle" two seconds before "Annotator started" and the panel said
+# "Idle · annotating now" for the 35 minutes the plan's last batch took.
+FINISHING_KEY = "finishing"
+
+# ...but not for ever: a claim file left behind by a crashed annotator would
+# otherwise hold a finished plan open indefinitely. Past this age the plan
+# closes with the pending videos noted; a whole batch job turns around well
+# inside it.
+FINISHING_MAX_H = 6
+
 
 def _admin_kill_switch() -> bool:
     """True when automatic enrichment is enabled site-wide.
@@ -1066,32 +1081,31 @@ def _plan(reporter, plans: dict) -> dict | None:
                 continue
 
             settings = {**ce.DEFAULT_SETTINGS, **(entry.get("settings") or {})}
-            auto_items = None
-            status = None
             expected_yield = _expected_yield(cid, platform)
             pending = _pending_annotations(activity)
-            if settings.get("cycle_items_auto"):
+            # The cycle is always sized automatically (the manual knob went
+            # on 2026-09-09; a stored cycle_items_auto=False is ignored).
+            if True:
                 status = ce.load_status(activity["item_id"].unique())
                 auto_items = _auto_cycle_items(entry, activity, status,
                                                expected_yield=expected_yield,
                                                margin=CUT_MARGIN, pending=pending)
                 if auto_items == 0:
                     target = int(settings.get("annotation_target") or 0)
-                    if target and ce._annotated_unique(activity, status) >= target:
-                        # Nothing pending — the target is simply MET. This
-                        # branch used to `continue`, so an Auto plan that
-                        # reached its target exactly read "Running" for ever
-                        # (2026-09-05: 10,570/10,570, ticking nothing_to_do
-                        # every hour). Close it the way plan_cycle would.
-                        ce.save_plan(cid, {"state": ce.STATE_DONE, "platform": platform,
-                                           "finished_at": ce.now_iso()})
+                    annotated = ce._annotated_unique(activity, status)
+                    if target and annotated >= target:
+                        # The target is MET. This branch used to `continue`,
+                        # so an Auto plan that reached its target exactly read
+                        # "Running" for ever (2026-09-05: 10,570/10,570,
+                        # ticking nothing_to_do every hour). Close it the way
+                        # plan_cycle would — once nothing of the collection's
+                        # is still being annotated.
+                        if _still_finishing(reporter, cid, entry, platform, pending):
+                            continue
+                        _close_plan(reporter, cid, entry, platform,
+                                    f"Idle — the annotation target ({target:,} videos) "
+                                    f"is reached", target, {}, annotated)
                         reporter.log(f"{cid}: annotation target met; plan complete.")
-                        journal.record("plan.done",
-                                       f"Idle — the annotation target ({target:,} videos) "
-                                       f"is reached",
-                                       collection_id=cid, platform=platform,
-                                       actor="enrichment_supervisor", target=target)
-                        _notify_owner(reporter, cid, entry)
                         continue
                     # Target headroom is fully covered by pending work (queued
                     # or in an in-flight job) — cutting more would overshoot.
@@ -1103,16 +1117,17 @@ def _plan(reporter, plans: dict) -> dict | None:
                 reporter.log(f"{cid}: auto items-per-cycle = {auto_items:,} "
                              f"(sized for an expected {expected_yield:.0%} yield).")
 
+            entry = _spread_density(reporter, cid, entry, settings, activity, status,
+                                    expected_yield, pending)
             result = ce.plan_cycle(cid, entry, activity=activity, status=status,
                                    expected_yield=expected_yield, pending=pending,
-                                   margin=CUT_MARGIN)
+                                   margin=CUT_MARGIN,
+                                   session_min_plays=ce.session_min_plays())
             items = result["item_ids"]
 
             if not items:
-                ce.save_plan(cid, {"state": ce.STATE_DONE, "platform": platform,
-                                   "a_cursor": result["a_cursor"],
-                                   "b_cursor": result["b_cursor"],
-                                   "finished_at": ce.now_iso()})
+                if _still_finishing(reporter, cid, entry, platform, pending):
+                    continue
                 target = int(settings.get("annotation_target") or 0)
                 if status is None:
                     status = ce.load_status(activity["item_id"].unique())
@@ -1121,10 +1136,10 @@ def _plan(reporter, plans: dict) -> dict | None:
                     why = (f"Idle — the annotation target ({target:,} videos) is "
                            f"reached, or covered by videos already queued")
                 elif float(settings.get("sample_share") or 0) >= 1:
-                    why = ("Idle — the plan has processed every day the spread is "
-                           "allowed to pick, and is still short of the target; "
-                           "moving the balance toward the deep dive lets it "
-                           "cover the rest of the collection")
+                    why = ("Idle — the plan has processed every day the random daily "
+                           "sample can take, and is still short of the target; moving the "
+                           "balance toward the deep dive, or raising the items "
+                           "per day, lets it cover the rest of the collection")
                 elif settings.get("earliest_date"):
                     why = (f"Idle — every video since the earliest date "
                            f"({settings['earliest_date']}) is processed or "
@@ -1133,11 +1148,10 @@ def _plan(reporter, plans: dict) -> dict | None:
                 else:
                     why = ("Idle — every video in the collection is processed, "
                            "or failed for good")
+                _close_plan(reporter, cid, entry, platform, why, target,
+                            {"a_cursor": result["a_cursor"],
+                             "b_cursor": result["b_cursor"]}, annotated)
                 reporter.log(f"{cid}: nothing left to enrich; plan complete.")
-                journal.record("plan.done", why,
-                               collection_id=cid, platform=platform,
-                               actor="enrichment_supervisor", target=target)
-                _notify_owner(reporter, cid, entry)
                 continue
 
             # A cycle that enqueues work but never produces a scrape is chasing
@@ -1176,20 +1190,35 @@ def _plan(reporter, plans: dict) -> dict | None:
                 "stall_count": stalls + 1,   # cleared by the next successful handoff
                 "last_cycle_at": ce.now_iso(),
                 "last_batch": {"a": result["a"], "b": result["b"],
-                               "total": len(items)},
+                               "total": len(items),
+                               "sessions": int(result.get("sessions") or 0)},
                 "last_yield": round(float(result.get("yield") or 1.0), 3),
                 "last_error": None,
+                # A raised target can put a finishing plan back to work.
+                FINISHING_KEY: None,
             })
+            sessions_done = int(result.get("sessions") or 0)
             reporter.log(f"{cid}: queued {len(items)} item(s) to scrape "
-                         f"({result['b']} deep-dive, {result['a']} spread); "
-                         f"back to {result['b_cursor']} / {result['a_cursor']}."
+                         f"({result['b']} deep-dive, {result['a']} random daily sample"
+                         + (f", finishing {sessions_done} viewing session(s)"
+                            if sessions_done else "")
+                         + f"); back to {result['b_cursor']} / {result['a_cursor']}."
                          + (f" Partial day {result['partial_day']} — the plan's last slice."
                             if result.get("partial_day") else ""))
             message = (f"Next batch queued for scraping — {len(items):,} video(s) "
                        f"({result['b']:,} from the deep dive into recent days, "
-                       f"{result['a']:,} from the spread across the history); "
+                       f"{result['a']:,} from the random daily sample across the history"
+                       + (f", up to {result.get('spread_days')} day(s) a month"
+                          if result["a"] and result.get("spread_days") else "")
+                       + "); "
                        f"the deep dive now reaches back to {result['b_cursor'] or '—'}, "
-                       f"the spread to {result['a_cursor'] or '—'}")
+                       f"the random daily sample to {result['a_cursor'] or '—'}")
+            if sessions_done:
+                # Scraping, not annotation: the handoff still clamps the
+                # annotation to the target, so the run's very last session
+                # can end part-annotated (like its partial last day).
+                message += (f"; this batch takes the last unscraped items of "
+                            f"{sessions_done:,} viewing session(s)")
             if result.get("partial_day"):
                 message += (f"; only part of {result['partial_day']} — the last batch needed "
                             f"to reach the target, allowing for the ~{1 - expected_yield:.0%} "
@@ -1201,8 +1230,10 @@ def _plan(reporter, plans: dict) -> dict | None:
                            collection_id=cid, platform=platform,
                            actor="enrichment_supervisor", queued=len(items),
                            deep_dive=result["b"], spread=result["a"],
+                           sessions=sessions_done,
                            b_cursor=result["b_cursor"], a_cursor=result["a_cursor"],
                            auto_items=auto_items, expected_yield=round(expected_yield, 3),
+                           spread_days=result.get("spread_days"),
                            last_slice=bool(result.get("last_slice")),
                            partial_day=result.get("partial_day"),
                            cycle=int(entry.get("cycles") or 0) + 1)
@@ -1213,6 +1244,109 @@ def _plan(reporter, plans: dict) -> dict | None:
             reporter.log(f"Planning for {cid} failed: {exc}")
             ce.save_plan(cid, {"last_error": str(exc)})
     return None
+
+
+def _spread_density(reporter, cid: str, entry: dict, settings: dict, activity,
+                    status, expected_yield: float, pending: int) -> dict:
+    """The spread's days-per-month for this run — derived once and stored.
+
+    Derived at the start of a walk (no ``a_cursor``) and again whenever one
+    of its inputs changes (target, balance, per-day cap, earliest date), so a
+    raised target re-sizes the density for the months still ahead. Between
+    those, the stored value holds, and the density stays uniform across the
+    history whatever the months turn out to hold. Returns the entry with the
+    density on it; on any failure the entry is returned untouched and
+    ``plan_cycle`` derives for itself.
+    """
+    basis = {"target": int(settings.get("annotation_target") or 0),
+             "share": float(settings.get("sample_share") or 0.0),
+             "cap": int(settings.get("a_day_cap") or 0),
+             "earliest": settings.get("earliest_date") or None}
+    if (entry.get("spread_days_per_month") is not None
+            and entry.get("a_cursor") is not None
+            and entry.get("spread_days_basis") == basis):
+        return entry
+    try:
+        derived = ce.spread_days_per_month(cid, entry, activity=activity, status=status,
+                                           expected_yield=expected_yield,
+                                           pending=pending, margin=CUT_MARGIN)
+    except Exception as exc:
+        reporter.log(f"{cid}: could not derive the spread's days per month: {exc}")
+        return entry
+    patch = {"spread_days_per_month": int(derived["days"]),
+             "spread_days_basis": basis}
+    ce.save_plan(cid, patch)
+    if derived["days"]:
+        reporter.log(f"{cid}: the random daily sample takes up to {derived['days']} day(s) a month — "
+                     f"{derived['videos']:,} video(s) wanted from it over "
+                     f"{derived['months']} month(s), {derived['capacity']:,} available "
+                     f"at that density"
+                     + ("; even the densest walk falls short" if derived["exhausted"] else "")
+                     + ".")
+    return {**entry, **patch}
+
+
+def _still_finishing(reporter, cid: str, entry: dict, platform: str | None,
+                     pending: int) -> bool:
+    """Hold a plan that has nothing more to scrape while its own videos are
+    still queued for, or inside, an annotation job.
+
+    The plan is Running until that work is annotated and consolidated — the
+    consolidation's completion ticks the loop, the pending count reaches
+    zero, and the next call lets the caller close the plan. The hold is
+    recorded once (``entry["finishing"]`` and one history line) and bounded
+    by :data:`FINISHING_MAX_H`.
+
+    Returns:
+        True when the caller must leave the plan open this tick.
+    """
+    pending = int(pending or 0)
+    if pending <= 0:
+        return False
+    held = entry.get(FINISHING_KEY)
+    since = (held or {}).get("since") if isinstance(held, dict) else None
+    if since:
+        try:
+            age_h = (datetime.now(timezone.utc)
+                     - datetime.fromisoformat(str(since))).total_seconds() / 3600
+        except (TypeError, ValueError):
+            age_h = None
+        if age_h is not None and age_h >= FINISHING_MAX_H:
+            reporter.log(f"{cid}: {pending} video(s) still pending annotation after "
+                         f"{age_h:.0f} h of finishing; closing the plan anyway.")
+            return False
+        reporter.log(f"{cid}: nothing more to scrape; {pending} video(s) still being "
+                     f"annotated — the plan closes when they are consolidated.")
+        return True
+    ce.save_plan(cid, {FINISHING_KEY: {"since": ce.now_iso(), "pending": pending}})
+    reporter.log(f"{cid}: nothing more to scrape; waiting for {pending} queued video(s) "
+                 f"to be annotated before the plan closes.")
+    journal.record("plan.finishing",
+                   f"Finishing — nothing more to scrape; the plan closes once the "
+                   f"{pending:,} video(s) already queued are annotated and consolidated",
+                   collection_id=cid, platform=platform,
+                   actor="enrichment_supervisor", pending=pending)
+    return True
+
+
+def _close_plan(reporter, cid: str, entry: dict, platform: str | None,
+                why: str, target: int, patch: dict, annotated: int | None = None) -> None:
+    """Mark a plan Idle: the ledger, the history line and the owner's note.
+
+    Also stamps where the run ended (``run_finished_at``, ``run_end_annotated``,
+    ``run_end_target``), so the panel's meter of a finished run keeps reading
+    the run as it was and not the target the operator is now moving.
+    """
+    now = ce.now_iso()
+    ce.save_plan(cid, {**patch, "state": ce.STATE_DONE, "platform": platform,
+                       "finished_at": now, FINISHING_KEY: None,
+                       "run_finished_at": now,
+                       "run_end_annotated": (int(annotated) if annotated is not None else None),
+                       "run_end_target": int(target or 0)})
+    journal.record("plan.done", why,
+                   collection_id=cid, platform=platform,
+                   actor="enrichment_supervisor", target=target)
+    _notify_owner(reporter, cid, entry)
 
 
 def _notify_owner(reporter, cid: str, entry: dict) -> None:

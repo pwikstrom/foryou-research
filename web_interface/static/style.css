@@ -7450,20 +7450,35 @@ body:has(.public-page) {
    The target owns a full row - it has a slider, a readout and a warning
    under it - and the remaining four sit under it two by two. */
 .dm-enrich-settings {
+    /* Three sliders, stacked: each runs the full width of the panel so the
+       log scales get all the travel there is, with its value on the label
+       line rather than beside the track. */
     display: grid;
-    /* Two explicit tracks, like the modal's own field grid above it, so the
-       four knobs under the target sit in a square rather than an uneven run
-       of auto-fit columns with one field orphaned on its own row. */
-    grid-template-columns: 1fr 1fr;
-    gap: 18px 28px;
+    grid-template-columns: 1fr;
+    gap: 16px;
     align-items: start;
     margin-top: 14px;
     padding-top: 12px;
     border-top: 1px solid var(--color-border);
 }
-.dm-enrich-field--wide { grid-column: 1 / -1; }
-@media (max-width: 860px) {
-    .dm-enrich-settings { grid-template-columns: 1fr; }
+.dm-enrich-slider-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.dm-enrich-slider-head .dm-enrich-label { margin-bottom: 0; }
+/* The slider's value, on the label line in the label's own type. */
+.dm-enrich-inline-value {
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+.dm-enrich-inline-value:empty { display: none; }
+.dm-enrich-slider {
+    display: block;
+    width: 100%;
+    margin: 0;
 }
 .dm-enrich-label {
     display: block;
@@ -7501,25 +7516,54 @@ body:has(.public-page) {
     font-size: var(--text-xs);
     color: var(--color-text-muted);
 }
-.dm-enrich-target-row {
+/* --- Earliest date: a handle on the chart, and a row under it ---------- */
+.dm-enrich-chart-wrap { position: relative; }
+.dm-enrich-earliest-handle {
+    position: absolute;
+    width: 13px;
+    margin-left: -6px;
+    cursor: ew-resize;
+    z-index: 30;
+    touch-action: none;
+}
+.dm-enrich-earliest-handle__rule {
+    position: absolute;
+    left: 6px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--color-accent);
+    opacity: 0.75;
+}
+.dm-enrich-earliest-handle__grip {
+    position: absolute;
+    left: 2px;
+    top: -1px;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    background: var(--color-accent);
+}
+.dm-enrich-earliest-handle:hover .dm-enrich-earliest-handle__rule,
+.dm-enrich-chart-wrap.dragging-range .dm-enrich-earliest-handle__rule {
+    opacity: 1;
+    width: 2px;
+}
+.dm-enrich-earliest-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
+    gap: 4px;
+    margin: 0 0 8px 0;
+    color: var(--color-text-secondary);
 }
-.dm-enrich-target-value {
-    font-size: var(--text-h3);
-    font-weight: var(--weight-bold);
-    color: var(--color-text-primary);
-    min-width: 70px;
+.dm-enrich-earliest-row > .meta-tooltip { margin-right: 4px; }
+.dm-enrich-earliest-value {
+    min-width: 84px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
 }
-.dm-enrich-target-pct { color: var(--color-text-muted); }
-.dm-enrich-target-slider {
-    flex: 1;
-    min-width: 180px;
-    max-width: 340px;
-    margin: 0;
-}
+.dm-enrich-earliest-step { padding: 0 6px; line-height: 1.4; }
+#dm-enrich-earliest-reset { margin-left: 6px; }
 .dm-enrich-hint {
     margin-top: 5px;
     color: var(--color-text-muted);
@@ -7622,6 +7666,14 @@ body:has(.public-page) {
 /* Display ID / User account beside Tags / Hide Collection. Two explicit
    tracks rather than auto-fit: auto-fit leaves a collapsed third track and
    its gutter unused at this width, so the pair would not fill the modal. */
+/* The Edit Collection modal's two blocks (Collection settings, Automatic
+   enrichment) share one panel: heading + explanation above, this below. */
+.dm-block-panel {
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-bg-elevated);
+    padding: 10px 12px;
+}
+
 .edit-collection-fields {
     display: grid;
     grid-template-columns: 1fr 1fr;

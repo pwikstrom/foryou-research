@@ -119,3 +119,22 @@ def test_progress_reports_the_starting_line_it_was_given():
     out = ce.progress("nope-no-such-collection", entry)
     assert out["run_started_at"] == "2026-09-01T08:00:00+00:00"
     assert out["run_start_annotated"] == 2400
+
+
+def test_arming_again_forgets_where_the_last_run_ended(arm):
+    """The finished run's end (what the modal's meter froze on) belongs to
+    that run; a new run starts with no end yet."""
+    idle = {"state": ce.STATE_DONE, "run_start_annotated": 0,
+            "run_finished_at": "2026-09-09T09:15:39+00:00",
+            "run_end_annotated": 4400, "run_end_target": 4400,
+            "settings": dict(ce.DEFAULT_SETTINGS)}
+    patch = arm(idle, {"state": "running"}, floor=4400)
+    assert patch["run_finished_at"] is None
+    assert patch["run_end_annotated"] is None and patch["run_end_target"] is None
+
+
+def test_a_settings_only_save_keeps_the_last_runs_end(arm):
+    idle = {"state": ce.STATE_DONE, "run_end_annotated": 4400, "run_end_target": 4400,
+            "settings": dict(ce.DEFAULT_SETTINGS)}
+    patch = arm(idle, {"settings": {"annotation_target": 6000}})
+    assert "run_end_target" not in patch and "run_end_annotated" not in patch

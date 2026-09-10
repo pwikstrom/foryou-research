@@ -249,7 +249,11 @@ fresher map is available.
 
 Sessions explores individual viewing sessions and the **binges** inside them —
 runs of consecutive videos whose content stays semantically close together on
-the AI embeddings.
+the AI embeddings. A viewing session is one sitting with the app: a run of
+activity with no gap longer than 15 minutes, fixed when the collection is
+ingested. A session can only be analysed once every video in it is annotated,
+which is why the automatic enrichment loop takes whole sessions (see *Edit Collections* under section 3)
+and counts the collection's **analysis-ready sessions**.
 
 **Left rail: the session table.** All of the active study's sessions, one
 row each; sort by clicking any column heading. A collapsible **Filters**
@@ -439,30 +443,60 @@ labelled *Collection details* — for several.
 The edit modal's **Automatic enrichment** panel arms a collection to scrape
 and annotate itself toward an **annotation target** — a number of unique
 videos to have annotated, set with a log-scaled slider. The panel shows the
-collection's size and how many **analysis-ready days** it already has, a
-per-day activity chart (stacked by enrichment state, with a red line
+collection's size, how many **analysis-ready days** it already has (at least
+ten annotated videos on the day) and how many **analysis-ready sessions**
+(a sitting of at least ten plays with every video annotated or failed for
+good — what the Sessions tab can work with), a per-day activity chart (stacked by enrichment state, with a red line
 estimating where each day would land under the current settings), a linear
 coverage bar with the target marked on it, and a live readout translating
-the target into items, estimated cost (with the active model) and cycles.
+the target into items, estimated cost (with the active model) and the time
+to reach it — worked out from how fast this collection's own recent scrapes,
+annotation batches and consolidations ran, or from the Hub's typical figures
+until it has runs of its own.
 Once a plan has been armed, a **run meter** under the bar reports the run
 itself: how many videos were annotated when it was armed, how many are now,
 the target, and how far back through the history each half of the cycle has
-walked. Arming an Idle or stopped plan starts a new run and moves that
+walked. When a run has finished the meter stands still at the target it
+ended with and the count it ended at ("target reached", or how far short it
+stopped), so moving the target to prepare the next run does not rewrite the
+last one. Arming an Idle or stopped plan starts a new run and moves that
 starting line; resuming a paused one keeps it.
 The loop always annotates the already-scraped backlog first, then splits
-new scraping between a recent-days **deep dive** and a capped **spread**
+new scraping between a recent-days **deep dive** and a capped **random daily sample**
 across the history; what one of the two cannot spend the other uses. The
-balance slider and the spread's limits (by default up to 15 days a month, 50
-videos a day) sit with the rest of the plan settings, all of them visible at
-once — they decide what a run can ever reach, which is the one explanation
-for a target the plan cannot meet.
-With *Auto* items per cycle, each cycle is one annotation job's worth
-(2,000), sized up for the videos expected to fail on the way — measured
-from the plan's own recent runs — so the target is met without a trailing
-cycle for the shortfall; the last slice may buy part of a day, and is never
-smaller than 200 videos, so a plan ends in one cycle rather than a trail of
-tiny ones and may finish up to 200 videos past its target. An amber
-warning appears when the settings cannot reach the chosen target. The target is a running total: to continue a
+plan's settings are three full-width sliders, each with its value on the
+label line: the annotation target, the balance between deep dive and random
+daily sample, and the sample's **items per sampled day** (logarithmic, from the ten-video floor to
+the collection's busiest day; 50 by default). On each day it samples, the
+random daily sample takes **whole viewing sessions** first and only then
+single videos up to that number — a scattering of single videos never adds
+up to a session anyone can analyse, so ready sessions build up across the
+whole history and not only in the recent days the deep dive covers. The
+sample stops adding to a day once it holds that many items, counting the
+ones already scraped or failed for good; because the session that reaches
+the number is taken whole, a day of long sessions can go well over it, and
+for a person whose sittings are long the number mostly decides how many
+sessions each sampled day gets. How
+many days a month the random daily sample takes is not a setting: a line
+under the cap slider says what the three sliders add up to — how many
+analysis-ready days, deep-dive days (every video of the day annotated or
+failed for good) and analysis-ready sessions the collection has now and
+about how many it will have after the plan. The earliest date is set on the chart itself: drag the handle at
+the start of the window (there is no end handle — a plan always reaches
+the newest day), nudge it a day at a time, or *Full history* to clear it.
+Only the balance at 100% random daily sample, the per-day cap and an earliest date can
+leave a target out of reach, and the amber warning names them.
+Each cycle is sized automatically — there is no items-per-cycle knob —
+as one annotation job's worth (2,000), sized up for the videos expected to
+fail on the way, measured from the plan's own recent runs, so the target
+is met without a trailing cycle for the shortfall; the last slice may take
+part of a day, and is never smaller than 200 videos, so a plan ends in one
+cycle rather than a trail of tiny ones and may finish up to 200 videos
+past its target. An amber
+warning appears when the settings cannot reach the chosen target. A plan
+with nothing more to scrape stays *Running* (the status line reads
+*finishing*) until the videos it last queued are annotated and
+consolidated, and only then turns Idle. The target is a running total: to continue a
 finished (Idle) plan, raise the target — until it is raised the button reads
 *Raise the target to arm* and is disabled, because a plan armed on a met
 target closes itself again on its first cycle. Idle with headroom left reads

@@ -18,6 +18,14 @@ GCS or the real workers. Pins:
    queue is burnt permanently as ``annotated_fail``.
 6. The supervisor tick is a strict priority chain — busy gate, drain, settle,
    handoff, plan — and dispatches at most one worker per tick.
+7. Within a cut day (the spread's capped days, the deep dive's partial last
+   day) whole viewing sessions come first — the day's candidate sessions
+   (``session_min_plays`` and up) in a salted order of their own, the one
+   crossing the cap taken whole, then single items up to the cap; a sitting
+   that runs past midnight is taken whole from the day it started; rows
+   without a session fall back to the item draw. ``progress()`` reports the
+   sessions a collection has, how many are candidates and how many are
+   analysis-ready (every item annotated or failed for good).
 """
 
 import pandas as pd
@@ -34,8 +42,11 @@ import web_interface.services.collection_enrichment as ce
 def no_slice_floor(monkeypatch):
     """The sizing tests pin the cutter's arithmetic on small numbers; the
     floor that ends a real plan in one cycle would swamp them. The floor's
-    own tests set it back."""
+    own tests set it back. The Sessions tab's play floor lives in the admin
+    store: pinned to the shipped default here, so no test reads a
+    developer's own override."""
     monkeypatch.setattr(ce, "MIN_CYCLE_ITEMS", 1)
+    monkeypatch.setattr(ce, "session_min_plays", lambda: ce.DEFAULT_SESSION_MIN_PLAYS)
 
 
 @pytest.fixture
@@ -56,14 +67,42 @@ def store(monkeypatch):
     return files
 
 
-def _activity(days: dict[str, int], cid="c1", platform="tiktok") -> pd.DataFrame:
-    """One collection's activity: {'YYYY-MM-DD': n_items} -> load_activity shape."""
+def _activity(days: dict, cid="c1", platform="tiktok") -> pd.DataFrame:
+    """One collection's activity: {'YYYY-MM-DD': n_items} -> load_activity shape.
+
+    A day's value may instead be a list of play counts, one per viewing
+    session on that day: the rows then carry load_activity's ``session``
+    (the session's start — hourly from 08:00, so the k-th session's key is
+    ``<day>T<08+k>:00:00``) and ``session_plays`` columns, which the
+    within-day cut samples by. Plain ints leave the columns out, so the
+    older pins run the item-level path they were written against; in a
+    mixed frame an int day's rows carry no session at all.
+    """
     rows = []
+    with_sessions = any(isinstance(n, (list, tuple)) for n in days.values())
     for day, n in days.items():
-        for i in range(n):
-            rows.append({"item_id": f"{day}#{i}", "day": pd.Timestamp(day),
-                         "source_platform": platform})
+        sizes = list(n) if isinstance(n, (list, tuple)) else [n]
+        i = 0
+        for k, size in enumerate(sizes):
+            for _ in range(size):
+                row = {"item_id": f"{day}#{i}", "day": pd.Timestamp(day),
+                       "source_platform": platform}
+                if with_sessions:
+                    row["session"] = (f"{day}T{8 + k:02d}:00:00"
+                                      if isinstance(n, (list, tuple)) else None)
+                    row["session_plays"] = size if isinstance(n, (list, tuple)) else 0
+                rows.append(row)
+                i += 1
     return pd.DataFrame(rows)
+
+
+def _session_key(day: str, k: int) -> str:
+    """The key :func:`_activity` gives the k-th session of a day."""
+    return f"{day}T{8 + k:02d}:00:00"
+
+
+def _session_items(activity: pd.DataFrame, key: str) -> set[str]:
+    return set(activity.loc[activity["session"] == key, "item_id"])
 
 
 def _status(item_ids, scraped=(), scrape_fail=(), downloaded=None,
@@ -89,10 +128,15 @@ def _entry(**settings) -> dict:
     # Manual cycle sizing unless a test says otherwise: these tests pin the
     # slice cutter's arithmetic against an explicit cycle_items, and the Auto
     # path (now the shipped default) sizes the cycle from the target instead.
-    return {"state": ce.STATE_RUNNING,
-            "settings": {**ce.DEFAULT_SETTINGS, "cycle_items_auto": False,
-                         "annotation_target": 1_000_000, **settings},
-            "spent_items": 0}
+    # The spread's days per month is derived from the target in production;
+    # the cutter tests pin it directly on the entry, as the supervisor stores it.
+    entry = {"state": ce.STATE_RUNNING,
+             "settings": {**ce.DEFAULT_SETTINGS, "cycle_items_auto": False,
+                          "annotation_target": 1_000_000, **settings},
+             "spent_items": 0}
+    if "a_days_per_month" in settings:
+        entry["spread_days_per_month"] = entry["settings"].pop("a_days_per_month")
+    return entry
 
 
 # --------------------------------------------------------------------------- #
@@ -541,13 +585,15 @@ def test_save_plan_merges_settings_and_delete_drops(store):
     assert "c1" not in store[ce.LEDGER_FILENAME]
 
 
-def test_default_spread_limits_are_fifteen_days_of_fifty():
-    """15 x 50 gives the spread half a month of usable days per month walked —
-    what the long-arc analyses (Timelines, Correlations) need. At the old 2 the
-    spread bought so few days that the deep dive did nearly all the work
-    whatever the balance slider said."""
-    assert ce.DEFAULT_SETTINGS["a_days_per_month"] == 15
+def test_the_spreads_density_is_derived_not_a_setting():
+    """Two quantity knobs (a target and a days-per-month limit) had to agree or
+    one won silently — on 2026-09-09 a 4,400 target sat above what 9 x 40 over
+    six months could buy, and the plan idled short by construction. The cap
+    stays (it says what one sampled day is worth); the density follows from
+    the target. A stored value from an old ledger entry is dropped."""
+    assert "a_days_per_month" not in ce.DEFAULT_SETTINGS
     assert ce.DEFAULT_SETTINGS["a_day_cap"] == 50
+    assert "a_days_per_month" not in ce.normalize_settings({"a_days_per_month": 9})
 
 
 def test_normalize_settings_clamps_nonsense():
@@ -616,6 +662,8 @@ def tick(monkeypatch, store):
                             "in_flight": list(entry.get("in_flight") or [])})
     monkeypatch.setattr(ce, "load_activity",
                         lambda cid: _activity({"2026-08-27": 30}, cid=cid))
+    # The spread-density derivation reads enrichment status; none here.
+    monkeypatch.setattr(ce, "load_status", lambda ids: None)
     if world["cycle"] is None:
         monkeypatch.setattr(ce, "plan_cycle",
                             lambda cid, entry, **kw: {
@@ -1190,9 +1238,11 @@ def test_tick_auto_mode_injects_the_effective_cycle_items(tick, monkeypatch):
     assert entry["last_auto_cycle_items"] == 500
 
 
-def test_normalize_settings_round_trips_cycle_items_auto():
+def test_normalize_settings_always_sizes_cycles_automatically():
+    """The manual items-per-cycle knob is gone (2026-09-09): a saved False,
+    from a plan armed before, is ignored on the next save."""
     assert ce.normalize_settings({"cycle_items_auto": True})["cycle_items_auto"] is True
-    assert ce.normalize_settings({"cycle_items_auto": False})["cycle_items_auto"] is False
+    assert ce.normalize_settings({"cycle_items_auto": False})["cycle_items_auto"] is True
     # Auto is the default a new plan starts with: the panel shows the server
     # defaults for a collection with no plan, so this is what the RA sees.
     assert ce.normalize_settings({})["cycle_items_auto"] is True
@@ -1549,9 +1599,8 @@ def test_progress_daily_series_stacks_per_active_day(monkeypatch):
 
 
 def test_normalize_settings_bounds_the_spread_knobs():
-    out = ce.normalize_settings({"a_day_cap": 3, "a_days_per_month": 99})
+    out = ce.normalize_settings({"a_day_cap": 3})
     assert out["a_day_cap"] == 10          # never below the analysis floor
-    assert out["a_days_per_month"] == 31
     assert ce.normalize_settings({"a_day_cap": 5000})["a_day_cap"] == 1000
     assert ce.DEFAULT_SETTINGS["sample_share"] == 0.5
 
@@ -1667,6 +1716,23 @@ def test_enrichment_panel_buttons_keep_their_handlers():
     assert "dmEnrichState === 'blocked' ? 'Arm again'" in js, \
         "Arm again must be the Needs-attention label alone"
 
+    # The analysis-ready sessions figure: a span beside the ready days, the
+    # estimate's whole-session day take, and the readout's third clause.
+    assert "dm-enrich-ready-sessions" in parser.by_id, \
+        "the headline lost its analysis-ready sessions span"
+    for needle in ("function _dmEnrichSessionsByDay", "function _dmEnrichDayTake",
+                   "'analysis-ready sessions'", "analysis-ready session${"):
+        assert needle in js, f"{needle} is gone from the modal script"
+    assert "no gap longer than 15 minutes" in src, \
+        "the headline tooltip no longer says what a viewing session is"
+    # The estimate mirrors the planner: the server's draw ranks, the cap
+    # charged with everything already scraped, the burnt-free backlog.
+    for needle in ("function _dmEnrichSampleMonths", "daily.draw", "unique_awaiting",
+                   "(daily.failed[i] || 0) + planned[i] - swept[i]"):
+        assert needle in js, f"{needle} is gone — the estimate drifted from the planner again"
+    assert "Items per sampled day (random daily sample)" in src, \
+        "the cap control lost its label"
+
 
 # --------------------------------------------------------------------------- #
 # Live activity for the status strip
@@ -1710,3 +1776,620 @@ def test_activity_reports_the_running_worker():
         out = ce.activity("tiktok")
     assert out == {"kind": "waiting", "worker": None, "message": None,
                    "started_at": None}
+
+
+def _exhausted(monkeypatch):
+    monkeypatch.setattr(ce, "plan_cycle",
+                        lambda cid, entry, **kw: {
+                            "item_ids": [], "a_cursor": "2026-03", "b_cursor": None,
+                            "a": 0, "b": 0, "exhausted": True,
+                            "platform": "tiktok"})
+
+
+def test_an_exhausted_plan_stays_running_until_its_last_batch_settles(tick, monkeypatch):
+    """user_data_tiktok_7, 2026-09-09: the boundary tick handed 1,055 videos to
+    the annotator and closed the plan in the same breath, so the history read
+    "Idle" two seconds before "Annotator started". The plan now waits, Running,
+    until those videos are annotated and consolidated."""
+    import web_interface.run_enrichment_supervisor as sup
+    import web_interface.services.enrichment_journal as journal
+
+    plan = {**_entry(), "platform": "tiktok"}
+    # The fixture reads plans from `tick["plans"]` and writes patches to the
+    # store; seed the store too so the merged ledger entry is whole.
+    tick["store"][ce.LEDGER_FILENAME] = {"c1": dict(plan)}
+    tick["plans"] = {"c1": plan}
+    tick["handoff"] = {"c1": ["2026-08-27#0", "2026-08-27#1", "2026-08-27#2"]}
+    _exhausted(monkeypatch)
+    rep = tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_RUNNING
+    assert entry[sup.FINISHING_KEY]["pending"] == 3
+    assert [n for n, _ in tick["started"]] == ["queue_annotator"]
+    kinds = [e["kind"] for e in tick["store"][journal.JOURNAL_FILENAME]["events"]]
+    assert "plan.finishing" in kinds and "plan.done" not in kinds
+    assert rep.data[-1]["action"] == "annotate"
+
+    # A second tick while the job runs neither closes the plan nor repeats the line.
+    tick["plans"] = {"c1": entry}
+    tick["handoff"] = {}
+    tick["annotate_busy"] = True
+    tick["started"].clear()
+    tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_RUNNING
+    kinds = [e["kind"] for e in tick["store"][journal.JOURNAL_FILENAME]["events"]]
+    assert kinds.count("plan.finishing") == 1
+
+    # The batch is annotated and consolidated: the queue is empty, nothing is
+    # claimed — the plan closes on this tick, and the hold is cleared.
+    tick["store"][ce.ANNOTATE_QUEUE_FILENAME] = []
+    tick["annotate_busy"] = False
+    tick["plans"] = {"c1": entry}
+    rep = tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_DONE and entry.get("finished_at")
+    assert entry.get(sup.FINISHING_KEY) is None
+    kinds = [e["kind"] for e in tick["store"][journal.JOURNAL_FILENAME]["events"]]
+    assert kinds[-1] == "plan.done"
+    assert tick["started"] == []
+
+
+def test_a_met_target_also_waits_for_the_videos_in_flight(tick, monkeypatch):
+    """The Auto target-met exit closes the plan the same way: not while any of
+    the collection's videos are inside an annotation job."""
+    import web_interface.run_enrichment_supervisor as sup
+
+    tick["plans"] = {"c1": {**_entry(annotation_target=100, cycle_items_auto=True),
+                            "platform": "tiktok"}}
+    monkeypatch.setattr(ce, "load_status", lambda ids: None)
+    monkeypatch.setattr(ce, "_annotated_unique", lambda activity, status: 100)
+    tick["store"][ce.LEDGER_FILENAME] = {"c1": dict(tick["plans"]["c1"])}
+    tick["claimed"] = {"2026-08-27#0", "2026-08-27#1"}
+    tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_RUNNING
+    assert entry[sup.FINISHING_KEY]["pending"] == 2
+
+    tick["claimed"] = set()
+    tick["plans"] = {"c1": entry}
+    tick["run"]()
+    assert tick["store"][ce.LEDGER_FILENAME]["c1"]["state"] == ce.STATE_DONE
+
+
+def test_a_finishing_plan_closes_after_the_bound(tick, monkeypatch):
+    """A claim file a crashed annotator left behind must not hold a finished
+    plan open for ever."""
+    import web_interface.run_enrichment_supervisor as sup
+    from datetime import datetime, timedelta, timezone
+
+    stale = (datetime.now(timezone.utc)
+             - timedelta(hours=sup.FINISHING_MAX_H + 1)).isoformat()
+    tick["plans"] = {"c1": {**_entry(), "platform": "tiktok",
+                            sup.FINISHING_KEY: {"since": stale, "pending": 2}}}
+    tick["claimed"] = {"2026-08-27#0", "2026-08-27#1"}
+    _exhausted(monkeypatch)
+    tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_DONE
+    assert entry.get(sup.FINISHING_KEY) is None
+
+
+def test_a_raised_target_puts_a_finishing_plan_back_to_work(tick, monkeypatch):
+    import web_interface.run_enrichment_supervisor as sup
+
+    plan = {**_entry(), "platform": "tiktok",
+            sup.FINISHING_KEY: {"since": ce.now_iso(), "pending": 2}}
+    tick["store"][ce.LEDGER_FILENAME] = {"c1": dict(plan)}
+    tick["plans"] = {"c1": plan}
+    tick["run"]()                       # the fixture's plan_cycle cuts 5 items
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_RUNNING and entry["cycles"] == 1
+    assert entry.get(sup.FINISHING_KEY) is None
+
+
+# --------------------------------------------------------------------------- #
+# The spread's density is derived from the target
+# --------------------------------------------------------------------------- #
+
+def _six_months(per_day=40, days=(3, 9, 17, 24, 28)):
+    return _activity({f"2026-{m:02d}-{d:02d}": per_day for m in range(3, 9) for d in days})
+
+
+def test_spread_days_is_the_fewest_uniform_density_that_covers_its_share():
+    """Six months of 40-video days, cap 40, only spread: 600 videos need three
+    days a month (2 x 6 x 40 = 480 falls short; 3 x 6 x 40 = 720 covers it)."""
+    entry = _entry(annotation_target=600, sample_share=1.0, a_day_cap=40)
+    out = ce.spread_days_per_month("c1", entry, activity=_six_months(), status=None)
+    assert out == {"days": 3, "videos": 600, "capacity": 720, "months": 6,
+                   "exhausted": False}
+
+
+def test_spread_days_measures_only_its_own_share_and_the_cut_needed():
+    """Half the balance and an 80% yield: 600 x 0.5 / 0.8 = 375 must be cut
+    by the spread — two days a month (480) cover it."""
+    entry = _entry(annotation_target=600, sample_share=0.5, a_day_cap=40)
+    out = ce.spread_days_per_month("c1", entry, activity=_six_months(), status=None,
+                                   expected_yield=0.8)
+    assert out["videos"] == 375 and out["days"] == 2
+
+
+def test_spread_days_caps_at_the_history_and_says_so():
+    entry = _entry(annotation_target=5_000, sample_share=1.0, a_day_cap=40)
+    out = ce.spread_days_per_month("c1", entry, activity=_six_months(), status=None)
+    assert out["days"] == 5 and out["capacity"] == 1_200 and out["exhausted"]
+
+
+def test_spread_days_is_zero_with_no_spread_share_or_no_target():
+    activity = _six_months()
+    assert ce.spread_days_per_month("c1", _entry(sample_share=0.0), activity=activity,
+                                    status=None)["days"] == 0
+    assert ce.spread_days_per_month("c1", _entry(annotation_target=0), activity=activity,
+                                    status=None)["days"] == 0
+
+
+def test_spread_days_looks_only_at_the_months_still_ahead_of_the_cursor():
+    """Mid-walk (cursor at 2026-06) only March-May remain: 300 videos over
+    three months need three days a month, not two over six."""
+    entry = {**_entry(annotation_target=300, sample_share=1.0, a_day_cap=40),
+             "a_cursor": "2026-06"}
+    out = ce.spread_days_per_month("c1", entry, activity=_six_months(), status=None)
+    assert out["months"] == 3 and out["days"] == 3
+
+
+def test_spread_days_skips_days_under_the_floor_and_subtracts_scraped():
+    activity = _activity({"2026-07-01": 20, "2026-07-02": 5, "2026-07-03": 20})
+    ids = [f"2026-07-01#{i}" for i in range(20)]
+    status = _status(ids, scraped=ids[:15])
+    entry = _entry(annotation_target=25, sample_share=1.0, a_day_cap=20)
+    out = ce.spread_days_per_month("c1", entry, activity=activity, status=status)
+    # The 5-video day never qualifies; day 1 has 5 of cap left, day 3 has 20:
+    # one day (the better-ranked of the two) cannot be relied on for 25.
+    assert out["days"] == 2 and out["capacity"] == 25
+
+
+def test_a_higher_density_is_a_superset_of_a_lower_one():
+    """stable_sample draws a prefix of stable_rank, so raising the density adds
+    days to a month rather than swapping them."""
+    days = [pd.Timestamp(f"2026-07-{d:02d}") for d in range(1, 20)]
+    two = ce.stable_sample(days, 2, salt="c1:2026-07")
+    five = ce.stable_sample(days, 5, salt="c1:2026-07")
+    assert five[:2] == two
+    assert ce.stable_rank(days, salt="c1:2026-07")[:5] == five
+
+
+def test_plan_cycle_derives_the_density_when_none_is_stored():
+    """A direct call (or a plan cut before the supervisor stored a density)
+    derives it from the same inputs and reports what it used."""
+    entry = _entry(cycle_items=1_000, annotation_target=600, sample_share=1.0,
+                   a_day_cap=40)
+    out = ce.plan_cycle("c1", entry, activity=_six_months(), status=None)
+    assert out["spread_days"] == 3
+    # 3 days x 40 in the newest month, walked until the 600-cut budget is met.
+    assert out["a"] >= 600 - 40 and all(i.startswith("2026-0") for i in out["item_ids"])
+
+
+def test_plan_cycle_honours_a_stored_density():
+    entry = _entry(cycle_items=1_000, annotation_target=600, sample_share=1.0,
+                   a_day_cap=40, a_days_per_month=1)
+    out = ce.plan_cycle("c1", entry, activity=_six_months(), status=None)
+    assert out["spread_days"] == 1 and out["a"] == 6 * 40
+
+
+def test_tick_stores_the_density_once_per_walk_and_rederives_on_a_new_target(tick, monkeypatch):
+    """The supervisor derives at the start of a walk and again when an input
+    changes; between those the stored density holds so the sampling stays
+    uniform across the history."""
+    monkeypatch.setattr(ce, "load_activity", lambda cid: _six_months(per_day=10))
+    plan = {**_entry(annotation_target=100, sample_share=0.5, a_day_cap=10),
+            "platform": "tiktok"}
+    tick["store"][ce.LEDGER_FILENAME] = {"c1": dict(plan)}
+    tick["plans"] = {"c1": plan}
+    tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["spread_days_per_month"] >= 1
+    assert entry["spread_days_basis"]["target"] == 100
+    first = entry["spread_days_per_month"]
+
+    # Mid-walk with the same inputs: nothing is re-derived. (The fake queue
+    # keeps what the first tick cut; empty it so the tick reaches the planner.)
+    entry["a_cursor"] = "2026-07"
+    entry["spread_days_per_month"] = 99          # a sentinel the derivation would never produce
+    tick["plans"] = {"c1": entry}
+    tick["scrape_queues"] = {}
+    tick["run"]()
+    assert tick["store"][ce.LEDGER_FILENAME]["c1"]["spread_days_per_month"] == 99
+
+    # A raised target re-derives for the months still ahead.
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    entry["settings"] = {**entry["settings"], "annotation_target": 1_000}
+    tick["plans"] = {"c1": entry}
+    tick["scrape_queues"] = {}
+    tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["spread_days_per_month"] != 99
+    assert entry["spread_days_basis"]["target"] == 1_000
+    # Ten times the target over the four months still ahead: denser than the
+    # first derivation, up to the densest those months allow (5 days each).
+    assert 5 >= entry["spread_days_per_month"] > first
+
+
+def test_the_supervisor_sizes_every_cycle_automatically(tick, monkeypatch):
+    """A ledger entry that still says cycle_items_auto=False (armed before
+    the knob went) is sized like any other: the cutter receives the automatic
+    size, not the stored cycle_items."""
+    seen = {}
+
+    def fake_cycle(cid, entry, **kw):
+        seen["cycle_items"] = entry["settings"]["cycle_items"]
+        return {"item_ids": ["x1"], "a_cursor": None, "b_cursor": "2026-08-27",
+                "a": 0, "b": 1, "exhausted": False, "platform": "tiktok"}
+
+    monkeypatch.setattr(ce, "plan_cycle", fake_cycle)
+    tick["plans"] = {"c1": {**_entry(annotation_target=150, cycle_items=7),
+                            "platform": "tiktok"}}
+    tick["run"]()
+    # 150 to annotate at the default 85% yield plus the 5% margin: 186 to cut.
+    assert seen["cycle_items"] == 186
+
+
+# --------------------------------------------------------------------------- #
+# The time estimate's measured timings, and a finished run's frozen meter
+# --------------------------------------------------------------------------- #
+
+def _journal_doc(events):
+    import web_interface.services.enrichment_journal as journal
+    return {"version": journal.VERSION, "events": events}
+
+
+def test_expected_timing_falls_back_to_the_defaults(store):
+    out = ce.expected_timing("c1", "tiktok")
+    assert {k: out[k] for k in ce.DEFAULT_TIMING} == ce.DEFAULT_TIMING
+    assert out["measured"] == {"scrape": False, "annotate": False, "consolidate": False}
+
+
+def test_expected_timing_is_measured_from_the_collections_runs(store):
+    """user_data_tiktok_7 on 2026-09-09: 1,289 scraped in 18 min, 1,055
+    annotated in 20 min, consolidations of 1 and 2.5 min. The tiny 4-video
+    retry batch is ignored (it says nothing about the rate)."""
+    import web_interface.services.enrichment_journal as journal
+    ev = [
+        {"ts": "2026-09-09T04:15:52+00:00", "kind": "queue.drained", "platform": "tiktok",
+         "detail": {"queued": 1289}},
+        {"ts": "2026-09-09T04:33:52+00:00", "kind": "scrape.finished", "platform": "tiktok",
+         "detail": {"worker": "queue_scraper_tiktok", "ok": 1056, "permanent": 228, "transient": 5}},
+        {"ts": "2026-09-09T04:33:55+00:00", "kind": "queue.drained", "platform": "tiktok",
+         "detail": {"queued": 4}},
+        {"ts": "2026-09-09T04:34:11+00:00", "kind": "scrape.finished", "platform": "tiktok",
+         "detail": {"worker": "queue_scraper_tiktok", "ok": 0, "permanent": 0, "transient": 4}},
+        {"ts": "2026-09-09T04:34:29+00:00", "kind": "refresh.finished",
+         "detail": {"origin": "Consolidate enrichment data", "studies": 0,
+                    "started_ts": "2026-09-09T04:33:29+00:00"}},
+        {"ts": "2026-09-09T04:34:39+00:00", "kind": "queue.drained",
+         "detail": {"worker": "queue_annotator_batch", "queued": 1055}},
+        {"ts": "2026-09-09T04:54:39+00:00", "kind": "annotate.finished",
+         "detail": {"worker": "queue_annotator_batch", "ok": 1040, "fail": 15}},
+        {"ts": "2026-09-09T04:56:52+00:00", "kind": "refresh.finished",
+         "detail": {"origin": "Consolidate enrichment data", "studies": 0,
+                    "started_ts": "2026-09-09T04:54:22+00:00"}},
+        # The full downstream refresh is not a consolidation.
+        {"ts": "2026-09-09T05:09:00+00:00", "kind": "refresh.finished",
+         "detail": {"origin": "Consolidate enrichment data", "studies": 14,
+                    "started_ts": "2026-09-09T04:56:48+00:00"}},
+    ]
+    store[journal.JOURNAL_FILENAME] = _journal_doc(ev)
+    out = ce.expected_timing("c1", "tiktok")
+    assert out["measured"] == {"scrape": True, "annotate": True, "consolidate": True}
+    assert out["scrape_per_min"] == round(1289 / 18, 1)
+    assert out["annotate_fixed_min"] == round(20 - 1055 * 0.01, 1)   # 9.5
+    assert out["consolidate_min"] == 2.5                               # median of 1.0, 2.5
+
+
+def test_closing_a_plan_stamps_where_the_run_ended(tick, monkeypatch):
+    """The meter of a finished run must read the run's own target and end
+    count — it used to slide with the target slider afterwards."""
+    tick["plans"] = {"c1": {**_entry(annotation_target=100, cycle_items_auto=True),
+                            "platform": "tiktok"}}
+    monkeypatch.setattr(ce, "load_status", lambda ids: None)
+    monkeypatch.setattr(ce, "_annotated_unique", lambda activity, status: 100)
+    tick["run"]()
+    entry = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert entry["state"] == ce.STATE_DONE
+    assert entry["run_end_target"] == 100 and entry["run_end_annotated"] == 100
+    assert entry["run_finished_at"]
+    prog = {k: v for k, v in ce.progress("c1", entry).items() if k.startswith("run_")}
+    assert prog["run_end_target"] == 100 and prog["run_end_annotated"] == 100
+
+
+# --------------------------------------------------------------------------- #
+# Whole viewing sessions within a cut day
+# --------------------------------------------------------------------------- #
+
+def _a_only(**settings) -> dict:
+    """A plan with only the random daily sample, one wide month, the cap
+    given by the test."""
+    return _entry(sample_share=1.0, cycle_items=1000, a_days_per_month=5, **settings)
+
+
+def _session_order(cid: str, day: str, keys) -> list:
+    """The salted order the spread takes a day's sessions in."""
+    return ce.stable_rank(list(keys), salt=f"{cid}:{day}:sessions")
+
+
+def test_spread_takes_whole_sessions_and_the_one_crossing_the_cap():
+    """Cap 20 on a day of two sittings (15 and 12 plays): the first is taken
+    whole, the second crosses the cap and is taken whole too — 27 items, no
+    sitting cut in half by the cut itself."""
+    day = "2026-05-09"
+    activity = _activity({day: [15, 12]})
+    out = ce.plan_cycle("c1", _a_only(a_day_cap=20), activity=activity, status=None)
+    assert len(out["item_ids"]) == 27 and out["a"] == 27
+    assert out["sessions"] == 2
+
+
+def test_spread_takes_sessions_in_their_own_salted_order():
+    """Cap 12: exactly one sitting is taken whole — whichever the salted
+    ranking puts first — and nothing else, because that sitting alone meets
+    the cap (12 plays) or overshoots it (15)."""
+    day = "2026-05-09"
+    activity = _activity({day: [15, 12]})
+    out = ce.plan_cycle("c1", _a_only(a_day_cap=12), activity=activity, status=None)
+    first = _session_order("c1", day, [_session_key(day, 0), _session_key(day, 1)])[0]
+    assert set(out["item_ids"]) == _session_items(activity, first)
+    assert out["sessions"] == 1
+
+
+def test_sittings_under_the_floor_only_ever_fill_the_cap():
+    """A 5-play sitting is not a candidate (floor 10): its items arrive only
+    as single-item fill after the candidates, never as a session."""
+    day = "2026-05-09"
+    activity = _activity({day: [12, 5, 30]})
+    small = _session_items(activity, _session_key(day, 1))
+    # Cap 12: the first candidate (12 or 30) meets the cap alone; no fill.
+    out = ce.plan_cycle("c1", _a_only(a_day_cap=12), activity=activity, status=None)
+    assert not (set(out["item_ids"]) & small)
+    assert out["sessions"] == 1
+    # The floor itself is a parameter: at 5 the small sitting is a session.
+    out5 = ce.plan_cycle("c1", _a_only(a_day_cap=60), activity=activity, status=None,
+                         session_min_plays=5)
+    assert out5["sessions"] == 3 and len(out5["item_ids"]) == 47
+
+
+def test_single_items_fill_the_cap_after_the_sessions():
+    """One candidate sitting of 12 plus three sittings of 3, cap 18: the
+    candidate whole, then six single items from the small ones."""
+    day = "2026-05-09"
+    activity = _activity({day: [12, 3, 3, 3]})
+    out = ce.plan_cycle("c1", _a_only(a_day_cap=18), activity=activity, status=None)
+    assert len(out["item_ids"]) == 18
+    assert _session_items(activity, _session_key(day, 0)) <= set(out["item_ids"])
+    assert out["sessions"] == 1
+    # The fill is the same salted item draw as before, over what is left.
+    rest = sorted(set(activity["item_id"]) - _session_items(activity, _session_key(day, 0)))
+    fill = ce.stable_sample(rest, 6, salt=f"c1:{day}")
+    assert set(out["item_ids"]) - _session_items(activity, _session_key(day, 0)) == set(fill)
+
+
+def test_rows_without_a_session_take_the_item_draw_as_before():
+    day = "2026-05-09"
+    activity = _activity({day: 30})
+    out = ce.plan_cycle("c1", _a_only(a_day_cap=10), activity=activity, status=None)
+    assert out["item_ids"] == ce.stable_sample(sorted(activity["item_id"]), 10, salt=f"c1:{day}")
+    assert out["sessions"] == 0
+
+
+def test_raising_the_cap_adds_sessions_and_never_swaps_them():
+    day = "2026-05-09"
+    activity = _activity({day: [15, 12, 20]})
+    low = set(ce.plan_cycle("c1", _a_only(a_day_cap=12), activity=activity, status=None)["item_ids"])
+    high = set(ce.plan_cycle("c1", _a_only(a_day_cap=30), activity=activity, status=None)["item_ids"])
+    assert low < high
+
+
+def test_a_sitting_past_midnight_is_taken_whole_from_the_day_it_started():
+    """A 16-play sitting starting 23:50 on the 9th (12 items that day, 4 on
+    the 10th) plus a 10-play sitting on the 10th, cap 10, both days sampled:
+    the straddler comes whole with its next-day items, the 10th's own
+    sitting comes whole, and nothing is counted twice."""
+    key9, key10 = "2026-05-09T23:50:00", "2026-05-10T10:00:00"
+    rows = []
+    for i in range(12):
+        rows.append({"item_id": f"s9#{i}", "day": pd.Timestamp("2026-05-09"),
+                     "source_platform": "tiktok", "session": key9, "session_plays": 16})
+    for i in range(12, 16):
+        rows.append({"item_id": f"s9#{i}", "day": pd.Timestamp("2026-05-10"),
+                     "source_platform": "tiktok", "session": key9, "session_plays": 16})
+    for i in range(10):
+        rows.append({"item_id": f"s10#{i}", "day": pd.Timestamp("2026-05-10"),
+                     "source_platform": "tiktok", "session": key10, "session_plays": 10})
+    activity = pd.DataFrame(rows)
+    out = ce.plan_cycle("c1", _a_only(a_day_cap=10), activity=activity, status=None)
+    ids = out["item_ids"]
+    assert len(ids) == len(set(ids)) == 26 and out["a"] == 26
+    assert out["sessions"] == 2
+
+
+def test_a_sitting_starting_before_the_earliest_date_is_not_a_candidate():
+    """The earliest date floors the DAYS; a sitting that started the evening
+    before it is not a candidate (its in-window items go item by item), and
+    nothing from the floored day is taken at all."""
+    key8, key9 = "2026-05-08T23:50:00", "2026-05-09T10:00:00"
+    rows = []
+    for i in range(6):
+        rows.append({"item_id": f"s8#{i}", "day": pd.Timestamp("2026-05-08"),
+                     "source_platform": "tiktok", "session": key8, "session_plays": 12})
+    for i in range(6, 12):
+        rows.append({"item_id": f"s8#{i}", "day": pd.Timestamp("2026-05-09"),
+                     "source_platform": "tiktok", "session": key8, "session_plays": 12})
+    for i in range(10):
+        rows.append({"item_id": f"s9#{i}", "day": pd.Timestamp("2026-05-09"),
+                     "source_platform": "tiktok", "session": key9, "session_plays": 10})
+    activity = pd.DataFrame(rows)
+    out = ce.plan_cycle("c1", _a_only(a_day_cap=10, earliest_date="2026-05-09"),
+                        activity=activity, status=None)
+    assert set(out["item_ids"]) == {f"s9#{i}" for i in range(10)}
+    assert out["sessions"] == 1
+
+
+def test_deep_dive_partial_last_day_takes_the_newest_sitting_whole():
+    """The plan's last slice needs 5 more of a day with sittings of 12 (08:00)
+    and 10 (09:00): the newest sitting is taken whole — 10, not 5 — and the
+    cursor stays on the day."""
+    day = "2026-05-09"
+    activity = _activity({day: [12, 10]})
+    entry = _entry(sample_share=0.0, cycle_items=100, annotation_target=5)
+    out = ce.plan_cycle("c1", entry, activity=activity, status=None)
+    assert out["last_slice"] is True and out["partial_day"] == day
+    assert set(out["item_ids"]) == _session_items(activity, _session_key(day, 1))
+    assert out["sessions"] == 1 and out["b_cursor"] is None
+
+
+def test_deep_dive_whole_days_count_their_sittings():
+    day = "2026-05-09"
+    activity = _activity({day: [12, 12, 3]})
+    out = ce.plan_cycle("c1", _entry(sample_share=0.0, cycle_items=100),
+                        activity=activity, status=None)
+    assert len(out["item_ids"]) == 27 and out["sessions"] == 2
+
+
+def test_session_cut_is_deterministic_under_shuffled_rows():
+    days = {f"2026-0{m}-{d:02d}": [9, 12, 15] for m in (5, 6) for d in (3, 9, 17)}
+    activity = _activity(days)
+    entry = _entry(cycle_items=80, sample_share=0.5, a_days_per_month=2, a_day_cap=14)
+    out1 = ce.plan_cycle("c1", entry, activity=activity, status=None)
+    shuffled = activity.sample(frac=1.0, random_state=11).reset_index(drop=True)
+    out2 = ce.plan_cycle("c1", entry, activity=shuffled, status=None)
+    assert out1["item_ids"] == out2["item_ids"] and out1["sessions"] == out2["sessions"]
+
+
+def test_activity_rows_collapse_to_item_days_with_their_sitting():
+    """load_activity's collapse: session start and play count come from ALL
+    the sitting's rows, an observe row counts toward the sitting but not its
+    plays, a replay in a later sitting the same day is one row in the first,
+    and a row without a session id carries none."""
+    rows = pd.DataFrame({
+        "item_id": ["a", "b", "a", "c", "d", "e"],
+        "day": pd.to_datetime(["2026-05-09"] * 5 + ["2026-05-10"]),
+        "source_platform": ["tiktok"] * 6,
+        "_ts": pd.to_datetime(["2026-05-09 10:00", "2026-05-09 10:01", "2026-05-09 22:00",
+                               "2026-05-09 23:50", "2026-05-09 23:55", "2026-05-10 00:05"]),
+        "_is_play": [True, True, True, True, False, True],
+        "_sid": ["c__0", "c__0", "c__1", "c__2", "c__2", None],
+    })
+    out = ce._collapse_to_item_days(rows.sample(frac=1.0, random_state=3))
+    by_item = out.set_index(["item_id", "day"])
+    assert len(out) == 5
+    assert by_item.loc[("a", pd.Timestamp("2026-05-09")), "session"] == "2026-05-09T10:00:00"
+    assert by_item.loc[("c", pd.Timestamp("2026-05-09")), "session"] == "2026-05-09T23:50:00"
+    assert by_item.loc[("c", pd.Timestamp("2026-05-09")), "session_plays"] == 1
+    assert by_item.loc[("a", pd.Timestamp("2026-05-09")), "session_plays"] == 2
+    e = by_item.loc[("e", pd.Timestamp("2026-05-10"))]
+    assert pd.isna(e["session"]) and e["session_plays"] == 0
+
+
+def test_progress_reports_the_sessions_a_collection_can_offer(monkeypatch):
+    """Three sittings on one day: one complete (annotated + one failed for
+    good), one half done with a burnt annotation, one too small to count.
+    The burnt item is failed, not awaiting — in the sessions figures and in
+    the day series alike."""
+    day = "2026-05-09"
+    activity = _activity({day: [12, 12, 4]})
+    s0 = sorted(_session_items(activity, _session_key(day, 0)))
+    s1 = sorted(_session_items(activity, _session_key(day, 1)))
+    status = _status(list(activity["item_id"]),
+                     scraped=s0[:11] + s1[:8], annotated=s0[:11] + s1[:5],
+                     scrape_fail=[s0[11]], annotated_fail=[s1[5]])
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status", lambda i=None: status)
+
+    out = ce.progress("c1", _entry())
+    sessions = out["sessions"]
+    assert sessions["min_plays"] == ce.DEFAULT_SESSION_MIN_PLAYS
+    assert sessions["total"] == 3 and sessions["candidates"] == 2
+    assert sessions["ready"] == 1
+    # The unfinished candidate: 4 unscraped, 2 scraped and awaiting (5
+    # annotated, 1 burnt), on the day at index 0.
+    assert sessions["per"] == {"d": [0], "n": [4], "w": [2]}
+    daily = out["daily"]
+    assert daily["awaiting"] == [2] and daily["failed"] == [2]
+    assert daily["annotated"] == [16] and daily["total"] == [28]
+
+
+def test_progress_without_session_columns_reports_no_sessions(monkeypatch):
+    activity = _activity({"2026-05-09": 12})
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status", lambda i=None: None)
+    sessions = ce.progress("c1", _entry())["sessions"]
+    assert sessions == {"min_plays": ce.DEFAULT_SESSION_MIN_PLAYS, "total": 0,
+                        "candidates": 0, "ready": 0, "per": {"d": [], "n": [], "w": []}}
+
+
+def test_journal_names_the_sittings_a_batch_finishes(tick, monkeypatch):
+    import web_interface.services.enrichment_journal as journal
+
+    monkeypatch.setattr(ce, "plan_cycle",
+                        lambda cid, entry, **kw: {
+                            "item_ids": [f"{cid}-i{n}" for n in range(5)],
+                            "a_cursor": "2026-07", "b_cursor": "2026-08-27",
+                            "a": 1, "b": 4, "exhausted": False,
+                            "platform": "tiktok", "sessions": 2})
+    tick["plans"] = {"c1": {**_entry(), "spent_items": 10, "platform": "tiktok"}}
+    tick["run"]()
+    events = (tick["store"].get(journal.JOURNAL_FILENAME) or {}).get("events") or []
+    queued = next(e for e in events if e["kind"] == "slice.queued")
+    assert queued["detail"]["sessions"] == 2
+    assert "2 viewing session(s)" in queued["message"]
+    ledger = tick["store"][ce.LEDGER_FILENAME]["c1"]
+    assert ledger["last_batch"]["sessions"] == 2
+
+
+def test_journal_stays_quiet_when_a_batch_finishes_no_sitting(tick):
+    import web_interface.services.enrichment_journal as journal
+
+    tick["plans"] = {"c1": {**_entry(), "spent_items": 10, "platform": "tiktok"}}
+    tick["run"]()
+    events = (tick["store"].get(journal.JOURNAL_FILENAME) or {}).get("events") or []
+    queued = next(e for e in events if e["kind"] == "slice.queued")
+    assert queued["detail"]["sessions"] == 0
+    assert "viewing session" not in queued["message"]
+
+
+def test_progress_ships_the_draw_ranks_the_planner_samples_by(monkeypatch):
+    """Each day's place in its month's salted draw — the same ranking take_a
+    draws from, over the month's active days — so the panel's estimate can
+    walk the planner's own days rather than the newest ones."""
+    days = {f"2026-08-{d:02d}": 12 for d in (3, 9, 17, 24, 28)}
+    days.update({f"2026-07-{d:02d}": 12 for d in (5, 15)})
+    activity = _activity(days)
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status", lambda i=None: None)
+    daily = ce.progress("c1", _entry())["daily"]
+    assert len(daily["draw"]) == len(daily["dates"]) == 7
+    for month in ("2026-07", "2026-08"):
+        stamps = [pd.Timestamp(d) for d in daily["dates"] if d.startswith(month)]
+        ranked = ce.stable_rank(stamps, salt=f"c1:{month}")
+        got = {d: r for d, r in zip(daily["dates"], daily["draw"]) if d.startswith(month)}
+        assert got == {_day_key(d): pos for pos, d in enumerate(ranked)}
+    # The prefix the planner takes is the same prefix, whichever days qualify.
+    eligible = [pd.Timestamp(d) for d in daily["dates"] if d.startswith("2026-08")][1:]
+    assert ce.stable_sample(eligible, 2, salt="c1:2026-08") == \
+        sorted(eligible, key=lambda d: daily["draw"][daily["dates"].index(_day_key(d))])[:2]
+
+
+def _day_key(day):
+    return pd.Timestamp(day).strftime("%Y-%m-%d")
+
+
+def test_progress_carries_the_yield_and_the_burnt_free_backlog(monkeypatch):
+    """The time estimate needs the plan's measured yield and the backlog the
+    handoff will actually annotate: scraped, not annotated, not burnt."""
+    activity = _activity({"2026-08-27": 6})
+    ids = list(activity["item_id"])
+    status = _status(ids, scraped=ids[:5], annotated=ids[:2], annotated_fail=[ids[2]])
+    monkeypatch.setattr(ce, "load_activity", lambda cid: activity)
+    monkeypatch.setattr(ce, "load_status", lambda i=None: status)
+    out = ce.progress("c1", {**_entry(), "last_yield": 0.82})
+    assert out["last_yield"] == 0.82
+    assert out["unique_scraped"] == 5 and out["unique_annotated"] == 2
+    assert out["unique_awaiting"] == 2          # ids 3 and 4; id 2 burnt
+    assert out["unique_failed"] == 1

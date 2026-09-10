@@ -59,6 +59,7 @@ KINDS: dict[str, tuple[str, str]] = {
     "plan.resumed": ("Resumed", FAMILY_PLAN),
     "plan.settings": ("Settings changed", FAMILY_PLAN),
     "plan.tick": ("Cycle requested", FAMILY_PLAN),
+    "plan.finishing": ("Finishing", FAMILY_PLAN),
     "plan.done": ("Idle", FAMILY_PLAN),
     "plan.blocked": ("Needs attention", FAMILY_ATTENTION),
     "tick.busy": ("Cycle had to wait", FAMILY_PLAN),

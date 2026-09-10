@@ -189,16 +189,55 @@ handoff outranks the plan step in the tick, new scraping starts only once
 that backlog is clear. Slices then interleave two processes that both buy
 **whole collection-days** (the unit every analysis floors on): Process B
 ("deep dive") takes consecutive recent days uncapped (what Sessions needs),
-Process A ("spread") samples up to `a_days_per_month` whole days per month
-backwards through history (default 15), capped at `a_day_cap` per day
-(default 50 — the Timelines/Correlations long arc), with `sample_share`
-splitting each cycle's items between them. Arming stamps
+Process A (the **random daily sample** in the UI; "spread" in the code) samples whole days per month backwards through
+history, capped at `a_day_cap` per day (default 50 — the
+Timelines/Correlations long arc), with `sample_share` splitting each
+cycle's items between them. **Within a cut day — the spread's capped days
+and the deep dive's partial last day — the cutter takes whole viewing
+sessions first** (`_pick_in_day`, 2026-09-09): the day's candidate
+sessions (at least the Sessions tab's `min_session_plays`, resolved by
+`session_min_plays()` from the admin store and passed into the pure
+planner), the session that crosses the cap included, then single items up
+to the cap. A scattering of items never yields a session anyone can
+analyse; whole sittings do, and this is what puts analysable sessions
+across the whole history rather than only inside the deep-dive window.
+Sessions are keyed by their local start timestamp (`load_activity`'s
+`session` column, with `session_plays` counting the session's play rows;
+the positional `session_id` renumbers on a re-ingest), the spread draws
+them in a salted ranking of their own so a raised cap adds sessions rather
+than swapping them, the deep dive's partial day takes them newest first, and
+a sitting that runs past midnight is taken whole from the day it started.
+`plan_cycle` reports `sessions` — the candidate sessions whose last
+unscraped items are in the slice — and the journal's `slice.queued` carries
+it. The modal's estimate mirrors the planner's day pick: `progress()` ships
+each day's place in its month's salted draw (`daily.draw`, the same
+`stable_rank` `take_a` samples from — a hash order keeps its relative order
+on any subset), charges everything already scraped on a day (annotated,
+awaiting, failed for good) against the cap as the planner's quota does, and
+takes the measured `last_yield` and the burnt-free backlog
+(`unique_awaiting`) for its time estimate (2026-09-09, after checking the
+panel against a Python re-implementation on a live collection). The handoff still clamps annotation to the target, so a run's very last
+session can end part-annotated, exactly like its partial last day; a later
+target raise completes it first. `progress()["sessions"]`
+(`_session_figures`: total / candidates / ready, plus the incomplete
+candidates' per-session counts, newest first) feeds the modal's
+"analysis-ready sessions" figure and its estimate line. **How many days a month the spread samples is
+derived, not set** (`collection_enrichment.spread_days_per_month`,
+2026-09-09): the fewest days, the same in every month still ahead of the
+spread's cursor, whose capped videos cover the spread's share of what the
+target still needs — so the target is the only quantity knob and a
+"max days / month" can no longer sit below it. The supervisor derives it
+at the start of a walk and again when the target, balance, cap or earliest
+date changes (`entry["spread_days_per_month"]` + `spread_days_basis`), and
+`plan_cycle` derives for itself when no value is stored. It walks the same
+salted ranking the cutter draws from (`stable_rank`), so a higher density
+is a superset of a lower one. Arming stamps
 `run_started_at` and `run_start_annotated` on the ledger entry — the
 annotated count read from the DATA at that moment — which is what the
 modal's run meter measures against; a resume keeps them, a re-arm
 replaces them. With any deep-dive share above zero the plan
-can eventually reach everything processable; only at 100% spread (or under
-an `earliest_date` floor) do the spread limits cap the final coverage — the
+can eventually reach everything processable; only at a 100% random daily
+sample (or under an `earliest_date` floor) does its per-day cap bound the final coverage — the
 panel warns when the chosen target sits above that line. Plans, cursors and
 targets live in `cache/collection_enrichment.json`; they are armed from the
 Edit Collections modal, the site-wide switch is the
@@ -238,7 +277,16 @@ otherwise fold in, so the no-plans path settles that debt before the quiet
 finalize — and a worker completion still dispatches a tick while the loop
 owes a settle or its own deferred refresh (`process_routes.loop_owes_work`),
 not only while a plan is armed; the Dataset Assembly banner reads the same
-flag and says the loop has the consolidation in hand. Every one of these decisions is written to the **enrichment
+flag and says the loop has the consolidation in hand. (4) **A plan with
+nothing more to scrape stays Running while its own videos are still queued
+for, or inside, an annotation job** (`entry["finishing"]`, one
+`plan.finishing` history line, bounded by `FINISHING_MAX_H`): the planner
+used to close it in the very tick that handed its last batch to the
+annotator, so the history read "Idle" before "Annotator started" and the
+panel said "Idle · annotating now" for the whole batch; now the owed
+consolidation's completion ticks the loop, the pending count reaches zero,
+and the plan closes (`plan.done`) with the quiet finalize following in the
+same tick. Every one of these decisions is written to the **enrichment
 history** (`services/enrichment_journal.py`, `cache/enrichment_journal.json`,
 a bounded ring): plans armed/paused/parked, queues built/emptied/drained
 (with the split between the armed plans' own slices and everything else),
@@ -265,7 +313,12 @@ hosted or local Qwen alternatives, model-scoped shard store). The Sessions
 tab's artifacts (session index, binge episodes, low-entropy windows) are
 built by `fyp/analysis/session_explorer.py` + `entropy_metrics.py` over a
 dense random-access embedding sidecar (`fyp/analysis/embedding_store.py`),
-as a batch-and-chained `sessions_refresh` worker. Within each link the
+as a batch-and-chained `sessions_refresh` worker. The session boundaries
+themselves are older than any of this: `session_id` is stamped on every
+activity row at ingest (`fyp/ingest/base.py` `assign_session_ids`, a
+`[sessions] session_gap_s` = 900 s gap rule on `utc_timestamp` alone), which
+is what lets the enrichment planner sample whole sessions before anything
+is scraped (it keys them by local start timestamp, not the positional id). Within each link the
 per-session segmentation — pure Python, and nearly all of a rebuild's wall
 time — runs on a forked process pool over (collection, session-chunk) work
 units (`[sessions] workers`, default one per core less one; serial where
