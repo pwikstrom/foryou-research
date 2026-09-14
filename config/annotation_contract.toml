@@ -216,7 +216,7 @@ desc = "Does the video replicate a cultural short-video trend — a participator
 [[fields]]
 name = "advertising"
 role = "measure"
-display_name = "Advertising - Gemini"
+display_name = "Is it advertising?"
 enum = "yes_no"
 desc = "Is the video an explicit paid promotion of a product, service, or brand — shown by a sponsorship label, repeated prominent brand mentions, or a direct call to purchase or visit? Answer No for an organic review or discussion, or a creator simply expressing affinity for a brand with no sign of a commercial agreement."
 

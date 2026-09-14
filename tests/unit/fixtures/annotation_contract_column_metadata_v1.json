@@ -1,7 +1,7 @@
 {
   "advertising": {
     "description": "AI detection of advertising content (Yes/No).",
-    "display_name": "Advertising - Gemini",
+    "display_name": "Is it advertising?",
     "role": "feature",
     "scale": "categorical"
   },

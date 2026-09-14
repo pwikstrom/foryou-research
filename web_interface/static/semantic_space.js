@@ -765,9 +765,58 @@ function _ssVisibleCentroids(ranges) {
 }
 
 
+// Niche names stacked onto several lines so a label covers less of the map
+// sideways: up to three words take a line each, longer names pair words up
+// (4 → 2 lines, 5–6 → 3). A connector ("&", "of", …) joins the word after it
+// so it never sits alone on a line, and the breaks are placed to keep the
+// longest line as short as possible ("TV & Variety / Highlights").
+const _SS_LABEL_GLUE = new Set(['&', '+', '/', '-', 'and', 'of', 'the', 'in', 'for', 'a', 'to', 'on']);
+
+function _ssLabelLines(name) {
+    const words = String(name || '').split(/\s+/).filter(Boolean);
+    const tokens = [];
+    let carry = '';
+    for (const word of words) {
+        if (_SS_LABEL_GLUE.has(word.toLowerCase())) {
+            carry = carry ? `${carry} ${word}` : word;
+            continue;
+        }
+        tokens.push(carry ? `${carry} ${word}` : word);
+        carry = '';
+    }
+    if (carry) {
+        if (tokens.length) { tokens[tokens.length - 1] += ` ${carry}`; } else { tokens.push(carry); }
+    }
+    const n = words.length;
+    const k = Math.min(tokens.length, n <= 3 ? n : Math.ceil(n / 2));
+    if (k <= 1) { return tokens.join(' '); }
+    // best[l][i]: smallest achievable longest line when tokens[0..i) fill l lines.
+    const T = tokens.length;
+    const width = (a, b) => tokens.slice(a, b).join(' ').length;
+    const best = [[0].concat(Array(T).fill(Infinity))];
+    const cut = [[]];
+    for (let l = 1; l <= k; l++) {
+        best[l] = Array(T + 1).fill(Infinity);
+        cut[l] = [];
+        for (let i = l; i <= T; i++) {
+            for (let j = l - 1; j < i; j++) {
+                const v = Math.max(best[l - 1][j], width(j, i));
+                if (v < best[l][i]) { best[l][i] = v; cut[l][i] = j; }
+            }
+        }
+    }
+    const lines = [];
+    for (let l = k, i = T; l > 0; l--) {
+        const j = cut[l][i];
+        lines.unshift(tokens.slice(j, i).join(' '));
+        i = j;
+    }
+    return lines.join('<br>');
+}
+
 function _ssLabelAnnotation(c) {
     return {
-        x: c.x, y: c.y, text: c.name, showarrow: false,
+        x: c.x, y: c.y, text: _ssLabelLines(c.name), showarrow: false,
         font: { family: getCSSVar('--font-sans'), size: 10, color: getCSSVar('--white') },
         bgcolor: getCSSVar('--chart-badge-bg'), borderpad: 2, opacity: 0.92
     };
@@ -1194,7 +1243,7 @@ function _ssFlashAnnotations() {
         const c = _ssCentroid(id);
         if (!c) { return null; }
         return {
-            x: c.x, y: c.y + Math.max(c.r, 0.6), text: c.name, showarrow: false,
+            x: c.x, y: c.y + Math.max(c.r, 0.6), text: _ssLabelLines(c.name), showarrow: false,
             yanchor: 'bottom',
             font: { family: getCSSVar('--font-sans'), size: 11, color: getCSSVar('--white') },
             bgcolor: getCSSVar('--color-accent'), borderpad: 3, opacity: 0.95
@@ -1350,15 +1399,40 @@ function _ssWrap(text, width) {
 }
 
 
-// Click a categorical swatch to hide/show that category's points (delegated
-// from #ss-legend; swatches are recreated on every render).
+// Click a categorical swatch to hide/show that category's points; double-click
+// to show only that category, and double-click it again to bring every category
+// back — Plotly's own legend behaviour (delegated from #ss-legend; swatches are
+// recreated on every render). The single click waits out the double-click
+// window, as Plotly's does, so a double-click never toggles and re-renders the
+// corpus-sized map twice before isolating.
+const _SS_DBLCLICK_MS = 300;
+let _ssLegendClickTimer = null;
+
 function _ssOnLegendClick(ev) {
     const sw = ev.target.closest('[data-cat-idx]');
     if (!sw || !_ssLegendCats) { return; }
     const cat = _ssLegendCats[+sw.dataset.catIdx];
     if (cat === undefined) { return; }
-    if (_ssHidden.has(cat)) { _ssHidden.delete(cat); } else { _ssHidden.add(cat); }
-    renderSemanticSpace();
+    if (ev.detail > 2) { return; }   // a third click in a burst is not a new toggle
+    clearTimeout(_ssLegendClickTimer);
+    _ssLegendClickTimer = null;
+    if (ev.detail === 2) {
+        _ssIsolateCategory(cat);
+        renderSemanticSpace();
+        return;
+    }
+    _ssLegendClickTimer = setTimeout(() => {
+        _ssLegendClickTimer = null;
+        if (_ssHidden.has(cat)) { _ssHidden.delete(cat); } else { _ssHidden.add(cat); }
+        renderSemanticSpace();
+    }, _SS_DBLCLICK_MS);
+}
+
+function _ssIsolateCategory(cat) {
+    const cats = _ssLegendCats || [];
+    const alreadyAlone = !_ssHidden.has(cat) && cats.every(c => c === cat || _ssHidden.has(c));
+    _ssHidden.clear();
+    if (!alreadyAlone) { cats.forEach(c => { if (c !== cat) { _ssHidden.add(c); } }); }
 }
 
 
@@ -1379,7 +1453,7 @@ function _ssRenderLegend(mode, overlay, catColorMap) {
                 + `<span style="width:9px;height:9px;border-radius:2px;background:${catColorMap[c]};`
                 + `display:inline-block;${off ? 'filter:grayscale(1);' : ''}"></span>${c}</span>`;
         }).join('');
-        const hint = '<span class="ss-legend-hint">Click a swatch to show or hide it. Click a point to focus or open its niche.</span>';
+        const hint = '<span class="ss-legend-hint">Click a swatch to show or hide it, double-click to show only it. Click a point to focus or open its niche.</span>';
         legend.innerHTML = swatches + hint;
     } else if (overlay && overlay.kind === 'numeric') {
         _ssLegendCats = null;

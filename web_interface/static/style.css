@@ -3553,14 +3553,19 @@ html.fyp-floating-tooltips .meta-tooltip::after {
     color: var(--btn-primary-text) !important;
 }
 
+/* The ▸/▾ glyphs draw at about half their em box, so they are enlarged with a
+   transform rather than font-size: the header row keeps its height. */
 .filter-section-arrow,
 .filter-group-arrow {
-    width: 14px;
-    flex: 0 0 14px;
+    display: inline-block;
+    width: 18px;
+    flex: 0 0 18px;
     font-size: 1.15em;
     line-height: 1;
-    opacity: 0.85;
+    opacity: 0.9;
     text-align: center;
+    transform: scale(1.6);
+    transform-origin: center;
 }
 
 .filter-section-name {

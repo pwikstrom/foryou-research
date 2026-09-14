@@ -12,6 +12,14 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **Semantic Space legend and labels.** Double-click a category swatch to
+  show only that category, and double-click it again to bring the rest back,
+  as in a Plotly legend. Niche labels on the map are stacked onto several
+  lines (a three-word name takes three lines, a four-word name two), so they
+  cover less of the map sideways. The AI-annotated `advertising` variable is
+  now labelled **Is it advertising?** (was "Advertising - Gemini"), and the
+  filter panels' expand/collapse carets are larger.
+
 - **The Sessions list only shows the study's own sessions.** A day-sampled
   study keeps some of a collection's days inside its window; sessions on the
   dropped days used to be listed anyway, and every video in them showed
