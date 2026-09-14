@@ -7014,6 +7014,28 @@ body:has(.public-page) {
     border-top: 1px solid var(--color-border-subtle);
 }
 
+/* Colour legend at the top of the rail: swatches wrap across the column,
+   the gradient bar spans it, the click hint takes its own line. */
+.ss-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    padding: 12px 14px;
+}
+
+.ss-legend-bar {
+    flex: 1 1 100px;
+    height: 10px;
+    border-radius: 2px;
+}
+
+.ss-legend-hint {
+    flex-basis: 100%;
+    margin-top: 4px;
+    color: var(--color-text-faint);
+}
+
 /* Focused-niche readings: one item per line, long lists wrap inside their
    own line. Empty (zero height) until a niche is focused. */
 .ss-niche-info {
@@ -7021,6 +7043,7 @@ body:has(.public-page) {
     flex-direction: column;
     gap: 6px;
     padding: 12px 14px;
+    border-top: 1px solid var(--color-border-subtle);
 }
 
 .ss-niche-info:empty {

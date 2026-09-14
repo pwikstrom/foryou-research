@@ -90,19 +90,17 @@
         <div class="ss-map-col">
             <!-- Plot -->
             <div id="semantic-space-plot" style="flex: 1; min-height: 0;"></div>
-
-            <!-- Colour legend — rendered as HTML below the plot, deliberately kept
-             out of the Plotly figure. An in-figure colourbar would resize the
-             plot box and (via the 1:1 aspect lock) shift the scatter when the
-             colour scale changes; an HTML legend never touches the plot box.
-             Fixed height (so the plot box stays constant for every variable,
-             whatever the legend's content); scrolls if a categorical variable
-             has more swatches than fit. Shows category swatches or a numeric
-             gradient bar. -->
-            <div id="ss-legend" class="text-xs" style="height: 56px; box-sizing: border-box; padding: 8px 14px; border-top: 1px solid var(--color-border-subtle); background: var(--color-bg-elevated); color: var(--control-bar-info); display: flex; align-items: center; align-content: flex-start; gap: 4px 12px; flex-wrap: wrap; overflow-y: auto;"></div>
         </div>
 
         <aside class="ss-side">
+            <!-- Colour legend — rendered as HTML, deliberately kept out of the
+                 Plotly figure. An in-figure colourbar would resize the plot
+                 box and (via the 1:1 aspect lock) shift the scatter when the
+                 colour scale changes; an HTML legend in the fixed-width rail
+                 never touches the plot box. Shows category swatches (click to
+                 show/hide) or a numeric gradient bar, plus the click hint. -->
+            <div id="ss-legend" class="ss-legend text-xs"></div>
+
             <!-- Niche detail: what defines the focused niche — its size,
                  typicality, genuinely nearest niches, distinctive terms and
                  category shares. Empty by design until a niche is focused. -->

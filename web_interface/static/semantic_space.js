@@ -878,7 +878,7 @@ function renderSemanticSpace() {
         // Colour the points by the numeric scale, but DON'T draw Plotly's
         // in-figure colourbar — it resizes the plot box and (via the 1:1 aspect
         // lock) shifts the scatter when the scale changes. The scale is shown as
-        // an HTML gradient legend below the plot instead (see _ssRenderLegend),
+        // an HTML gradient legend in the side rail instead (see _ssRenderLegend),
         // so the plot box never changes between colour modes.
         markerExtra = { colorscale: _SS_NUMERIC_COLORSCALE, showscale: false, cmin: clo, cmax: chi };
     } else if (overlay && overlay.kind === 'categorical') {
@@ -1368,7 +1368,7 @@ function _ssOnLegendClick(ev) {
 function _ssRenderLegend(mode, overlay, catColorMap) {
     const legend = document.getElementById('ss-legend');
     if (!legend) { return; }
-    const openHint = '<span style="margin-left:auto;white-space:nowrap;">click a point to focus or open its niche</span>';
+    const openHint = '<span class="ss-legend-hint">Click a point to focus or open its niche.</span>'; 
     if (overlay && overlay.kind === 'categorical' && catColorMap) {
         _ssLegendCats = _ssDistinct(overlay.field);
         const swatches = _ssLegendCats.map((c, i) => {
@@ -1379,7 +1379,7 @@ function _ssRenderLegend(mode, overlay, catColorMap) {
                 + `<span style="width:9px;height:9px;border-radius:2px;background:${catColorMap[c]};`
                 + `display:inline-block;${off ? 'filter:grayscale(1);' : ''}"></span>${c}</span>`;
         }).join('');
-        const hint = '<span style="margin-left:auto;white-space:nowrap;">click a swatch to show/hide · click a point to focus or open its niche</span>';
+        const hint = '<span class="ss-legend-hint">Click a swatch to show or hide it. Click a point to focus or open its niche.</span>';
         legend.innerHTML = swatches + hint;
     } else if (overlay && overlay.kind === 'numeric') {
         _ssLegendCats = null;
@@ -1390,7 +1390,7 @@ function _ssRenderLegend(mode, overlay, catColorMap) {
         legend.innerHTML =
             `<span class="font-medium" style="white-space:nowrap;">${overlay.label}</span>`
             + `<span>≤${_ssFmtNum(lo)}</span>`
-            + `<span style="width:140px;height:10px;border-radius:2px;background:${grad};display:inline-block;"></span>`
+            + `<span class="ss-legend-bar" style="background:${grad};"></span>`
             + `<span>≥${_ssFmtNum(hi)}</span>` + openHint;
     } else {
         _ssLegendCats = null;
