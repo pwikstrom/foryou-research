@@ -150,17 +150,7 @@
         <div id="my-stuff-page-preferences" class="dm-page">
             <h2 style="margin: 0 0 16px 0;">My Preferences</h2>
 
-            <h4 class="text-sm font-semibold" style="margin-top: 15px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Appearance</h4>
-
-            <div class="setting-group" style="margin-bottom: 12px;">
-                <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
-                    <input type="checkbox" id="setting-theme-toggle" style="margin-right: 10px;"
-                        onchange="toggleTheme()">
-                    <span><span class="font-semibold">Dark theme:</span> <span class="text-sm" style="color: var(--color-text-muted);">If checked, the app uses a dark theme instead of a light theme.</span></span>
-                </label>
-            </div>
-
-            <h4 class="text-sm font-semibold" style="margin-top: 25px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Video Analysis</h4>
+            <h4 class="text-sm font-semibold" style="margin-top: 15px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Video Analysis</h4>
 
             <div class="setting-group" style="margin-bottom: 12px;">
                 <label style="display: flex; align-items: baseline; cursor: pointer; color: var(--color-text-primary);">
@@ -489,4 +479,4 @@
 {% if user.can_access('tab.my_stuff.tasks') %}
 <script src="{{ url_for('static', filename='js/human_coding.js') }}" defer></script>
 {% endif %}
-<script src="{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=7"></script>
+<script src="{{ url_for('static', filename='js/my_stuff_tab.js') }}?v=8"></script>

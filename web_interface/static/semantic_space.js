@@ -2016,3 +2016,10 @@ async function _ssRebuildMap() {
         _ssPollStatus();   // flip the banner to "being calculated…" promptly
     }
 }
+
+// Every colour on the map (dots, labels, legend, trajectory rings) is a
+// resolved token value, so a theme switch needs a full re-render. The zoom
+// survives: renderSemanticSpace() re-reads the current axis ranges.
+window.addEventListener('theme-changed', () => {
+    if (_ssData) renderSemanticSpace();
+});

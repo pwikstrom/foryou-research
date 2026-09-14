@@ -23,7 +23,14 @@ data-donation pages; after login the same landing content appears on the
 
 The header shows the app name (click it to return Home), the **active study
 dropdown**, a spinner badge when background tasks are running, and your
-username, role and a Logout link.
+username, role, a Logout link and the theme toggle (a sun/moon icon that
+switches between the dark and light theme).
+
+Below it sits the tab menu. On wide screens its last item is a chevron
+button that hides both the header and the menu — handy for presentations.
+A thin strip stays at the very top of the window: hover it to slide the
+header and menu back in, and press the chevron again (or Esc) to restore
+them for good.
 
 ### The active study
 
@@ -373,7 +380,6 @@ collections linked to your account.
 
 **My Preferences.** Your personal settings, grouped as:
 
-- *Appearance* — Dark theme.
 - *Video Analysis* — Video autostart; Share my annotations (share your video
   tags anonymously with other researchers).
 - *Correlations* — Large dots in correlations.

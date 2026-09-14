@@ -1,6 +1,12 @@
 {% extends 'base.html' %}
 
 {% block content %}
+<!-- Presentation mode (main.js toggleFocusMode): the header and tab menu
+     slide away, leaving this thin strip at the very top of the window;
+     hovering it (or the chrome once it has slid in) brings them back. -->
+<div id="focus-peek" class="focus-peek" aria-hidden="true"></div>
+
+<div id="app-chrome" class="app-chrome">
 <!-- App Header -->
 <div class="auth-header">
     <a class="app-brand" onclick="openTab(event, 'home')">The For You Data Hub</a>
@@ -16,6 +22,21 @@
         &middot;
         <a href="/logout">Logout</a>
     </span>
+    <!-- Theme toggle: sun in the dark theme (press for light), moon in the
+         light theme (press for dark). main.js updateThemeIcon() keeps the
+         label in step with data-theme; style.css swaps the icons. -->
+    <button type="button" id="theme-toggle-btn" class="theme-toggle-btn"
+            onclick="toggleTheme()" aria-label="Switch to light theme" title="Switch to light theme">
+        <svg class="theme-icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+        </svg>
+        <svg class="theme-icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>
+        </svg>
+    </button>
 </div>
 
 <script>
@@ -100,8 +121,18 @@
         <ul class="tab-subnav" data-subpages-of="admin" hidden></ul>
         {% endif %}
     </div>
+    <!-- Wide screens only: hide the header + menu for presentations. -->
+    <button type="button" id="focus-toggle-btn" class="focus-toggle-btn" onclick="toggleFocusMode()"
+            aria-pressed="false" aria-label="Hide the header and menu" title="Hide the header and menu (Esc restores them)">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path class="focus-icon-hide" d="M17 11l-5-5-5 5M17 18l-5-5-5 5"/>
+            <path class="focus-icon-show" d="M7 13l5 5 5-5M7 6l5 5 5-5"/>
+        </svg>
+    </button>
     <button class="help-icon global-help-btn" onclick="showHelpForActiveTab()" aria-label="Help for current tab">?</button>
 </div>
+</div><!-- /app-chrome -->
 
 <!-- Backdrop for mobile drawers (nav + side panels) -->
 <div id="responsive-backdrop" class="responsive-backdrop" onclick="closeAllResponsiveDrawers()"></div>
@@ -177,7 +208,7 @@
             + "Controls\n"
             + "'Focus niche' isolates one micro-genre and fills the bar under the controls with its size, how typical it is, how isolated it is, its genuinely closest niches, defining terms and category shares. Typicality and isolation answer different questions and rank the niches independently: the first is distance from the average of everything, the second is distance from the nearest other niche — a niche can be unusual and still have close company, or be ordinary and have nothing beside it. 'Niche labels' toggles the names. Dots grow as you zoom in; 'Dot size' makes them larger or smaller at every zoom level. Hover a dot for its niche and a one-line summary; click one to open it in Video Analysis, filtered to its niche. This map covers the whole corpus while Video Analysis is scoped to the active study, so a clicked video may not be in your study — Video Analysis says so when that happens and offers a link to the post itself.",
         'sessions': "Explore individual viewing sessions and the binges inside them. A binge is a run of 4+ distinct videos (over 3+ minutes) whose content stays semantically close together on the AI embeddings. The left table lists the active study's sessions — sort it by clicking any column heading; the Coverage column shows what share of a session's videos are embedded in the semantic space (low-coverage sessions can look artificially homogeneous, so read the entropy score together with coverage). The 'Low entropy' column scores each session's single most homogeneous stretch: a window of six consecutive distinct embedded videos slides across the whole session and the lowest average pairwise embedding distance found is reported (0 = near-identical content, lower = more homogeneous). Selecting a session draws its play-by-play strip — one mark per play, width = watch time, with binges as coloured bands and the session's 'Low-entropy sequences' (up to three non-overlapping best windows, computed independently of the binge detector) as dashed outlines. Under the strip, a selector column lists the binges and low-entropy sequences; picking one loads it into the shared video player on the right, where Prev/Next steps through the sequence in watch order — the video's niche, creator, watch time, story summary and an 'Open in Video Analysis' button sit below the player. A binge's 'avg distance' is the average across all of its videos, so it is usually higher than the best window's score and the two often cover different videos; the badge on each binge distinguishes a stationary binge (dwelling in one topic) from a drifting one (the rabbit-hole shape).",
-        'my_stuff': "Your personal pages, grouped in one place. My Studies lists the study datasets you have access to — click a row to see how a study was defined (its collections, date window and sampling rules, all read-only), or its Methods button for a plain-language note on how the dataset was built. My Tasks appears when you have been invited to annotation testing: blind-code videos or vote on annotation options; your work saves automatically. Preferences holds your personal settings — theme, video autostart, annotation sharing, correlation dot size, timeline toggles and variable customizations. My Video Tags lists every custom tag you have created — deleting a tag removes it from every video it is applied to. Profile shows your login email and lets you change the username shown across the app. My Collections shows the data collections linked to your account and your Short-Video Personality — a fun profile computed from your own donated activity data only (no scraping, no annotation, nobody else's data).",
+        'my_stuff': "Your personal pages, grouped in one place. My Studies lists the study datasets you have access to — click a row to see how a study was defined (its collections, date window and sampling rules, all read-only), or its Methods button for a plain-language note on how the dataset was built. My Tasks appears when you have been invited to annotation testing: blind-code videos or vote on annotation options; your work saves automatically. Preferences holds your personal settings — video autostart, annotation sharing, correlation dot size, timeline toggles and variable customizations. My Video Tags lists every custom tag you have created — deleting a tag removes it from every video it is applied to. Profile shows your login email and lets you change the username shown across the app. My Collections shows the data collections linked to your account and your Short-Video Personality — a fun profile computed from your own donated activity data only (no scraping, no annotation, nobody else's data).",
         'data_management': "Pipeline for getting raw collections from upload through to fully enriched analysis data. Use the sidebar to step through the stages. Ingest Collections uploads raw files or whole folders, assigns collection IDs and tags, and parses them into the dataset. Edit Collections lets you rename, retag, hide or delete already-ingested collections. Define Studies builds named study datasets by combining sampling parameters with date ranges. Scrape & Annotate runs the yt-dlp scraper to pull TikTok metadata and the Gemini machine-annotation pass over the videos. Dataset Assembly rebuilds per-study statistics, PCA and metadata caches once new data has landed. Long-running jobs run as Cloud Tasks in production; their progress bars, stop buttons and log viewers all live on the relevant sub-page, and a global task badge in the header shows how many are active.",
         'admin': "Manage users, roles and site-wide settings. New Users approves pending signups; the default role applied on approval is configurable in General. Active Users lists everyone in the system with their annotation stats (videos tagged, notes, closed and open tags) — click a row for a per-user detail modal that includes the full activity log plus password reset and account deletion. User Roles edits the permission matrix that decides which tabs and sub-pages each role can see; you can also add or delete custom roles from this page. User Annotations aggregates every tag and note recorded across the Data Hub, item by item. Human testing invites coders to blind-code the videos of a finished annotation test run and reports inter-coder reliability between human coders and each machine arm. General holds site-wide settings such as whether new signups require admin approval and which role they receive by default. System Information shows the runtime environment, revision, storage locations and other diagnostics."
     };
@@ -278,14 +309,14 @@
     // source: web_interface/services/refresh_pipeline.
     window.PIPELINE_REGISTRY = {{ pipeline_registry | tojson }};
 </script>
-<script src="{{ url_for('static', filename='main.js') }}?v=23"></script>
+<script src="{{ url_for('static', filename='main.js') }}?v=26"></script>
 <script src="{{ url_for('static', filename='js/variable_prefs.js') }}"></script>
 <script src="{{ url_for('static', filename='study_state.js') }}?v=6"></script>
 <script src="{{ url_for('static', filename='filter_value_search.js') }}?v=1"></script>
 <script src="{{ url_for('static', filename='explore.js') }}?v=15"></script>
 <script src="{{ url_for('static', filename='video_analysis.js') }}?v=13"></script>
 <script src="{{ url_for('static', filename='correlations.js') }}?v=5"></script>
-<script src="{{ url_for('static', filename='semantic_space.js') }}?v=12"></script>
+<script src="{{ url_for('static', filename='semantic_space.js') }}?v=13"></script>
 <script src="{{ url_for('static', filename='sessions.js') }}?v=16"></script>
 <script src="{{ url_for('static', filename='timelines.js') }}?v=6"></script>
 {% if user.can_access('tab.my_stuff.my_collections') or user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
@@ -305,6 +336,6 @@
    actually see, so any role may take it. #}
 <script src="{{ url_for('static', filename='js/hub_tour.js') }}?v=3"></script>
 {% if user.can_access('tab.data_management') or user.can_access('tab.my_stuff.my_studies') %}
-<script src="{{ url_for('static', filename='js/data_management.js') }}?v=77"></script>
+<script src="{{ url_for('static', filename='js/data_management.js') }}?v=78"></script>
 {% endif %}
 {% endblock %}

@@ -99,22 +99,96 @@ let _activeLogRunDone = false;
 setInterval(updateLogs, 1000);
 
 // --- Theme Toggle ---
+// Colour tokens that Plotly figures bake in as resolved values (Plotly cannot
+// read CSS var() references). _rethemePlotlyCharts() remaps these after a
+// switch in any figure its own tab did not re-render.
+const _THEME_CHART_TOKENS = [
+    '--chart-bg', '--chart-text', '--chart-grid', '--chart-zeroline',
+    '--chart-grid-line', '--chart-overlay-line', '--chart-annotation-text',
+    '--chart-regression-line', '--chart-heatmap-mid', '--chart-badge-bg',
+    '--color-bg-primary', '--color-bg-surface', '--color-bg-elevated',
+    '--color-text-primary', '--color-text-secondary', '--color-text-tertiary',
+    '--color-text-muted', '--color-text-faint', '--color-border', '--color-border-strong',
+    '--color-accent', '--color-success', '--color-info', '--color-danger', '--white',
+];
+
+function _snapshotThemeTokens() {
+    const out = {};
+    _THEME_CHART_TOKENS.forEach(t => { out[t] = getCSSVar(t); });
+    return out;
+}
+
 function toggleTheme() {
     const html = document.documentElement;
     const current = html.getAttribute('data-theme') || 'dark';
     const next = current === 'dark' ? 'light' : 'dark';
+    const before = _snapshotThemeTokens();
     html.setAttribute('data-theme', next);
     localStorage.setItem('fyp-theme', next);
     updateThemeIcon(next);
+    // Each tab re-renders its own charts from its listener (they read the
+    // new token values); the safety net then patches whatever is left over.
     window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme: next } }));
+    _rethemePlotlyCharts(before, _snapshotThemeTokens());
 }
 
 function updateThemeIcon(theme) {
-    // Sync settings tab checkbox
-    const settingsToggle = document.getElementById('setting-theme-toggle');
-    if (settingsToggle) {
-        settingsToggle.checked = theme === 'dark';
-    }
+    const btn = document.getElementById('theme-toggle-btn');
+    if (!btn) return;
+    const label = theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+}
+
+// Safety net for Plotly figures whose tab has no 'theme-changed' re-render,
+// or whose re-render was skipped (no cached data, an early return). Every
+// colour in the figure's layout and traces that still equals an OLD token
+// value is swapped for the NEW one and the figure is redrawn in place, which
+// keeps zoom, selection and event handlers. Figures a tab already re-rendered
+// carry no old values and are left alone.
+function _rethemePlotlyCharts(before, after) {
+    if (typeof Plotly === 'undefined') return;
+    // Old value -> new value. Several tokens share a value in one theme but
+    // not the other (--chart-bg and --color-bg-primary are both #1F2228 in
+    // the dark theme), so the FIRST token listed wins: the chart-specific
+    // tokens come first, and they are what a chart most likely meant.
+    const map = new Map();
+    _THEME_CHART_TOKENS.forEach(t => {
+        const o = (before[t] || '').toLowerCase(), n = after[t] || '';
+        if (o && n && o !== n.toLowerCase() && !map.has(o)) map.set(o, n);
+    });
+    if (!map.size) return;
+    const swap = (v) => {
+        const n = map.get(v.trim().toLowerCase());
+        return n === undefined ? v : n;
+    };
+    // Recursive in-place remap of every string leaf; true if anything changed.
+    const walk = (node, depth) => {
+        if (!node || typeof node !== 'object' || depth > 12) return false;
+        let changed = false;
+        const keys = Array.isArray(node) ? node.keys() : Object.keys(node);
+        for (const k of keys) {
+            if (typeof k === 'string' && k.charAt(0) === '_') continue;  // Plotly bookkeeping
+            const v = node[k];
+            if (typeof v === 'string') {
+                const w = swap(v);
+                if (w !== v) { node[k] = w; changed = true; }
+            } else if (walk(v, depth + 1)) {
+                changed = true;
+            }
+        }
+        return changed;
+    };
+    document.querySelectorAll('.js-plotly-plot').forEach(gd => {
+        if (!gd.layout || !gd.data) return;
+        try {
+            const a = walk(gd.layout, 0);
+            const b = walk(gd.data, 0);
+            if (a || b) Plotly.react(gd, gd.data, gd.layout, gd._context);
+        } catch (e) {
+            console.warn('theme: could not re-theme a chart', e);
+        }
+    });
 }
 
 // Apply saved theme immediately (before onload to avoid flash)
@@ -1901,7 +1975,7 @@ function _responsiveBackdrop() {
 }
 
 function _isMobileViewport() {
-    return window.matchMedia('(max-width: 860px)').matches;
+    return window.matchMedia('(max-width: 1100px)').matches;
 }
 
 function _showBackdrop() {
@@ -2153,7 +2227,53 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 
+// --- Presentation mode (wide screens) ---
+// Hides the header + tab menu behind a thin strip at the top of the window;
+// hovering the strip slides them back in (style.css does the sliding).
+// Session-only on purpose: a presentation ends, the next visit starts normal.
+function toggleFocusMode(force) {
+    const on = typeof force === 'boolean' ? force : !document.body.classList.contains('is-focus-mode');
+    document.body.classList.toggle('is-focus-mode', on);
+    const btn = document.getElementById('focus-toggle-btn');
+    if (btn) {
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        const label = on ? 'Show the header and menu' : 'Hide the header and menu';
+        btn.setAttribute('aria-label', label);
+        btn.title = on ? label : label + ' (Esc restores them)';
+        // Leaving focus on the button would hold the chrome open via
+        // :focus-within; the menu should slide away as soon as it is hidden.
+        if (on) btn.blur();
+    }
+    // Plotly's responsive figures only resize on a window event; the content
+    // area just changed height without one. Fire it once the slide is over.
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 250);
+}
+
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && document.body.classList.contains('is-focus-mode')) toggleFocusMode(false);
+});
+
+// Peeking: CSS :hover on the strip does the sliding on its own; this mirrors
+// it in a body class so a tap on the strip (no hover on touch screens) and
+// the pointer's hand-off from strip to chrome are both covered.
+document.addEventListener('DOMContentLoaded', function () {
+    const peek = document.getElementById('focus-peek');
+    const chrome = document.getElementById('app-chrome');
+    if (!peek || !chrome) return;
+    const show = () => document.body.classList.add('is-peeking');
+    const hide = () => document.body.classList.remove('is-peeking');
+    peek.addEventListener('mouseenter', show);
+    peek.addEventListener('click', show);
+    chrome.addEventListener('mouseleave', hide);
+    // The chrome slides over the strip, so leaving the strip downward lands
+    // on the chrome (kept open by its own hover); leaving any other way hides.
+    peek.addEventListener('mouseleave', (e) => {
+        if (!(e.relatedTarget && chrome.contains(e.relatedTarget))) hide();
+    });
+});
+
 // Expose for inline handlers
+window.toggleFocusMode = toggleFocusMode;
 window.toggleNavDrawer = toggleNavDrawer;
 window.toggleMobileDrawer = toggleMobileDrawer;
 window.closeAllResponsiveDrawers = closeAllResponsiveDrawers;

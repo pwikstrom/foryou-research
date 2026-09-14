@@ -79,13 +79,6 @@
             loadAndRenderUserTags();
         }
 
-        // Sync theme checkbox with current theme
-        const themeToggle = document.getElementById('setting-theme-toggle');
-        if (themeToggle) {
-            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-            themeToggle.checked = currentTheme === 'dark';
-        }
-
         renderVariablePrefsStatus();
         renderGettingStartedStatus();
         loadProfileForm();

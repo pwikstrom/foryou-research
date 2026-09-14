@@ -9371,3 +9371,13 @@ async function queueVotedVideos(btnElement) {
         });
 }
 
+// Both Plotly figures on this tab bake in resolved token colours, so a theme
+// switch redraws them from their cached inputs: the enrichment chart from its
+// last daily payload, and each open study modal's activity chart from the
+// row's chart state.
+window.addEventListener('theme-changed', () => {
+    if (dmEnrichDailyCache) dmEnrichRenderChart(dmEnrichDailyCache);
+    document.querySelectorAll('.study-edit-form .study-daily-chart').forEach(chartDiv => {
+        if (chartDiv._plotlyInited) _renderDailyChart(chartDiv.closest('.study-edit-form'));
+    });
+});
