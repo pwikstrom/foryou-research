@@ -2,39 +2,39 @@
 
     <!-- Control Bar -->
     <div class="control-bar">
-        <label for="timelines-collection-select" style="margin-right: 10px;">Collection:</label>
-        <select id="timelines-collection-select" class="dropdown" style="max-width: 180px;" onchange="timelines.onCollectionChange()">
+        <label for="timelines-collection-select">Collection:</label>
+        <select id="timelines-collection-select" class="dropdown" style="width: 180px;" onchange="timelines.onCollectionChange()">
             <option value="" disabled selected>Loading collections...</option>
         </select>
 
         <!-- Tag chips next to dropdown -->
-        <span id="timelines-tag-chips" class="text-xxs" style="margin-left: 10px; display: flex; align-items: center; gap: 5px;"></span>
+        <span id="timelines-tag-chips" class="text-xxs" style="display: flex; align-items: center; gap: 5px;"></span>
 
-        <span id="timelines-collection-count" class="text-sm" style="display: none;"></span>
+        <span id="timelines-collection-count" style="display: none;"></span>
 
         <!-- Right-aligned controls -->
         <div style="margin-left: auto; display: flex; align-items: center; gap: 20px;">
             <!-- Shared time window across all charts: how-to hint at the full
                  range, visible period + reset once the user has zoomed in. -->
-            <div class="timelines-zoom-control text-xs">
+            <div class="timelines-zoom-control">
                 <span id="timelines-zoom-hint" class="timelines-zoom-hint">Drag across a chart to zoom into a period</span>
                 <span id="timelines-zoom-window" class="timelines-zoom-window" style="display: none;">
                     Showing <span id="timelines-zoom-range" class="font-medium"></span>
-                    <button type="button" class="btn-discreet text-xxs" style="padding: 2px 7px;"
+                    <button type="button" class="btn-discreet corr-bar-button"
                         onclick="timelines.resetZoom()">Reset</button>
                 </span>
             </div>
             <div id="timelines-engagement-dropdown" style="position: relative;">
-                <button type="button" id="timelines-engagement-toggle" class="btn-discreet text-xs"
-                    style="padding: 3px 8px; cursor: pointer;">Engagement (<span id="timelines-engagement-count">0</span>) &#9662;</button>
+                <button type="button" id="timelines-engagement-toggle" class="btn-discreet corr-bar-button"
+                    style="cursor: pointer;">Engagement (<span id="timelines-engagement-count">0</span>) &#9662;</button>
                 <div id="timelines-engagement-panel"
                     style="display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; z-index: 1300; min-width: 160px; background: var(--color-bg-elevated); border: 1px solid var(--color-border-strong); border-radius: 6px; padding: 6px 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
                     <div id="timelines-engagement-list" class="text-sm" style="text-align: left;"></div>
                 </div>
             </div>
-            <label class="text-xs meta-tooltip tooltip-below tooltip-right-anchored" style="display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; color: var(--color-text-muted);"
+            <label class="bar-checkbox meta-tooltip tooltip-below tooltip-right-anchored"
                    data-tooltip="Overlay raw daily values as low-opacity bars behind the smoothed line, so you can see which day drove any bump you notice.">
-                <input type="checkbox" id="timelines-show-raw" onchange="timelines.toggleShowRaw(this.checked)" style="margin: 0; cursor: pointer;">
+                <input type="checkbox" id="timelines-show-raw" onchange="timelines.toggleShowRaw(this.checked)">
                 Show daily values
             </label>
         </div>

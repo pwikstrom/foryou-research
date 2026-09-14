@@ -177,12 +177,15 @@ async function loadSemanticSpace() {
         // from the new map rather than left describing the old one.
         _ssSetFocusNiche(_ssCentroid(_ssFocusNiche) ? _ssFocusNiche : null, { render: false });
         _ssPopulateColorModes();
-        if (status) {
-            // innerHTML, not innerText: the accuracy figure carries a tooltip.
-            status.innerHTML =
+        // The counts and the accuracy figure live on the Info tooltip in the
+        // control bar; the status span is for loading / error text only.
+        if (status) { status.innerText = ''; }
+        const info = document.getElementById('ss-info');
+        if (info) {
+            info.setAttribute('data-tooltip',
                 `${data.total_mapped.toLocaleString()} videos shown · `
                 + `${data.n_niches} niches · ${data.total_videos.toLocaleString()} embedded`
-                + _ssPreservationHtml(data.neighbour_preservation);
+                + _ssPreservationText(data.neighbour_preservation));
         }
         _ssWireControls();
         // Load the study-scoped collection list once the active study is known.
@@ -388,21 +391,19 @@ function _ssSetFocusNiche(nicheId, opts) {
 }
 
 
-// The projection's own accuracy score, shown beside the corpus counts. A 2D
-// layout drops relationships silently, so without this figure the map's
-// fidelity is unfalsifiable — publishing it is what lets a reader judge how
-// much weight the picture will carry.
-function _ssPreservationHtml(np) {
+// The projection's own accuracy score, appended to the Info tooltip after the
+// corpus counts. A 2D layout drops relationships silently, so without this
+// figure the map's fidelity is unfalsifiable — publishing it is what lets a
+// reader judge how much weight the picture will carry.
+function _ssPreservationText(np) {
     if (!np || np.score == null) { return ''; }
     const pct = Math.round(100 * np.score);
     const chance = (100 * np.chance).toFixed(3);
-    const tip = `Of a video's ${np.k} nearest neighbours in the full embedding space, `
-        + `${pct}% are still drawn among its ${np.k} nearest here — against ${chance}% `
-        + `for a random layout. The projection cannot honour every relationship at once, `
-        + `so treat closeness on the map as evidence and check anything that matters `
-        + `against the measured readings (typicality, closest niches).`;
-    return ` · <span class="meta-tooltip tooltip-wide tooltip-below" `
-        + `data-tooltip="${escapeHtml(tip)}">layout keeps ${pct}% of true neighbours</span>`;
+    return `\n\nLayout keeps ${pct}% of true neighbours: of a video's ${np.k} nearest `
+        + `neighbours in the full embedding space, ${pct}% are still drawn among its ${np.k} `
+        + `nearest here — against ${chance}% for a random layout. The projection cannot `
+        + `honour every relationship at once, so treat closeness on the map as evidence and `
+        + `check anything that matters against the measured readings (typicality, closest niches).`;
 }
 
 
@@ -450,17 +451,14 @@ function _ssReadingHtml(label, comparative, pct, bands, tip) {
 }
 
 
-// Render the niche detail bar under the controls: what actually defines the
+// Render the niche detail block in the side rail: what actually defines the
 // focused niche. This is the plain-language counterpart to the geometry — the
 // map shows which niches are neighbours, the bar says why.
 function _ssRenderNicheInfo(focusNiche) {
     const bar = document.getElementById('ss-niche-info');
     if (!bar) { return; }
-    if (focusNiche === null) {
-        bar.innerHTML = '<span>Focus a niche to see the terms that define it, how many '
-            + 'videos it holds, and how typical it is of the corpus.</span>';
-        return;
-    }
+    // Empty by design until a niche is focused (the rail collapses it).
+    if (focusNiche === null) { bar.innerHTML = ''; return; }
     const meta = (_ssData.niches || {})[focusNiche] || {};
     const parts = [
         `<span class="font-semibold" style="color: var(--color-text-primary);">`

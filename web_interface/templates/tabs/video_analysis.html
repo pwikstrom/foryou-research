@@ -4,32 +4,31 @@
     <div class="control-bar">
         <!-- Left panel toggle -->
         <button id="va-left-toggle" onclick="window.vaToggleLeft()" class="meta-tooltip tooltip-below desktop-only-toggle" data-tooltip="Toggle filters panel"
-            style="background:none; border:none; cursor:pointer; padding:4px; margin-right:10px; display:flex; align-items:center; transition: background 0.15s; border-radius: 4px;">
+            style="background:none; border:none; cursor:pointer; padding:2px; display:flex; align-items:center; transition: background 0.15s; border-radius: 4px;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--control-bar-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
                 <line x1="9" y1="3" x2="9" y2="21"></line>
             </svg>
         </button>
-        <button class="mobile-only mobile-drawer-trigger" data-drawer-target="#va-left-panel"
-            style="margin-right: 10px;">Filters</button>
-        <span class="text-sm" style="margin-right: 8px; color: var(--control-bar-text);">Date range:</span>
+        <button class="mobile-only mobile-drawer-trigger" data-drawer-target="#va-left-panel">Filters</button>
+        <span style="color: var(--control-bar-label);">Date range:</span>
         <!-- tooltip-below: the control bar sits at the top of the tab pane, so an
              upward tooltip would open over the tab bar. -->
-        <span id="viewer-date-range" class="text-sm meta-tooltip tooltip-below"
+        <span id="viewer-date-range" class="meta-tooltip tooltip-below"
             data-tooltip="First and last activity timestamp in the current selection. Videos are sorted oldest to newest."
             style="color: var(--control-bar-info);">&mdash;</span>
 
-        <span id="viewer-file-info" class="text-sm" style="margin-left: 20px; color: var(--control-bar-info);"></span>
+        <span id="viewer-file-info" class="corr-status" style="margin-left: 10px;"></span>
 
         <!-- Hide Duplicates + right panel toggle + help -->
         <div style="margin-left: auto; display: flex; align-items: center; gap: 15px;">
-            <label class="switch" style="display: flex; align-items: center; cursor: pointer;">
+            <label class="bar-checkbox">
                 <input type="checkbox" id="viewer-hide-duplicates" onchange="applyViewerFilters()">
-                <span class="font-bold" style="color: var(--control-bar-text); margin-left: 5px;">Hide Duplicate Videos</span>
+                Hide Duplicate Videos
             </label>
             <!-- Right panel toggle -->
             <button id="va-right-toggle" onclick="window.vaToggleRight()" class="meta-tooltip tooltip-below tooltip-right-anchored desktop-only-toggle" data-tooltip="Toggle details panel"
-                style="background:none; border:none; cursor:pointer; padding:4px; display:flex; align-items:center; transition: background 0.15s; border-radius: 4px;">
+                style="background:none; border:none; cursor:pointer; padding:2px; display:flex; align-items:center; transition: background 0.15s; border-radius: 4px;">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--control-bar-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
                     <line x1="15" y1="3" x2="15" y2="21"></line>

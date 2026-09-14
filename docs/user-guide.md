@@ -119,14 +119,14 @@ at a glance where your selection comes from. Each panel also has:
 The count next to the panel title shows how many activities match the current
 selection.
 
-**One vs two slices.** The "Slices to explore" toggle in the centre header
-switches between **One** and **Two**. In two-slice mode the charts show both
+**One vs two slices.** The "Slices to explore" toggle in the control bar
+under the menu switches between **One** and **Two**. In two-slice mode the charts show both
 slices side by side and significance stars (\*, \*\*, \*\*\*) flag
 distributional differences between them.
 
 **Reading the charts.** Numeric variables render as histograms with the mean
 marked; categorical variables render as stacked bar charts. The **Sort by**
-dropdown orders categories by Total Frequency, Slice 1 Frequency, Slice 2
+dropdown in the control bar orders categories by Total Frequency, Slice 1 Frequency, Slice 2
 Frequency (two-slice mode) or Name (A–Z).
 
 **Drilling down.** Click any bar or histogram segment to jump to the Video
@@ -229,23 +229,26 @@ the map. It is a browsing surface, not a chart: there are no axes or units,
 and only closeness carries meaning — never read distance, blob size, empty
 space or an island's isolation as a finding. The tab's own help text (the
 **?** button) explains these caveats at length, and the map publishes its own
-accuracy figure ("layout keeps N% of true neighbours") in the status bar.
+accuracy figure ("layout keeps N% of true neighbours") alongside the corpus
+counts in the **Info** tooltip at the left of the control bar.
 
-**Controls.**
+**Controls.** All sit in the control bar under the menu; the focused niche's
+readings and the trajectory controls live in a rail to the right of the map.
 
 - **Colour by** — Niche, Content category or Popularity (plays). Content
   category is deliberately excluded from the text the embedding is built
   from, so structure in those colours independently corroborates the niches.
 - **Focus niche** — a searchable picker (hundreds of entries, sortable by
   Most videos, A–Z, Most typical, Most isolated). Focusing a niche isolates
-  it on the map and fills the detail bar below the controls with its size,
+  it on the map and fills the rail to the right of the map with its size,
   typicality, isolation, genuinely closest niches, defining terms and
   category shares. Typicality and isolation are measured in the full
   embedding space, not on the 2D picture, so they are trustworthy where the
   layout is not. Clear the focus with the × button.
-- **Niche labels** toggles the name overlays.
-- **Explore collection trajectories** — a disclosure that opens overlay
-  controls: pick a **Collection** and an **Interval** (Monthly / Weekly /
+- **Niche labels** toggles the name overlays; **Dot size** scales every dot
+  on top of the zoom-driven growth.
+- **Explore collection trajectories** — a disclosure in the right-hand rail
+  that opens overlay controls: pick a **Collection** and an **Interval** (Monthly / Weekly /
   Daily / All-time only), tick **Show trajectory**, and use **▶ Play** or the
   scrubber to animate how that participant's feed moved through the space
   over time.

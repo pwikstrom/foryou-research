@@ -433,7 +433,9 @@ body {
     background: var(--color-bg-primary);
     color: var(--color-text-primary);
     margin: 0;
-    padding: 20px;
+    /* Top padding is half the sides: the app header below already carries
+       its own vertical padding, so the brand sits close to the window edge. */
+    padding: 10px 20px 20px;
     height: 100vh;
     display: flex;
     flex-direction: column;
@@ -2374,12 +2376,22 @@ body.is-focus-mode { padding-top: 12px; }
    Control Bar (shared across tabs)
    ============================================================ */
 
+/* One compact bar for every analysis tab (Semantic Space, Explore,
+   Correlations, Video Analysis, Sessions, Timelines): a single row of small
+   type, plain-weight labels and narrow inputs. The min-height keeps a bar that
+   holds only a status line (Semantic Space, Sessions) the same height as one
+   holding selects and toggles (Correlations). */
 .control-bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    padding: 10px;
+    gap: 10px;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-size: var(--text-xs);
+    line-height: var(--leading-normal);
     background-color: var(--control-bar-bg);
-    margin-bottom: 20px;
+    margin-bottom: 10px;
     border-bottom: 1px solid var(--control-bar-border);
 }
 
@@ -2390,16 +2402,40 @@ body.is-focus-mode { padding-top: 12px; }
 }
 
 .control-bar label {
-    font-weight: var(--weight-bold);
+    font-weight: var(--weight-normal);
     color: var(--control-bar-label);
 }
 
 .control-bar .dropdown {
-    width: 300px;
-    padding: 5px;
+    width: auto;
+    padding: 2px 4px;
+    font-size: var(--text-xs);
     background: var(--select-bg);
     border: 1px solid var(--select-border);
     color: var(--select-text);
+}
+
+.control-bar .toggle-group .toggle-option {
+    padding: 3px 10px;
+    font-size: var(--text-xs);
+}
+
+/* Checkbox + short caption, sized to sit flush with the selects. Also used
+   by the Semantic Space side rail, hence not scoped to the bar. */
+.bar-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-normal);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.bar-checkbox input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
 }
 
 
@@ -3191,12 +3227,11 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 .auth-header {
     display: flex;
     align-items: center;
-    /* 18px keeps this the same height as the public mini-site's
-       .public-header (14px padding around a 39px CTA button): the study
-       dropdown is the tallest thing in here, so 18 + 31 + 18 lands on the
-       same 67-68px. The header used to be ~10px taller purely because
-       .app-brand was set at 1.75rem. */
-    padding: 18px 24px;
+    /* Tight vertical padding: the study dropdown (31px) is the tallest
+       thing in here, so the header runs ~49px and the tab menu sits close
+       under the brand. (The public mini-site's .public-header is taller;
+       the two no longer match on purpose.) */
+    padding: 9px 24px;
     background: var(--color-bg-primary);
 }
 
@@ -3566,30 +3601,8 @@ html.fyp-floating-tooltips .meta-tooltip::after {
     color: var(--control-bar-info);
 }
 
-/* Single compact control bar (Timelines layout): every control on one row,
-   small type, abbreviated labels, narrow inputs. */
-.corr-control-bar {
-    flex-wrap: wrap;
-    gap: 10px;
-    padding: 5px 10px;
-    font-size: var(--text-xs);
-}
-
-.corr-control-bar label {
-    font-weight: var(--weight-normal);
-}
-
-.corr-control-bar .dropdown {
-    width: auto;
-    padding: 2px 4px;
-    font-size: var(--text-xs);
-}
-
-.corr-view-toggle .toggle-option {
-    padding: 3px 10px;
-    font-size: var(--text-xs);
-}
-
+/* The bar itself is the shared .control-bar; only the Correlations-specific
+   widths and groupings live here. */
 .corr-scatter-controls {
     display: flex;
     gap: 8px;
@@ -3602,36 +3615,22 @@ html.fyp-floating-tooltips .meta-tooltip::after {
     margin-right: 0;
 }
 
-/* Fixed widths, and scoped to the bar so they outrank `.control-bar .dropdown`
-   (width: 300px): a <select> otherwise auto-sizes to its longest option, which
-   pushed the bar onto a second row. Full variable names stay readable in the
-   open dropdown and in the axis titles. */
-.corr-control-bar .corr-select {
+/* Fixed widths, scoped to the bar so they outrank `.control-bar .dropdown`:
+   a <select> otherwise auto-sizes to its longest option, which pushed the bar
+   onto a second row. Full variable names stay readable in the open dropdown
+   and in the axis titles. */
+.control-bar .corr-select {
     width: 150px;
 }
 
-.corr-control-bar .corr-select-narrow {
+.control-bar .corr-select-narrow {
     width: 105px;
-}
-
-.corr-checkbox-group {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    user-select: none;
-}
-
-.corr-checkbox-group input[type="checkbox"] {
-    margin: 0;
-    cursor: pointer;
 }
 
 /* Sized to sit flush with the selects on the same row. .btn-discreet sets its
    own font-size, so the size has to be restated here rather than left to the
    .text-xxs utility class. */
-.corr-control-bar .corr-control-disabled {
+.control-bar .corr-control-disabled {
     opacity: 0.45;
 }
 
@@ -4209,9 +4208,9 @@ html.fyp-floating-tooltips .meta-tooltip::after {
     /* ----- Header: wrap so study dropdown gets its own row ----- */
     .auth-header {
         flex-wrap: wrap;
-        padding: 10px 14px;
+        padding: 5px 14px;
         gap: 8px;
-        row-gap: 8px;
+        row-gap: 4px;
     }
 
     .app-brand {
@@ -4248,7 +4247,7 @@ html.fyp-floating-tooltips .meta-tooltip::after {
         box-shadow: none;
     }
 
-    body.is-focus-mode { padding-top: 20px; }
+    body.is-focus-mode { padding-top: 10px; }
 
     /* ----- Tab nav → hamburger drawer ----- */
     .tab-nav {
@@ -4549,7 +4548,7 @@ html.fyp-floating-tooltips .meta-tooltip::after {
     }
 
     .auth-header {
-        padding: 8px 10px;
+        padding: 4px 10px;
     }
 
     /* Signup page: relax fixed paddings on very narrow phones */
@@ -6974,16 +6973,122 @@ body:has(.public-page) {
    while collapsed. */
 .ss-traj-controls {
     display: flex;
-    gap: 18px;
-    align-items: center;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 10px;
     margin-top: 10px;
-    padding-top: 10px;
-    border-top: 1px solid var(--color-border-subtle);
 }
 
 .ss-traj-controls[hidden] {
     display: none;
+}
+
+/* ── Panel layout: map column + side rail ── */
+.ss-panel {
+    flex: 1;
+    min-height: 0;
+    flex-direction: row;
+    padding: 0;
+    overflow: hidden;
+}
+
+.ss-map-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.ss-side {
+    flex: 0 0 280px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+    border-left: 1px solid var(--color-border-subtle);
+    background: var(--color-bg-elevated);
+    color: var(--control-bar-info);
+}
+
+.ss-side-section {
+    padding: 12px 14px;
+    border-top: 1px solid var(--color-border-subtle);
+}
+
+/* Focused-niche readings: one item per line, long lists wrap inside their
+   own line. Empty (zero height) until a niche is focused. */
+.ss-niche-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+}
+
+.ss-niche-info:empty {
+    display: none;
+}
+
+.ss-side-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+}
+
+.ss-side-field .dropdown {
+    width: 100%;
+    font-size: var(--text-xs);
+}
+
+.ss-side-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ss-scrub {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Bar controls: label + input pairs, sized like the Correlations bar. */
+.control-bar .ss-bar-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.control-bar .ss-info {
+    color: var(--control-bar-label);
+    font-weight: var(--weight-medium);
+    cursor: help;
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+}
+
+.control-bar .ss-dot-size {
+    width: 90px;
+    margin: 0;
+}
+
+.control-bar .ss-niche-trigger {
+    min-width: 180px;
+    max-width: 260px;
+    padding: 2px 8px;
+    font-size: var(--text-xs);
+}
+
+@media (max-width: 1100px) {
+    .ss-panel {
+        flex-direction: column;
+    }
+
+    .ss-side {
+        flex: 0 0 auto;
+        max-height: 40%;
+        border-left: none;
+        border-top: 1px solid var(--color-border-subtle);
+    }
 }
 
 

@@ -1,13 +1,13 @@
 <div id="correlations" class="tab-pane">
 
-    <!-- Control Bar — every control lives here (Timelines layout): compact
-         type, abbreviated labels, and the unit-of-analysis copy behind an (i)
+    <!-- Control Bar — every control lives here: the shared compact bar,
+         abbreviated labels, and the unit-of-analysis copy behind an (i)
          icon rather than a full-width banner. -->
-    <div class="control-bar corr-control-bar">
+    <div class="control-bar">
 
         <!-- View toggle — buttons are built by correlations.js from the
              server's stat-view manifest (metadata.views) -->
-        <div class="toggle-group corr-view-toggle" id="pca-view-toggle"></div>
+        <div class="toggle-group" id="pca-view-toggle"></div>
 
         <!-- Scatter Controls -->
         <div id="pca-scatter-controls" class="corr-scatter-controls">
@@ -20,13 +20,13 @@
             <label class="corr-control-label" for="pca-color-select">Colour:</label>
             <select id="pca-color-select" class="dropdown corr-select-narrow" onchange="updatePcaPlot()"></select>
 
-            <label class="corr-checkbox-group text-xs meta-tooltip tooltip-below"
+            <label class="bar-checkbox meta-tooltip tooltip-below"
                 data-tooltip="Ordinary least squares line with slope, 95% confidence interval, r, R², p and n — computed on every group in the study, not just the plotted sample.">
                 <input type="checkbox" id="pca-show-stats" onchange="updatePcaPlot()">
                 Regression
             </label>
 
-            <label class="corr-checkbox-group text-xs meta-tooltip tooltip-below"
+            <label class="bar-checkbox meta-tooltip tooltip-below"
                 data-tooltip="95%-coverage confidence ellipses per colour group, built from each group's covariance (orientation reflects the x–y correlation within the group).">
                 <input type="checkbox" id="pca-show-ellipses" onchange="updatePcaPlot()">
                 Ellipses
@@ -41,7 +41,7 @@
                 <option value="spearman">Spearman</option>
             </select>
 
-            <label class="corr-checkbox-group text-xs meta-tooltip tooltip-below"
+            <label class="bar-checkbox meta-tooltip tooltip-below"
                 data-tooltip="Blank out cells whose association is not statistically reliable after correcting for the number of pairs tested (Benjamini–Hochberg q ≥ .05).">
                 <input type="checkbox" id="pca-mask-nonsig" onchange="rerenderHeatmapFromCache()">
                 Hide n.s.
@@ -52,7 +52,7 @@
 
         <!-- Applies to Scatter + Heatmap, so it follows the view-specific
              controls in the same left-to-right reading order. -->
-        <label id="pca-center-wrap" class="corr-checkbox-group text-xs meta-tooltip tooltip-below"
+        <label id="pca-center-wrap" class="bar-checkbox meta-tooltip tooltip-below"
             data-tooltip="Subtract each collection's own average first, so associations reflect variation within a collection's feed rather than differences between collections.">
             <input type="checkbox" id="pca-center-toggle" onchange="refreshCurrentView()">
             Within-collection

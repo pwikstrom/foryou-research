@@ -1,6 +1,75 @@
 <div id="semantic_space" class="tab-pane">
     <div class="control-bar">
-        <span id="ss-status" class="text-sm" style="color: var(--control-bar-info);">Loading map…</span>
+        <!-- Info: the corpus counts and the projection's own accuracy score
+             live in this tooltip (semantic_space.js fills it once the map has
+             loaded). A 2D layout drops relationships silently, so the
+             neighbour-preservation figure is what lets a reader judge how much
+             weight the picture will carry. -->
+        <span id="ss-info" class="ss-info meta-tooltip tooltip-wide tooltip-below"
+              data-tooltip="Loading map…">Info</span>
+
+        <label class="ss-bar-field">
+            <span class="corr-control-label">Colour by</span>
+            <select id="ss-color-mode" class="dropdown">
+                <option value="niche">Niche</option>
+                <option value="category">Content category</option>
+                <option value="popularity">Popularity (plays)</option>
+            </select>
+        </label>
+
+        <!-- Focus niche: a search + sort combobox rather than a plain
+             <select>. The niche list runs to hundreds of entries and is
+             the tab's main instrument for finding one, so it has to be
+             searchable and re-orderable by the readings the map
+             publishes (size, typicality, isolation). -->
+        <div class="ss-bar-field">
+            <span class="corr-control-label">Focus niche</span>
+            <div class="ss-niche-picker" id="ss-niche-picker">
+                <button type="button" id="ss-niche-trigger" class="ss-niche-trigger"
+                        aria-haspopup="listbox" aria-expanded="false">
+                    <span id="ss-niche-trigger-label">— all niches —</span>
+                    <span class="ss-niche-caret" aria-hidden="true">▾</span>
+                </button>
+                <div id="ss-niche-panel" class="ss-niche-panel" hidden>
+                    <div class="ss-niche-panel-head">
+                        <input type="text" id="ss-niche-search" class="ss-niche-search text-sm"
+                               placeholder="Search niches…" autocomplete="off"
+                               aria-label="Search niches by name or defining term">
+                        <select id="ss-niche-sort" class="dropdown text-xs"
+                                aria-label="Sort the niche list">
+                            <option value="size">Most videos</option>
+                            <option value="name">A–Z</option>
+                            <option value="typicality">Most typical</option>
+                            <option value="isolation">Most isolated</option>
+                        </select>
+                    </div>
+                    <div id="ss-niche-list" class="ss-niche-list" role="listbox"
+                         aria-label="Niches"></div>
+                    <div id="ss-niche-count" class="ss-niche-count text-xxs"
+                         aria-live="polite"></div>
+                </div>
+            </div>
+            <button type="button" id="ss-niche-clear" class="ss-niche-clear meta-tooltip tooltip-below"
+                    data-tooltip="Show all niches again" aria-label="Clear the focus niche" hidden>&times;</button>
+        </div>
+
+        <label class="bar-checkbox">
+            <input type="checkbox" id="ss-show-labels" checked>
+            Niche labels
+        </label>
+
+        <!-- Dots already grow as the reader zooms in (see _ssZoomFactor);
+             the slider is a multiplier on top for readers who want them
+             bigger or smaller at every zoom level. -->
+        <label class="ss-bar-field meta-tooltip tooltip-below"
+               data-tooltip="Dots grow as you zoom in; drag to make them larger or smaller at every zoom level">
+            <span class="corr-control-label">Dot size</span>
+            <input type="range" id="ss-dot-size" min="0.5" max="3" step="0.25" value="1"
+                   aria-label="Dot size" class="ss-dot-size">
+        </label>
+
+        <!-- Loading / error text only; the counts live on Info once loaded. -->
+        <span id="ss-status" class="corr-status corr-bar-status">Loading map…</span>
     </div>
 
     <!-- Freshness banner: shown when the embedding store is being topped up, the
@@ -11,140 +80,18 @@
         <button id="ss-banner-action" class="action-btn text-xs" style="display: none; margin-left: auto;"></button>
     </div>
 
-    <div class="panel" style="display: flex; flex-direction: column; height: calc(100vh - 150px); padding: 0;">
-        <!-- Controls. Two rows: the map's own controls always visible, and the
-             collection-trajectory overlay behind a disclosure — it answers a
-             narrower question than the map itself, so it stays out of the way
-             until asked for. -->
-        <div style="padding: 10px 14px; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-bg-elevated);">
-            <div style="display: flex; gap: 18px; align-items: center; flex-wrap: wrap;">
-                <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-                    <span class="font-medium" style="color: var(--color-text-secondary);">Colour by</span>
-                    <select id="ss-color-mode" class="dropdown">
-                        <option value="niche">Niche</option>
-                        <option value="category">Content category</option>
-                        <option value="popularity">Popularity (plays)</option>
-                    </select>
-                </label>
+    <!-- Map on the left, a side rail on the right. The rail holds what used
+         to sit above the map — the focused niche's readings and the
+         collection-trajectory overlay — so neither costs the map any height.
+         The rail's width is fixed, so the plot box does not change when a
+         niche is focused or the trajectory controls are disclosed (the
+         scatter is aspect-locked, and a moving plot box shifts the map). -->
+    <div class="panel ss-panel">
+        <div class="ss-map-col">
+            <!-- Plot -->
+            <div id="semantic-space-plot" style="flex: 1; min-height: 0;"></div>
 
-                <!-- Focus niche: a search + sort combobox rather than a plain
-                     <select>. The niche list runs to hundreds of entries and is
-                     the tab's main instrument for finding one, so it has to be
-                     searchable and re-orderable by the readings the map
-                     publishes (size, typicality, isolation). -->
-                <div class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-                    <span class="font-medium" style="color: var(--color-text-secondary);">Focus niche</span>
-                    <div class="ss-niche-picker" id="ss-niche-picker">
-                        <button type="button" id="ss-niche-trigger" class="ss-niche-trigger text-sm"
-                                aria-haspopup="listbox" aria-expanded="false">
-                            <span id="ss-niche-trigger-label">— all niches —</span>
-                            <span class="ss-niche-caret" aria-hidden="true">▾</span>
-                        </button>
-                        <div id="ss-niche-panel" class="ss-niche-panel" hidden>
-                            <div class="ss-niche-panel-head">
-                                <input type="text" id="ss-niche-search" class="ss-niche-search text-sm"
-                                       placeholder="Search niches…" autocomplete="off"
-                                       aria-label="Search niches by name or defining term">
-                                <select id="ss-niche-sort" class="dropdown text-xs"
-                                        aria-label="Sort the niche list">
-                                    <option value="size">Most videos</option>
-                                    <option value="name">A–Z</option>
-                                    <option value="typicality">Most typical</option>
-                                    <option value="isolation">Most isolated</option>
-                                </select>
-                            </div>
-                            <div id="ss-niche-list" class="ss-niche-list" role="listbox"
-                                 aria-label="Niches"></div>
-                            <div id="ss-niche-count" class="ss-niche-count text-xxs"
-                                 aria-live="polite"></div>
-                        </div>
-                    </div>
-                    <button type="button" id="ss-niche-clear" class="ss-niche-clear meta-tooltip tooltip-below"
-                            data-tooltip="Show all niches again" aria-label="Clear the focus niche" hidden>&times;</button>
-                </div>
-
-                <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="checkbox" id="ss-show-labels" checked>
-                    <span style="color: var(--color-text-secondary);">Niche labels</span>
-                </label>
-
-                <!-- Dots already grow as the reader zooms in (see _ssZoomFactor);
-                     the slider is a multiplier on top for readers who want them
-                     bigger or smaller at every zoom level. -->
-                <label class="text-sm meta-tooltip tooltip-below" style="display: flex; align-items: center; gap: 6px;"
-                       data-tooltip="Dots grow as you zoom in; drag to make them larger or smaller at every zoom level">
-                    <span style="color: var(--color-text-secondary);">Dot size</span>
-                    <input type="range" id="ss-dot-size" min="0.5" max="3" step="0.25" value="1"
-                           aria-label="Dot size" style="width: 90px; vertical-align: middle;">
-                </label>
-
-                <button type="button" id="ss-traj-disclosure" class="ss-disclosure text-sm"
-                        aria-expanded="false" aria-controls="ss-traj-controls"
-                        style="margin-left: auto;">
-                    <span class="ss-disclosure-caret" aria-hidden="true">▸</span>
-                    <span>Explore collection trajectories</span>
-                </button>
-            </div>
-
-            <!-- Collection-trajectory overlay controls (hidden until disclosed).
-                 While hidden the overlay itself is not drawn either — controls
-                 the reader cannot see must not keep changing the map. -->
-            <div id="ss-traj-controls" class="ss-traj-controls" hidden>
-                <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-                    <span class="font-medium" style="color: var(--color-text-secondary);">Collection</span>
-                    <select id="ss-collection" class="dropdown">
-                        <option value="">— select collection —</option>
-                    </select>
-                </label>
-
-                <label class="text-sm" style="display: flex; align-items: center; gap: 6px;">
-                    <span class="font-medium" style="color: var(--color-text-secondary);">Interval</span>
-                    <select id="ss-traj-interval" class="dropdown">
-                        <option value="month">Monthly</option>
-                        <option value="week">Weekly</option>
-                        <option value="day">Daily</option>
-                        <option value="all">All-time only</option>
-                    </select>
-                </label>
-
-                <label class="text-sm" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="checkbox" id="ss-show-trajectory">
-                    <span style="color: var(--color-text-secondary);">Show trajectory</span>
-                </label>
-
-                <button id="ss-anim-play" class="action-btn text-xs" type="button" style="min-width: 64px;">▶ Play</button>
-
-                <input type="range" id="ss-scrub" min="0" max="0" step="any" value="0" disabled
-                       title="Scrub through the collection's periods"
-                       style="width: 160px; vertical-align: middle;">
-
-                <span id="ss-traj-status" class="text-sm" style="color: var(--control-bar-info);"></span>
-            </div>
-        </div>
-
-        <!-- Niche detail bar: what defines the focused niche — its size,
-             typicality, genuinely nearest niches, distinctive terms and
-             category shares. Fixed height for the same reason as the legend
-             below: the plot box must stay constant, or the 1:1-locked scatter
-             shifts every time a niche is focused or cleared. Items wrap onto a
-             second row (flex-wrap) while each item stays on one line
-             and long lists wrap inside their own item rather than being clipped
-             (no white-space: nowrap — a nowrap list of niche names is wider
-             than the pane). Three rows fit the longest realistic content;
-             align-content centres them, so a shorter bar reads as padding
-             rather than a gap. -->
-        <div id="ss-niche-info" class="text-xs"
-             style="height: 76px; box-sizing: border-box; padding: 0 14px;
-                    border-bottom: 1px solid var(--color-border-subtle);
-                    background: var(--color-bg-elevated); color: var(--control-bar-info);
-                    display: flex; flex-wrap: wrap; align-items: center;
-                    align-content: center; gap: 2px 16px;
-                    overflow-x: hidden; overflow-y: auto;"></div>
-
-        <!-- Plot -->
-        <div id="semantic-space-plot" style="flex: 1; min-height: 0;"></div>
-
-        <!-- Colour legend — rendered as HTML below the plot, deliberately kept
+            <!-- Colour legend — rendered as HTML below the plot, deliberately kept
              out of the Plotly figure. An in-figure colourbar would resize the
              plot box and (via the 1:1 aspect lock) shift the scatter when the
              colour scale changes; an HTML legend never touches the plot box.
@@ -152,6 +99,58 @@
              whatever the legend's content); scrolls if a categorical variable
              has more swatches than fit. Shows category swatches or a numeric
              gradient bar. -->
-        <div id="ss-legend" class="text-xs" style="height: 56px; box-sizing: border-box; padding: 8px 14px; border-top: 1px solid var(--color-border-subtle); background: var(--color-bg-elevated); color: var(--control-bar-info); display: flex; align-items: center; align-content: flex-start; gap: 4px 12px; flex-wrap: wrap; overflow-y: auto;"></div>
+            <div id="ss-legend" class="text-xs" style="height: 56px; box-sizing: border-box; padding: 8px 14px; border-top: 1px solid var(--color-border-subtle); background: var(--color-bg-elevated); color: var(--control-bar-info); display: flex; align-items: center; align-content: flex-start; gap: 4px 12px; flex-wrap: wrap; overflow-y: auto;"></div>
+        </div>
+
+        <aside class="ss-side">
+            <!-- Niche detail: what defines the focused niche — its size,
+                 typicality, genuinely nearest niches, distinctive terms and
+                 category shares. Empty by design until a niche is focused. -->
+            <div id="ss-niche-info" class="ss-niche-info text-xs"></div>
+
+            <!-- Collection-trajectory overlay, behind a disclosure — it
+                 answers a narrower question than the map itself, so it stays
+                 out of the way until asked for. While hidden the overlay
+                 itself is not drawn either — controls the reader cannot see
+                 must not keep changing the map. -->
+            <div class="ss-side-section">
+                <button type="button" id="ss-traj-disclosure" class="ss-disclosure text-sm"
+                        aria-expanded="false" aria-controls="ss-traj-controls">
+                    <span class="ss-disclosure-caret" aria-hidden="true">▸</span>
+                    <span>Explore collection trajectories</span>
+                </button>
+                <div id="ss-traj-controls" class="ss-traj-controls" hidden>
+                    <label class="ss-side-field">
+                        <span>Collection</span>
+                        <select id="ss-collection" class="dropdown">
+                            <option value="">— select collection —</option>
+                        </select>
+                    </label>
+
+                    <label class="ss-side-field">
+                        <span>Interval</span>
+                        <select id="ss-traj-interval" class="dropdown">
+                            <option value="month">Monthly</option>
+                            <option value="week">Weekly</option>
+                            <option value="day">Daily</option>
+                            <option value="all">All-time only</option>
+                        </select>
+                    </label>
+
+                    <label class="bar-checkbox">
+                        <input type="checkbox" id="ss-show-trajectory">
+                        Show trajectory
+                    </label>
+
+                    <div class="ss-side-row">
+                        <button id="ss-anim-play" class="action-btn text-xs" type="button" style="min-width: 64px;">▶ Play</button>
+                        <input type="range" id="ss-scrub" min="0" max="0" step="any" value="0" disabled
+                               title="Scrub through the collection's periods" class="ss-scrub">
+                    </div>
+
+                    <span id="ss-traj-status" class="corr-status"></span>
+                </div>
+            </div>
+        </aside>
     </div>
 </div>
