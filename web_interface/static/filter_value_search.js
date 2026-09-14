@@ -61,8 +61,6 @@
         // collection, restore and the sort toggle treat it as a native item.
         function makeItem(value, count) {
             const item = document.createElement('div');
-            item.style.display = 'flex';
-            item.style.alignItems = 'center';
             item.className = 'filter-checkbox-item fvs-result';
             item.dataset.sortLabel = String(value).toLowerCase();
             item.dataset.sortCount = count;
@@ -71,7 +69,6 @@
             cb.type = 'checkbox';
             cb.value = value;
             cb.dataset.rawValue = value;
-            cb.style.marginRight = '5px';
             if (isChecked && isChecked(value)) cb.checked = true;
             cb.onchange = () => {
                 if (!cb.checked) item.classList.remove('filter-checkbox-item--pinned');
@@ -80,7 +77,7 @@
 
             const span = document.createElement('span');
             span.innerText = `${value} (${Number(count).toLocaleString()})`;
-            span.classList.add('text-sm');
+            span.classList.add('text-xs');
 
             item.appendChild(cb);
             item.appendChild(span);

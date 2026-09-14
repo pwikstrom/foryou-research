@@ -10,6 +10,18 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Compact, two-level filter panels in Explore and Video Analysis.** Each
+  variable inside a filter section is now its own collapsible sub-section,
+  remembered across visits. A sub-section whose filter is active turns blue
+  and shows a badge: the number of ticked values for a checkbox list, or the
+  bound range for a slider (`≥ 0.25`, `1–40`). The section header above it
+  shows how many of its variables filter. Type is smaller and regular-weight
+  throughout, with tighter spacing, so more of a study's filters fit on
+  screen. Reset in Explore now also snaps range sliders back to their full
+  extent.
+
 ### Fixed
 
 - **Duplicate display IDs you could not find.** The *duplicate* pill and the

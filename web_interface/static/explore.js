@@ -403,49 +403,31 @@ function renderFiltersV2(metadata, sliceId) {
         sectionDiv.className = 'filter-section';
         sectionDiv.dataset.sliceId = sliceId;
         sectionDiv.dataset.columns = JSON.stringify(vars);
-        sectionDiv.style.marginBottom = '10px';
-        sectionDiv.style.border = '1px solid var(--color-border)';
-        sectionDiv.style.borderRadius = '4px';
-        sectionDiv.style.overflow = 'hidden';
 
         // Header
         const header = document.createElement('div');
-        header.className = 'filter-section-header font-bold' + (hasActiveFilter ? ' has-active-filter' : '');
-        header.style.padding = '8px 10px';
-        header.style.cursor = 'pointer';
-        header.style.color = 'var(--color-text-primary)';
-        header.style.userSelect = 'none';
-        header.style.display = 'flex';
-        header.style.alignItems = 'center';
-
+        header.className = 'filter-section-header' + (hasActiveFilter ? ' has-active-filter' : '');
         const isExpanded = expandedList.includes(sec);
-        const arrow = isExpanded ? '&#9662;' : '&#9656;'; // Down vs Right
-
-        header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">${arrow}</span> ${sec}`;
+        FilterGroupUI.fillSectionHeader(header, sec, isExpanded);
 
         // Body (Variables)
         const body = document.createElement('div');
-        body.style.padding = '10px';
-        body.style.background = 'var(--color-bg-surface)';
-        body.style.display = isExpanded ? 'block' : 'none';
+        body.className = 'filter-section-body';
+        body.hidden = !isExpanded;
 
         // Toggle Logic
         header.onclick = () => {
-            const currentlyHidden = body.style.display === 'none';
-            if (currentlyHidden) {
+            const opening = body.hidden;
+            if (opening) {
                 populateSectionBody(body, vars);
-                body.style.display = 'block';
-                header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">&#9662;</span> ${sec}`;
-                // Add to expanded list
+                body.hidden = false;
                 if (!expandedList.includes(sec)) expandedList.push(sec);
             } else {
-                body.style.display = 'none';
-                header.innerHTML = `<span style="margin-right:8px; width:15px; display:inline-block;">&#9656;</span> ${sec}`;
-                // Remove from expanded list
+                body.hidden = true;
                 const idx = expandedList.indexOf(sec);
                 if (idx > -1) expandedList.splice(idx, 1);
             }
-            // Persist
+            FilterGroupUI.setSectionArrow(header, opening);
             localStorage.setItem(storageKey, JSON.stringify(expandedList));
         };
 
@@ -460,6 +442,7 @@ function renderFiltersV2(metadata, sliceId) {
     });
 
     container.appendChild(fragment);
+    updateFilterSectionHighlights(sliceId);
 }
 
 
@@ -470,263 +453,229 @@ function renderFilterColumnV2(col, metadata, sliceId) {
     const info = metadata[col];
     if (!info) return null;
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'filter-group';
-    wrapper.style.marginBottom = '15px';
-    wrapper.style.borderBottom = '1px solid var(--color-border-subtle)';
-    wrapper.style.paddingBottom = '10px';
-
-    const label = document.createElement('label');
-
     let displayName = col;
     if (metadata.schema_map && metadata.schema_map[col] && metadata.schema_map[col].display_name) {
         displayName = metadata.schema_map[col].display_name;
     }
 
-    label.innerText = displayName;
-    label.classList.add('font-bold');
-    label.style.display = 'block';
-    label.style.marginBottom = '5px';
-    label.style.color = 'var(--color-text-primary)';
-    wrapper.appendChild(label);
+    const getFilters = () => (sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2);
+    const storageKey = `explorer_expanded_groups_${sliceId}`;
 
-            if (info.type === 'number') {
-                const sliderDiv = document.createElement('div');
-                sliderDiv.style.marginBottom = '10px';
-                sliderDiv.style.marginLeft = '5px';
-                sliderDiv.style.marginRight = '5px';
-                wrapper.appendChild(sliderDiv);
+    if (info.type === 'number') {
+        return FilterGroupUI.buildFilterGroup({
+            col, displayName, storageKey,
+            build: (body) => buildNumberFilterV2(body, col, info, sliceId, getFilters),
+        });
+    }
 
-                // Min/Max Labels
-                const labelRow = document.createElement('div');
-                labelRow.style.display = 'flex';
-                labelRow.style.justifyContent = 'space-between';
-                labelRow.classList.add('text-sm');
-                labelRow.style.color = 'var(--color-text-muted)';
-                labelRow.style.marginTop = '-5px';
+    if (info.type === 'category' || info.type === 'list') {
+        const sortBtn = document.createElement('button');
+        sortBtn.className = 'filter-sort-toggle meta-tooltip';
+        sortBtn.dataset.tooltip = 'Sort A–Z';
+        sortBtn.dataset.sortMode = 'freq';
+        sortBtn.textContent = '#↓';
+        return FilterGroupUI.buildFilterGroup({
+            col, displayName, storageKey, headerExtra: sortBtn,
+            build: (body) => buildListFilterV2(body, col, info, sliceId, getFilters, sortBtn),
+        });
+    }
 
-                const minLabel = document.createElement('span');
-                const maxLabel = document.createElement('span');
+    return null;
+}
 
-                labelRow.appendChild(minLabel);
-                labelRow.appendChild(maxLabel);
-                wrapper.appendChild(labelRow);
 
-                // Frequency-scaled slider: backend-supplied percentile pivots
-                // become non-linear noUiSlider range stops, so equal slider
-                // travel covers equal data mass and all values stay in original
-                // units. Falls back to log/linear scaling without quantiles.
-                const qRange = buildQuantileSliderRange(info);
-                const useLog = !qRange && info.log === true && info.min >= 0;
-                const logOff = (info.log_offset > 0) ? info.log_offset : 1;
-                const toLog = (v) => Math.log10(v + logOff);
-                const fromLog = (v) => Math.max(0, Math.pow(10, v) - logOff);
-                const sliderToValue = (raw) => qRange ? raw : (useLog ? fromLog(raw) : raw);
+function buildNumberFilterV2(body, col, info, sliceId, getFilters) {
+    const sliderDiv = document.createElement('div');
+    sliderDiv.className = 'filter-slider';
+    body.appendChild(sliderDiv);
 
-                // Current Values (linear space)
-                let currentMin = info.min;
-                let currentMax = info.max;
+    // Min/Max Labels
+    const labelRow = document.createElement('div');
+    labelRow.className = 'filter-slider-labels text-xs';
+    const minLabel = document.createElement('span');
+    const maxLabel = document.createElement('span');
+    labelRow.appendChild(minLabel);
+    labelRow.appendChild(maxLabel);
+    body.appendChild(labelRow);
 
-                const filters = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
+    // Frequency-scaled slider: backend-supplied percentile pivots
+    // become non-linear noUiSlider range stops, so equal slider
+    // travel covers equal data mass and all values stay in original
+    // units. Falls back to log/linear scaling without quantiles.
+    const qRange = buildQuantileSliderRange(info);
+    const useLog = !qRange && info.log === true && info.min >= 0;
+    const logOff = (info.log_offset > 0) ? info.log_offset : 1;
+    const toLog = (v) => Math.log10(v + logOff);
+    const fromLog = (v) => Math.max(0, Math.pow(10, v) - logOff);
+    const sliderToValue = (raw) => qRange ? raw : (useLog ? fromLog(raw) : raw);
 
-                if (filters[col] && filters[col].value) {
-                    if (filters[col].value.min !== undefined) currentMin = filters[col].value.min;
-                    if (filters[col].value.max !== undefined) currentMax = filters[col].value.max;
-                }
+    // Current Values (linear space)
+    let currentMin = info.min;
+    let currentMax = info.max;
 
-                // Formatting Helper. A capped top bound (extreme outliers above
-                // the 99th percentile) renders open-ended: "0.056+".
-                const fmt = (n) => formatMetricNumber(n);
-                const fmtMax = (n) => (info.max_capped && n >= info.max) ? fmt(n) + '+' : fmt(n);
+    const filters = getFilters();
+    if (filters[col] && filters[col].value) {
+        if (filters[col].value.min !== undefined) currentMin = filters[col].value.min;
+        if (filters[col].value.max !== undefined) currentMax = filters[col].value.max;
+    }
 
-                minLabel.innerText = fmt(currentMin);
-                maxLabel.innerText = fmtMax(currentMax);
+    // Formatting Helper. A capped top bound (extreme outliers above
+    // the 99th percentile) renders open-ended: "0.056+".
+    const fmt = (n) => formatMetricNumber(n);
+    const fmtMax = (n) => (info.max_capped && n >= info.max) ? fmt(n) + '+' : fmt(n);
 
-                // Slider range and start values
-                const sliderMin = useLog ? toLog(info.min) : info.min;
-                const sliderMax = useLog ? toLog(info.max) : info.max;
-                const sliderStartMin = useLog ? toLog(currentMin) : currentMin;
-                const sliderStartMax = useLog ? toLog(currentMax) : currentMax;
+    minLabel.innerText = fmt(currentMin);
+    maxLabel.innerText = fmtMax(currentMax);
 
-                // Initialize Slider
-                if (typeof noUiSlider !== 'undefined') {
-                    if (info.min >= info.max) {
-                        sliderDiv.style.display = 'none';
-                    } else {
-                        noUiSlider.create(sliderDiv, {
-                            start: [sliderStartMin, sliderStartMax],
-                            connect: true,
-                            range: qRange || {
-                                'min': sliderMin,
-                                'max': sliderMax
-                            },
-                            step: useLog ? (sliderMax - sliderMin) / 200 : undefined,
-                            // Full float precision: the default format rounds to
-                            // 2 decimals, which destroys per-play ratio values.
-                            format: { to: (v) => String(v), from: (v) => Number(v) },
-                        });
+    // Slider range and start values
+    const sliderMin = useLog ? toLog(info.min) : info.min;
+    const sliderMax = useLog ? toLog(info.max) : info.max;
+    const sliderStartMin = useLog ? toLog(currentMin) : currentMin;
+    const sliderStartMax = useLog ? toLog(currentMax) : currentMax;
 
-                        sliderDiv.noUiSlider.on('update', function (values, handle) {
-                            const display = sliderToValue(parseFloat(values[handle]));
-                            if (handle === 0) {
-                                minLabel.innerText = fmt(display);
-                            } else {
-                                maxLabel.innerText = fmtMax(display);
-                            }
-                        });
+    if (typeof noUiSlider === 'undefined') {
+        minLabel.innerText = "Error: Slider lib missing";
+        return;
+    }
+    if (info.min >= info.max) {
+        sliderDiv.style.display = 'none';
+        return;
+    }
 
-                        sliderDiv.noUiSlider.on('change', function (values, handle) {
-                            const vMin = sliderToValue(parseFloat(values[0]));
-                            const vMax = sliderToValue(parseFloat(values[1]));
+    noUiSlider.create(sliderDiv, {
+        start: [sliderStartMin, sliderStartMax],
+        connect: true,
+        range: qRange || { 'min': sliderMin, 'max': sliderMax },
+        step: useLog ? (sliderMax - sliderMin) / 200 : undefined,
+        // Full float precision: the default format rounds to
+        // 2 decimals, which destroys per-play ratio values.
+        format: { to: (v) => String(v), from: (v) => Number(v) },
+    });
 
-                            const f = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
+    sliderDiv.noUiSlider.on('update', function (values, handle) {
+        const display = sliderToValue(parseFloat(values[handle]));
+        if (handle === 0) minLabel.innerText = fmt(display);
+        else maxLabel.innerText = fmtMax(display);
+    });
 
-                            // Only apply bounds that actually bind. A handle at
-                            // the (possibly capped) top applies no upper bound,
-                            // so outliers above the cap stay included.
-                            const atMin = vMin <= info.min;
-                            const atMax = vMax >= info.max;
-                            if (atMin && atMax) {
-                                delete f[col];
-                            } else {
-                                if (!f[col]) f[col] = { type: 'number', value: {} };
-                                f[col].value = {};
-                                if (!atMin) f[col].value.min = vMin;
-                                if (!atMax) f[col].value.max = vMax;
-                            }
+    sliderDiv.noUiSlider.on('change', function (values) {
+        const vMin = sliderToValue(parseFloat(values[0]));
+        const vMax = sliderToValue(parseFloat(values[1]));
+        const f = getFilters();
 
-                            updateExplorerV2Stats(sliceId);
-                            updateFilterSectionHighlights(sliceId);
-                        });
-                    }
-                } else {
-                    minLabel.innerText = "Error: Slider lib missing";
-                }
-            } else if (info.type === 'category' || info.type === 'list') {
-                // Wrap label in header row with sort toggle
-                const headerRow = document.createElement('div');
-                headerRow.style.cssText = 'display:flex; align-items:center; justify-content:space-between;';
-                label.style.marginBottom = '0';
-                wrapper.removeChild(label);
-                headerRow.appendChild(label);
+        // Only apply bounds that actually bind. A handle at
+        // the (possibly capped) top applies no upper bound,
+        // so outliers above the cap stay included.
+        const atMin = vMin <= info.min;
+        const atMax = vMax >= info.max;
+        if (atMin && atMax) {
+            delete f[col];
+        } else {
+            if (!f[col]) f[col] = { type: 'number', value: {} };
+            f[col].value = {};
+            if (!atMin) f[col].value.min = vMin;
+            if (!atMax) f[col].value.max = vMax;
+        }
 
-                const sortBtn = document.createElement('button');
-                sortBtn.className = 'filter-sort-toggle meta-tooltip';
-                sortBtn.dataset.tooltip = 'Sort A\u2013Z';
-                sortBtn.dataset.sortMode = 'freq';
-                sortBtn.textContent = '#\u2193';
-                headerRow.appendChild(sortBtn);
-                wrapper.appendChild(headerRow);
+        updateExplorerV2Stats(sliceId);
+        updateFilterSectionHighlights(sliceId);
+    });
+}
 
-                const listContainer = document.createElement('div');
-                listContainer.style.maxHeight = '150px';
-                listContainer.style.overflowY = 'auto';
-                listContainer.style.background = 'var(--color-bg-surface)';
-                listContainer.style.border = '1px solid var(--color-border)';
-                listContainer.style.padding = '5px';
 
-                info.values.forEach(val => {
-                    const item = document.createElement('div');
-                    item.style.display = 'flex';
-                    item.style.alignItems = 'center';
-                    item.className = 'filter-checkbox-item';
+function buildListFilterV2(body, col, info, sliceId, getFilters, sortBtn) {
+    const listContainer = document.createElement('div');
+    listContainer.className = 'filter-checkbox-list';
 
-                    let actualValue = val;
-                    let displayValue = val;
-                    let sortLabel = String(val);
-                    let sortCount = 0;
+    const collect = () => Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
 
-                    if (typeof val === 'object' && val !== null && val.value !== undefined) {
-                        actualValue = val.value;
-                        const lbl = val.label || val.value;
-                        displayValue = `${lbl} (${val.count.toLocaleString()})`;
-                        sortLabel = String(lbl);
-                        sortCount = val.count;
-                    }
+    info.values.forEach(val => {
+        const item = document.createElement('div');
+        item.className = 'filter-checkbox-item';
 
-                    item.dataset.sortLabel = sortLabel.toLowerCase();
-                    item.dataset.sortCount = sortCount;
+        let actualValue = val;
+        let displayValue = val;
+        let sortLabel = String(val);
+        let sortCount = 0;
 
-                    const cb = document.createElement('input');
-                    cb.type = 'checkbox';
-                    cb.value = actualValue;
-                    cb.dataset.rawValue = actualValue;
-                    cb.style.marginRight = '5px';
+        if (typeof val === 'object' && val !== null && val.value !== undefined) {
+            actualValue = val.value;
+            const lbl = val.label || val.value;
+            displayValue = `${lbl} (${val.count.toLocaleString()})`;
+            sortLabel = String(lbl);
+            sortCount = val.count;
+        }
 
-                    // Restore checked state
-                    const filters = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
-                    if (filters[col] && Array.isArray(filters[col].value)) {
-                        if (filters[col].value.includes(actualValue)) {
-                            cb.checked = true;
-                        }
-                    }
+        item.dataset.sortLabel = sortLabel.toLowerCase();
+        item.dataset.sortCount = sortCount;
 
-                    cb.onchange = () => {
-                        const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
-                        setFilterV2(sliceId, col, info.type, 'list', checked);
-                    };
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = actualValue;
+        cb.dataset.rawValue = actualValue;
 
-                    const span = document.createElement('span');
-                    span.innerText = displayValue;
-                    span.classList.add('text-sm');
+        // Restore checked state
+        const filters = getFilters();
+        if (filters[col] && Array.isArray(filters[col].value) && filters[col].value.includes(actualValue)) {
+            cb.checked = true;
+        }
 
-                    item.appendChild(cb);
-                    item.appendChild(span);
-                    listContainer.appendChild(item);
-                });
+        cb.onchange = () => setFilterV2(sliceId, col, info.type, 'list', collect());
 
-                sortBtn.onclick = () => {
-                    const items = Array.from(listContainer.querySelectorAll('.filter-checkbox-item'));
-                    if (sortBtn.dataset.sortMode === 'freq') {
-                        items.sort((a, b) => a.dataset.sortLabel.localeCompare(b.dataset.sortLabel));
-                        sortBtn.dataset.sortMode = 'alpha';
-                        sortBtn.textContent = 'A\u2193';
-                        sortBtn.dataset.tooltip = 'Sort by frequency';
-                    } else {
-                        items.sort((a, b) => b.dataset.sortCount - a.dataset.sortCount);
-                        sortBtn.dataset.sortMode = 'freq';
-                        sortBtn.textContent = '#\u2193';
-                        sortBtn.dataset.tooltip = 'Sort A\u2013Z';
-                    }
-                    items.forEach(el => listContainer.appendChild(el));
-                };
+        const span = document.createElement('span');
+        span.innerText = displayValue;
+        span.classList.add('text-xs');
 
-                if (info.values.length === 0) {
-                    listContainer.innerHTML = '<div class="text-xs" style="color:var(--color-text-faint);">No values</div>';
-                }
+        item.appendChild(cb);
+        item.appendChild(span);
+        listContainer.appendChild(item);
+    });
 
-                if (info.total_unique && info.total_unique > info.values.length) {
-                    const notice = document.createElement('div');
-                    notice.classList.add('text-xs');
-                    notice.style.cssText = 'color: var(--color-text-faint); padding: 6px 4px 2px; font-style: italic;';
-                    notice.textContent = `Showing top ${info.values.length} of ${info.total_unique.toLocaleString()} categories`;
-                    listContainer.appendChild(notice);
-                }
+    sortBtn.onclick = () => {
+        const items = Array.from(listContainer.querySelectorAll('.filter-checkbox-item'));
+        if (sortBtn.dataset.sortMode === 'freq') {
+            items.sort((a, b) => a.dataset.sortLabel.localeCompare(b.dataset.sortLabel));
+            sortBtn.dataset.sortMode = 'alpha';
+            sortBtn.textContent = 'A↓';
+            sortBtn.dataset.tooltip = 'Sort by frequency';
+        } else {
+            items.sort((a, b) => b.dataset.sortCount - a.dataset.sortCount);
+            sortBtn.dataset.sortMode = 'freq';
+            sortBtn.textContent = '#↓';
+            sortBtn.dataset.tooltip = 'Sort A–Z';
+        }
+        items.forEach(el => listContainer.appendChild(el));
+    };
 
-                wrapper.appendChild(listContainer);
+    if (info.values.length === 0) {
+        listContainer.innerHTML = '<div class="text-xs" style="color:var(--color-text-faint);">No values</div>';
+    }
 
-                // Capped dropdown: add the value-search box so out-of-top-200
-                // (and single-occurrence) values stay reachable.
-                if (typeof attachFilterValueSearch === 'function'
-                        && info.total_unique && info.total_unique > info.values.length) {
-                    attachFilterValueSearch({
-                        wrapper, listContainer,
-                        column: col,
-                        getStudy: () => explorerDataV2.activeStudy,
-                        isChecked: (v) => {
-                            const f = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
-                            return !!(f[col] && Array.isArray(f[col].value) && f[col].value.includes(v));
-                        },
-                        onSelectionChanged: () => {
-                            const checked = Array.from(listContainer.querySelectorAll('input:checked')).map(c => c.dataset.rawValue);
-                            setFilterV2(sliceId, col, info.type, 'list', checked);
-                        },
-                        totalUnique: info.total_unique,
-                    });
-                }
-            }
+    if (info.total_unique && info.total_unique > info.values.length) {
+        const notice = document.createElement('div');
+        notice.className = 'filter-list-notice text-xs';
+        notice.textContent = `Showing top ${info.values.length} of ${info.total_unique.toLocaleString()} categories`;
+        listContainer.appendChild(notice);
+    }
 
-    return wrapper;
+    body.appendChild(listContainer);
+
+    // Capped dropdown: add the value-search box so out-of-top-200
+    // (and single-occurrence) values stay reachable.
+    if (typeof attachFilterValueSearch === 'function'
+            && info.total_unique && info.total_unique > info.values.length) {
+        attachFilterValueSearch({
+            wrapper: body, listContainer,
+            column: col,
+            getStudy: () => explorerDataV2.activeStudy,
+            isChecked: (v) => {
+                const f = getFilters();
+                return !!(f[col] && Array.isArray(f[col].value) && f[col].value.includes(v));
+            },
+            onSelectionChanged: () => setFilterV2(sliceId, col, info.type, 'list', collect()),
+            totalUnique: info.total_unique,
+        });
+    }
 }
 
 function setFilterV2(sliceId, col, type, subtype, value) {
@@ -780,6 +729,14 @@ function resetFiltersV2(sliceId) {
     const checkboxes = container.querySelectorAll('input[type="checkbox"]');
     checkboxes.forEach(cb => cb.checked = false);
 
+    // Snap range sliders back to their full extent (a filter-less state).
+    container.querySelectorAll('.filter-slider').forEach(el => {
+        const sl = el.noUiSlider;
+        if (!sl) return;
+        const r = sl.options.range || {};
+        if (r.min !== undefined && r.max !== undefined) sl.set([r.min, r.max]);
+    });
+
     updateExplorerV2Stats(sliceId);
     updateFilterSectionHighlights(sliceId);
 }
@@ -789,14 +746,7 @@ function updateFilterSectionHighlights(sliceId) {
     const filters = sliceId === 1 ? explorerDataV2.filters1 : explorerDataV2.filters2;
     const container = document.getElementById(`explorer-v2-filters-${sliceId}`);
     if (!container) return;
-
-    container.querySelectorAll('.filter-section').forEach(sec => {
-        const cols = JSON.parse(sec.dataset.columns || '[]');
-        const header = sec.querySelector('.filter-section-header');
-        if (!header) return;
-        const active = cols.some(col => !!filters[col]);
-        header.classList.toggle('has-active-filter', active);
-    });
+    FilterGroupUI.paintFilterState(container, filters);
 }
 
 
