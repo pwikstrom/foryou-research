@@ -9,6 +9,9 @@ let _ssHandlersWired = false;
 let _ssStatusTimer = null;
 let _ssLoadedMapBuiltAt = null;   // mtime of the map currently rendered
 let _ssLabelTimer = null;         // debounce for zoom-driven label refresh
+let _ssDotScale = 1;              // reader's dot-size multiplier (the 'Dot size' slider)
+let _ssBaseSizes = 4;             // trace-0 marker sizes before zoom/slider scaling
+let _ssExtent = null;             // memoized {key, w, h} of the whole map, for the zoom factor
 let _ssHidden = new Set();        // categories toggled off via the legend swatches
 let _ssLastColorMode = null;      // detect colour-variable switches to reset _ssHidden
 let _ssLegendCats = null;         // distinct categories backing the current swatches
@@ -540,6 +543,17 @@ function _ssWireControls() {
         const el = document.getElementById(id);
         if (el) { el.addEventListener('change', renderSemanticSpace); }
     });
+    // Dot size: rescale trace 0 in place (no rebuild) as the slider moves.
+    const dotSize = document.getElementById('ss-dot-size');
+    if (dotSize) {
+        dotSize.addEventListener('input', () => {
+            _ssDotScale = parseFloat(dotSize.value) || 1;
+            const div = document.getElementById('semantic-space-plot');
+            if (div && div.data && div.data.length) {
+                Plotly.restyle(div, { 'marker.size': [_ssScaledSizes(div)] }, [0]);
+            }
+        });
+    }
     const legend = document.getElementById('ss-legend');
     if (legend) { legend.addEventListener('click', _ssOnLegendClick); }
     _ssWireNichePicker();
@@ -780,6 +794,41 @@ function _ssBuildLabels(focusNiche, showLabels, ranges) {
 }
 
 
+// Marker sizes are in screen pixels, so zooming into a Plotly scatter leaves
+// the dots the same size while the space between them grows — deep in the map
+// they read as dust. Grow them with the zoom instead: the factor is the square
+// root of the linear magnification (the full map's width over the window's),
+// so dots gain area roughly in step with the view but never balloon, capped so
+// a very deep zoom still shows dots rather than blobs. Multiplied by the
+// reader's slider setting, which applies at every zoom level.
+function _ssZoomFactor(div) {
+    const P = _ssData && _ssData.points;
+    const ranges = _ssCurrentRanges(div);
+    if (!P || !ranges || !P.x.length) { return 1; }
+    if (!_ssExtent || _ssExtent.key !== P.x.length) {
+        let xlo = Infinity, xhi = -Infinity, ylo = Infinity, yhi = -Infinity;
+        for (let i = 0; i < P.x.length; i++) {
+            const x = P.x[i], y = P.y[i];
+            if (x < xlo) { xlo = x; } if (x > xhi) { xhi = x; }
+            if (y < ylo) { ylo = y; } if (y > yhi) { yhi = y; }
+        }
+        _ssExtent = { key: P.x.length, w: xhi - xlo, h: yhi - ylo };
+    }
+    const w = Math.abs(ranges.x[1] - ranges.x[0]);
+    const h = Math.abs(ranges.y[1] - ranges.y[0]);
+    if (!(w > 0) || !(h > 0)) { return 1; }
+    const mag = Math.max(_ssExtent.w / w, _ssExtent.h / h);
+    return Math.min(4, Math.max(1, Math.sqrt(mag)));
+}
+
+function _ssScaledSizes(div) {
+    const f = _ssZoomFactor(div) * _ssDotScale;
+    const base = _ssBaseSizes;
+    if (Array.isArray(base)) { return base.map(v => v * f); }
+    return base * f;
+}
+
+
 // Re-label as the user zooms/pans: recompute which centroids are in view and
 // update just the annotation layer (no scatter redraw). Debounced so scroll-zoom
 // bursts coalesce. Ignores the annotation-only relayouts this handler triggers.
@@ -795,6 +844,8 @@ function _ssOnZoomRelayout(ev) {
             annotations: _ssBuildLabels(_ssFocusNiche, showLabels, _ssCurrentRanges(div))
                 .concat(_ssFlashAnnotations())
         });
+        // Dots grow with the zoom (see _ssZoomFactor); only trace 0 is touched.
+        Plotly.restyle(div, { 'marker.size': [_ssScaledSizes(div)] }, [0]);
     }, 100);
 }
 
@@ -899,6 +950,10 @@ function renderSemanticSpace() {
         marker: Object.assign({ size: sizeArr, color: colorArr, opacity: opacityArr,
             line: { width: 0 } }, markerExtra)
     };
+    // Keep the unscaled sizes so zoom and the slider can rescale without a
+    // full rebuild, then draw at the current zoom's scale.
+    _ssBaseSizes = sizeArr;
+    trace.marker.size = _ssScaledSizes(div);
 
     // Centroid niche labels, scoped to the current zoom window so more (smaller)
     // niches get labelled as the user zooms in. Carry that window into the layout

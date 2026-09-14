@@ -68,6 +68,16 @@
                     <span style="color: var(--color-text-secondary);">Niche labels</span>
                 </label>
 
+                <!-- Dots already grow as the reader zooms in (see _ssZoomFactor);
+                     the slider is a multiplier on top for readers who want them
+                     bigger or smaller at every zoom level. -->
+                <label class="text-sm meta-tooltip tooltip-below" style="display: flex; align-items: center; gap: 6px;"
+                       data-tooltip="Dots grow as you zoom in; drag to make them larger or smaller at every zoom level">
+                    <span style="color: var(--color-text-secondary);">Dot size</span>
+                    <input type="range" id="ss-dot-size" min="0.5" max="3" step="0.25" value="1"
+                           aria-label="Dot size" style="width: 90px; vertical-align: middle;">
+                </label>
+
                 <button type="button" id="ss-traj-disclosure" class="ss-disclosure text-sm"
                         aria-expanded="false" aria-controls="ss-traj-controls"
                         style="margin-left: auto;">
