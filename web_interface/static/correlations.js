@@ -73,9 +73,8 @@ function getVisibleNumericCols() {
 // --- Banners + plain-language captions (the HASS readability layer) ---
 
 // Concrete unit-of-analysis line (with this study's actual numbers) that
-// opens every view's "What is this?" explainer. This replaces the former (i)
-// icon in the control bar — the same information, where the reader already
-// looks for explanations.
+// opens the tab's ? help (see correlationsHelpHtml) — the same information,
+// where the reader already looks for explanations.
 function unitSummaryHtml() {
     const unit = pcaData.metadata?.unit;
     if (!unit || !unit.grouping_display || !unit.grouping_display.length) return '';
@@ -125,18 +124,19 @@ function describeStrength(r) {
 }
 
 
+// The view's plain-language result, shown beside the observation count in
+// the plot's top-left corner (the former caption strip above the plot).
 function setCaption(html) {
-    const textEl = document.getElementById('corr-caption-text');
-    if (!textEl) return;
-    textEl.innerHTML = html || '';
-    syncCaptionVisibility();
+    const el = document.getElementById('corr-plot-note');
+    if (!el) return;
+    el.innerHTML = html || '';
+    el.style.display = html ? '' : 'none';
 }
 
 
-// --- Static per-view explainers ("What is this?") ---
+// --- Static per-view explainers (shown in the tab's ? help) ---
 //
-// Longer plain-language copy for readers new to the tab, collapsed by default
-// behind the toggle link that follows the highlight text. The copy is static
+// Longer plain-language copy for readers new to the tab. The copy is static
 // on purpose: it describes the KINDS of variables and where the pipeline
 // produces them (contracts -> ingest/scrape/annotate -> recode), never a
 // specific variable name, so it stays true when the contracts change.
@@ -208,45 +208,18 @@ const VIEW_EXPLAINERS = {
         'contract role, not a UI setting.</p>',
 };
 
-let _explainerOpen = false;
+// Every view's explainer, headed by the study's live unit-of-analysis line,
+// appended to the tab's ? help modal (index.html showHelp) so the copy is
+// reachable from the same place as every other tab's help.
+const VIEW_EXPLAINER_HEADINGS = { scatter: 'Scatter', heatmap: 'Heatmap', group_stats: 'Group diff.' };
 
-
-function toggleCorrExplainer() {
-    _explainerOpen = !_explainerOpen;
-    applyExplainerState();
-    return false;
-}
-
-
-function applyExplainerState() {
-    const body = document.getElementById('corr-view-explainer');
-    const link = document.getElementById('corr-explainer-toggle');
-    if (!body || !link) return;
-    const copy = VIEW_EXPLAINERS[pcaData.currentView];
-    if (!copy) {
-        link.style.display = 'none';
-        body.style.display = 'none';
-    } else {
-        link.style.display = '';
-        link.textContent = _explainerOpen ? 'Hide explanation' : 'What is this?';
-        body.innerHTML = unitSummaryHtml() + copy;
-        body.style.display = _explainerOpen ? 'block' : 'none';
-    }
-    syncCaptionVisibility();
-}
-
-
-// The strip shows whenever there is a highlight text OR the current view has
-// explainer copy to offer (so the "What is this?" link is always reachable).
-function syncCaptionVisibility() {
-    const el = document.getElementById('corr-caption');
-    const textEl = document.getElementById('corr-caption-text');
-    if (!el || !textEl) return;
-    const hasText = !!textEl.innerHTML;
-    const hasCopy = !!VIEW_EXPLAINERS[pcaData.currentView];
-    textEl.style.display = hasText ? '' : 'none';
-    el.style.display = (hasText || hasCopy) ? 'block' : 'none';
-}
+window.correlationsHelpHtml = function () {
+    let out = unitSummaryHtml();
+    Object.keys(VIEW_EXPLAINERS).forEach(key => {
+        out += `<h4 class="corr-help-heading">${VIEW_EXPLAINER_HEADINGS[key] || key}</h4>` + VIEW_EXPLAINERS[key];
+    });
+    return out;
+};
 
 
 function escapeHtml(s) {
@@ -491,10 +464,7 @@ function setPcaView(view) {
     if (heatmapControls) {
         heatmapControls.style.display = (view === 'heatmap') ? 'flex' : 'none';
     }
-    // Collapse the explainer when the view changes — its copy is per-view.
-    if (viewChanged) _explainerOpen = false;
     setCaption('');
-    applyExplainerState();
     applyCenteringAvailability();
 
     refreshCurrentView();
@@ -1130,8 +1100,8 @@ function renderCorrelationHeatmap(payload) {
 
 
 // Results only — the methodological copy (what r/p/q mean, the separator
-// lines, Pearson vs Spearman) lives in the collapsed "What is this?"
-// explainer so the strip stays one short line.
+// lines, Pearson vs Spearman) lives in the tab's ? help so the note stays
+// one short line.
 function renderHeatmapCaption(payload, maskNonSig, maskedCount) {
     const methodName = payload.method === 'spearman' ? 'Spearman (rank-based)' : 'Pearson (linear)';
     const parts = [];

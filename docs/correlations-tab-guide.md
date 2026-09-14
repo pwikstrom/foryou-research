@@ -16,8 +16,8 @@ never an individual video.**
 
 The tab groups each 
 collection's annotated videos by calendar day and averages them. Days with fewer than 10 annotated videos are dropped
-(the threshold is configurable). Every view's collapsible **"What is this?"**
-explainer opens with the study's live numbers — e.g. *"208 groups covering
+(the threshold is configurable). The tab's **?** help opens with the study's
+live numbers — e.g. *"208 groups covering
 34,269 videos, each with at least 10 videos"* — because the unit of analysis
 is the single most common misreading of the tab: a correlation of
 0.5 here means day-level feed profiles co-vary, not that individual videos do.
@@ -262,13 +262,13 @@ study's groups (never just the plotted subsample) and prints the full readout:
 - **p** — the significance of the linear association.
 - **n** — the number of groups behind the numbers.
 
-A plain-language highlight above the plot restates the result ("a moderate
-negative association…", using the conventional |r| bands: <.1 negligible,
-<.3 weak, <.5 moderate, ≥.5 strong) and warns when n < 30. It also reminds
-you that the line assumes linearity — look at the cloud before trusting it.
-The **"What is this?"** link right after it expands a longer plain-language
-explainer of the whole view (the unit of analysis with the study's live
-numbers, the variable kinds, and what each control does).
+A plain-language note in the plot's top-left corner, beside the observation
+count, restates the result ("a moderate negative association…", using the
+conventional |r| bands: <.1 negligible, <.3 weak, <.5 moderate, ≥.5 strong)
+and warns when n < 30. It also reminds you that the line assumes linearity —
+look at the cloud before trusting it. The tab's **?** help carries the longer
+plain-language explainer of every view (the unit of analysis with the study's
+live numbers, the variable kinds, and what each control does).
 
 **Per-series lines — the legend is the honest filter.** When a colour split
 is active (and the colour variable has at most 12 series, configurable), the
@@ -377,8 +377,8 @@ The all-pairs correlation matrix over the study's groups.
 Two bordered panels, because the view answers two statistically different
 questions. Like the rest of the tab it is whole-study; centering and personal
 variable preferences do not apply. Each of the four tables carries its own
-collapsible **"What does this table show?"** explainer, and the view-level
-"What is this?" explainer covers where the variables come from (the data
+collapsible **"What does this table show?"** explainer, and the tab's **?**
+help covers where the variables come from (the data
 contracts and their roles) and why the lists change only with the pipeline,
 never with a UI setting.
 
