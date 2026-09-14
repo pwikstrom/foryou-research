@@ -3555,10 +3555,11 @@ html.fyp-floating-tooltips .meta-tooltip::after {
 
 .filter-section-arrow,
 .filter-group-arrow {
-    width: 10px;
-    flex: 0 0 10px;
-    font-size: 0.7em;
-    opacity: 0.8;
+    width: 14px;
+    flex: 0 0 14px;
+    font-size: 1.15em;
+    line-height: 1;
+    opacity: 0.85;
     text-align: center;
 }
 
