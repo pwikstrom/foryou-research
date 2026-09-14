@@ -6561,6 +6561,23 @@ body:has(.public-page) {
     color: var(--color-text-secondary);
 }
 
+/* Admin "all sessions" view: a row the selected study does not contain. */
+.sess-outside td { color: var(--color-text-muted); }
+.sess-outside-badge {
+    margin-left: 6px;
+    color: var(--color-text-tertiary);
+    font-weight: normal;
+    vertical-align: middle;
+}
+.sess-scope-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
 /* A run whose videos are all by one creator — the donor sat on one account
    rather than being served a topic assembled across creators. */
 .sess-solo-creator {

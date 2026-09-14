@@ -1,6 +1,14 @@
 <div id="sessions" class="tab-pane">
     <div class="control-bar">
         <span id="sess-status" class="corr-status">Loading sessions…</span>
+        {% if user.is_admin() %}
+        <!-- Admin-only: list the whole sessions index instead of the study's
+             own sessions. Rows the study does not contain are marked. -->
+        <label class="sess-scope-toggle text-xs meta-tooltip tooltip-below" style="margin-left: auto;"
+               data-tooltip="Admin view: list every session in the index, from every collection and date, not only those the selected study contains. Rows outside the study are marked. Playback of any downloaded video is available to admins regardless of this setting.">
+            <input type="checkbox" id="sess-scope-all"> All sessions (admin)
+        </label>
+        {% endif %}
     </div>
 
     <!-- Freshness banner: artifact missing / rebuild running / model mismatch. -->

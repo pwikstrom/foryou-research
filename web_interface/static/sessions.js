@@ -31,7 +31,17 @@ const sessState = {
     playlistShown: false, // playlist rendered for the current detail payload?
     stripGeom: null,     // last strip render's {x(t), times, cursor} for the marker + var plot
     varPlot: null,       // variable plotted above the strip (null = plot hidden)
+    scopeAll: false,     // admin-only: list the whole index, not just the study's sessions
 };
+
+const SESS_SCOPE_STORAGE_KEY = 'sess-scope-all';
+
+// True when the list request should ask for the whole index. The server
+// ignores the flag for non-admins, so the check here only spares a wasted
+// param; the stored preference is per browser.
+function sessScopeAll() {
+    return !!(window.USER_IS_ADMIN && sessState.scopeAll);
+}
 
 // Response-ordering guard for the overview fetch: a slow response for an
 // older filter/search state must not clobber a newer one. The abort
@@ -604,6 +614,21 @@ function initSessions() {
             }
         });
     }
+    // Admin-only scope toggle (absent from the DOM for everyone else).
+    const scopeEl = document.getElementById('sess-scope-all');
+    if (scopeEl) {
+        try { sessState.scopeAll = localStorage.getItem(SESS_SCOPE_STORAGE_KEY) === '1'; } catch (e) { /* storage unavailable */ }
+        scopeEl.checked = sessState.scopeAll;
+        scopeEl.addEventListener('change', () => {
+            sessState.scopeAll = scopeEl.checked;
+            try { localStorage.setItem(SESS_SCOPE_STORAGE_KEY, scopeEl.checked ? '1' : '0'); } catch (e) { /* ignore */ }
+            // A different population: bounds, page and selection all reset.
+            sessState.page = 0;
+            sessState.rangesJson = null;
+            sessClearDetail();
+            sessLoadOverview();
+        });
+    }
     window.studyState.ready.then(() => {
         sessState.study = window.studyState.current;
         sessLoadStatus();
@@ -719,6 +744,7 @@ async function sessLoadOverview() {
         if (vm.scope === 'binges') { qs.set('f_varmax_scope', 'binges'); }
     }
     if (sessState.searchQ) { qs.set('q', sessState.searchQ); }
+    if (sessScopeAll()) { qs.set('scope', 'all'); }
     const seq = ++_sessOverviewSeq;
     if (_sessOverviewAbort) { _sessOverviewAbort.abort(); }
     const abort = new AbortController();
@@ -783,8 +809,14 @@ function sessStatusLine(data) {
     const total = sessNum(data.total_in_study, 0);
     const above = sessNum(data.total_above_floors, total);
     const hidden = Math.max(total - above, 0);
+    // Admin "all sessions" view: the population is the whole index, so say
+    // so, and keep the study's own count beside it.
+    const allScope = data.scope === 'all';
+    const noun = allScope
+        ? `session(s) in the whole index (${sessNum(data.study_total, 0).toLocaleString()} in this study)`
+        : 'session(s) in this study';
     if (!hidden) {
-        return `${total.toLocaleString()} session(s) in this study.`;
+        return `${total.toLocaleString()} ${noun}.`;
     }
     const floors = data.floors || {};
     const rules = [];
@@ -798,7 +830,7 @@ function sessStatusLine(data) {
         rules.push(`${Math.round(floors.min_coverage * 100)}% coverage`);
     }
     const rule = rules.length ? ` (min ${rules.join(', ')})` : '';
-    return `${above.toLocaleString()} of ${total.toLocaleString()} session(s) in this study — `
+    return `${above.toLocaleString()} of ${total.toLocaleString()} ${noun} — `
         + `${hidden.toLocaleString()} below the listing floor${rule}.`;
 }
 
@@ -1015,14 +1047,21 @@ function sessRenderList(data) {
     const tbody = document.createElement('tbody');
     if (!data.sessions.length) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-sm" style="padding: 20px; color: var(--color-text-muted);">'
-            + (filtered ? 'No sessions match the current filters.' : 'No sessions in this study.')
+            + (filtered ? 'No sessions match the current filters.'
+                : (data.scope === 'all' ? 'No sessions in the index.' : 'No sessions in this study.'))
             + '</td></tr>';
     } else {
         tbody.innerHTML = data.sessions.map((s) => {
             const score = (s.min_window_cosdist == null) ? '–' : s.min_window_cosdist.toFixed(3);
             const covPct = Math.round((s.coverage_embedded || 0) * 100);
-            return `<tr data-cid="${escapeHtml(s.collection_id)}" data-sid="${escapeHtml(s.session_id)}">
-            <td class="text-xs font-medium">${escapeHtml(s.collection_label || s.collection_id)}</td>
+            // Only the admin "all sessions" view can list a session the
+            // study does not contain; mark it so the row reads as such.
+            const outside = data.scope === 'all' && s.in_study === false;
+            const outsideBadge = outside
+                ? ' <span class="sess-badge sess-outside-badge text-xxs meta-tooltip" data-tooltip="Not in the selected study: its collection, date or sampled day is outside the study">outside study</span>'
+                : '';
+            return `<tr data-cid="${escapeHtml(s.collection_id)}" data-sid="${escapeHtml(s.session_id)}"${outside ? ' class="sess-outside"' : ''}>
+            <td class="text-xs font-medium">${escapeHtml(s.collection_label || s.collection_id)}${outsideBadge}</td>
             <td class="text-xs" style="white-space: nowrap; color: var(--color-text-tertiary);">${escapeHtml(sessFmtTs(s.start_ts))}</td>
             <td class="text-xs" style="white-space: nowrap;">${sessFmtMinutes(s.duration_min)}</td>
             <td class="text-xs">${s.n_plays}</td>
@@ -1065,7 +1104,8 @@ async function sessSelect(collectionId, sessionId, rowEl) {
     const emptyEl = document.getElementById('sess-detail-empty');
     const detailEl = document.getElementById('sess-detail');
 
-    const cacheKey = `${sessState.study}\x1f${collectionId}\x1f${sessionId}`;
+    const scopeAll = sessScopeAll();
+    const cacheKey = `${sessState.study}\x1f${collectionId}\x1f${sessionId}\x1f${scopeAll ? 'all' : 'study'}`;
     const cached = _sessDetailCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < SESS_DETAIL_CACHE_TTL_MS) {
         sessRenderDetail(cached.data);
@@ -1079,6 +1119,7 @@ async function sessSelect(collectionId, sessionId, rowEl) {
     const qs = new URLSearchParams({
         study: sessState.study, collection_id: collectionId, session_id: sessionId,
     });
+    if (scopeAll) { qs.set('scope', 'all'); }
     if (_sessDetailAbort) { _sessDetailAbort.abort(); }
     const abort = new AbortController();
     _sessDetailAbort = abort;
@@ -1168,8 +1209,11 @@ function sessRenderDetailHeader(data) {
         s.dominant_niche ? `mostly “${escapeHtml(s.dominant_niche)}”` : null,
     ].filter(Boolean);
     const ranges = data.session_ranges || [];
+    const outsideBadge = s.in_study === false
+        ? ' <span class="sess-badge sess-outside-badge text-xxs meta-tooltip tooltip-below" data-tooltip="Not in the selected study: its collection, date or sampled day is outside the study. Its videos are not in the study’s frame, so they play only for admins.">outside study</span>'
+        : '';
     el.innerHTML = `
-        <div class="text-h3 font-semibold" style="margin-bottom: 2px;">${escapeHtml(s.collection_label || s.collection_id)}</div>
+        <div class="text-h3 font-semibold" style="margin-bottom: 2px;">${escapeHtml(s.collection_label || s.collection_id)}${outsideBadge}</div>
         <div class="text-xs" style="color: var(--color-text-tertiary);">${stats.join(' · ')}${ranges.length ? ' · ' + sessMoreToggleHtml() : ''}</div>`;
     if (ranges.length) {
         sessWireMinMax(el, el.querySelector('.sess-more-toggle'), ranges,
@@ -1912,8 +1956,14 @@ function sessRenderPlayer(autoplay) {
         media.appendChild(video);
         if (autoplay) { video.play().catch(() => { /* user presses play */ }); }
     } else {
+        // Two different reasons share the "no player" slot; name the one
+        // that applies. A video outside the study's frame never streams for
+        // a viewer (admins get the downloaded-or-not verdict instead).
+        const why = (play.in_study === false && !window.USER_IS_ADMIN)
+            ? 'This video is not part of the selected study — metadata only.'
+            : 'Media not downloaded for this video — metadata only.';
         media.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted); padding: 24px; text-align: center;">'
-            + 'Media not available in this study — metadata only.</div>';
+            + why + '</div>';
     }
 
     // Metadata below the player: sequence context + annotation fields.

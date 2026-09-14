@@ -717,11 +717,16 @@ def api_video_stream(study, item_id):
 
         # The study segment used to be decorative; it now scopes the stream —
         # the item must actually appear in the (accessible) study being viewed.
-        known_ids = _study_item_ids(study)
-        if known_ids is None:
-            return jsonify({"error": "Dataset not found"}), 404
-        if str(item_id) not in known_ids:
-            return jsonify({"error": "Item not found in this study"}), 404
+        # An admin may play any downloaded video (the Sessions tab's admin
+        # view lists sessions the study does not contain), so only the
+        # membership check is lifted for them: study access and the media
+        # lookup below still apply.
+        if not current_user.is_admin():
+            known_ids = _study_item_ids(study)
+            if known_ids is None:
+                return jsonify({"error": "Dataset not found"}), 404
+            if str(item_id) not in known_ids:
+                return jsonify({"error": "Item not found in this study"}), 404
 
     use_gcs = fyp_cf.get('data_io', {}).get('use_gcs_for_media', True)
     chunk_size = 4096 * 16

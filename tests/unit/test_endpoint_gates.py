@@ -160,6 +160,36 @@ def test_video_stream_requires_item_in_study(client, monkeypatch):
     assert b"video 111 not found" in res.data.lower()
 
 
+def test_video_stream_lets_an_admin_play_items_outside_the_study(client, monkeypatch):
+    """Admins stream any downloaded video; study access still applies."""
+    from web_interface import security
+    from web_interface.auth import ROLE_ADMIN, User
+    from web_interface.routes import _access
+    from web_interface.routes import api_viewer_routes as viewer
+
+    admin = "__gate_admin__"
+    orig_get = security.user_manager.get_user
+    monkeypatch.setattr(
+        security.user_manager, "get_user",
+        lambda uid: (User(username=admin, role=ROLE_ADMIN, password_hash="", approved=True)
+                     if uid == admin else orig_get(uid)))
+    monkeypatch.setattr(_access, "get_accessible_studies", lambda *a, **k: ["mystudy"])
+    monkeypatch.setattr(viewer, "_study_item_ids", lambda study: frozenset({"111"}))
+    monkeypatch.setattr(viewer.media_paths, "resolve_media",
+                        lambda item_id, platform=None: None)
+    _login(client, admin)
+
+    # Not in the study's frame, yet the gate passes to media resolution.
+    res = client.get("/api/video/mystudy/999")
+    assert res.status_code == 404
+    assert b"video 999 not found" in res.data.lower()
+    # Study access is not lifted for admins.
+    monkeypatch.setattr(viewer, "study_access_error",
+                        lambda study: (viewer.jsonify({"error": "Access denied"}), 403))
+    res = client.get("/api/video/mystudy/999")
+    assert res.status_code == 403
+
+
 
 
 

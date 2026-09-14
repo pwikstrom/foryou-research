@@ -94,6 +94,9 @@ def patched_routes(monkeypatch):
     # the study-defs store (which the real helper reads from disk).
     monkeypatch.setattr(mod, "get_study_date_window",
                         lambda study: (pd.Timestamp("1970-01-01"), pd.Timestamp("2100-01-01")))
+    # No day sampling by default — the third scoping axis is exercised
+    # explicitly below (the real helper reads the study sidecar from disk).
+    monkeypatch.setattr(mod, "get_study_selected_cells", lambda study: None)
     monkeypatch.setattr(mod, "load_display_id_map", lambda: {"colA": "Donor A"})
     monkeypatch.setattr(mod, "_load_meta", lambda: {
         "built_at": "2026-08-01T00:00:00+00:00", "embedding_model": "gemini-embedding-001",
@@ -474,6 +477,82 @@ def test_detail_refuses_a_session_outside_the_study_date_window(
 
 
 
+class _NonAdmin:
+    """Stand-in for ``current_user`` on a viewer account."""
+
+    def is_admin(self):
+        return False
+
+
+def test_overview_excludes_sessions_on_days_the_sample_dropped(
+        client, patched_routes, monkeypatch):
+    """Sampling is the third scoping axis.
+
+    A day-sampled study keeps only some of a collection's days inside its
+    window; a session on a dropped day has no play in the study's frame, so
+    listing it shows a viewer nothing but "not in this study" videos.
+    """
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "get_study_selected_cells",
+                        lambda study: {"colA": {"2026-01-02"}, "colB": {"2026-01-03"}})
+
+    body = client.get(_BASE).get_json()
+    assert sorted(s["session_id"] for s in body["sessions"]) == ["colA__1", "colB__0"]
+    assert body["total_in_study"] == 2
+    assert body["scope"] == "study"
+    assert all(s["in_study"] is True for s in body["sessions"])
+
+
+def test_detail_refuses_a_session_on_a_day_the_sample_dropped(
+        client, patched_routes, monkeypatch):
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "get_study_selected_cells",
+                        lambda study: {"colA": {"2026-01-02"}})
+
+    res = client.get("/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0")
+    assert res.status_code == 404
+
+
+def test_admin_all_scope_lists_the_whole_index_and_marks_outside_rows(
+        client, patched_routes, monkeypatch):
+    """``scope=all`` (admin): every session, with ``in_study`` per row."""
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA"})
+    monkeypatch.setattr(mod, "get_study_selected_cells",
+                        lambda study: {"colA": {"2026-01-01"}})
+
+    scoped = client.get(_BASE).get_json()
+    assert [s["session_id"] for s in scoped["sessions"]] == ["colA__0"]
+
+    body = client.get(_BASE + "&scope=all").get_json()
+    assert body["scope"] == "all"
+    assert body["total_in_study"] == 3
+    assert body["study_total"] == 1
+    flags = {s["session_id"]: s["in_study"] for s in body["sessions"]}
+    assert flags == {"colA__0": True, "colA__1": False, "colB__0": False}
+    # The flag survives sorting: colB__0 sorts first by entropy desc.
+    body = client.get(_BASE + "&scope=all&order=desc").get_json()
+    assert body["sessions"][0]["session_id"] == "colB__0"
+    assert body["sessions"][0]["in_study"] is False
+
+
+def test_all_scope_is_ignored_for_non_admins(client, patched_routes, monkeypatch):
+    """A viewer cannot widen the list past the study, flag or no flag."""
+    import web_interface.routes.api_sessions_routes as mod
+
+    monkeypatch.setattr(mod, "current_user", _NonAdmin())
+    monkeypatch.setattr(mod, "get_study_frame_collections", lambda study: {"colA"})
+
+    body = client.get(_BASE + "&scope=all").get_json()
+    assert body["scope"] == "study"
+    assert sorted(s["session_id"] for s in body["sessions"]) == ["colA__0", "colA__1"]
+    res = client.get("/api/sessions/detail?study=s&collection_id=colB&session_id=colB__0&scope=all")
+    assert res.status_code == 403
+
+
 def test_study_date_window_matches_the_builder_convention():
     """The helper the sessions scoping is built on, against its own contract."""
     from fyp.fyp_config import fyp_cf
@@ -605,14 +684,34 @@ def test_detail_payload_flags_and_episode_assignment(client, patched_routes, mon
     assert res.status_code == 200
     body = res.get_json()
     assert body["session"]["session_id"] == "colA__0"
+    assert body["session"]["in_study"] is True
     p1, p2, p3 = body["plays"]
     # v1: in study frame AND downloaded → streamable; episode member in span.
     assert p1["streamable"] is True and p1["episode_idx"] == 0
+    assert p1["in_study"] is True
     # v2: annotated+embedded but not downloaded → not streamable; member → ep 0.
     assert p2["streamable"] is False and p2["episode_idx"] == 0
     assert p2["annotated"] is True and p2["embedded"] is True
+    assert p2["in_study"] is False
     # v3: outside the episode span and not a member.
     assert p3["episode_idx"] is None
+    assert p3["in_study"] is True and p3["streamable"] is False
+
+    # Admin playback ignores frame membership: a downloaded video outside
+    # the frame streams for an admin (v2 is inside but not downloaded, so it
+    # still does not).
+    monkeypatch.setattr(mod, "_flag_sets", lambda: {
+        "scraped": {"v1", "v2"}, "downloaded": {"v1", "v2"},
+        "annotated": {"v1", "v2"}, "embedded": {"v1", "v2"}})
+    # The response cache keys on the flag FILES' fingerprint, which the
+    # patched sets above do not touch.
+    mod._DETAIL_RESPONSE_CACHE.clear()
+    body = client.get("/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0").get_json()
+    assert [p["streamable"] for p in body["plays"]] == [True, True, False]
+    # A viewer keeps the frame-scoped verdict — and its own cache slot.
+    monkeypatch.setattr(mod, "current_user", _NonAdmin())
+    body = client.get("/api/sessions/detail?study=s&collection_id=colA&session_id=colA__0").get_json()
+    assert [p["streamable"] for p in body["plays"]] == [True, False, False]
     assert body["episodes"][0]["members"][0]["item_id"] == "v1"
     # Low-entropy windows ride along with their members.
     assert body["windows"][0]["mean_cosdist"] == 0.21

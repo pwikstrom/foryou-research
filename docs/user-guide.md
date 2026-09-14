@@ -271,9 +271,15 @@ which is why the automatic enrichment loop takes whole sessions (see *Edit Colle
 and counts the collection's **analysis-ready sessions**.
 
 **Left rail: the session table.** All of the active study's sessions, one
-row each; sort by clicking any column heading. A collapsible **Filters**
-panel offers range sliders over the session measures, and a search box
-matches stories, captions and creators. Notable columns:
+row each; sort by clicking any column heading. A session is the study's
+when its collection is in the study, it started inside the study's date
+window and, for a day-sampled study, on a day the sample admitted, so
+every listed session's videos belong to the study. Admins get an **All
+sessions (admin)** toggle in the control bar that lists the whole sessions
+index instead, from every collection and date; rows the study does not
+contain are marked *outside study*. A collapsible **Filters** panel offers
+range sliders over the session measures, and a search box matches stories,
+captions and creators. Notable columns:
 
 - **Coverage** — the share of the session's videos that are embedded. Read
   the entropy score together with coverage: low-coverage sessions can look
@@ -299,7 +305,9 @@ matches stories, captions and creators. Notable columns:
 - Picking a binge or sequence loads it into the shared video player, where
   Prev/Next steps through it in watch order; the video's niche, creator,
   watch time and story summary sit below the player with an "Open in Video
-  Analysis" button.
+  Analysis" button. A video plays when it is in the study and its media was
+  downloaded; otherwise the player slot says which of the two is missing.
+  Admins can play any downloaded video, whether or not it is in the study.
 - **Full play sequence** (Show/hide) lists every play in the session.
 
 ### 2.7 Correlations

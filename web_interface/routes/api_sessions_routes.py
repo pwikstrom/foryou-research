@@ -8,9 +8,18 @@ signal. The artifacts are global (all collections, full history); every request
 is scoped to the caller's study on BOTH axes — a session is only visible when
 its collection is one the requested, accessible study actually contains (see
 :func:`_study_collection_ids`: selected AND present in the study's built frame)
-AND it started inside the study's date window (see :func:`_in_study_window`).
-Neither axis implies the other: the collection set alone would show a ten-day
-study every session those donors ever recorded.
+AND it started inside the study's date window (see :func:`_in_study_window`)
+AND, for a day-sampled study, on a day the sample admitted (see
+:func:`_in_study_cells`). No axis implies another: the collection set alone
+would show a ten-day study every session those donors ever recorded, and the
+window alone lists sessions on dropped days whose every video is "not in this
+study".
+
+Admins may widen the list to the whole artifact (``scope=all``, honoured only
+for an admin account — see :func:`_admin_all_scope`); rows then carry
+``in_study`` so the client can mark which ones the study actually contains.
+Admin playback is independent of the list scope: an admin streams any
+downloaded video, so their ``streamable`` verdict ignores frame membership.
 
 All entropy/focus numbers were precomputed into the artifacts, and per-item
 flags come from cheap id-set membership checks. The one deliberate exception
@@ -27,6 +36,7 @@ from functools import lru_cache
 import numpy as np
 import pandas as pd
 from flask import Blueprint, jsonify, request
+from flask_login import current_user
 
 import fyp.data_io as data_io
 import fyp.embeddings as embeddings
@@ -36,6 +46,7 @@ from web_interface.data_service import (
     get_study_collections,
     get_study_date_window,
     get_study_frame_collections,
+    get_study_selected_cells,
     load_display_id_map,
 )
 
@@ -1000,6 +1011,69 @@ def _in_study_window(df: pd.DataFrame, study: str) -> pd.Series:
 
 
 
+def _in_study_cells(df: pd.DataFrame, study: str) -> pd.Series:
+    """Mask of the index rows whose (collection, start day) the study admitted.
+
+    The third half of study scoping, and a no-op (all True) unless the study
+    was built with day sampling. The study builder samples whole viewing
+    sessions within a sampled day, so a session belongs to a sampled study
+    exactly when its start day is one of its collection's admitted cells —
+    the same start-day rule :func:`_in_study_window` uses, so the two axes
+    never disagree about which day a session is on.
+    """
+    cells = get_study_selected_cells(study)
+    if cells is None:
+        return pd.Series(True, index=df.index)
+    # Vectorised day floor rather than per-row string formatting: this runs
+    # over the whole index on every list request.
+    days = _start_dt(df).dt.floor("D")
+    cids = df["collection_id"].astype(str)
+    keys = pd.MultiIndex.from_arrays([cids, days])
+    admitted = pd.MultiIndex.from_tuples(
+        [(cid, pd.Timestamp(day)) for cid, ds in cells.items() for day in ds]
+        or [("", pd.NaT)])
+    return pd.Series(keys.isin(admitted), index=df.index)
+
+
+
+
+def _cells_signature(study: str):
+    """Hashable fingerprint of the study's admitted cells (None when unsampled)."""
+    cells = get_study_selected_cells(study)
+    if cells is None:
+        return None
+    return hash(frozenset((cid, day) for cid, ds in cells.items() for day in ds))
+
+
+
+
+def _admin_all_scope() -> bool:
+    """True when an ADMIN asked for the unscoped, whole-artifact view.
+
+    ``scope=all`` from a non-admin is silently ignored — the scoped list is
+    the only view a viewer account gets, so the flag never becomes a way
+    around study access.
+    """
+    if (request.args.get('scope') or '').strip() != 'all':
+        return False
+    try:
+        return bool(current_user.is_admin())
+    except Exception:
+        return False
+
+
+
+
+def _admin_playback() -> bool:
+    """True when the caller streams any downloaded video (admin accounts)."""
+    try:
+        return bool(current_user.is_admin())
+    except Exception:
+        return False
+
+
+
+
 def _sessions_config() -> dict:
     """The live ``[sessions]`` config block (always a dict)."""
     cfg = fyp_cf.get("sessions", {})
@@ -1279,6 +1353,7 @@ def api_sessions_overview():
 
     cids = _study_collection_ids(study)
     window = get_study_date_window(study)
+    all_scope = _admin_all_scope()
     # All scoping/filter stages are boolean masks over the FULL index; the
     # frame is materialized exactly once, after the last mask. The old
     # stage-by-stage slicing copied the full-width frame ~5 times per request.
@@ -1290,12 +1365,16 @@ def api_sessions_overview():
     # the slider bounds, the status line — describes the study, not the
     # artifact.
     in_study = (_np_mask(index["collection_id"].isin(cids))
-                & _np_mask(_in_study_window(index, study)))
-    total_in_study = int(in_study.sum())
+                & _np_mask(_in_study_window(index, study))
+                & _np_mask(_in_study_cells(index, study)))
+    # An admin's "all sessions" view lists the whole artifact; the study mask
+    # is kept so each row can still say whether the study contains it.
+    population = np.ones(len(index), dtype=bool) if all_scope else in_study
+    total_in_study = int(population.sum())
     # The three admin-controlled list floors are applied as one block, so the
     # client can report a single "N not listed" count it can reconcile with the
     # rows on screen; min_emb_plays stays a separate ad-hoc quality filter.
-    floors_ok = (in_study
+    floors_ok = (population
                  & _np_mask(index["n_plays"].fillna(0) >= min_plays)
                  & _np_mask(index["duration_min"].fillna(0) >= min_minutes)
                  & _np_mask(index["coverage_embedded"].fillna(0) >= min_coverage))
@@ -1307,7 +1386,8 @@ def api_sessions_overview():
     ranges = _cached_filter_ranges(
         index, pop, study,
         (min_plays, min_minutes, min_coverage, min_emb,
-         len(cids), hash(frozenset(cids)), window))
+         len(cids), hash(frozenset(cids)), window,
+         _cells_signature(study), all_scope))
 
     mask = pop.copy()
     if f_start_min is not None or f_start_max is not None:
@@ -1370,14 +1450,15 @@ def api_sessions_overview():
     if search_q and search_available:
         for term in search_q.lower().split():
             mask &= blobs.str.contains(term, regex=False).fillna(False).to_numpy(dtype=bool)
-    df = index[mask]
+    df = index[mask].copy()
     total_matching = int(len(df))
+    # Rides through the sort and the page slice with its row.
+    df["_in_study"] = in_study[mask]
 
     # Directed-binge counts join BEFORE the sort so the column is sortable —
     # ranking sessions by it is how a researcher hunts rabbit holes.
     directed = _directed_counts()
     if directed is not None:
-        df = df.copy()
         keys = pd.MultiIndex.from_arrays([df["collection_id"], df["session_id"]])
         df["n_directed_episodes"] = directed.reindex(keys).fillna(0).astype("int32").to_numpy()
     if sort not in df.columns:
@@ -1397,6 +1478,7 @@ def api_sessions_overview():
     for _, row in df.iterrows():
         rec = {col: _clean(row.get(col)) for col in _OVERVIEW_COLS}
         rec["collection_label"] = display.get(rec["collection_id"], rec["collection_id"])
+        rec["in_study"] = bool(row.get("_in_study"))
         # None (not 0) when the artifact predates direction_p: the client must
         # be able to tell "no directed binges" from "never measured".
         rec["n_directed_episodes"] = (
@@ -1406,7 +1488,11 @@ def api_sessions_overview():
     meta = _load_meta()
     return jsonify({
         "sessions": sessions,
+        "scope": "all" if all_scope else "study",
         "total_in_study": total_in_study,
+        # Under scope=all the population is the artifact; this stays the
+        # study's own count so the status line can name both.
+        "study_total": int(in_study.sum()),
         "total_above_floors": total_above_floors,
         "total_matching": total_matching,
         "returned": len(sessions),
@@ -1683,14 +1769,19 @@ def _episode_vmax() -> pd.DataFrame | None:
 def api_sessions_detail():
     """One session's full play sequence + focus episodes + per-item context.
 
-    Query params: ``study``, ``collection_id``, ``session_id`` (all required).
-    The session must belong to the (accessible) study on both scoping axes —
-    its collection AND the study's date window — so a bookmarked link into a
-    session the study no longer contains is refused rather than rendered. Each
-    play carries enrichment flags and a ``streamable`` verdict — an item is
-    streamable when it appears in the study's viewer frame AND its media was
-    downloaded, which is exactly what the ``/api/video/<study>/<item_id>``
-    gate will accept.
+    Query params: ``study``, ``collection_id``, ``session_id`` (all required),
+    ``scope=all`` (admins only; see :func:`_admin_all_scope`).
+    The session must belong to the (accessible) study on all three scoping
+    axes — its collection, the study's date window and, for a sampled study,
+    an admitted day — so a bookmarked link into a session the study no longer
+    contains is refused rather than rendered. An admin's ``scope=all`` lifts
+    that: any session in the artifact opens, and the payload's
+    ``session.in_study`` says whether the study contains it. Each play carries
+    enrichment flags, ``in_study`` (the item appears in the study's viewer
+    frame) and a ``streamable`` verdict — an item is streamable when it is in
+    the frame AND its media was downloaded, which is exactly what the
+    ``/api/video/<study>/<item_id>`` gate will accept. For an admin the gate
+    accepts any downloaded item, and so does the verdict.
     """
     from .api_viewer_routes import _study_item_ids
 
@@ -1702,10 +1793,15 @@ def api_sessions_detail():
     denied = study_access_error(study)
     if denied is not None:
         return denied
-    if collection_id not in _study_collection_ids(study):
+    all_scope = _admin_all_scope()
+    admin_play = _admin_playback()
+    if not all_scope and collection_id not in _study_collection_ids(study):
         return jsonify({"error": "Collection not found in this study"}), 403
 
-    cache_key = (study, collection_id, session_id, _detail_cache_version(study))
+    # The verdicts differ per audience (admin playback, admin scope), so the
+    # cache never hands one audience's payload to another.
+    cache_key = (study, collection_id, session_id, all_scope, admin_play,
+                 _detail_cache_version(study))
     with _detail_response_lock:
         cached_payload = _DETAIL_RESPONSE_CACHE.get(cache_key)
     if cached_payload is not None:
@@ -1716,10 +1812,17 @@ def api_sessions_detail():
         return jsonify({"error": "The sessions index has not been built yet."}), 404
     match = index[(index["collection_id"] == collection_id)
                   & (index["session_id"] == session_id)]
-    # The other scoping axis: a session the collection recorded outside the
-    # study's date window is not this study's session.
+    # The other scoping axes: a session the collection recorded outside the
+    # study's date window, or on a day the sample dropped, is not this
+    # study's session. An admin's all-scope view still reports the verdict.
+    session_in_study = False
     if not match.empty:
-        match = match[_in_study_window(match, study).to_numpy()]
+        scoped = (_in_study_window(match, study).to_numpy()
+                  & _in_study_cells(match, study).to_numpy())
+        session_in_study = (bool(scoped[0])
+                            and collection_id in _study_collection_ids(study))
+        if not all_scope:
+            match = match[scoped]
     if match.empty:
         return jsonify({"error": "Session not found"}), 404
     session_row = match.iloc[0]
@@ -1776,7 +1879,9 @@ def api_sessions_detail():
             "platform": _clean(row.get("source_platform")),
             "annotated": iid in flags["annotated"],
             "embedded": iid in embedded_ids,
-            "streamable": (iid in study_ids) and (iid in flags["downloaded"]),
+            "in_study": iid in study_ids,
+            "streamable": ((admin_play or iid in study_ids)
+                           and (iid in flags["downloaded"])),
             "niche_name": None if f is None else _clean(f.get("niche_name")),
             "category": None if f is None else _clean(f.get("category")),
             "story": story,
@@ -1834,6 +1939,7 @@ def api_sessions_detail():
     display = load_display_id_map()
     session = {col: _clean(session_row.get(col)) for col in _OVERVIEW_COLS}
     session["collection_label"] = display.get(collection_id, collection_id)
+    session["in_study"] = session_in_study
     payload = {
         "session": session,
         "plays": play_rows,

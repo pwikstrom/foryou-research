@@ -1448,6 +1448,54 @@ def get_study_frame_collections(study) -> set | None:
 
 
 
+def get_study_selected_cells(study) -> dict[str, set[str]] | None:
+    """The (collection, local day) cells a SAMPLED study admitted, or None.
+
+    The third axis of study scoping, after the collection set
+    (:func:`get_study_frame_collections`) and the date window
+    (:func:`get_study_date_window`). A study built with day sampling keeps
+    only some of each collection's days inside its window; a global artifact
+    (the sessions index) must drop the rest, or it lists sessions whose
+    videos are all "not in this study".
+
+    Returns ``{collection_id: {"YYYY-MM-DD", ...}}`` from the sidecar's
+    ``selected_cells`` when sampling is active, and ``None`` when sampling is
+    off or the sidecar is unavailable — the caller treats None as "every day
+    in the window", never as "no days". A composed study unions its two
+    sources per collection; a source without sampling contributes None, and
+    None absorbs the union (the base admits every day the overlay would).
+
+    Args:
+        study: Study name.
+
+    Returns:
+        Per-collection day sets, or ``None`` when the axis does not apply.
+    """
+    if not study:
+        return None
+
+    compose = resolve_compose(study)
+    if compose:
+        base = get_study_selected_cells(compose[0])
+        overlay = get_study_selected_cells(compose[1])
+        if base is None or overlay is None:
+            return None
+        merged = {cid: set(days) for cid, days in base.items()}
+        for cid, days in overlay.items():
+            merged.setdefault(cid, set()).update(days)
+        return merged
+
+    sidecar = get_study_sidecar(study)
+    if not sidecar or not sidecar.get("sampling_active"):
+        return None
+    cells = sidecar.get("selected_cells")
+    if not isinstance(cells, dict):
+        return None
+    return {str(cid): {str(d) for d in (days or [])} for cid, days in cells.items()}
+
+
+
+
 def get_study_date_window(study) -> tuple[pd.Timestamp, pd.Timestamp]:
     """A study's activity date window as a half-open ``[start, end_bound)`` pair.
 

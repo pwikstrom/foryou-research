@@ -12,6 +12,16 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **The Sessions list only shows the study's own sessions.** A day-sampled
+  study keeps some of a collection's days inside its window; sessions on the
+  dropped days used to be listed anyway, and every video in them showed
+  "Media not available in this study". Sampling is now the third scoping
+  axis, beside the collection set and the date window. Admins get an **All
+  sessions (admin)** toggle that lists the whole index with rows outside the
+  study marked, and can play any downloaded video regardless of the study.
+  The player slot now says whether a video is outside the study or simply
+  has no downloaded media.
+
 - **Compact, two-level filter panels in Explore and Video Analysis.** Each
   variable inside a filter section is now its own collapsible sub-section,
   remembered across visits. A sub-section whose filter is active turns blue
