@@ -120,6 +120,20 @@ def _register_web_ui(app):
         from web_interface import seo
         return seo.canonical_host_redirect()
 
+    @app.before_request
+    def record_user_activity():
+        """Stamp ``last_active`` on the logged-in user for the admin roster.
+
+        A dict write per request; the user file is rewritten at most every
+        ``UserManager.ACTIVITY_PERSIST_INTERVAL``. Static assets are skipped —
+        they say nothing about a person using the app that the page or API
+        request behind them does not already say.
+        """
+        if request.endpoint == 'static' or not current_user.is_authenticated:
+            return
+        from .security import user_manager
+        user_manager.touch_activity(current_user.get_id())
+
     @app.context_processor
     def inject_seo():
         """Expose the current page's search and social metadata as ``seo``.
