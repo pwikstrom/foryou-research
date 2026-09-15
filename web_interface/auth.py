@@ -417,13 +417,17 @@ def empty_profile() -> dict:
 # --- User Class ---
 
 class User(UserMixin):
-    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None, created_at=None, approval_notification=None, profile=None, account_kind=None, placeholder=False, origin=None, terms_accepted_at=None):
+    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None, created_at=None, approval_notification=None, profile=None, account_kind=None, placeholder=False, origin=None, terms_accepted_at=None, last_active=None):
         self.id = username
         self.username = username
         self.role = role
         self.password_hash = password_hash
         self.approved = approved
         self.last_login = last_login
+        # Timestamp of the user's most recent authenticated request. Updated
+        # in memory on every request and persisted at most once per
+        # ACTIVITY_PERSIST_INTERVAL (see ``UserManager.touch_activity``).
+        self.last_active = last_active
         self.settings = settings if settings is not None else {}
         self.machine_annotation_votes = machine_annotation_votes if machine_annotation_votes is not None else {}
         self.display_username = display_username or ""
@@ -478,6 +482,7 @@ class User(UserMixin):
             "password_hash": self.password_hash,
             "approved": self.approved,
             "last_login": self.last_login,
+            "last_active": self.last_active,
             "created_at": self.created_at,
             "approval_notification": self.approval_notification,
             "settings": self.settings,
@@ -497,6 +502,7 @@ def _user_from_record(user_data: dict) -> "User":
         password_hash=user_data.get("password_hash"),
         approved=user_data.get("approved", True),
         last_login=user_data.get("last_login"),
+        last_active=user_data.get("last_active"),
         settings=user_data.get("settings", {}),
         machine_annotation_votes=user_data.get("machine_annotation_votes", {}),
         display_username=user_data.get("display_username"),
@@ -535,6 +541,8 @@ class UserManager:
         self.storage_location = storage_location
         self.bootstrap = bootstrap
         self.users = {}
+        # username -> UTC datetime of the last ``last_active`` write (touch_activity).
+        self._activity_persisted_at = {}
         self._loaded = False
         self._load_lock = threading.Lock()
 
@@ -1079,6 +1087,36 @@ class UserManager:
         if user is not None:
             user.last_login = datetime.datetime.now(datetime.timezone.utc).isoformat()
             self.save_user(username)
+
+    # Minimum gap between two writes of ``last_active`` for the same user. The
+    # in-memory value is always current; the file only needs to be fresh
+    # enough to tell an admin "this person has used the app recently".
+    ACTIVITY_PERSIST_INTERVAL = datetime.timedelta(minutes=30)
+
+    def touch_activity(self, username):
+        """Record that ``username`` just made an authenticated request.
+
+        Cheap on the hot path: an attribute write, plus one ``save_user`` at
+        most every ``ACTIVITY_PERSIST_INTERVAL``. Never raises — activity
+        tracking must not break the request it rides on.
+        """
+        try:
+            user = self.users.get(username)
+            if user is None:
+                return
+            now = datetime.datetime.now(datetime.timezone.utc)
+            last_persisted = self._activity_persisted_at.get(username)
+            if last_persisted is None and user.last_active:
+                try:
+                    last_persisted = datetime.datetime.fromisoformat(user.last_active)
+                except ValueError:
+                    last_persisted = None
+            user.last_active = now.isoformat()
+            if last_persisted is None or now - last_persisted >= self.ACTIVITY_PERSIST_INTERVAL:
+                self._activity_persisted_at[username] = now
+                self.save_user(username)
+        except Exception as e:
+            logger.warning(f"Could not record activity for {username}: {e}")
 
     def update_display_username(self, username, new_name):
         """Set a user's display username after validation.
