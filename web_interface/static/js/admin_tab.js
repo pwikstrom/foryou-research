@@ -1063,6 +1063,7 @@
 
         tableBody.innerHTML = sorted.map(user => {
             const lastLogin = fypFmtDateTime(user.last_login, 'Never');
+            const lastActive = fypFmtDateTime(user.last_active, 'Never');
             const registered = fypFmtDateTime(user.created_at, 'Unknown');
             const safeUser = user.username.replace(/'/g, "\\'");
             const safeDisplayName = String(user.display_username || '')
@@ -1090,6 +1091,9 @@
             </td>
             <td style="padding: 12px 16px; color: var(--color-text-primary);">
                 <span class="text-xs" style="color: var(--color-text-muted);">${lastLogin}</span>
+            </td>
+            <td style="padding: 12px 16px; color: var(--color-text-primary);">
+                <span class="text-xs" style="color: var(--color-text-muted);">${lastActive}</span>
             </td>
             <td style="padding: 12px 16px; color: var(--color-text-primary);">
                 <span class="text-xs" style="color: var(--color-text-muted);">${registered}</span>
@@ -1161,6 +1165,7 @@
         ['can_login',         u => !!u.can_login],
         ['registered',        u => u.created_at],
         ['last_login',        u => u.last_login],
+        ['last_active',       u => u.last_active],
         ['terms_accepted_at', u => u.terms_accepted_at],
         ['origin_source',     u => (u.origin || {}).source],
         ['origin_at',         u => (u.origin || {}).at],
@@ -1223,6 +1228,7 @@
             case 'username':   return (user.username || '').toLowerCase();
             case 'role':       return (user.role || '').toLowerCase();
             case 'last_login': return user.last_login ? Date.parse(user.last_login) : -Infinity;
+            case 'last_active': return user.last_active ? Date.parse(user.last_active) : -Infinity;
             case 'created_at': return user.created_at ? Date.parse(user.created_at) : -Infinity;
             case 'collections': return Number(user.collections_count || (user.collections || []).length || 0);
             case 'videos':     return Number(stats.unique_videos || 0);

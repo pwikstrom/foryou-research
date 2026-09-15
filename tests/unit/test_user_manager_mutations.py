@@ -216,12 +216,46 @@ def test_record_approval_notification_persists_marker() -> None:
 
 
 
+def test_touch_activity_debounces_writes() -> None:
+    """Every touch updates the in-memory stamp; the file is written at most
+    once per ACTIVITY_PERSIST_INTERVAL."""
+    store = _FakeStore()
+    um, patches = _manager_over(store, bootstrap=True)
+    try:
+        um.add_user("carol", "pw", "viewer")
+        assert store.files["carol.json"].get("last_active") is None
+
+        # first touch: no prior stamp -> persisted immediately
+        um.touch_activity("carol")
+        first = store.files["carol.json"]["last_active"]
+        assert first is not None
+        assert um.get_user("carol").last_active == first
+
+        # second touch within the interval: memory moves, file does not
+        um.touch_activity("carol")
+        assert um.get_user("carol").last_active >= first
+        assert store.files["carol.json"]["last_active"] == first
+
+        # pretend the last write was long ago -> next touch persists again
+        um._activity_persisted_at["carol"] -= um.ACTIVITY_PERSIST_INTERVAL
+        um.touch_activity("carol")
+        assert store.files["carol.json"]["last_active"] > first
+
+        # unknown user is a silent no-op
+        um.touch_activity("nobody")
+        assert "nobody.json" not in store.files
+    finally:
+        for p in patches:
+            p.stop()
+
+
 TESTS = [
     test_bootstrap_creates_default_admin_on_empty_store,
     test_full_mutation_lifecycle,
     test_last_admin_demotion_blocked,
     test_get_oldest_admin_prefers_earliest_created_at,
     test_record_approval_notification_persists_marker,
+    test_touch_activity_debounces_writes,
 ]
 
 
