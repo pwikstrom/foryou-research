@@ -684,8 +684,8 @@ grouped into Users, Annotation Pipeline, Data & Variables and System.*
   queue caps for non-admin users).
 - **System Information** — runtime environment, revision, storage locations
   and a system-health panel.
-- **Daily Ops Report** — a colour-coded status board over accounts, worker
-  runs, task failures, queues, collections, scraper health and the public
+- **Daily Ops Report** — a colour-coded status board over accounts, who
+  used the Hub in the last 24 hours and when, worker runs, task failures, queues, collections, scraper health and the public
   site, with an AI-written assessment. It is generated automatically once a
   day and emailed to the site contact address; the pane shows the latest
   report and a **Generate now** button.

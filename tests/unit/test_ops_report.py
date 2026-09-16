@@ -493,3 +493,46 @@ def test_deleted_studys_failed_refresh_does_not_count_as_a_worker_failure():
     }
     defs = {"alive": {}}
     assert _stale_study_refresh_keys(stats, defs) == {"study_refresh____me__gone@example.org"}
+
+
+def test_active_users_merges_stamp_login_and_action_log():
+    """A user counts as active on any of: last_active stamp, login, logged
+    action inside the window; the line carries when, most recent first."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from web_interface.services.ops_report import _active_users
+
+    now = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
+    since = now - timedelta(hours=24)
+    tz = timezone.utc
+    users = [
+        # Stamp only, 2h ago.
+        SimpleNamespace(username="stamp", role="user", last_login=None,
+                        last_active="2026-09-16T10:00:00+00:00"),
+        # Login only, 30 min ago — no other trace.
+        SimpleNamespace(username="login", role="participant",
+                        last_login="2026-09-16T11:30:00+00:00", last_active=None),
+        # Actions only (stamp is older than the window).
+        SimpleNamespace(username="actor", role="admin",
+                        last_login="2026-09-01T00:00:00+00:00",
+                        last_active="2026-09-10T00:00:00+00:00"),
+        # Nothing inside the window.
+        SimpleNamespace(username="idle", role="user",
+                        last_login="2026-09-01T00:00:00+00:00",
+                        last_active="2026-09-14T00:00:00+00:00"),
+        SimpleNamespace(username="never", role="user", last_login=None,
+                        last_active=None),
+    ]
+    action_times = {"actor": [datetime(2026, 9, 16, 8, 0, tzinfo=timezone.utc),
+                              datetime(2026, 9, 16, 9, 15, tzinfo=timezone.utc)]}
+
+    lines = _active_users(users, action_times, now, since, tz)
+
+    assert [l.split(" ")[0] for l in lines] == ["login", "stamp", "actor"]
+    assert lines[0].startswith("login (participant) — last active 30m ago (2026-09-16 11:30)")
+    assert "logged in 2026-09-16 11:30" in lines[0]
+    assert "stamp (user) — last active 2h ago (2026-09-16 10:00)" == lines[1]
+    assert "2 logged action(s) 2026-09-16 08:00–09:15" in lines[2]
+    assert "idle" not in " ".join(lines) and "never" not in " ".join(lines)
+    assert _active_users(users, {}, now, now, tz) == []

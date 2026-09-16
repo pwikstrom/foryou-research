@@ -10,6 +10,14 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+### Added
+
+- **Active users in the daily ops report.** The Users & access section
+  now lists who used the Hub in the last 24 hours and when: each user's
+  last-active time, their login time if they logged in inside the window,
+  and the count and span of their logged actions. A person who stays
+  logged in for weeks no longer looks idle to the report.
+
 ### Changed
 
 - **Semantic Space legend and labels.** Double-click a category swatch to

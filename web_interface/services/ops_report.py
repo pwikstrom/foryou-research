@@ -2,7 +2,7 @@
 
 The report is a colour-coded status board (green = healthy, yellow = watch,
 red = action needed, blue = informational activity) over the same state the
-admin panel exposes piecemeal: accounts and logins, worker runs, the
+admin panel exposes piecemeal: accounts, logins and active users, worker runs, the
 task-failure ledger, queues and pending consolidation/ingest, collections,
 scraper cookies and alerts, the structure sentinel, Cloud Run error logs, the
 public site, and yt-dlp release drift. A Gemini call turns the collected
@@ -101,6 +101,40 @@ def _ago(dt, now):
     return f"{hours / 24:.0f}d ago"
 
 
+def _active_users(users, action_times, now, since, tz):
+    """One line per user who used the Hub after ``since``, most recent first.
+
+    "Used" is the union of three signals, because no single one covers a
+    person: the ``last_active`` stamp (any authenticated request; persisted
+    at most every 30 min, so it can lag the truth by that much), the login
+    time (a person who logs in and leaves has no other trace), and the
+    per-user action log (mutations, which also give a first/last span and a
+    count). ``action_times`` maps username → list of aware datetimes already
+    inside the window.
+    """
+    lines = []
+    for u in users:
+        login = _parse_iso(getattr(u, "last_login", None))
+        stamp = _parse_iso(getattr(u, "last_active", None))
+        acts = sorted(action_times.get(u.username) or [])
+        candidates = [t for t in (login, stamp, *acts) if t and t > since]
+        if not candidates:
+            continue
+        last = max(candidates)
+        first = min(candidates)
+        parts = [f"last active {_ago(last, now)} ({_local(last, tz)})"]
+        if login and login > since:
+            parts.append(f"logged in {_local(login, tz)}")
+        if acts:
+            span = (f"{_local(acts[0], tz)}–{acts[-1].astimezone(tz).strftime('%H:%M')}"
+                    if len(acts) > 1 else _local(acts[0], tz))
+            parts.append(f"{len(acts)} logged action(s) {span}")
+        elif first != last:
+            parts.append(f"first seen {_local(first, tz)}")
+        lines.append((last, f"{u.username} ({u.role}) — " + "; ".join(parts)))
+    return [line for _, line in sorted(lines, key=lambda x: x[0], reverse=True)]
+
+
 # --------------------------------------------------------------- collection
 
 def collect_status(hours_back: int = 24) -> dict:
@@ -144,6 +178,7 @@ def collect_status(hours_back: int = 24) -> dict:
     # ---- users & access -------------------------------------------------
     sec = section("Users & access")
     usernames = []
+    real = []
     try:
         from web_interface.security import user_manager
         all_users = user_manager.get_all_users()
@@ -183,6 +218,7 @@ def collect_status(hours_back: int = 24) -> dict:
     except Exception as e:
         check(sec, "User store", "red", f"Could not read user accounts: {e}")
 
+    action_times = {}
     try:
         acts = []
         for name in data_io.listdir(storage_location="users"):
@@ -194,6 +230,7 @@ def collect_status(hours_back: int = 24) -> dict:
             for e in entries[-40:]:
                 ts = _parse_iso(e.get("timestamp"))
                 if ts and ts > day_ago:
+                    action_times.setdefault(who, []).append(ts)
                     acts.append(f"{who}: {e.get('action')} → {e.get('target')} "
                                 f"({_local(ts, tz)})")
         if acts:
@@ -203,6 +240,17 @@ def collect_status(hours_back: int = 24) -> dict:
             check(sec, "Admin/user actions (24h)", "green", "No logged admin actions")
     except Exception as e:
         check(sec, "Activity logs", "red", f"Could not read activity logs: {e}")
+
+    try:
+        active = _active_users(real, action_times, now, day_ago, tz)
+        if active:
+            check(sec, "Active users (24h)", "blue",
+                  f"{len(active)} user(s) used the Hub in the last 24h", active)
+        else:
+            check(sec, "Active users (24h)", "green",
+                  "Nobody has used the Hub in the last 24h")
+    except Exception as e:
+        check(sec, "Active users (24h)", "red", f"Could not read user activity: {e}")
 
     # ---- workers --------------------------------------------------------
     sec = section("Workers & processes")
@@ -966,7 +1014,8 @@ the detail lines themselves support it (same timestamps, same URL). Omit this
 whole section if there are no yellow or red checks.
 
 ## What's fine
-A compact prose readout of the healthy side: users/logins/activity, worker
+A compact prose readout of the healthy side: users, logins and who was
+active when (name the active users and their last-active times), worker
 runs, queues and consolidation, cookies, site, dependencies. Complete
 sentences, no padding.
 
