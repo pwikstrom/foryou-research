@@ -139,7 +139,9 @@ zero orchestration edits:
 - **Ingestion**: `ForYouBaseCollection` (`fyp/ingest/base.py`). Subclasses declare
   `source_platform`/`raw_path` and implement `load_single_raw()` +
   `process_single()`. Registration also self-registers the platform's
-  raw-upload storage location.
+  raw-upload storage location (`activity_data/<platform>/<raw_path>`; the
+  three TikTok classes predate the convention and use source-keyed
+  `ddp/`, `aio/`, `zeeschuimer/` folders — see DEVELOPING.md).
 - **Scraping**: `BaseScraper` (`fyp/scrape/platform_scraper.py`) with
   `get_scraper(platform)` factory. Subclasses implement five hooks
   (`item_url`, `fetch`, `map_to_canonical`, `classify_error`,

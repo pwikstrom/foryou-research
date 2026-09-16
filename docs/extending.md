@@ -95,7 +95,9 @@ In `config/scrape_contract.toml`:
 
 Create `fyp/ingest/<platform>.py` subclassing `ForYouBaseCollection`
 (`fyp/ingest/base.py`). Class attributes: `source_platform`, `raw_path`
-(registration also self-registers the raw-upload storage location),
+(registration also self-registers the raw-upload storage location as
+`activity_data/<source_platform>/<raw_path>`; the older TikTok classes
+predate this convention and keep source-keyed folders — see DEVELOPING.md),
 `platform_url_template`, and the upload-filter classmethods
 `accepted_upload_suffixes` / `zip_member_suffixes`. Implement the two
 hooks `load_single_raw(filename)` and `process_single(df)`; the base owns

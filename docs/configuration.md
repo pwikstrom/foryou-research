@@ -112,6 +112,20 @@ absolute paths. Locations can also be registered at runtime
 (`data_io.register_location`), which is how platform ingestion classes
 self-register their raw-upload directories.
 
+Only `local_data` (and `local_media`) come from config; every location
+below it is a fixed string in `fyp/core/fyp_config.py` or an ingestion
+class's `raw_path`. The raw-upload layout under `activity_data/` is
+therefore not configurable and is inconsistently named for historical
+reasons: the TikTok folders are keyed by source (`ddp/ddp_raw`,
+`aio/aio_raw`, `zeeschuimer/zeeschuimer_raw`) while Instagram and YouTube
+are keyed by platform (`instagram/instagram_raw`, `youtube/youtube_raw`).
+See DEVELOPING.md ("Raw-folder naming is inconsistent") before renaming.
+
+**Cloud mode housekeeping.** `machine_annotations_batch_input/` and
+`machine_annotations_batch_output/` grow without bound (see
+[pipeline.md](pipeline.md) §Annotation). Put a bucket lifecycle rule on
+them; the app does not clean them up.
+
 ## Admin-editable stores (runtime state, in the `users` location)
 
 - `var_presentation.json` — which variables appear on which UI surface

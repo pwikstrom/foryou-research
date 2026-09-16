@@ -18,6 +18,13 @@ timezone, ledger, dedup), timestamp finalization, and the enrichment seed.
 Current subclasses: three TikTok variants (DDP export, AIO capture,
 Zeeschuimer), `InstagramDDPCollection`, `YouTubeDDPCollection`.
 
+Raw uploads land in one folder per subclass under `activity_data/`. The
+naming is historical and mixed: `ddp/ddp_raw` holds TikTok data-download
+exports (not DDP exports from every platform), `aio/aio_raw` the same
+format fetched from AIO, `zeeschuimer/zeeschuimer_raw` browser-captured
+TikTok feeds, and `instagram/instagram_raw` / `youtube/youtube_raw` those
+platforms' exports. See DEVELOPING.md for why.
+
 Notable behaviors:
 
 - **Engagement→play linking**: likes/comments/shares are folded into the
@@ -121,6 +128,14 @@ scraped OK, media downloaded, under the duration cap. Output rows are keyed
 (`annotation_versioning.py`, `av_` hash) so superseded fields remain
 readable as "legacy". Annotation runs as a self-chaining Cloud Task
 (`web_interface/run_queue_annotator.py`), one batch per task.
+
+The Gemini *batch-API* lane (`run_queue_annotator_batch.py`) stages its
+request JSONL under `machine_annotations_batch_input/` and reads the job's
+results from `machine_annotations_batch_output/<ts>/` exactly once. Those
+files are dead after ingestion and the code never removes them, so the
+bucket needs a GCS lifecycle rule (delete after 30 days on both prefixes);
+production has one, a fresh cloud deployment must add its own, e.g.
+`gsutil lifecycle set <rules.json> gs://<bucket>`.
 
 Regression protection: `tests/golden/` replays saved raw Gemini responses
 through the whole parse/flatten/repair pipeline — run it whenever you touch

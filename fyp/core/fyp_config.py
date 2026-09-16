@@ -406,6 +406,22 @@ def initialize(
 
     cf["paths"]["activity_data"] = os.path.join(cf["paths"]["local_data"],"activity_data")
 
+    # NOTE — raw-folder naming is inconsistent for historical reasons; do not
+    # "fix" it casually. The three TikTok sources below are keyed by SOURCE
+    # (activity_data/ddp, /aio, /zeeschuimer) because TikTok was the only
+    # platform when they were named (Nov 2025) and "ddp" alone meant "TikTok
+    # data-download export". Instagram and YouTube (July 2026) are not listed
+    # here at all: their ingestion classes self-register by the
+    # activity_data/{source_platform}/{raw_path} convention
+    # (ForYouBaseCollection._register_class_raw_location), which yields the
+    # platform-keyed activity_data/instagram/instagram_raw and
+    # activity_data/youtube/youtube_raw. The TikTok classes would land under
+    # activity_data/tiktok/... by that same convention, but register_location
+    # leaves a key that already exists untouched, so these static entries win.
+    # Renaming means migrating stored raw_path keys (ingestion ledger,
+    # withdrawal records, structure-sentinel baselines), the
+    # data_io.APPEND_ONLY_LOCATIONS set, tests, and the objects in the bucket.
+
     # paths to zeeschuimer data
     cf["paths"]["zeeschuimer"] = os.path.join(cf["paths"]["activity_data"], "zeeschuimer")
     cf["paths"]["zeeschuimer_raw"] = os.path.join(cf["paths"]["zeeschuimer"], "zeeschuimer_raw")

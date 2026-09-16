@@ -29,6 +29,11 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
     platform_url_template = "https://www.tiktok.com/@/video/{item_id}"
     source_platform = "tiktok"
+    # Historical name: "ddp_raw" resolves to activity_data/ddp/ddp_raw (a
+    # static fyp_config entry from when TikTok was the only platform), not to
+    # activity_data/tiktok/ddp_raw as the self-registration convention would
+    # give. The Instagram/YouTube classes use platform-keyed folders. See the
+    # note in fyp_config.py before renaming.
     raw_path = "ddp_raw"
 
     # Lowercased export parent key -> activity_type. This is the whitelist of

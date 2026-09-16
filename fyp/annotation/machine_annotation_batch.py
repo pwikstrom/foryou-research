@@ -57,6 +57,12 @@ def _machine_annotations_label() -> str:
 
 
 # Prefixes (relative to the GCS data prefix) for batch input/output.
+# Both are write-once/read-once: a JSONL is uploaded per job and the output
+# folder is read exactly once by download_and_ingest() when the job finishes
+# (in-flight jobs live only inside one worker run; Gemini batch jobs expire
+# within 24 h). Nothing here deletes them — the production bucket carries a
+# GCS lifecycle rule (set 2026-09-16) that deletes objects under both
+# prefixes after 30 days. A new deployment must set that rule itself.
 BATCH_INPUT_PREFIX = "machine_annotations_batch_input"
 BATCH_OUTPUT_PREFIX = "machine_annotations_batch_output"
 

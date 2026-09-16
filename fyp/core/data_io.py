@@ -132,6 +132,9 @@ def _get_bucket():
 # clobber: they raise FileExistsError instead of silently overwriting a
 # donation, and in GCS mode the write itself carries an
 # ``if_generation_match=0`` precondition so the check is atomic.
+# (Key naming is historical: the TikTok keys are per SOURCE — ddp/aio/
+# zeeschuimer — while instagram_raw/youtube_raw are per PLATFORM; see the
+# note in fyp_config.py.)
 APPEND_ONLY_LOCATIONS: frozenset = frozenset({
     "ddp_raw", "zeeschuimer_raw", "aio_raw", "instagram_raw", "youtube_raw",
     "archive",

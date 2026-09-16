@@ -584,6 +584,13 @@ class ForYouBaseCollection(ABC):
         first. Locations already present in config (the built-in ddp/aio/
         zeeschuimer ones) are left untouched; failures are printed loudly but
         never break the import.
+
+        Historical wrinkle: because the three TikTok keys pre-exist in
+        ``fyp_config`` they resolve to source-keyed folders
+        (``activity_data/ddp``, ``/aio``, ``/zeeschuimer``), while platforms
+        added later (Instagram, YouTube) get platform-keyed folders from this
+        convention (``activity_data/instagram/instagram_raw``). The mixed
+        scheme is deliberate-by-inertia — see the note in ``fyp_config.py``.
         """
         raw_path = cls.__dict__.get("raw_path") or getattr(cls, "raw_path", None)
         source_platform = getattr(cls, "source_platform", None)
