@@ -477,3 +477,19 @@ def test_scrape_failures_are_graded_by_rate_not_by_existence():
         [run("tiktok", 3000, 450), {**run("tiktok", 60, 140), "ts": "2026-09-08T03:41:11+00:00"}])
     assert status == "yellow"
     assert "one tiktok run (2026-09-08T03:41) failed 70.0% of 200" in summary
+
+
+
+
+
+
+def test_deleted_studys_failed_refresh_does_not_count_as_a_worker_failure():
+    from web_interface.services.ops_report import _stale_study_refresh_keys
+
+    stats = {
+        "study_refresh__alive": {"last_run_outcome": "Fail"},
+        "study_refresh____me__gone@example.org": {"last_run_outcome": "Fail"},
+        "pca_refresh": {"last_run_outcome": "Fail"},
+    }
+    defs = {"alive": {}}
+    assert _stale_study_refresh_keys(stats, defs) == {"study_refresh____me__gone@example.org"}

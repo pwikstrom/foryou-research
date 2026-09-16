@@ -211,6 +211,7 @@ def collect_status(hours_back: int = 24) -> dict:
         from web_interface.process_manager import load_process_stats, process_stats
         load_process_stats()
         stats_doc = dict(process_stats)
+        stale_keys = _stale_study_refresh_keys(stats_doc)
         recent, failed_last = [], []
         for key, s in stats_doc.items():
             if not isinstance(s, dict):
@@ -219,7 +220,7 @@ def collect_status(hours_back: int = 24) -> dict:
             if end and end > day_ago:
                 recent.append((end, key, s))
             if s.get("last_run_outcome") and s["last_run_outcome"] != "Success" \
-                    and end and end > week_ago:
+                    and end and end > week_ago and key not in stale_keys:
                 failed_last.append((key, s))
         if recent:
             bad = [k for _, k, s in recent if s.get("last_run_outcome") != "Success"]
@@ -751,6 +752,37 @@ def _linked_collections_missing(tags: dict, pending_cids: set,
         withdrawn = _withdrawn_collection_ids()
     return [f"{cid} (owner {entry['user_id']})" for cid, entry in
             _tag_entries_without_data(tags, pending_cids, dataset_ids, withdrawn, owned=True)]
+
+
+def _stale_study_refresh_keys(stats_doc: dict, study_defs: dict | None = None) -> set[str]:
+    """Process-stats keys of study refreshes whose study no longer exists.
+
+    A refresh entry outlives its study when the study is deleted (2026-09-14:
+    a participant's pair was removed by a collection delete after a refresh
+    had already been dispatched; the refresh failed and its entry kept the
+    worker board red for a week). Nobody can act on it — the study is gone —
+    so it does not count as a worker sitting on a failure.
+
+    Args:
+        stats_doc: The process-stats document, keyed by worker name.
+        study_defs: The study definitions; loaded when omitted.
+
+    Returns:
+        The ``study_refresh__<name>`` keys with no matching definition.
+    """
+    if study_defs is None:
+        from fyp.fyp_config import fyp_cf
+        from fyp.studies import init_study_defs
+        init_study_defs()
+        study_defs = fyp_cf.get("study_defs") or {}
+    prefix = "study_refresh__"
+    return {
+        key for key in stats_doc
+        if key.startswith(prefix) and key[len(prefix):] not in study_defs
+    }
+
+
+
 
 
 def _leftover_tag_entries(tags: dict, pending_cids: set,
