@@ -36,12 +36,20 @@ def svc(monkeypatch):
     monkeypatch.setattr(ps.data_io, "remove",
                         lambda storage_location, filename: removed.append(filename))
 
+    # A removed study also drops its worker-board entry; record the keys
+    # instead of touching the shared process-stats document.
+    import web_interface.process_manager as pm
+    forgotten: list[str] = []
+    monkeypatch.setattr(pm, "forget_process_stats",
+                        lambda key: (forgotten.append(key), True)[1])
+
     # Fake owners have no real account records; treat them as logged-in by
     # default so the lifecycle tests exercise the normal path. The dormancy
     # test overrides this.
     monkeypatch.setattr(ps, "_account_has_logged_in", lambda username: True)
 
-    ps._test_state = {"defs": defs, "owners": owners, "removed": removed, "saved": saved}
+    ps._test_state = {"defs": defs, "owners": owners, "removed": removed, "saved": saved,
+                      "forgotten": forgotten}
     return ps
 
 
@@ -522,3 +530,26 @@ def test_composed_metadata_keeps_the_owners_own_filter_values(participant_defs, 
 
     with study_data._explorer_meta_lock:
         study_data._explorer_meta_cache.clear()
+
+
+
+
+
+
+def test_removed_pair_drops_its_worker_stats_entry(svc):
+    """2026-09-14: a deleted participant study's last (failed) study_refresh
+    stayed on the worker board for a week. Removing the pair forgets the key."""
+    owners = svc._test_state["owners"]
+    owners["c1"] = _OWNER
+    svc.ensure_participant_studies(_OWNER)
+    assert svc._test_state["forgotten"] == []
+
+    del owners["c1"]
+    result = svc.ensure_participant_studies(_OWNER)
+    assert result["removed"]
+    # Both halves of the pair are forgotten (the composed half never has an
+    # entry, so that call is a no-op).
+    assert svc._test_state["forgotten"] == [
+        f"study_refresh__{svc.participant_me_name(_OWNER)}",
+        f"study_refresh__{svc.participant_plus_name(_OWNER)}",
+    ]

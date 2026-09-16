@@ -24,6 +24,7 @@ from ...data_service import (
     study_cache,
 )
 from ...process_manager import (
+    forget_process_stats,
     start_process,
 )
 from ...permissions import permission_required
@@ -777,6 +778,11 @@ def delete_study():
 
         for suffix in _STUDY_ARTIFACT_SUFFIXES:
             data_io.remove(storage_location="cache", filename=f"{study_name}{suffix}")
+        # The study's worker entry would otherwise outlive it on the board.
+        try:
+            forget_process_stats(f"study_refresh__{study_name}")
+        except Exception as exc:
+            print(f"[studies] Could not drop worker stats for {study_name!r}: {exc}")
 
         activity_log.record(
             actor=_actor(),

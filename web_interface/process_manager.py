@@ -252,6 +252,31 @@ def load_process_stats():
 
 
 
+def forget_process_stats(key: str) -> bool:
+    """Drop one worker's entry from the shared stats document.
+
+    For status keys that stop meaning anything — a deleted study's
+    ``study_refresh__<name>`` — whose last outcome would otherwise keep
+    showing on the worker board (a failed last run stays "red" for a week).
+    Reloads immediately before the mutation so only this key is touched.
+
+    Args:
+        key: The process-stats key to remove.
+
+    Returns:
+        True when the key existed and was removed.
+    """
+    load_process_stats()
+    if key not in process_stats:
+        return False
+    process_stats.pop(key, None)
+    save_process_stats()
+    return True
+
+
+
+
+
 def save_process_stats():
     """Persist process_stats without clobbering concurrent writers.
 

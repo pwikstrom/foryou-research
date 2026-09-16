@@ -66,7 +66,13 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     init_study_defs()
     studies = fyp_cf["study_defs"]
     if study_name not in studies:
-        raise ValueError(f"Study '{study_name}' not found in study definitions")
+        # Deleted between dispatch and execution (a collection delete removing
+        # a participant's pair, or an admin delete). Retrying cannot bring the
+        # definition back, so this is a clean no-op rather than a failure that
+        # would exhaust the queue's retries and land in the dead-letter ledger.
+        reporter.log(f"Study '{study_name}' no longer exists — nothing to refresh "
+                     "(deleted while this refresh was queued).")
+        return None
 
     study_config = studies[study_name]
     study_config["STUDY_NAME"] = study_name

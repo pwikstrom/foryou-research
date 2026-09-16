@@ -86,7 +86,25 @@ def _remove_study(name: str, *, drop_artifacts: bool) -> bool:
                 data_io.remove(storage_location="cache", filename=f"{name}{suffix}")
             except Exception:
                 pass
+    if existed:
+        _forget_refresh_stats(name)
     return existed
+
+
+
+
+
+
+def _forget_refresh_stats(name: str) -> None:
+    """Drop a removed study's ``study_refresh__<name>`` worker entry.
+
+    Function-level import: process_manager imports the study helpers.
+    """
+    try:
+        from web_interface.process_manager import forget_process_stats
+        forget_process_stats(f"study_refresh__{name}")
+    except Exception as exc:
+        logger.warning(f"Could not drop worker stats for removed study {name!r}: {exc}")
 
 
 def ensure_participant_studies(username: str, *, log=logger.info) -> dict:

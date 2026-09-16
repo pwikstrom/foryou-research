@@ -332,7 +332,9 @@ def test_unsafe_keys_are_rejected_everywhere():
         with pytest.raises(ValueError):
             run_logs.log_filename(bad)
 
-    for good in ("pca_refresh", "study_refresh__my-study", "queue_scraper_youtube"):
+    # Participant-study keys embed the owner's email address.
+    for good in ("pca_refresh", "study_refresh__my-study", "queue_scraper_youtube",
+                 "study_refresh____me__someone@example.org"):
         assert run_logs.valid_key(good)
         assert run_logs.log_filename(good) == f"proc_logs/{good}.json"
 

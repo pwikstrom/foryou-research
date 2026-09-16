@@ -11,6 +11,32 @@ sys.path.append(str(project_root))
 from web_interface.task_status import TaskStatusReporter
 
 
+def _refresh_targets(affected_studies: list[str], study_defs: dict) -> list[str]:
+    """Return the affected studies that a post-delete refresh should rebuild.
+
+    A study that has disappeared from the definitions (a participant pair the
+    reconciliation removed because its owner has nothing left) cannot be
+    refreshed — the worker would fail on every retry — and a composed study
+    stores no artifacts to rebuild.
+
+    Args:
+        affected_studies: Studies that referenced a deleted collection.
+        study_defs: The study definitions AFTER participant reconciliation.
+
+    Returns:
+        The subset of ``affected_studies`` worth dispatching, in input order.
+    """
+    from fyp.studies import is_composed_study
+
+    return [
+        name for name in affected_studies
+        if name in study_defs and not is_composed_study(study_defs.get(name))
+    ]
+
+
+
+
+
 def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
     """Delete one or more collections: drop their rows from the recoded/metadata
     parquets, remove them from collections_tags.json and every study's
@@ -237,19 +263,41 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
 
     invalidate_collection_tags_cache()
 
-    # 9. Dispatch a study_refresh for each affected study so the cache rebuilds
-    # without the deleted collection. Done from inside this worker so we get
-    # the same dispatch path the delete route used to use.
+    # 9. Reconcile the former owners' auto-managed study pairs: shrink their
+    # SELECTED_COLLECTIONS, or remove the pair when nothing is owned any more.
+    # Owners come from the pre-delete tags snapshot — the live entries are
+    # already gone. Runs BEFORE the refresh dispatch below: on 2026-09-14 a
+    # participant's only collection was deleted, the refresh for their Just Me
+    # study was dispatched first, and this step then removed the study — the
+    # refresh ran against a definition that no longer existed, retried four
+    # times and dead-lettered. Never fails the delete.
+    try:
+        from web_interface.services.participant_studies import sync_for_cids
+
+        former_owners = sorted({
+            entry.get("user_id") for cid, entry in (tags_snapshot or {}).items()
+            if str(cid) in id_set and isinstance(entry, dict) and entry.get("user_id")
+        })
+        if former_owners:
+            affected_users = sync_for_cids(
+                [], usernames=former_owners, wait=True, log=reporter.log)
+            reporter.log(f"Participant studies reconciled for: {affected_users}")
+    except Exception as exc:
+        reporter.log(f"Participant-study reconciliation failed (delete unaffected): {exc}")
+
+    # 10. Dispatch a study_refresh for each affected study that still exists so
+    # its cache rebuilds without the deleted collection. Done from inside this
+    # worker so we get the same dispatch path the delete route used to use.
+    refresh_targets = _refresh_targets(affected_studies, fyp_cf.get('study_defs') or {})
     reporter.update_progress(
         95,
-        f"Dispatching study_refresh for {len(affected_studies)} affected study/studies...",
+        f"Dispatching study_refresh for {len(refresh_targets)} affected study/studies...",
     )
     refresh_dispatched: list[str] = []
     refresh_failed: list[dict] = []
-    from fyp.studies import is_composed_study as _is_composed
     for sname in affected_studies:
-        # Composed participant studies store no artifacts — never build them.
-        if _is_composed((fyp_cf.get('study_defs') or {}).get(sname)):
+        if sname not in refresh_targets:
+            reporter.log(f"study_refresh for {sname} skipped (study removed or composed).")
             continue
         sub_args = {
             "study_name": sname,
@@ -264,24 +312,6 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
         else:
             refresh_failed.append({"study": sname, "error": msg})
             reporter.log(f"study_refresh dispatch for {sname} failed: {msg}")
-
-    # Reconcile the former owners' auto-managed study pairs: shrink their
-    # SELECTED_COLLECTIONS, or remove the pair when nothing is owned any more.
-    # Owners come from the pre-delete tags snapshot — the live entries are
-    # already gone. Never fails the delete.
-    try:
-        from web_interface.services.participant_studies import sync_for_cids
-
-        former_owners = sorted({
-            entry.get("user_id") for cid, entry in (tags_snapshot or {}).items()
-            if str(cid) in id_set and isinstance(entry, dict) and entry.get("user_id")
-        })
-        if former_owners:
-            affected_users = sync_for_cids(
-                [], usernames=former_owners, wait=True, log=reporter.log)
-            reporter.log(f"Participant studies reconciled for: {affected_users}")
-    except Exception as exc:
-        reporter.log(f"Participant-study reconciliation failed (delete unaffected): {exc}")
 
     # Placeholder participant accounts (p-N@…) left owning nothing after this
     # delete. Reported, never removed here — cleanup is an admin action on

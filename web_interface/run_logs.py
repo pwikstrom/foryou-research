@@ -67,7 +67,10 @@ MAX_PENDING_LINES = 200
 # Status keys become filenames. data_io joins the filename onto the storage
 # root without normalising it, so an unvalidated key containing "../" would
 # write outside `cache`. Validation is mandatory, not defensive.
-_KEY_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+# ``@`` is allowed because participant-study keys embed the owner's email
+# (``study_refresh____me__<user>@<host>``); without it those refreshes never
+# got a process log ("Refusing to open a process log for unsafe key").
+_KEY_RE = re.compile(r"^[A-Za-z0-9_.@-]+$")
 
 _STAMP_RE = re.compile(r"^\[\d\d:\d\d:\d\d\] ")
 

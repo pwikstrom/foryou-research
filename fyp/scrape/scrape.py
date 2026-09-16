@@ -207,6 +207,27 @@ def _check_graceful_stop(process_name: str) -> bool:
 
 
 
+
+
+def _patch_moviepy_audio_reader_del() -> None:
+    """Give moviepy's FFMPEG_AudioReader a class-level ``proc`` default.
+
+    ``AudioFileClip`` on a file ffmpeg cannot parse raises inside
+    ``__init__`` before ``self.proc`` is assigned; the interpreter then runs
+    ``__del__`` → ``close()`` → ``if self.proc`` and prints an
+    ``AttributeError`` traceback that Cloud Logging files as ERROR-severity
+    (seen 2026-09-15). The audio failure itself is already handled (silent
+    slideshow); the class attribute only makes the destructor quiet.
+    """
+    try:
+        from moviepy.audio.io.readers import FFMPEG_AudioReader
+    except Exception:
+        return
+    if "proc" not in vars(FFMPEG_AudioReader):
+        FFMPEG_AudioReader.proc = None
+
+
+
 def make_slideshow(
     files: list[str],
     output: str = "slideshow.mp4",
@@ -245,7 +266,8 @@ def make_slideshow(
         verbose: unused; kept for call-site symmetry.
     """
     from moviepy import AudioFileClip, ColorClip, CompositeVideoClip, ImageClip, concatenate_videoclips
-    
+
+    _patch_moviepy_audio_reader_del()
 
     def _normalize_color(color): 
         if isinstance(color, str):
