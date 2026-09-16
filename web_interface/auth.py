@@ -40,11 +40,12 @@ def _is_candidate_user_file(filename: str) -> bool:
 
     A definitive answer still needs a content check (a real user file carries a
     ``username`` field); this only cheaply rules out the reserved sidecar files
-    (``*_tags.json``, ``*_log.json``, and the named singletons above).
+    (``*_tags.json``, ``*_log.json``, ``*_notes.json``, and the named
+    singletons above).
     """
     if not filename.endswith(".json"):
         return False
-    if filename.endswith("_tags.json") or filename.endswith("_log.json"):
+    if filename.endswith(("_tags.json", "_log.json", "_notes.json")):
         return False
     return filename not in RESERVED_USER_STORE_FILES
 
@@ -980,9 +981,10 @@ class UserManager:
             return False, "Cannot delete the last admin user"
 
         del self.users[username]
-        # Remove the record and its activity-log sidecar; leaving the log
-        # behind would keep a deleted person's trail in the store forever.
-        for filename in (f"{username}.json", f"{username}_log.json"):
+        # Remove the record and its activity-log and admin-notes sidecars;
+        # leaving them behind would keep a deleted person's trail in the
+        # store forever.
+        for filename in (f"{username}.json", f"{username}_log.json", f"{username}_notes.json"):
             try:
                 if data_io.exists(storage_location=self.storage_location, filename=filename):
                     data_io.remove(storage_location=self.storage_location, filename=filename)

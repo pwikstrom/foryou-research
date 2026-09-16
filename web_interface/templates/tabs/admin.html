@@ -286,6 +286,22 @@
             </div>
         </div>
 
+        <!-- Admin's log: free-text notes about this account, attributed to the admin who wrote them -->
+        <div style="margin-bottom: 20px;">
+            <h4 class="text-xs uppercase font-semibold" style="margin: 0 0 8px 0; color: var(--color-text-muted);"
+                title="Notes admins keep about this account. Never shown to the account holder.">Admin's Log</h4>
+            <div id="userModalNotesList"
+                style="max-height: 30vh; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px; padding: 0 12px; background: var(--color-bg-elevated); margin-bottom: 8px;"></div>
+            <textarea id="userModalNoteInput" rows="2" maxlength="4000" class="text-sm"
+                placeholder="Add a note about this account&hellip; (Ctrl/Cmd+Enter to add)"
+                onkeydown="if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); modalAddNote(); }"
+                style="width: 100%; box-sizing: border-box; resize: vertical; min-height: 56px; font-family: inherit; padding: 6px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);"></textarea>
+            <div style="display: flex; align-items: center; gap: 12px; margin-top: 6px;">
+                <button id="userModalNoteAddBtn" onclick="modalAddNote()" class="action-btn text-xs">Add note</button>
+                <span id="userModalNoteStatus" class="text-xs" style="color: var(--color-text-muted);"></span>
+            </div>
+        </div>
+
         <!-- Activity log -->
         <div style="margin-bottom: 20px;">
             <h4 class="text-xs uppercase font-semibold" style="margin: 0 0 8px 0; color: var(--color-text-muted);">Activity Log</h4>
@@ -305,4 +321,4 @@
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/admin_tab.js') }}?v=14"></script>
+<script src="{{ url_for('static', filename='js/admin_tab.js') }}?v=15"></script>

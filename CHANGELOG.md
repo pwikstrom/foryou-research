@@ -12,6 +12,13 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Added
 
+- **Admin's log per user.** The user detail modal on Admin → Active Users
+  has a small notebook where admins leave free-text notes about an account
+  ("called about consent form", "second donation expected"). Each note
+  records who wrote it and when, and can be deleted. Notes live in a
+  `{username}_notes.json` sidecar next to the account record, are removed
+  with the account, and are never shown to the account holder. Adding or
+  deleting a note is recorded in the writer's activity log.
 - **Active users in the daily ops report.** The Users & access section
   now lists who used the Hub in the last 24 hours and when: each user's
   last-active time, their login time if they logged in inside the window,

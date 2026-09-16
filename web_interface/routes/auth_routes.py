@@ -21,7 +21,7 @@ from ..admin_settings import (
     study_names as admin_study_names,
     validate_setting_value,
 )
-from .. import activity_log
+from .. import activity_log, admin_notes
 from ..collection_accounts import (
     collections_for_user,
     load_owner_map,
@@ -532,6 +532,52 @@ def api_admin_user_log(username):
     """Return the activity log for the given user (newest first)."""
     entries = activity_log.read(username)
     return jsonify({"entries": entries})
+
+
+@auth_bp.route('/api/admin/users/<path:username>/notes', methods=['GET', 'POST'])
+@permission_required('tab.admin.active_users')
+def api_admin_user_notes(username):
+    """The admin's log for one account: GET lists notes (newest first), POST adds one.
+
+    Notes are attributed to the admin who wrote them and are never visible to
+    the account holder. Adding a note is also recorded in the writer's own
+    activity log so the audit trail shows who annotated whom.
+    """
+    if user_manager.get_user(username) is None:
+        return jsonify({"error": "User not found"}), 404
+    if request.method == 'GET':
+        return jsonify({"notes": admin_notes.read(username)})
+
+    data = request.get_json(silent=True) or {}
+    note, err = admin_notes.add(username, author=current_user.username, text=data.get('text', ''))
+    if err:
+        status = 500 if err.startswith("Failed") else 400
+        return jsonify({"error": err}), status
+    activity_log.record(
+        actor=current_user.username,
+        category=activity_log.CATEGORY_USER_MANAGEMENT,
+        action="user.note_added",
+        target=username,
+    )
+    return jsonify({"status": "success", "note": note})
+
+
+@auth_bp.route('/api/admin/users/<path:username>/notes/<note_id>', methods=['DELETE'])
+@permission_required('tab.admin.active_users')
+def api_admin_user_note_delete(username, note_id):
+    """Remove one note from an account's admin's log."""
+    removed, err = admin_notes.delete(username, note_id)
+    if err:
+        status = 500 if err.startswith("Failed") else 404
+        return jsonify({"error": err}), status
+    activity_log.record(
+        actor=current_user.username,
+        category=activity_log.CATEGORY_USER_MANAGEMENT,
+        action="user.note_deleted",
+        target=username,
+        details={"author": removed.get("author", "")},
+    )
+    return jsonify({"status": "success"})
 
 @auth_bp.route('/api/admin/roles', methods=['GET', 'POST', 'DELETE'])
 # GET is needed by any admin sub-page that lists or picks roles: New Users

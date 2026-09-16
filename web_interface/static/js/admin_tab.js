@@ -1377,6 +1377,13 @@
         const profileStatus = document.getElementById('userModalProfileStatus');
         if (profileStatus) profileStatus.textContent = '';
 
+        // Admin's log: reset the composer and fetch the notes
+        const noteInput = document.getElementById('userModalNoteInput');
+        const noteStatus = document.getElementById('userModalNoteStatus');
+        if (noteInput) noteInput.value = '';
+        if (noteStatus) noteStatus.textContent = '';
+        loadUserNotes(username);
+
         // Reset log to loading state
         const logList = document.getElementById('userModalLogList');
         logList.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted); padding: 8px 0;">Loading activity…</div>';
@@ -1414,6 +1421,85 @@
                 </div>
             </div>`;
         }).join('');
+    }
+
+    function loadUserNotes(username) {
+        const list = document.getElementById('userModalNotesList');
+        if (!list) return;
+        list.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted); padding: 8px 0;">Loading notes…</div>';
+        fetch(`/api/admin/users/${encodeURIComponent(username)}/notes`)
+            .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load notes')))
+            .then(data => renderUserNotes(data.notes || []))
+            .catch(err => {
+                list.innerHTML = `<div class="text-xs" style="color: var(--color-danger); padding: 8px 0;">Failed to load notes: ${_adminEsc(err.message)}</div>`;
+            });
+    }
+
+    function renderUserNotes(notes) {
+        const list = document.getElementById('userModalNotesList');
+        if (!list) return;
+        if (!notes || notes.length === 0) {
+            list.innerHTML = '<div class="text-xs" style="color: var(--color-text-muted); padding: 8px 0;">No notes yet.</div>';
+            return;
+        }
+        list.innerHTML = notes.map(n => `
+            <div style="display: grid; grid-template-columns: 160px 1fr auto; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--color-border); align-items: start;">
+                <div class="text-xxs" style="color: var(--color-text-muted);">
+                    <div class="font-mono">${_adminEsc(fypFmtDateTime(n.timestamp))}</div>
+                    <div title="${_adminEsc(n.author)}" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${_adminEsc(n.author)}</div>
+                </div>
+                <div class="text-xs" style="color: var(--color-text-primary); white-space: pre-wrap; overflow-wrap: anywhere;">${_adminEsc(n.text)}</div>
+                <button class="btn-discreet text-xxs" title="Delete this note" style="padding: 2px 6px;"
+                    onclick="modalDeleteNote('${_adminEsc(n.id)}')">&times;</button>
+            </div>`).join('');
+    }
+
+    async function modalAddNote() {
+        const overlay = document.getElementById('userDetailModal');
+        const username = overlay && overlay.dataset.username;
+        const input = document.getElementById('userModalNoteInput');
+        const status = document.getElementById('userModalNoteStatus');
+        const btn = document.getElementById('userModalNoteAddBtn');
+        if (!username || !input) return;
+        const text = input.value.trim();
+        if (!text) {
+            if (status) { status.style.color = 'var(--color-text-muted)'; status.textContent = 'Write something first.'; }
+            return;
+        }
+        if (btn) btn.disabled = true;
+        if (status) { status.style.color = 'var(--color-text-muted)'; status.textContent = 'Saving…'; }
+        try {
+            const response = await fetch(`/api/admin/users/${encodeURIComponent(username)}/notes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'Failed to add note');
+            input.value = '';
+            if (status) status.textContent = '';
+            loadUserNotes(username);
+        } catch (error) {
+            if (status) { status.style.color = 'var(--color-danger)'; status.textContent = 'Error: ' + error.message; }
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async function modalDeleteNote(noteId) {
+        const overlay = document.getElementById('userDetailModal');
+        const username = overlay && overlay.dataset.username;
+        if (!username || !noteId) return;
+        if (!confirm('Delete this note?')) return;
+        const status = document.getElementById('userModalNoteStatus');
+        try {
+            const response = await fetch(`/api/admin/users/${encodeURIComponent(username)}/notes/${encodeURIComponent(noteId)}`, { method: 'DELETE' });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'Failed to delete note');
+            loadUserNotes(username);
+        } catch (error) {
+            if (status) { status.style.color = 'var(--color-danger)'; status.textContent = 'Error: ' + error.message; }
+        }
     }
 
     function closeUserModal() {

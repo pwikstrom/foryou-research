@@ -20,6 +20,8 @@ python scripts/gen_route_inventory.py
 | auth_bp | `/api/admin/settings` | GET,PUT | `auth_bp.api_admin_settings` |
 | auth_bp | `/api/admin/users` | DELETE,GET,POST,PUT | `auth_bp.api_admin_users` |
 | auth_bp | `/api/admin/users/<path:username>/log` | GET | `auth_bp.api_admin_user_log` |
+| auth_bp | `/api/admin/users/<path:username>/notes` | GET,POST | `auth_bp.api_admin_user_notes` |
+| auth_bp | `/api/admin/users/<path:username>/notes/<note_id>` | DELETE | `auth_bp.api_admin_user_note_delete` |
 | auth_bp | `/api/admin/users/orphan_participants` | GET,POST | `auth_bp.api_admin_orphan_participants` |
 | auth_bp | `/api/signup/email-check` | GET | `auth_bp.api_signup_email_check` |
 | auth_bp | `/api/user/profile` | GET,POST | `auth_bp.api_user_profile` |
@@ -197,4 +199,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-186 routes total.
+188 routes total.
