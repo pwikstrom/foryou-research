@@ -42,6 +42,8 @@ def _ledger() -> dict:
         "ig1.zip": {"outcome": "load_failed", "platform": "instagram", "source": "ddp", "raw_rows": 0},
         "old.json": {"outcome": "added_as_new", "raw_rows": 50, "processed_rows": 50, "kept_rows": 50,
                      "deduped_rows": 0, "dropped": {}, "platform": "tiktok", "source": "ddp"},
+        "prebreak.json": {"outcome": "added_as_new", "raw_rows": 100, "processed_rows": None, "kept_rows": 90,
+                          "deduped_rows": None, "dropped": None, "platform": "tiktok", "source": "ddp"},
     }
 
 
@@ -49,17 +51,19 @@ def test_attrition_by_route_counts_legacy_files_without_rows():
     att = ir.attrition_by_route(_ledger())
     assert att["unknown"]["files"] == 1 and att["unknown"]["files_without_counts"] == 1
     tt = att["tiktok_ddp"]
-    assert tt["files"] == 3 and tt["rows_read"] == 1550
+    assert tt["files"] == 4 and tt["rows_read"] == 1650
     assert tt["dropped_not_parseable"] == 20 and tt["dropped_missing_required"] == 10
-    assert tt["deduped"] == 420 and tt["kept"] == 1100
-    assert tt["kept_pct"] == pytest.approx(70.97, abs=0.01)
-    assert att["all"]["files"] == 6
+    assert tt["deduped"] == 420 and tt["kept"] == 1190
+    assert tt["files_without_breakdown"] == 1 and tt["unattributed_pre_breakdown"] == 10
+    assert tt["unaccounted"] == 0
+    assert tt["kept_pct"] == pytest.approx(72.12, abs=0.01)
+    assert att["all"]["files"] == 7
     assert att["instagram_ddp"]["rows_read"] == 0 and att["instagram_ddp"]["kept_pct"] is None
 
 
 def test_outcomes_by_route():
     out = ir.outcomes_by_route(_ledger())
-    assert out["tiktok_ddp"] == {"added_as_new": 2, "merged_with_existing": 1}
+    assert out["tiktok_ddp"] == {"added_as_new": 3, "merged_with_existing": 1}
     assert out["all"]["load_failed"] == 1
 
 
@@ -166,7 +170,7 @@ def test_region_of_tz_and_contingency():
 
 def test_resolution_levels():
     res = ir.resolution_levels(_ledger())
-    assert res["tiktok_ddp"] == {"inferred": 1, "supplied_zone": 1, "unknown_no_provenance": 1}
+    assert res["tiktok_ddp"] == {"inferred": 1, "supplied_zone": 1, "unknown_no_provenance": 2}
     assert res["youtube_ddp"] == {"export_native_ambiguous_label": 1}
     assert res["instagram_ddp"] == {"unknown_no_provenance": 1}
 
@@ -251,8 +255,11 @@ def test_timestamp_overlaps_matches_reference_and_union_find():
     assert at_01["n_false_merges_different_accounts"] == 1
     at_02 = ir.union_find_merges(pairs, 0.2, events, users)  # a-b overlap 0.2 is not > 0.2
     assert at_02["n_merges"] == 0
-    small = ir.union_find_merges([("c", "d", 0.5)], 0.2, events, users)
+    small = ir.union_find_merges([("c", "d", 0.5)], 0.2, events, users,
+                                 collection_per_file={"c": "x", "d": "y"}, shared_per_pair={("c", "d"): 2})
     assert small["n_merges_involving_small_file"] == 1
+    assert small["n_merges_spanning_collections"] == 1
+    assert small["n_pairs_on_two_shared_seconds_or_fewer"] == 1
 
 
 def test_read_classification_validates():

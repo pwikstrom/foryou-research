@@ -156,6 +156,9 @@ def attrition_by_route(ledger_files: dict[str, dict]) -> dict[str, dict]:
 
     Entries whose ``raw_rows`` is None (files migrated from the legacy
     discard list) are counted as files without counts and contribute no rows.
+    Entries written before the ledger recorded ``processed_rows`` and a
+    ``dropped`` breakdown carry only rows read and rows kept; their gap is
+    reported as ``unattributed_pre_breakdown`` rather than left unexplained.
 
     Args:
         ledger_files: The ``files`` map of ``ingestion_ledger.json``.
@@ -175,6 +178,11 @@ def attrition_by_route(ledger_files: dict[str, dict]) -> dict[str, dict]:
         c["processed_rows"] += int(entry.get("processed_rows") or 0)
         c["kept"] += int(entry.get("kept_rows") or 0)
         c["deduped"] += int(entry.get("deduped_rows") or 0)
+        if entry.get("dropped") is None and entry.get("processed_rows") is None:
+            c["files_without_breakdown"] += 1
+            c["unattributed_pre_breakdown"] += max(int(entry.get("raw_rows") or 0) - int(entry.get("kept_rows") or 0), 0)
+            continue
+        c["files_with_breakdown"] += 1
         dropped = entry.get("dropped") or {}
         c["dropped_not_parseable"] += int(dropped.get("not_parseable") or 0)
         c["dropped_missing_required"] += int(dropped.get("missing_required") or 0)
@@ -188,11 +196,12 @@ def attrition_by_route(ledger_files: dict[str, dict]) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for route, c in per_route.items():
         row = {k: int(v) for k, v in c.items()}
-        for k in ("files", "files_with_counts", "files_without_counts", "rows_read", "processed_rows",
-                  "kept", "deduped", "dropped_not_parseable", "dropped_missing_required", "dropped_other"):
+        for k in ("files", "files_with_counts", "files_without_counts", "files_with_breakdown",
+                  "files_without_breakdown", "rows_read", "processed_rows", "kept", "deduped",
+                  "dropped_not_parseable", "dropped_missing_required", "dropped_other", "unattributed_pre_breakdown"):
             row.setdefault(k, 0)
         row["unaccounted"] = row["rows_read"] - row["kept"] - row["deduped"] - row["dropped_not_parseable"] \
-            - row["dropped_missing_required"] - row["dropped_other"]
+            - row["dropped_missing_required"] - row["dropped_other"] - row["unattributed_pre_breakdown"]
         row["kept_pct"] = round(100.0 * row["kept"] / row["rows_read"], 2) if row["rows_read"] else None
         out[route] = row
     return out
@@ -788,8 +797,16 @@ def union_find_merges(
     events_per_file: dict[str, int],
     user_id_per_file: dict[str, str | None],
     platform_per_file: dict[str, str] | None = None,
+    collection_per_file: dict[str, str] | None = None,
+    shared_per_pair: dict[tuple[str, str], int] | None = None,
 ) -> dict:
-    """Cluster files whose overlap exceeds ``threshold`` and describe the merges."""
+    """Cluster files whose overlap exceeds ``threshold`` and describe the merges.
+
+    Besides the merge counts, reports how many merges would join files that
+    production keeps in different collections (the merges the threshold
+    would newly cause) and how many qualifying pairs rest on two shared
+    seconds or fewer (the small-file coincidence the ratio cannot see).
+    """
     parent: dict[str, str] = {}
 
     def find(x: str) -> str:
@@ -801,12 +818,15 @@ def union_find_merges(
 
     n_pairs = 0
     n_cross_platform = 0
+    n_tiny = 0
     for a, b, overlap in pairs:
         if overlap <= threshold:
             continue
         n_pairs += 1
         if platform_per_file and platform_per_file.get(a) != platform_per_file.get(b):
             n_cross_platform += 1
+        if shared_per_pair and shared_per_pair.get((a, b), 3) <= 2:
+            n_tiny += 1
         parent[find(a)] = find(b)
     clusters: dict[str, list[str]] = defaultdict(list)
     for x in list(parent):
@@ -818,11 +838,16 @@ def union_find_merges(
         users = {user_id_per_file.get(f) for f in c if user_id_per_file.get(f)}
         if len(users) > 1:
             false += 1
+    spanning = 0
+    if collection_per_file:
+        spanning = sum(1 for c in multi if len({collection_per_file.get(f) for f in c}) > 1)
     return {
         "threshold": threshold,
         "n_pairs_above_threshold": n_pairs,
+        "n_pairs_on_two_shared_seconds_or_fewer": n_tiny,
         "n_merges": len(multi),
         "n_files_merged": sum(len(c) for c in multi),
+        "n_merges_spanning_collections": spanning,
         "n_merges_involving_small_file": small,
         "n_false_merges_different_accounts": false,
         "n_cross_platform_pairs": n_cross_platform,
@@ -852,7 +877,9 @@ def ledger_merge_truth(ledger_files: dict[str, dict]) -> dict:
 
 
 def overlap_sensitivity(pairs: list[tuple[str, str, float]], ledger_files: dict[str, dict],
-                        events_per_file: dict[str, int], platform_per_file: dict[str, str] | None = None) -> dict:
+                        events_per_file: dict[str, int], platform_per_file: dict[str, str] | None = None,
+                        collection_per_file: dict[str, str] | None = None,
+                        shared_per_pair: dict[tuple[str, str], int] | None = None) -> dict:
     """Merges at each threshold plus the overlap distribution and the ledger's ground truth."""
     users = {fn: e.get("user_id") for fn, e in ledger_files.items()}
     overlaps = sorted(o for _, _, o in pairs)
@@ -863,7 +890,8 @@ def overlap_sensitivity(pairs: list[tuple[str, str, float]], ledger_files: dict[
         "overlap_quantiles": {q: round(float(np.quantile(overlaps, q)), 4) for q in (0.5, 0.9, 0.99)} if overlaps else {},
         "n_pairs_over_0_05": sum(1 for o in overlaps if o > 0.05),
         "ledger": ledger_merge_truth(ledger_files),
-        "thresholds": {str(t): union_find_merges(pairs, t, events_per_file, users, platform_per_file)
+        "thresholds": {str(t): union_find_merges(pairs, t, events_per_file, users, platform_per_file,
+                                                  collection_per_file, shared_per_pair)
                        for t in OVERLAP_THRESHOLDS},
     }
     return out
@@ -907,12 +935,21 @@ def render_tables_md(report: dict) -> str:
     att = report["attrition"]
     routes = [r for r in att if r != "all"] + ["all"]
     parts += ["## 5.1 Intake by route (Table 3)", "",
-              _md_table(["Route", "Files", "No counts", "Rows read", "Not parseable", "Missing required",
-                         "Deduplicated", "Kept", "Kept %", "Unaccounted"],
-                        [[r, att[r]["files"], att[r]["files_without_counts"], att[r]["rows_read"],
-                          att[r]["dropped_not_parseable"], att[r]["dropped_missing_required"], att[r]["deduped"],
-                          att[r]["kept"], att[r]["kept_pct"], att[r]["unaccounted"]] for r in routes]),
-              "", "Files without counts were migrated from the legacy discard list and contribute no rows.", ""]
+              _md_table(["Route", "Files", "No counts", "No breakdown", "Rows read", "Not parseable", "Missing required",
+                         "Deduplicated", "Lost, pre-breakdown ledger", "Kept", "Kept %", "Unaccounted"],
+                        [[r, att[r]["files"], att[r]["files_without_counts"], att[r]["files_without_breakdown"],
+                          att[r]["rows_read"], att[r]["dropped_not_parseable"], att[r]["dropped_missing_required"],
+                          att[r]["deduped"], att[r]["unattributed_pre_breakdown"], att[r]["kept"], att[r]["kept_pct"],
+                          att[r]["unaccounted"]] for r in routes]),
+              "", "Files without counts were migrated from the legacy discard list and contribute no rows. "
+              "Files without breakdown were ledgered before drop reasons were recorded: their rows read minus rows kept "
+              "is reported as lost without attribution.", ""]
+    comp = report.get("composition")
+    if comp:
+        parts += ["### Activity table composition", "",
+                  _md_table(["Route", "Rows", "Collections", "Raw files", "First event", "Last event"],
+                            [[r, c["rows"], c["collections"], c["raw_files"], c["first_event"], c["last_event"]]
+                             for r, c in comp.items()]), ""]
     outc = report["outcomes"]
     all_outcomes = sorted({o for r in outc.values() for o in r})
     parts += ["## 5.2 Outcomes (Table 4)", "",
@@ -961,8 +998,18 @@ def render_tables_md(report: dict) -> str:
                   f"off by more than 1 h {cal['off_gt_1h_pct']} %; median |diff| {cal['median_abs_diff_h']} h.", ""]
     ses = report.get("sessions")
     if ses:
-        parts += ["## 5.4 Sensitivity", "", "### Session gap", ""]
+        parts += ["## 5.4 Sensitivity", "", "### Session gap (all activity rows)", ""]
         for platform, s in ses.items():
+            rows = [[f"{g} s", s[f'gap_{g}s']["n_sessions"], s[f'gap_{g}s']["sessions_per_collection_median"],
+                     s[f'gap_{g}s']["session_length_median_s"], s[f'gap_{g}s']["session_events_median"],
+                     s[f'gap_{g}s']["singleton_share_pct"]] for g in SESSION_GAPS if f"gap_{g}s" in s]
+            parts += [f"{platform}: {s['n_rows']:,} rows, {s['n_collections']} collections", "",
+                      _md_table(["Gap", "Sessions", "Per collection (median)", "Length median s",
+                                 "Events median", "Singletons %"], rows), ""]
+    ses_p = report.get("sessions_plays_only")
+    if ses_p:
+        parts += ["### Session gap (play and observe rows only)", ""]
+        for platform, s in ses_p.items():
             rows = [[f"{g} s", s[f'gap_{g}s']["n_sessions"], s[f'gap_{g}s']["sessions_per_collection_median"],
                      s[f'gap_{g}s']["session_length_median_s"], s[f'gap_{g}s']["session_events_median"],
                      s[f'gap_{g}s']["singleton_share_pct"]] for g in SESSION_GAPS if f"gap_{g}s" in s]
@@ -982,11 +1029,12 @@ def render_tables_md(report: dict) -> str:
         parts += ["### Donor-merge overlap", "", ov["note"], "",
                   f"Pairs {ov['n_pairs']:,}; overlap quantiles {ov['overlap_quantiles']}; pairs over 0.05: {ov['n_pairs_over_0_05']}; "
                   f"ledger: {ov['ledger']}", "",
-                  _md_table(["Threshold", "Pairs above", "Merges", "Files merged", "With a file <30 events",
-                             "Different accounts", "Cross-platform pairs"],
-                            [[t, v["n_pairs_above_threshold"], v["n_merges"], v["n_files_merged"],
-                              v["n_merges_involving_small_file"], v["n_false_merges_different_accounts"],
-                              v["n_cross_platform_pairs"]] for t, v in ov["thresholds"].items()]), ""]
+                  _md_table(["Threshold", "Pairs above", "On <=2 shared seconds", "Merges", "Files merged",
+                             "Spanning collections", "With a file <30 events", "Different accounts", "Cross-platform pairs"],
+                            [[t, v["n_pairs_above_threshold"], v["n_pairs_on_two_shared_seconds_or_fewer"], v["n_merges"],
+                              v["n_files_merged"], v["n_merges_spanning_collections"], v["n_merges_involving_small_file"],
+                              v["n_false_merges_different_accounts"], v["n_cross_platform_pairs"]]
+                             for t, v in ov["thresholds"].items()]), ""]
     return "\n".join(parts)
 
 
@@ -1248,8 +1296,13 @@ def write_outputs(out_dir: Path, report: dict, tables_md: str, svg: str, rows: l
 
 
 def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, str] | None,
-                 platforms: list[str] | None, skip_parquet: bool) -> tuple[dict, list[dict]]:
+                 platforms: list[str] | None, skip_parquet: bool,
+                 exclude_routes: tuple[str, ...] = ()) -> tuple[dict, list[dict]]:
     """Compute every part of the report; returns the report and the worksheet rows."""
+    if exclude_routes:
+        inputs.ledger = {fn: e for fn, e in inputs.ledger.items() if route_of(e) not in exclude_routes}
+        inputs.verdicts = {fn: v for fn, v in inputs.verdicts.items()
+                           if f"{v.get('platform')}_{v.get('source')}" not in exclude_routes}
     rows = quarantine_rows(inputs.verdicts, inputs.ledger, inputs.baselines, commits)
     report: dict = {
         "attrition": attrition_by_route(inputs.ledger),
@@ -1268,19 +1321,34 @@ def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, 
     platforms = platforms or list_platforms()
     events_per_file: dict[str, int] = {}
     platform_per_file: dict[str, str] = {}
+    collection_per_file: dict[str, str] = {}
     calibration: list[dict] = []
     sessions: dict[str, dict] = {}
+    sessions_plays: dict[str, dict] = {}
     comments: dict = {}
+    composition: dict[str, dict] = {}
     for platform in platforms:
         df = load_platform_frame(platform, ["raw_file", "collection_id", "utc_timestamp", "activity_type",
-                                            "item_id", "link_method"])
+                                            "item_id", "link_method", "data_source"])
+        if exclude_routes and "data_source" in df.columns:
+            df = df[~(platform + "_" + df["data_source"].astype(str)).isin(exclude_routes)]
         if df.empty:
             continue
+        for (src,), grp in df.groupby(["data_source"]):
+            composition[f"{platform}_{src}"] = {
+                "rows": len(grp), "collections": int(grp["collection_id"].nunique()),
+                "raw_files": int(grp["raw_file"].nunique()),
+                "first_event": str(grp["utc_timestamp"].min())[:10], "last_event": str(grp["utc_timestamp"].max())[:10],
+            }
         counts = df.groupby("raw_file").size()
         for fn, n in counts.items():
             events_per_file[str(fn)] = int(n)
             platform_per_file[str(fn)] = platform
+        for fn, cid in df.groupby("raw_file")["collection_id"].first().items():
+            collection_per_file[str(fn)] = str(cid)
         sessions[platform] = session_stats(df[["collection_id", "utc_timestamp"]])
+        plays = df[df["activity_type"].isin(["play", "observe"])]
+        sessions_plays[platform] = session_stats(plays[["collection_id", "utc_timestamp"]])
         if platform == "tiktok":
             comments = comment_gap_stats(df)
         supplied = {fn: e.get("tz") for fn, e in inputs.ledger.items() if e.get("tz")}
@@ -1291,12 +1359,17 @@ def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, 
         del df
     pairs_df = timestamp_overlaps(overlap_frame())
     pairs = [(str(a), str(b), float(o)) for a, b, o in
-             zip(pairs_df["a"].to_list(), pairs_df["b"].to_list(), pairs_df["overlap"].to_list(), strict=False)]
+             zip(pairs_df["a"].to_list(), pairs_df["b"].to_list(), pairs_df["overlap"].to_list(), strict=True)]
+    shared = {(str(a), str(b)): int(s) for a, b, s in
+              zip(pairs_df["a"].to_list(), pairs_df["b"].to_list(), pairs_df["shared"].to_list(), strict=True)}
+    report["composition"] = composition
     report["calibration"] = calibration_summary(calibration)
     report["calibration_per_file"] = calibration
     report["sessions"] = sessions
+    report["sessions_plays_only"] = sessions_plays
     report["comments"] = comments
-    report["overlap"] = overlap_sensitivity(pairs, inputs.ledger, events_per_file, platform_per_file)
+    report["overlap"] = overlap_sensitivity(pairs, inputs.ledger, events_per_file, platform_per_file,
+                                            collection_per_file, shared)
     return report, rows
 
 
@@ -1311,6 +1384,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-parquet", action="store_true", help="ledger and verdict parts only")
     parser.add_argument("--classification", help="filled-in quarantine_worksheet.csv")
     parser.add_argument("--platforms", help="comma-separated platform list (default: all in the table)")
+    parser.add_argument("--exclude-routes", default="", help="comma-separated platform_source routes to leave out, e.g. tiktok_demo")
     parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parent.parent))
     args = parser.parse_args(argv)
 
@@ -1330,7 +1404,8 @@ def main(argv: list[str] | None = None) -> int:
         approved = {fn for fn, v in inputs.verdicts.items() if v.get("status") == "approved"}
         classification = read_classification(Path(args.classification).read_text(), approved)
     platforms = [p.strip() for p in args.platforms.split(",")] if args.platforms else None
-    report, rows = build_report(inputs, commits, classification, platforms, args.skip_parquet)
+    exclude = tuple(r.strip() for r in args.exclude_routes.split(",") if r.strip())
+    report, rows = build_report(inputs, commits, classification, platforms, args.skip_parquet, exclude)
     report["snapshot"] = {
         "snapshot_root": str(snapshot_root),
         "inputs": inputs.provenance,
