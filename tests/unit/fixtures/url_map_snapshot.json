@@ -105,6 +105,21 @@
   ]
  ],
  [
+  "/api/admin/users/<path:username>/notes",
+  "auth_bp.api_admin_user_notes",
+  [
+   "GET",
+   "POST"
+  ]
+ ],
+ [
+  "/api/admin/users/<path:username>/notes/<note_id>",
+  "auth_bp.api_admin_user_note_delete",
+  [
+   "DELETE"
+  ]
+ ],
+ [
   "/api/admin/users/orphan_participants",
   "auth_bp.api_admin_orphan_participants",
   [
