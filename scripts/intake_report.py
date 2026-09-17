@@ -1532,6 +1532,11 @@ def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, 
             calibration.append(rec)
         del df
     pairs_df = timestamp_overlaps(overlap_frame())
+    # The overlap frame is read whole; keep only files on the routes reported
+    # (excluded routes and platforms are not part of the sensitivity).
+    import polars as pl
+    reported = list(events_per_file)
+    pairs_df = pairs_df.filter(pl.col("a").is_in(reported) & pl.col("b").is_in(reported))
     pairs = [(str(a), str(b), float(o)) for a, b, o in
              zip(pairs_df["a"].to_list(), pairs_df["b"].to_list(), pairs_df["overlap"].to_list(), strict=True)]
     shared = {(str(a), str(b)): int(s) for a, b, s in
