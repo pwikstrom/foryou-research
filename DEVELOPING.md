@@ -313,17 +313,19 @@ baked a local path into the image).
 - **Base image** (`Dockerfile.base`): Python 3.12-slim + gcc + Rust + all pip deps. Only rebuild when `requirements.txt` changes.
 - **App image** (`Dockerfile`): Thin layer on top of base — just copies application code. Fast to build (~1 min).
 
-**Deploy steps (both services share the same app image):**
+**Deploy steps (both services share the same app image). Every build runs in
+Cloud Build — no local Docker install is required for any of this.**
 
 ```bash
-# 0. Rebuild base image (ONLY when requirements.txt changes — slow, ~5 min)
-#    Build the base image locally, then push it to your registry:
-docker build -f Dockerfile.base -t <registry>/<gcp-project>/foryou-hub-base:latest .
-docker push <registry>/<gcp-project>/foryou-hub-base:latest
+# 0. Rebuild base image (ONLY when requirements.txt changes — slow, ~11 min
+#    in Cloud Build with no layer cache from a prior local build)
+gcloud builds submit --config=cloudbuild-base.yaml \
+  --substitutions=_BASE_IMAGE=australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-base:latest \
+  --project=<gcp-project> --region=australia-southeast1
 
-# 1. Build the app image (always required before deploying — fast, ~1 min)
-gcloud builds submit \
-  --tag australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-app:latest \
+# 1. Build the app image (always required before deploying — fast, ~2 min)
+gcloud builds submit --config=cloudbuild-app.yaml \
+  --substitutions=_BASE_IMAGE=australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-base:latest,_APP_IMAGE=australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-app:latest \
   --project=<gcp-project> --region=australia-southeast1
 
 # 2. Deploy web server
@@ -336,6 +338,15 @@ gcloud run deploy fyp-task-runner \
   --image australia-southeast1-docker.pkg.dev/<gcp-project>/cloud-run-source-deploy/fyp-app:latest \
   --region=australia-southeast1 --project=<gcp-project>
 ```
+
+`cloudbuild-base.yaml` / `cloudbuild-app.yaml` (repo root) are generic Cloud
+Build configs — a `--tag` one-liner can't pass `-f Dockerfile.base` or
+`--build-arg`, so each needs a config file to select the Dockerfile / wire the
+base image in. Neither config hardcodes a registry path (that would undo
+a958a609's parameterization for the public repo); both image paths are
+supplied per-invocation via `--substitutions`. A local `docker build` (see the
+comments atop `Dockerfile` / `Dockerfile.base`) still works as a fallback if
+you have Docker installed, but it is optional — nothing here needs it.
 
 **When to deploy which service:**
 - UI/route/template/JS changes only → deploy just `fyp-data-hub`

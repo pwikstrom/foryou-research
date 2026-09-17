@@ -1,0 +1,10 @@
+# Cloud Build config for the thin app image (Dockerfile). Run before every
+# deploy. `gcloud builds submit --tag` can't pass `--build-arg`, so this
+# config exists to point the app layer at the already-built base image; it
+# carries no project-specific detail — both image paths are supplied at
+# submit time via --substitutions (see DEVELOPING.md "Cloud Run Deployment").
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '--build-arg', 'BASE_IMAGE=${_BASE_IMAGE}', '-t', '${_APP_IMAGE}', '.']
+images:
+  - '${_APP_IMAGE}'

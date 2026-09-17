@@ -1,0 +1,10 @@
+# Cloud Build config for the base image (Dockerfile.base). Rebuild only when
+# requirements.txt changes. `gcloud builds submit --tag` can't pass `-f`, so
+# this config exists to select the Dockerfile; it carries no project-specific
+# detail — the registry path is supplied at submit time via --substitutions
+# (see DEVELOPING.md "Cloud Run Deployment").
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.base', '-t', '${_BASE_IMAGE}', '.']
+images:
+  - '${_BASE_IMAGE}'
