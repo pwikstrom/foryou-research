@@ -30,6 +30,9 @@ Notable behaviors:
 - **Engagement→play linking**: likes/comments/shares are folded into the
   matching play row's `extra_data` (adjacency first, nearest-play fallback) —
   this folded token is the only engagement signal that survives into studies.
+  The row says how the link was made (`link_method`: `adjacent`,
+  `nearest_play`, both, or `ffill_180s` on a TikTok comment whose video id
+  the 180 s forward fill supplied), so inferred links can be excluded.
 - **Enrichment seed**: donated item metadata (caption, author) is persisted
   per platform in the canonical scrape schema with `scrape_status="donated"`,
   and used at consolidation as a lowest-precedence fallback for items that
@@ -71,13 +74,18 @@ Notable behaviors:
   count (including too-small discards) and a per-file drop-reason breakdown —
   rows that couldn't be interpreted (`not_parseable`), rows missing
   required-core fields (`missing_required`), rows deduplicated against the
-  archive. Persisted in the ingestion ledger (`ingestion_ledger.json`) and
+  archive (key: collection, item, timestamp, type — never `tz_offset`, so a
+  re-donation with a corrected zone deduplicates and the newest offset wins). Persisted in the ingestion ledger (`ingestion_ledger.json`) and
   surfaced on Data Pipeline → Ingest Collections: the live "Last run results" table
   plus a permanent "Ingestion history" panel
   (`GET /api/manage/ingestion/ledger`) with plain-language labels, so an
   uploader can always see why rows didn't land.
 - **Donor timezone**: uploads can carry an authoritative IANA zone / fixed
-  offset per file, validated at upload time.
+  offset per file, validated at upload time and honoured by every platform's
+  parser (the TikTok DDP parser bypassed it until 2026-09). What a parser had
+  to resolve without one — YouTube's ambiguous IST/CST/BST/EST labels, an
+  unrecognised label — is written to the file's ledger `notes`
+  (`ForYouBaseCollection.note_file`), not only logged.
 - **Browser-side review** (participant uploads): the export is parsed
   entirely client-side (`static/js/donation_review.js` — no network requests
   happen during review), sections and individual rows can be pruned, and the

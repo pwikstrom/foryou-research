@@ -85,6 +85,76 @@ def test_parses_after_multi_file_concat(collection, monkeypatch):
     assert plays["utc_timestamp"].notna().all()
 
 
+def _ddp_with_comments() -> dict:
+    """Twelve plays a minute apart from 10:00 (the loader discards an export
+    with ten or fewer), a comment 30 s after the first play (inside the 180 s
+    grouping) and one 19 min after the last play (outside). Comments carry no
+    video link in a TikTok export."""
+    return {
+        "Activity": {
+            "Video Browsing History": {
+                "VideoList": [
+                    {"Date": f"2026-05-01 10:{i:02d}:00",
+                     "Link": f"https://www.tiktokv.com/share/video/70000000000000000{i:02d}/"}
+                    for i in range(12)
+                ]
+            },
+        },
+        "Comment": {
+            "Comments": {
+                "CommentsList": [
+                    {"Date": "2026-05-01 10:00:30", "Comment": "nice one"},
+                    {"Date": "2026-05-01 10:30:00", "Comment": "late reply"},
+                ]
+            }
+        },
+    }
+
+
+def test_supplied_donor_timezone_is_honoured(collection, monkeypatch):
+    """A manifest timezone drives tz_offset; the parser used to bypass it
+    and always infer from the activity rhythm (found 2026-09 while writing
+    the pipeline up)."""
+    df = _load(collection, monkeypatch, "donor_0.json", _flat_ddp_document(seed=7))
+    df["manifest_tz"] = "Asia/Tokyo"
+
+    out = collection.process_single(df)
+
+    assert len(out) > 0
+    assert (out["tz_offset"] == 9).all(), out["tz_offset"].unique()
+
+
+def test_without_donor_timezone_offset_is_inferred(collection, monkeypatch):
+    """No manifest timezone -> the inference still runs and yields one offset."""
+    df = _load(collection, monkeypatch, "donor_0.json", _flat_ddp_document(seed=7))
+
+    out = collection.process_single(df)
+
+    assert out["tz_offset"].notna().all()
+    assert out["tz_offset"].nunique() == 1
+
+
+def test_comment_backfill_is_marked_on_the_row(collection, monkeypatch):
+    """A comment whose video id came from the 180 s forward fill says so in
+    link_method; one with no play in its group stays unlinked and unmarked;
+    the play that received the folded comment says how it got it."""
+    df = _load(collection, monkeypatch, "donor_0.json", _ddp_with_comments())
+
+    out = collection.process_single(df).sort_values("utc_timestamp").reset_index(drop=True)
+
+    comments = out[out["activity_type"] == "comment"].reset_index(drop=True)
+    assert len(comments) == 2
+    assert comments.loc[0, "item_id"] == "7000000000000000000"
+    assert comments.loc[0, "link_method"] == "ffill_180s"
+    assert pd.isna(comments.loc[1, "item_id"])
+    assert pd.isna(comments.loc[1, "link_method"])
+
+    plays = out[out["activity_type"] == "play"].reset_index(drop=True)
+    assert plays.loc[0, "extra_data"] == "comment:nice one"
+    assert plays.loc[0, "link_method"] == "adjacent"
+    assert pd.isna(plays.loc[1, "link_method"])
+
+
 def test_empty_group_keeps_its_columns(collection, monkeypatch):
     """A zero-row group returns intact rather than stripped of every column.
 

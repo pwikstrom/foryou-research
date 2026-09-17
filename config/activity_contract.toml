@@ -105,7 +105,16 @@ dtype = "string[pyarrow]"
 section = "Activity"
 scale = "text"
 display_name = "Engagement activity"
-description = "Engagement activities (fave/comment/share/follow/save) folded into the leading play row of a session run. Null for most rows. Comments carry no video ID in the platform export: one is linked to the play it followed within 180s, so the video is what was on screen at the time — not necessarily what the comment was posted on. The timestamp on this row is the play's, not the comment's."
+description = "Engagement activities (fave/comment/share/follow/save) folded into the leading play row of a session run. Null for most rows. Comments carry no video ID in the platform export: one is linked to the play it followed within 180s, so the video is what was on screen at the time — not necessarily what the comment was posted on. The timestamp on this row is the play's, not the comment's. How each link was made is on the same row's `link_method`."
+
+[[fields]]
+name = "link_method"
+scope = "base"
+dtype = "string[pyarrow]"
+section = "Activity"
+scale = "categorical"
+display_name = "Engagement link method"
+description = "How an engagement event was linked to this row, so inferred links can be excluded. On a play row: `adjacent` (an engagement row followed the play directly), `nearest_play` (an engagement row on the same item was attached to this play across any gap — Instagram logs a view once per item, so a like can be days later), or both, comma-separated. On a TikTok comment row: `ffill_180s` (the export gave no video ID; the last play within 180 s supplied one). Null when nothing was inferred."
 
 [[fields]]
 name = "tz_offset"

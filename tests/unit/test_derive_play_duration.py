@@ -177,6 +177,45 @@ def test_fallback_fold_carries_comment_payload():
 
 
 
+def test_link_method_names_the_fold_that_linked_each_play():
+    # Adjacent fave -> "adjacent" on the lead play; a distant fave on another
+    # item -> "nearest_play" on that item's play; untouched plays stay null.
+    out = derive_play_duration(_frame(
+        [0, 5, 60, 120, 7 * 86400],
+        ["play", "fave", "play", "play", "fave"],
+        ["a", "a", "b", "c", "b"],
+    ))
+    assert out.loc[0, "link_method"] == "adjacent"
+    assert out.loc[2, "link_method"] == "nearest_play"
+    assert pd.isna(out.loc[3, "link_method"])
+    # The engagement rows themselves carry no method (nothing was inferred on them).
+    assert pd.isna(out.loc[1, "link_method"])
+    assert pd.isna(out.loc[4, "link_method"])
+    assert pd.api.types.is_string_dtype(out["link_method"])
+    print("PASS: link_method names the fold")
+
+
+
+
+def test_link_method_lists_both_folds_and_keeps_parser_value():
+    # One play gets an adjacent comment AND a distant fave -> both methods, in
+    # order of application. A value written by a platform parser on a non-play
+    # row (TikTok's ffill_180s) survives the fold untouched.
+    df = _frame(
+        [0, 10, 3600, 9000],
+        ["play", "comment", "play", "fave"],
+        ["a", "a", "b", "a"],
+    )
+    df["link_method"] = pd.array([pd.NA, "ffill_180s", pd.NA, pd.NA], dtype="string[pyarrow]")
+    out = derive_play_duration(df)
+    assert out.loc[0, "link_method"] == "adjacent,nearest_play"
+    assert out.loc[1, "link_method"] == "ffill_180s"
+    assert pd.isna(out.loc[2, "link_method"])
+    print("PASS: link_method lists both folds and keeps the parser's value")
+
+
+
+
 def test_fallback_fold_without_matching_play_is_noop():
     out = derive_play_duration(_frame(
         [0, 3600], ["play", "fave"], ["a", "z"],
@@ -198,6 +237,8 @@ if __name__ == "__main__":
     test_empty_and_single_row()
     test_missing_extra_data_column_is_added()
     test_fallback_fold_links_distant_engagement()
+    test_link_method_names_the_fold_that_linked_each_play()
+    test_link_method_lists_both_folds_and_keeps_parser_value()
     test_fallback_fold_picks_nearest_play()
     test_fallback_fold_without_matching_play_is_noop()
     test_fallback_fold_carries_comment_payload()

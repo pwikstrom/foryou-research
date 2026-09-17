@@ -9,8 +9,8 @@ from fyp import activity_contract as ac
 
 _EXPECTED_REQUIRED_COLUMNS = {
     "item_id", "activity_type", "utc_timestamp", "collection_id", "data_source",
-    "extra_data", "tz_offset", "raw_file", "source_platform", "ts_added_to_dataset",
-    "play_duration",
+    "extra_data", "link_method", "tz_offset", "raw_file", "source_platform",
+    "ts_added_to_dataset", "play_duration",
 }
 _EXPECTED_CORE = {"activity_type", "utc_timestamp", "collection_id", "data_source", "tz_offset"}
 _EXPECTED_DERIVED = {

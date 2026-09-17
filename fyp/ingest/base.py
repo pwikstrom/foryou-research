@@ -152,6 +152,7 @@ except Exception:
         "item_id": "string[pyarrow]",
         "ts_added_to_dataset": "timestamp[ns][pyarrow]",
         "extra_data": "string[pyarrow]",
+        "link_method": "string[pyarrow]",
     }
     _ACTIVITY_REQUIRED_CORE = [
         "activity_type", "utc_timestamp", "collection_id", "data_source", "tz_offset",
@@ -433,6 +434,13 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
     of that item can be days away from its logged play. Only ``extra_data`` is
     affected — ``play_duration`` stays a strictly adjacency-based measure.
 
+    Every play that received a folded token says how: ``link_method`` is
+    ``"adjacent"``, ``"nearest_play"``, or ``"adjacent,nearest_play"`` when
+    both folds contributed. Plays with no engagement keep the column null, and
+    a value a platform parser wrote earlier (TikTok's ``"ffill_180s"`` on a
+    comment row) is preserved. The inference is documented in the activity
+    contract; this column is what lets an analysis exclude inferred links.
+
     Args:
         df: A single-donor activity frame in chronological order with
             ``utc_timestamp``, ``activity_type`` and ``item_id`` columns
@@ -450,9 +458,17 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
         # string tokens the folds below write into it.
         df["extra_data"] = df["extra_data"].astype("string[pyarrow]")
 
+    if "link_method" not in df.columns:
+        df["link_method"] = pd.array([pd.NA] * len(df), dtype="string[pyarrow]")
+    elif isinstance(df["link_method"].dtype, pd.ArrowDtype) and df["link_method"].isna().all():
+        df["link_method"] = df["link_method"].astype("string[pyarrow]")
+
     if df.empty:
         df["play_duration"] = pd.Series([], dtype="int64[pyarrow]")
         return df
+
+    # Which fold(s) put a token on each lead play; written to link_method at the end.
+    link_methods: dict[int, list[str]] = {}
 
     # 1. Forward delta on the full frame: for each row, the time until the *next*
     # event. This is the correct attribution of dwell time to an activity.
@@ -517,6 +533,7 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
                 folded_rows.add(i)
             if other_parts:
                 df.at[first_play, "extra_data"] = ",".join(other_parts)
+                link_methods.setdefault(first_play, []).append("adjacent")
 
     # 3. Same-item fallback fold: engagement rows that did not fold via
     # adjacency but whose item was played somewhere in the frame get their
@@ -539,8 +556,22 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
                 df.at[target, "extra_data"] = f"{existing},{token}"
             else:
                 df.at[target, "extra_data"] = token
+            methods = link_methods.setdefault(target, [])
+            if "nearest_play" not in methods:
+                methods.append("nearest_play")
 
-    # 4. Cap play_duration at cap_seconds and cast to the project dtype.
+    # 4. Record on each lead play which fold(s) linked engagement to it. A
+    # value the platform parser wrote before the fold (TikTok's ffill_180s on
+    # comment rows) sits on non-play rows and is left untouched.
+    for idx, methods in link_methods.items():
+        existing = df.at[idx, "link_method"]
+        parts = [] if existing is pd.NA or pd.isna(existing) else str(existing).split(",")
+        for m in methods:
+            if m not in parts:
+                parts.append(m)
+        df.at[idx, "link_method"] = ",".join(parts)
+
+    # 5. Cap play_duration at cap_seconds and cast to the project dtype.
     df["play_duration"] = df["play_duration"].map(
         lambda x: x if pd.notna(x) and x <= cap_seconds else pd.NA
     ).astype("int64[pyarrow]")
@@ -623,6 +654,9 @@ class ForYouBaseCollection(ABC):
         self.raw_path = getattr(type(self), "raw_path", None)
         self.processed_storage_location = "recoded"
         self.min_required_rows_per_raw_file = 10
+        # Per-file notes a parser records while loading (see note_file);
+        # reset per load_raw run.
+        self.parse_notes_this_run: dict[str, list[str]] = {}
         self.discarded_raw_files = []
         self.discarded_collections_filename = "discarded_collection_files.json"
         self.source_platform = getattr(type(self), "source_platform", None)
@@ -870,6 +904,12 @@ class ForYouBaseCollection(ABC):
 
         self.load_failed_this_run = {}
         self.file_stats_this_run = {}
+        # Notes a parser records about a file while loading it (e.g. an
+        # ambiguous time-zone label it had to resolve); copied onto the
+        # file's intake stats once the file is accepted, and from there onto
+        # the ledger entry, so the resolution is recorded per file rather
+        # than only logged.
+        self.parse_notes_this_run: dict[str, list[str]] = {}
         self.blocked_this_run = {}
         self.manifest_this_run = {}
 
@@ -943,6 +983,9 @@ class ForYouBaseCollection(ABC):
                 continue
 
             self.file_stats_this_run[fn] = {"raw_rows": int(len(one_df)), "dropped": {}}
+            parse_notes = self.parse_notes_this_run.pop(fn, None)
+            if parse_notes:
+                self.file_stats_this_run[fn]["parse_notes"] = list(parse_notes)
 
             if len(one_df) > 0:
                 mtime = data_io.getmtime(storage_location=self.raw_path, filename = fn)
@@ -1013,6 +1056,24 @@ class ForYouBaseCollection(ABC):
     @abstractmethod
     def load_single_raw(self, filename: str) -> pd.DataFrame:
         """Subclasses must implement this logic."""
+
+
+
+
+    def note_file(self, filename: str, message: str) -> None:
+        """Record a per-file note from a parser for the ingestion ledger.
+
+        Called from ``load_single_raw`` when the parser resolved something a
+        reader of the data should know about the file (an ambiguous
+        time-zone abbreviation, an unrecognised label that fell back to the
+        project zone). The note lands on the ledger entry's ``notes``.
+
+        Args:
+            filename: The raw file being loaded.
+            message: One plain-language sentence.
+        """
+        self.parse_notes_this_run.setdefault(filename, []).append(message)
+
 
 
 
@@ -1221,8 +1282,12 @@ class ForYouBaseCollection(ABC):
              Restamp ``collection_id`` on every row in that cluster.
           4. Sort the dataset by ``ts_added_to_dataset`` ascending and
              ``drop_duplicates(subset=[collection_id, item_id, utc_timestamp,
-             activity_type, tz_offset], keep='last')`` so the newest donation's
-             row wins on overlapping events.
+             activity_type], keep='last')`` so the newest donation's row wins
+             on overlapping events. ``tz_offset`` is deliberately NOT in the
+             key: the same event re-donated with a different supplied zone
+             is the same event, and the newest donation's offset should win
+             rather than both rows surviving (a re-donation with a corrected
+             zone would otherwise double every overlapping row).
 
         Notes:
           - Single-file clusters are untouched: their ``collection_id`` stays,
@@ -1349,7 +1414,7 @@ class ForYouBaseCollection(ABC):
         self.data = (
             self.data.sort_values("ts_added_to_dataset", kind="mergesort")
             .drop_duplicates(
-                subset=["collection_id", "item_id", "utc_timestamp", "activity_type", "tz_offset"],
+                subset=["collection_id", "item_id", "utc_timestamp", "activity_type"],
                 keep="last",
             )
             .copy()

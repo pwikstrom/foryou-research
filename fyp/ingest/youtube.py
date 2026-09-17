@@ -339,7 +339,7 @@ class YouTubeDDPCollection(ForYouBaseCollection):
 
 
     @classmethod
-    def _convert_timestamps(cls, df: pd.DataFrame, donor_tz=None) -> pd.Series:
+    def _convert_timestamps(cls, df: pd.DataFrame, donor_tz=None, notes: list[str] | None = None) -> pd.Series:
         """Vectorised conversion of the parsed timestamp components to UTC.
 
         Normalises the month token to its 3-letter form (Takeout renders
@@ -354,6 +354,10 @@ class YouTubeDDPCollection(ForYouBaseCollection):
         Args:
             df: Frame with ``yt_date`` / ``yt_time`` / ``yt_ampm`` / ``yt_tz``.
             donor_tz: A ``tzinfo`` from the ingestion manifest, or ``None``.
+            notes: When given, a list the converter appends one sentence to
+                for each resolution a reader of the data should know about
+                (an ambiguous abbreviation, an unrecognised label), so the
+                caller can put it on the file's ledger entry.
         """
         dates_raw = df["yt_date"].astype("string").str.replace(cls._MONTH_NORM_RE, r"\1", regex=True)
         dates = pd.to_datetime(dates_raw, format="%d %b %Y", errors="coerce")
@@ -388,19 +392,31 @@ class YouTubeDDPCollection(ForYouBaseCollection):
         unknown = offsets.isna() & (tz != "")
         ambiguous = tz.isin(cls._AMBIGUOUS_TZ)
         if unknown.any():
+            labels = sorted(tz[unknown].unique().tolist())
             logger.warning(
                 f"WARNING: {int(unknown.sum())} YouTube row(s) carry an unrecognised "
-                f"timezone label ({sorted(tz[unknown].unique().tolist())}); "
+                f"timezone label ({labels}); "
                 f"falling back to the project timezone offset. Set a donor timezone "
                 f"in the upload form to resolve this exactly."
             )
+            if notes is not None:
+                notes.append(
+                    f"Time zone: {int(unknown.sum())} row(s) carry an unrecognised label "
+                    f"({', '.join(labels)}); the project time zone was assumed."
+                )
         if ambiguous.any():
+            labels = sorted(tz[ambiguous].unique().tolist())
             logger.info(
                 f"NOTE: {int(ambiguous.sum())} YouTube row(s) use an ambiguous timezone "
-                f"abbreviation ({sorted(tz[ambiguous].unique().tolist())}); using the "
+                f"abbreviation ({labels}); using the "
                 f"most common Takeout interpretation. Set a donor timezone in the "
                 f"upload form to resolve this exactly."
             )
+            if notes is not None:
+                notes.append(
+                    f"Time zone: {int(ambiguous.sum())} row(s) carry an ambiguous abbreviation "
+                    f"({', '.join(labels)}); read as its most common Takeout meaning."
+                )
         offsets = offsets.fillna(_config_timezone_offset())
 
         return (naive - pd.to_timedelta(offsets, unit="h")).dt.tz_localize("UTC")
@@ -467,7 +483,10 @@ class YouTubeDDPCollection(ForYouBaseCollection):
             if not rows:
                 return pd.DataFrame()
             df = pd.DataFrame.from_records(rows)
-            df["utc_timestamp"] = self._convert_timestamps(df, donor_tz=donor_tz)
+            tz_notes: list[str] = []
+            df["utc_timestamp"] = self._convert_timestamps(df, donor_tz=donor_tz, notes=tz_notes)
+            for note in tz_notes:
+                self.note_file(filename, note)
             hint = (
                 "" if donor_tz is not None
                 else " — probably an unsupported display locale; set a donor "

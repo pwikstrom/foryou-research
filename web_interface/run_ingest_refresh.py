@@ -60,11 +60,17 @@ def _per_file_counts(sub_collections) -> dict[str, dict]:
 
 
 def _withheld_note(stats: dict) -> str | None:
-    """Ledger note naming the sections a donation leaves out, or None."""
+    """Ledger note for an accepted file: the sections the donation leaves
+    out, and anything the parser had to resolve while reading it. None when
+    there is nothing to say."""
+    parts: list[str] = []
     withheld = list((stats or {}).get("withheld_sections") or [])
-    if not withheld:
+    if withheld:
+        parts.append("Uploader withheld: " + ", ".join(withheld))
+    parts.extend(str(n) for n in ((stats or {}).get("parse_notes") or []))
+    if not parts:
         return None
-    return "Uploader withheld: " + ", ".join(withheld)
+    return " | ".join(parts)
 
 
 

@@ -12,6 +12,23 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Added
 
+- **`link_method` on every activity row.** How an engagement event was
+  linked to a play is now recorded on the row rather than only described in
+  the contract: `adjacent`, `nearest_play` or both on the play that received
+  the folded token, and `ffill_180s` on a TikTok comment whose video id came
+  from the 180-second forward fill. Analyses can now exclude inferred links.
+  Adding the column forks a new activity-contract version; historical rows
+  read as null until re-ingested.
+- **Parser notes on the ledger entry.** What a parser had to resolve while
+  reading a file is now written to that file's ledger `notes`, not only to
+  the run log: the YouTube HTML history's ambiguous time-zone abbreviations
+  (IST, CST, BST, EST read as their most common Takeout meaning) and
+  unrecognised labels that fell back to the project time zone.
+- **Fixture tests for the Instagram and YouTube ingestion classes.**
+  Hand-built export zips now drive `load_single_raw` and `process_single`
+  for both, as the extension guide has asked of every platform; only the
+  TikTok class had them.
+
 - **Admin's log per user.** The user detail modal on Admin → Active Users
   has a small notebook where admins leave free-text notes about an account
   ("called about consent form", "second donation expected"). Each note
@@ -24,6 +41,17 @@ public version. Entries below describe the Hub as it stands at that release.
   last-active time, their login time if they logged in inside the window,
   and the count and span of their logged actions. A person who stays
   logged in for weeks no longer looks idle to the report.
+
+### Fixed
+
+- **A donor timezone supplied at upload was ignored for TikTok exports.**
+  The TikTok DDP parser inferred the offset from the activity rhythm even
+  when the upload carried an authoritative zone; Instagram and YouTube
+  honoured it. All three now go through the same finalisation step.
+- **A re-donation with a corrected time zone doubled its rows.** The row
+  deduplication key included `tz_offset`, so the same events donated again
+  under a different supplied zone survived twice. The offset is out of the
+  key; the newest donation's row, and its offset, wins.
 
 ### Changed
 

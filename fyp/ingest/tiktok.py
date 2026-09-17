@@ -19,7 +19,6 @@ from fyp.ingest.base import (
     derive_play_duration,
 )
 from fyp.logging_setup import get_logger
-from fyp.recode_variables import infer_timezone_offset
 from fyp.utils import clean_url
 
 logger = get_logger(__name__)
@@ -262,14 +261,14 @@ class TikTokDDPCollection(ForYouBaseCollection):
         df = df.rename(columns={"timestamp": "utc_timestamp"})
         df["utc_timestamp"] = pd.to_datetime(df["utc_timestamp"], unit='s', utc=True)
 
-        # infer timezone offset note that inferring timezone assumes that this is
-        # an 'actual' TikTok user using TikTok like a normal TikTok user does.
-        # If this ddp was created in an 'artificial way', the inference will get it wrong 
-        df["tz_offset"] = infer_timezone_offset(df["utc_timestamp"])
-
-        # sort by timestamp and reset index
-        df.sort_values("utc_timestamp", inplace=True, kind='mergesort')
-        df.reset_index(drop=True, inplace=True)
+        # tz_offset comes from the shared tail: a donor timezone supplied at upload
+        # (the manifest `tz`) is authoritative; without one the offset is inferred
+        # from the activity rhythm, which assumes an 'actual' TikTok user using
+        # TikTok like a normal TikTok user does — an artificially produced export
+        # will mislead it. Until 2026-09 this parser called the inference directly
+        # and silently ignored a supplied zone on the platform with the most
+        # donations. The tail also sorts chronologically and resets the index.
+        df = self._finalize_activity_frame(df)
 
 
         # -----------------------------------------------------
@@ -310,6 +309,13 @@ class TikTokDDPCollection(ForYouBaseCollection):
         ffilled_item_id = df.groupby('_assoc_session')['item_id'].ffill()
         comment_missing = (df['activity_type'] == 'comment') & df['item_id'].isna()
         df.loc[comment_missing, 'item_id'] = ffilled_item_id[comment_missing]
+
+        # 4. Say so on the row. A comment whose item_id was supplied by the
+        # forward fill carries link_method="ffill_180s", so an analysis can tell
+        # an observed video id from an inferred one (the contract documents the
+        # inference; this column makes it filterable).
+        df["link_method"] = pd.array([pd.NA] * len(df), dtype="string[pyarrow]")
+        df.loc[comment_missing & df["item_id"].notna(), "link_method"] = "ffill_180s"
 
         df.drop(columns=['_assoc_break', '_assoc_session', 'delta'], inplace=True)
 
