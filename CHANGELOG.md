@@ -12,6 +12,18 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Added
 
+- **`scripts/intake_report.py`.** Every figure a methods write-up needs
+  about ingestion, computed from a downloaded snapshot of the `recoded`
+  storage location and never from the live bucket: intake attrition per
+  route, the ledger outcome distribution, the structure sentinel's
+  denominators, false-positive split, time in quarantine and a
+  quarantined-versus-accepted comparison by route and donor region,
+  time-zone resolution levels with a calibration of the inference against
+  supplied zones, and the sensitivity of the session gap, the comment-link
+  window and the donor-merge overlap threshold. Writes `report.json`,
+  `tables.md`, an attrition figure and a quarantine worksheet for the one
+  judgement a person has to make. Refuses to run against GCS.
+
 - **`link_method` on every activity row.** How an engagement event was
   linked to a play is now recorded on the row rather than only described in
   the contract: `adjacent`, `nearest_play` or both on the play that received
