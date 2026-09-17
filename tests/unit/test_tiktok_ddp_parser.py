@@ -169,3 +169,38 @@ def test_empty_group_keeps_its_columns(collection, monkeypatch):
     assert len(out) == 0
     assert "value_list" in out.columns
     assert "variable_list" in out.columns
+
+
+def _ddp_with_off_tiktok_activity(n_off: int = 50) -> dict:
+    """Twelve plays plus a large Off TikTok Activity section, whose records
+    carry no Date and are never ingested: they must be counted as
+    ``outside_whitelist``, not as rows the parser failed to read."""
+    doc = _flat_ddp_document(seed=3, n_plays=12)
+    doc["Ads and data"] = {
+        "Off TikTok Activity": {
+            "OffTikTokActivityDataList": [
+                {"TimeStamp": f"2026-05-01 10:{i % 60:02d}:00", "Source": "pixel", "Event": "PageView"}
+                for i in range(n_off)
+            ]
+        }
+    }
+    # One play record with an unreadable date: the only genuine parse failure.
+    doc["Activity"]["Video Browsing History"]["VideoList"].append(
+        {"Date": "not a date", "Link": "https://www.tiktokv.com/share/video/7000000000000000099/"})
+    return doc
+
+
+def test_sections_outside_the_whitelist_are_counted_by_design_not_as_parse_failures(collection, monkeypatch):
+    df = _load(collection, monkeypatch, "off.json", _ddp_with_off_tiktok_activity(n_off=50))
+    collection.data = df
+    collection.state = "raw"
+    collection.file_stats_this_run = {"off.json": {"raw_rows": int(len(df)), "dropped": {}}}
+
+    collection.process()
+
+    dropped = collection.file_stats_this_run["off.json"]["dropped"]
+    assert dropped["outside_whitelist"] == 50
+    assert dropped["not_parseable"] == 1, "only the unreadable date is a parse failure"
+    # 12 plays + 1 login survive; raw = 12 + 1 + 1 bad date + 50 off-platform
+    assert len(collection.data) == 13
+    assert len(df) == 13 + 1 + 50

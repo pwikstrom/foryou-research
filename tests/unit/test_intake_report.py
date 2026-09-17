@@ -307,3 +307,84 @@ def test_write_snapshot_config(tmp_path):
     assert overlay["misc"]["local_mode"] is True
     assert overlay["data_io"]["use_gcs_for_data"] is False
     assert Path(overlay["paths"]["local_data"]).is_absolute()
+
+
+def test_table_reconciliation_splits_files_by_entry_and_counts():
+    ledger = {
+        "a.json": {"outcome": "added_as_new", "raw_rows": 10},
+        "b.json": {"outcome": "skipped_legacy", "raw_rows": None},
+        "gone.json": {"outcome": "fully_deduped", "raw_rows": 5},
+    }
+    out = ir.table_reconciliation(ledger, {"a.json": "tiktok_ddp", "b.json": "tiktok_ddp", "c.json": "tiktok_ddp"})
+    assert out["n_files_in_table"] == 3
+    assert out["n_in_table_with_entry"] == 2
+    assert out["n_in_table_with_counts"] == 1
+    assert out["n_in_table_without_entry"] == 1
+    assert out["n_counted_entries"] == 2
+    assert out["counted_entries_not_in_table_by_outcome"] == {"fully_deduped": 1}
+
+
+def test_null_activity_type_counts():
+    df = pd.DataFrame({"raw_file": ["f1", "f1", "f2"], "activity_type": ["play", None, None]})
+    assert ir.null_activity_type_counts(df) == {"rows": 2, "files": 2}
+    assert ir.null_activity_type_counts(pd.DataFrame(columns=["raw_file", "activity_type"])) == {"rows": 0, "files": 0}
+
+
+def test_comments_before_the_first_play_are_counted():
+    ts = pd.to_datetime([0, 100, 200, 300, 400], unit="s", utc=True)
+    df = pd.DataFrame({
+        "raw_file": "f", "collection_id": "c",
+        "utc_timestamp": ts,
+        "activity_type": ["comment", "comment", "play", "comment", "play"],
+        "item_id": [None, None, "v1", None, "v2"],
+    })
+    out = ir.comment_gap_stats(df, gaps=(150,))
+    assert out["n_comments"] == 3
+    assert out["n_comments_before_first_play"] == 2
+    assert out["before_first_play_pct"] == 66.7
+    assert out["n_comments_in_files_without_plays"] == 0
+
+
+def test_stored_offset_distribution_skips_supplied_zone_files():
+    df = pd.DataFrame({"raw_file": ["a", "a", "b", "c", "c"], "tz_offset": [10, 10, -4, 9, 10]})
+    ledger = {"a.json": {"tz": None}, "c": {"tz": "Australia/Sydney"}}
+    out = ir.stored_offset_distribution(df, ledger)
+    assert out["n_files"] == 2
+    assert out["n_distinct_offsets"] == 2
+    assert out["offsets"] == {"-4": {"files": 1, "rows": 1}, "10": {"files": 1, "rows": 2}}
+    assert out["n_files_with_several_offsets"] == 0
+
+
+def test_calibration_reports_the_other_dst_half_and_stored_offsets():
+    # Sydney: standard time (+10) from April to October, daylight time (+11) otherwise.
+    utc = pd.to_datetime(
+        [f"2025-{m:02d}-15 12:00:00" for m in range(1, 13)] * 3 + ["2025-06-01 18:00:00"] * 30, utc=True)
+    out = ir.calibrate_one_file(utc, "Australia/Sydney", stored_offsets=[9])
+    assert out["zone_offset"] == 10.0
+    assert out["stored_offsets"] == [9]
+    assert 0 < out["rows_in_other_dst_half_pct"] < 50
+
+
+def test_union_find_reports_route_and_account_relation():
+    pairs = [("ddp1", "cap1", 0.3), ("ddp1", "ddp2", 0.3), ("ddp2", "ddp3", 0.3)]
+    routes = {"ddp1": "tiktok_ddp", "ddp2": "tiktok_ddp", "ddp3": "tiktok_ddp", "cap1": "tiktok_zeeschuimer"}
+    users = {"ddp1": "u1", "ddp2": "u1", "ddp3": "u2", "cap1": None}
+    out = ir.union_find_merges(pairs, 0.2, {}, users, route_per_file=routes)
+    assert out["n_cross_route_pairs"] == 1
+    assert out["pairs_by_account_relation"] == {"account_unknown": 1, "same_account": 1, "different_accounts": 1}
+    sens = ir.overlap_sensitivity(pairs, {"ddp1": {"user_id": "u1"}}, {}, route_per_file=routes,
+                                  collection_per_file={"ddp2": "c2", "ddp3": "c3"},
+                                  tags={"c2": {"user_id": "u1"}, "c3": {"user_id": "u2"}})
+    assert sens["n_pairs_within_route"] == 2
+    assert sens["thresholds_within_route"]["0.2"]["n_pairs_above_threshold"] == 2
+    assert sens["thresholds"]["0.2"]["n_pairs_above_threshold"] == 3
+    assert sens["thresholds_within_route"]["0.2"]["pairs_by_account_relation"] == {"same_account": 1, "different_accounts": 1}
+
+
+def test_calibration_handles_an_arrow_backed_timestamp_column():
+    utc = pd.Series(pd.to_datetime(
+        [f"2025-{m:02d}-15 12:00:00" for m in range(1, 13)] * 3 + ["2025-06-01 18:00:00"] * 30, utc=True))
+    arrow = utc.astype("timestamp[ns, tz=UTC][pyarrow]")
+    plain = ir.calibrate_one_file(utc, "Australia/Sydney")
+    assert ir.calibrate_one_file(arrow, "Australia/Sydney") == plain
+    assert 0 < plain["rows_in_other_dst_half_pct"] < 50

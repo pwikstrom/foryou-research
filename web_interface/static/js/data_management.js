@@ -4726,7 +4726,12 @@ function openStructureReviewModal(verdict) {
     const statsSummary = [
         raw.raw_rows !== undefined ? `${Number(raw.raw_rows).toLocaleString()} raw rows` : null,
         raw.file_size_mb !== undefined ? `${raw.file_size_mb} MB` : null,
-        processed.kept_ratio !== undefined ? `kept ratio ${processed.kept_ratio}` : null,
+        processed.kept_rows !== undefined && raw.raw_rows !== undefined
+            ? `parser kept ${Number(processed.kept_rows).toLocaleString()} of ${Number(raw.raw_rows).toLocaleString()} rows`
+            : (processed.kept_ratio !== undefined ? `kept ratio ${processed.kept_ratio}` : null),
+        processed.parse_rate !== undefined
+            ? `${Math.round(Number(processed.parse_rate) * 100)}% of the ${Number(processed.ingestible_rows).toLocaleString()} rows in ingested sections`
+            : null,
         processed.null_item_id_frac !== undefined ? `null item_id ${processed.null_item_id_frac}` : null,
     ].filter(Boolean).join(' · ');
 
@@ -5592,6 +5597,7 @@ const _ingestOutcomeLabels = {
 const _ingestDropReasonLabels = {
     not_parseable: (n) => `${n.toLocaleString()} row${n === 1 ? '' : 's'} couldn't be interpreted (unreadable timestamp or missing video reference)`,
     missing_required: (n) => `${n.toLocaleString()} row${n === 1 ? '' : 's'} ${n === 1 ? 'was' : 'were'} missing essential information and ${n === 1 ? 'was' : 'were'} excluded`,
+    outside_whitelist: (n) => `${n.toLocaleString()} record${n === 1 ? '' : 's'} in sections this platform's ingestion does not use (excluded by design)`,
 };
 
 function _ingestDropLines(r) {

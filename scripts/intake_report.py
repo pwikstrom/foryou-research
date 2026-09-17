@@ -186,8 +186,9 @@ def attrition_by_route(ledger_files: dict[str, dict]) -> dict[str, dict]:
         dropped = entry.get("dropped") or {}
         c["dropped_not_parseable"] += int(dropped.get("not_parseable") or 0)
         c["dropped_missing_required"] += int(dropped.get("missing_required") or 0)
+        c["dropped_outside_whitelist"] += int(dropped.get("outside_whitelist") or 0)
         for reason, n in dropped.items():
-            if reason not in ("not_parseable", "missing_required"):
+            if reason not in ("not_parseable", "missing_required", "outside_whitelist"):
                 c["dropped_other"] += int(n or 0)
     total = Counter()
     for c in per_route.values():
@@ -198,13 +199,57 @@ def attrition_by_route(ledger_files: dict[str, dict]) -> dict[str, dict]:
         row = {k: int(v) for k, v in c.items()}
         for k in ("files", "files_with_counts", "files_without_counts", "files_with_breakdown",
                   "files_without_breakdown", "rows_read", "processed_rows", "kept", "deduped",
-                  "dropped_not_parseable", "dropped_missing_required", "dropped_other", "unattributed_pre_breakdown"):
+                  "dropped_not_parseable", "dropped_missing_required", "dropped_outside_whitelist", "dropped_other",
+                  "unattributed_pre_breakdown"):
             row.setdefault(k, 0)
         row["unaccounted"] = row["rows_read"] - row["kept"] - row["deduped"] - row["dropped_not_parseable"] \
-            - row["dropped_missing_required"] - row["dropped_other"] - row["unattributed_pre_breakdown"]
+            - row["dropped_missing_required"] - row["dropped_outside_whitelist"] - row["dropped_other"] \
+            - row["unattributed_pre_breakdown"]
         row["kept_pct"] = round(100.0 * row["kept"] / row["rows_read"], 2) if row["rows_read"] else None
         out[route] = row
     return out
+
+
+
+
+
+def table_reconciliation(ledger_files: dict[str, dict], files_in_table: dict[str, str]) -> dict:
+    """Reconcile the files the activity table holds with the ledger's entries.
+
+    Args:
+        ledger_files: The ``files`` map of ``ingestion_ledger.json``.
+        files_in_table: ``{raw_file: route}`` for every raw file in the table.
+
+    Returns:
+        Files in the table split by whether they have a ledger entry and
+        whether that entry carries counts, and the counted entries that are
+        not in the table, by outcome (fully deduplicated re-uploads, files
+        removed since).
+    """
+    in_table = set(files_in_table)
+    with_entry = {fn for fn in in_table if fn in ledger_files}
+    with_counts = {fn for fn in with_entry if ledger_files[fn].get("raw_rows") is not None}
+    counted = {fn for fn, e in ledger_files.items() if e.get("raw_rows") is not None}
+    not_in_table = Counter(str(ledger_files[fn].get("outcome")) for fn in counted - in_table)
+    return {
+        "n_files_in_table": len(in_table),
+        "n_in_table_with_entry": len(with_entry),
+        "n_in_table_with_counts": len(with_counts),
+        "n_in_table_without_entry": len(in_table - with_entry),
+        "n_counted_entries": len(counted),
+        "counted_entries_not_in_table_by_outcome": dict(sorted(not_in_table.items())),
+    }
+
+
+
+
+
+def null_activity_type_counts(df: pd.DataFrame) -> dict:
+    """Rows whose ``activity_type`` is null, and the files they came from."""
+    if df.empty or "activity_type" not in df.columns:
+        return {"rows": 0, "files": 0}
+    null = df["activity_type"].isna()
+    return {"rows": int(null.sum()), "files": int(df.loc[null, "raw_file"].nunique()) if null.any() else 0}
 
 
 
@@ -612,19 +657,52 @@ def resolution_levels(ledger_files: dict[str, dict]) -> dict[str, dict[str, int]
 
 
 
-def calibrate_one_file(utc: pd.Series, tz_str: str) -> dict:
+def stored_offset_distribution(df: pd.DataFrame, ledger_files: dict[str, dict]) -> dict:
+    """What the table carries as ``tz_offset`` for files without a supplied zone.
+
+    Every file's stored offset is one integer (the per-file inference for
+    every TikTok export ingested before v0.4, and the truncated zone offset
+    since). This is the distribution of that integer over files and rows,
+    for an analyst to hold against the zones the deployment's donors could
+    plausibly be in.
+    """
+    if df.empty or "tz_offset" not in df.columns:
+        return {"n_files": 0, "n_distinct_offsets": 0, "offsets": {}}
+    supplied = {fn for fn, e in ledger_files.items() if e.get("tz")}
+    sub_df = df[~df["raw_file"].isin(supplied)].dropna(subset=["tz_offset"])
+    file_offset = sub_df.drop_duplicates(["raw_file", "tz_offset"])
+    files_per_offset = {int(k): int(v) for k, v in file_offset.groupby("tz_offset").size().items()}
+    rows_per_offset = {int(k): int(v) for k, v in sub_df.groupby("tz_offset").size().items()}
+    offsets = {str(k): {"files": files_per_offset[k], "rows": rows_per_offset.get(k, 0)}
+               for k in sorted(files_per_offset)}
+    per_file_n = file_offset.groupby("raw_file").size()
+    return {"n_files": int(sub_df["raw_file"].nunique()), "n_distinct_offsets": len(offsets), "offsets": offsets,
+            "n_files_with_several_offsets": int((per_file_n > 1).sum())}
+
+
+
+
+
+def calibrate_one_file(utc: pd.Series, tz_str: str, stored_offsets: list | None = None) -> dict:
     """Compare the inferred offset of one file with its supplied zone.
 
     The inference is recomputed from the file's UTC series and compared with
     the zone's offset at the file's median instant, both as floats, so
     daylight saving and half-hour zones are handled. The stored ``tz_offset``
-    is never read: it is integer hours, and for TikTok files ingested before
-    v0.4 it is the inference itself.
+    is never used for the comparison: it is integer hours, and for TikTok
+    files ingested before v0.4 it is the inference itself; it is reported
+    alongside when given. ``rows_in_other_dst_half_pct`` is the share of the
+    file's rows whose true offset differs from the offset at the median
+    event, i.e. the rows a per-file constant gets wrong even when it agrees.
     """
     from fyp.annotation.recode_variables import infer_timezone_offset
     from fyp.ingest.base import _zone_offset_hours, parse_donor_timezone
 
-    utc = pd.to_datetime(pd.Series(utc).dropna(), utc=True).sort_values().reset_index(drop=True)
+    # Materialise as a numpy tz-aware series: an Arrow-backed column from the
+    # parquet reader compares per-row offsets differently and misreports the
+    # daylight-saving share.
+    utc = (pd.to_datetime(pd.Series(utc).dropna(), utc=True).astype("datetime64[ns, UTC]")
+           .sort_values().reset_index(drop=True))
     zone = parse_donor_timezone(tz_str)
     if zone is None or len(utc) == 0:
         return {"n_events": len(utc), "inferred": None, "zone_offset": None,
@@ -632,6 +710,8 @@ def calibrate_one_file(utc: pd.Series, tz_str: str) -> dict:
     inferred = float(infer_timezone_offset(utc))
     median_ts = utc.iloc[len(utc) // 2]
     zone_offset = float(_zone_offset_hours(pd.Series([median_ts]), zone).iloc[0])
+    per_row = _zone_offset_hours(utc, zone).astype(float)
+    other_half = float((per_row != zone_offset).mean()) * 100.0
     diff = inferred - zone_offset
     return {
         "n_events": len(utc),
@@ -640,6 +720,8 @@ def calibrate_one_file(utc: pd.Series, tz_str: str) -> dict:
         "diff": round(diff, 2),
         "agree": abs(diff) < 0.25,
         "off_gt_1h": abs(diff) > 1.0,
+        "rows_in_other_dst_half_pct": round(other_half, 1),
+        "stored_offsets": sorted(int(v) for v in stored_offsets) if stored_offsets is not None else None,
     }
 
 
@@ -656,6 +738,8 @@ def calibration_summary(per_file: list[dict]) -> dict:
         "agree_pct": round(100.0 * sum(1 for r in usable if r["agree"]) / n, 1) if n else None,
         "off_gt_1h_pct": round(100.0 * sum(1 for r in usable if r["off_gt_1h"]) / n, 1) if n else None,
         "median_abs_diff_h": _median([abs(r["diff"]) for r in usable]),
+        "rows_in_other_dst_half_pct_range": [min(r["rows_in_other_dst_half_pct"] for r in usable),
+                                             max(r["rows_in_other_dst_half_pct"] for r in usable)] if usable else None,
     }
 
 
@@ -718,6 +802,12 @@ def comment_gap_stats(df: pd.DataFrame, gaps: tuple[int, ...] = COMMENT_GAPS) ->
     is_comment = ordered["activity_type"] == "comment"
     out["n_comments"] = int(is_comment.sum())
     out["n_comments_null_item_id"] = int((is_comment & ordered["item_id"].isna()).sum())
+    first_play = ts.where(ordered["activity_type"] == "play").groupby(ordered["raw_file"]).transform("min")
+    before = is_comment & first_play.notna() & (ts < first_play)
+    out["n_comments_before_first_play"] = int(before.sum())
+    out["n_comments_in_files_without_plays"] = int((is_comment & first_play.isna()).sum())
+    if out["n_comments"]:
+        out["before_first_play_pct"] = round(100.0 * out["n_comments_before_first_play"] / out["n_comments"], 1)
     if "link_method" in ordered.columns:
         out["n_comments_marked_ffill_180s"] = int((is_comment & (ordered["link_method"] == "ffill_180s")).sum())
     if out["n_comments"] == 0:
@@ -799,13 +889,18 @@ def union_find_merges(
     platform_per_file: dict[str, str] | None = None,
     collection_per_file: dict[str, str] | None = None,
     shared_per_pair: dict[tuple[str, str], int] | None = None,
+    route_per_file: dict[str, str] | None = None,
 ) -> dict:
     """Cluster files whose overlap exceeds ``threshold`` and describe the merges.
 
     Besides the merge counts, reports how many merges would join files that
     production keeps in different collections (the merges the threshold
-    would newly cause) and how many qualifying pairs rest on two shared
-    seconds or fewer (the small-file coincidence the ratio cannot see).
+    would newly cause), how many qualifying pairs rest on two shared seconds
+    or fewer (the small-file coincidence the ratio cannot see), how many
+    qualifying pairs cross collection routes (production merges within a
+    route only, so those pairs are never candidates), and how the
+    qualifying pairs split by account relation (same account, different
+    accounts, or no account on record for at least one file).
     """
     parent: dict[str, str] = {}
 
@@ -818,15 +913,21 @@ def union_find_merges(
 
     n_pairs = 0
     n_cross_platform = 0
+    n_cross_route = 0
     n_tiny = 0
+    relation: Counter = Counter()
     for a, b, overlap in pairs:
         if overlap <= threshold:
             continue
         n_pairs += 1
         if platform_per_file and platform_per_file.get(a) != platform_per_file.get(b):
             n_cross_platform += 1
+        if route_per_file and route_per_file.get(a) != route_per_file.get(b):
+            n_cross_route += 1
         if shared_per_pair and shared_per_pair.get((a, b), 3) <= 2:
             n_tiny += 1
+        ua, ub = user_id_per_file.get(a), user_id_per_file.get(b)
+        relation["same_account" if ua and ub and ua == ub else "different_accounts" if ua and ub else "account_unknown"] += 1
         parent[find(a)] = find(b)
     clusters: dict[str, list[str]] = defaultdict(list)
     for x in list(parent):
@@ -851,6 +952,8 @@ def union_find_merges(
         "n_merges_involving_small_file": small,
         "n_false_merges_different_accounts": false,
         "n_cross_platform_pairs": n_cross_platform,
+        "n_cross_route_pairs": n_cross_route,
+        "pairs_by_account_relation": dict(relation),
     }
 
 
@@ -876,12 +979,34 @@ def ledger_merge_truth(ledger_files: dict[str, dict]) -> dict:
 
 
 
+def account_per_file(ledger_files: dict[str, dict], collection_per_file: dict[str, str] | None,
+                     tags: dict[str, dict] | None) -> dict[str, str | None]:
+    """The participant account behind each file: the ledger's ``user_id``, else
+    the collection's ``user_id`` in ``collections_tags.json``."""
+    out: dict[str, str | None] = {fn: e.get("user_id") for fn, e in ledger_files.items()}
+    for fn, cid in (collection_per_file or {}).items():
+        if not out.get(fn):
+            out[fn] = ((tags or {}).get(cid) or {}).get("user_id")
+    return out
+
+
+
+
+
 def overlap_sensitivity(pairs: list[tuple[str, str, float]], ledger_files: dict[str, dict],
                         events_per_file: dict[str, int], platform_per_file: dict[str, str] | None = None,
                         collection_per_file: dict[str, str] | None = None,
-                        shared_per_pair: dict[tuple[str, str], int] | None = None) -> dict:
-    """Merges at each threshold plus the overlap distribution and the ledger's ground truth."""
-    users = {fn: e.get("user_id") for fn, e in ledger_files.items()}
+                        shared_per_pair: dict[tuple[str, str], int] | None = None,
+                        route_per_file: dict[str, str] | None = None,
+                        tags: dict[str, dict] | None = None) -> dict:
+    """Merges at each threshold plus the overlap distribution and the ledger's ground truth.
+
+    ``thresholds`` counts every pair in the table; ``thresholds_within_route``
+    restricts to pairs on the same collection route, which is the only kind
+    production compares (``identify_similar_file_content`` runs per
+    sub-collection).
+    """
+    users = account_per_file(ledger_files, collection_per_file, tags)
     overlaps = sorted(o for _, _, o in pairs)
     out = {
         "note": "recomputed on the post-deduplication activity table, so shared rows of a merged "
@@ -891,9 +1016,16 @@ def overlap_sensitivity(pairs: list[tuple[str, str, float]], ledger_files: dict[
         "n_pairs_over_0_05": sum(1 for o in overlaps if o > 0.05),
         "ledger": ledger_merge_truth(ledger_files),
         "thresholds": {str(t): union_find_merges(pairs, t, events_per_file, users, platform_per_file,
-                                                  collection_per_file, shared_per_pair)
+                                                  collection_per_file, shared_per_pair, route_per_file)
                        for t in OVERLAP_THRESHOLDS},
     }
+    if route_per_file:
+        within = [(a, b, o) for a, b, o in pairs if route_per_file.get(a) == route_per_file.get(b)]
+        out["n_pairs_within_route"] = len(within)
+        out["thresholds_within_route"] = {
+            str(t): union_find_merges(within, t, events_per_file, users, platform_per_file,
+                                      collection_per_file, shared_per_pair, route_per_file)
+            for t in OVERLAP_THRESHOLDS}
     return out
 
 
@@ -935,21 +1067,31 @@ def render_tables_md(report: dict) -> str:
     att = report["attrition"]
     routes = [r for r in att if r != "all"] + ["all"]
     parts += ["## 5.1 Intake by route (Table 3)", "",
-              _md_table(["Route", "Files", "No counts", "No breakdown", "Rows read", "Not parseable", "Missing required",
-                         "Deduplicated", "Lost, pre-breakdown ledger", "Kept", "Kept %", "Unaccounted"],
+              _md_table(["Route", "Files", "No counts", "No breakdown", "Rows read", "Outside whitelist", "Not parseable",
+                         "Missing required", "Deduplicated", "Lost, pre-breakdown ledger", "Kept", "Kept %", "Unaccounted"],
                         [[r, att[r]["files"], att[r]["files_without_counts"], att[r]["files_without_breakdown"],
-                          att[r]["rows_read"], att[r]["dropped_not_parseable"], att[r]["dropped_missing_required"],
-                          att[r]["deduped"], att[r]["unattributed_pre_breakdown"], att[r]["kept"], att[r]["kept_pct"],
-                          att[r]["unaccounted"]] for r in routes]),
+                          att[r]["rows_read"], att[r]["dropped_outside_whitelist"], att[r]["dropped_not_parseable"],
+                          att[r]["dropped_missing_required"], att[r]["deduped"], att[r]["unattributed_pre_breakdown"],
+                          att[r]["kept"], att[r]["kept_pct"], att[r]["unaccounted"]] for r in routes]),
               "", "Files without counts were migrated from the legacy discard list and contribute no rows. "
               "Files without breakdown were ledgered before drop reasons were recorded: their rows read minus rows kept "
               "is reported as lost without attribution.", ""]
     comp = report.get("composition")
     if comp:
         parts += ["### Activity table composition", "",
-                  _md_table(["Route", "Rows", "Collections", "Raw files", "First event", "Last event"],
-                            [[r, c["rows"], c["collections"], c["raw_files"], c["first_event"], c["last_event"]]
+                  _md_table(["Route", "Rows", "Collections", "Raw files", "First event", "Last event", "Null activity type"],
+                            [[r, c["rows"], c["collections"], c["raw_files"], c["first_event"], c["last_event"],
+                              f"{c['null_activity_type']['rows']} rows / {c['null_activity_type']['files']} files"]
                              for r, c in comp.items()]), ""]
+        for r, c in comp.items():
+            parts += [f"{r} by activity type: {c['activity_types']}", ""]
+    rec = report.get("table_reconciliation")
+    if rec:
+        parts += ["### Table vs ledger", "",
+                  f"Files in the table {rec['n_files_in_table']}: with a ledger entry {rec['n_in_table_with_entry']} "
+                  f"(with counts {rec['n_in_table_with_counts']}), without {rec['n_in_table_without_entry']}. "
+                  f"Counted ledger entries {rec['n_counted_entries']}; not in the table by outcome: "
+                  f"{rec['counted_entries_not_in_table_by_outcome']}.", ""]
     outc = report["outcomes"]
     all_outcomes = sorted({o for r in outc.values() for o in r})
     parts += ["## 5.2 Outcomes (Table 4)", "",
@@ -995,7 +1137,19 @@ def render_tables_md(report: dict) -> str:
     if cal:
         parts += [f"Calibration of the inference against supplied zones: n={cal['n_calibrated']} of "
                   f"{cal['n_files_with_supplied_zone']} files; agree (<15 min) {cal['agree_pct']} %; "
-                  f"off by more than 1 h {cal['off_gt_1h_pct']} %; median |diff| {cal['median_abs_diff_h']} h.", ""]
+                  f"off by more than 1 h {cal['off_gt_1h_pct']} %; median |diff| {cal['median_abs_diff_h']} h; "
+                  f"rows in the other daylight-saving half {cal.get('rows_in_other_dst_half_pct_range')} %.", ""]
+        per = report.get("calibration_per_file") or []
+        if per:
+            parts += [_md_table(["Zone", "Events", "Inferred", "Zone offset at median", "Diff", "Stored", "Other DST half %"],
+                                [[r.get("tz"), r["n_events"], r["inferred"], r["zone_offset"], r["diff"],
+                                  r.get("stored_offsets"), r.get("rows_in_other_dst_half_pct")] for r in per]), ""]
+    so = report.get("stored_offsets")
+    if so:
+        for route, d in so.items():
+            parts += [f"Stored per-file offsets, {route}, files without a supplied zone: {d['n_files']} files, "
+                      f"{d['n_distinct_offsets']} distinct offsets, {d.get('n_files_with_several_offsets', 0)} files with several; "
+                      f"{d['offsets']}", ""]
     ses = report.get("sessions")
     if ses:
         parts += ["## 5.4 Sensitivity", "", "### Session gap (all activity rows)", ""]
@@ -1020,7 +1174,9 @@ def render_tables_md(report: dict) -> str:
     if com and com.get("n_comments"):
         parts += ["### Comment link window (TikTok)", "",
                   f"Comments {com['n_comments']:,}; null item id {com['n_comments_null_item_id']:,}; "
-                  f"marked ffill_180s {com.get('n_comments_marked_ffill_180s', 0):,} (rows ingested from v0.4 only).", "",
+                  f"marked ffill_180s {com.get('n_comments_marked_ffill_180s', 0):,} (rows ingested from v0.4 only); "
+                  f"timestamped before the file's first play {com.get('n_comments_before_first_play', 0):,} "
+                  f"({com.get('before_first_play_pct')} %); in files without plays {com.get('n_comments_in_files_without_plays', 0):,}.", "",
                   _md_table(["Window", "Linked", "Linked %", "Preceding play in collection %"],
                             [[f"{w} s", com[f'window_{w}s']["linked"], com[f'window_{w}s']["linked_pct"],
                               com[f'window_{w}s'].get("linked_to_preceding_play_same_collection_pct")] for w in COMMENT_GAPS]), ""]
@@ -1029,12 +1185,21 @@ def render_tables_md(report: dict) -> str:
         parts += ["### Donor-merge overlap", "", ov["note"], "",
                   f"Pairs {ov['n_pairs']:,}; overlap quantiles {ov['overlap_quantiles']}; pairs over 0.05: {ov['n_pairs_over_0_05']}; "
                   f"ledger: {ov['ledger']}", "",
-                  _md_table(["Threshold", "Pairs above", "On <=2 shared seconds", "Merges", "Files merged",
-                             "Spanning collections", "With a file <30 events", "Different accounts", "Cross-platform pairs"],
-                            [[t, v["n_pairs_above_threshold"], v["n_pairs_on_two_shared_seconds_or_fewer"], v["n_merges"],
-                              v["n_files_merged"], v["n_merges_spanning_collections"], v["n_merges_involving_small_file"],
-                              v["n_false_merges_different_accounts"], v["n_cross_platform_pairs"]]
+                  _md_table(["Threshold", "Pairs above", "On <=2 shared seconds", "Cross-route pairs", "Merges", "Files merged",
+                             "Spanning collections", "With a file <30 events", "Different accounts", "Cross-platform pairs",
+                             "Pairs by account relation"],
+                            [[t, v["n_pairs_above_threshold"], v["n_pairs_on_two_shared_seconds_or_fewer"], v["n_cross_route_pairs"],
+                              v["n_merges"], v["n_files_merged"], v["n_merges_spanning_collections"], v["n_merges_involving_small_file"],
+                              v["n_false_merges_different_accounts"], v["n_cross_platform_pairs"], v["pairs_by_account_relation"]]
                              for t, v in ov["thresholds"].items()]), ""]
+        if ov.get("thresholds_within_route"):
+            parts += [f"Within-route pairs only (what production compares): {ov['n_pairs_within_route']:,} pairs", "",
+                      _md_table(["Threshold", "Pairs above", "On <=2 shared seconds", "Merges", "Files merged",
+                                 "Spanning collections", "With a file <30 events", "Different accounts", "Pairs by account relation"],
+                                [[t, v["n_pairs_above_threshold"], v["n_pairs_on_two_shared_seconds_or_fewer"], v["n_merges"],
+                                  v["n_files_merged"], v["n_merges_spanning_collections"], v["n_merges_involving_small_file"],
+                                  v["n_false_merges_different_accounts"], v["pairs_by_account_relation"]]
+                                 for t, v in ov["thresholds_within_route"].items()]), ""]
     return "\n".join(parts)
 
 
@@ -1322,6 +1487,8 @@ def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, 
     events_per_file: dict[str, int] = {}
     platform_per_file: dict[str, str] = {}
     collection_per_file: dict[str, str] = {}
+    route_per_file: dict[str, str] = {}
+    stored_offsets: dict[str, dict] = {}
     calibration: list[dict] = []
     sessions: dict[str, dict] = {}
     sessions_plays: dict[str, dict] = {}
@@ -1329,7 +1496,7 @@ def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, 
     composition: dict[str, dict] = {}
     for platform in platforms:
         df = load_platform_frame(platform, ["raw_file", "collection_id", "utc_timestamp", "activity_type",
-                                            "item_id", "link_method", "data_source"])
+                                            "item_id", "link_method", "data_source", "tz_offset"])
         if exclude_routes and "data_source" in df.columns:
             df = df[~(platform + "_" + df["data_source"].astype(str)).isin(exclude_routes)]
         if df.empty:
@@ -1339,7 +1506,13 @@ def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, 
                 "rows": len(grp), "collections": int(grp["collection_id"].nunique()),
                 "raw_files": int(grp["raw_file"].nunique()),
                 "first_event": str(grp["utc_timestamp"].min())[:10], "last_event": str(grp["utc_timestamp"].max())[:10],
+                "activity_types": {str(k): int(v) for k, v in grp["activity_type"].value_counts(dropna=False).items()},
+                "null_activity_type": null_activity_type_counts(grp),
             }
+            for fn in grp["raw_file"].unique():
+                route_per_file[str(fn)] = f"{platform}_{src}"
+        for (src,), grp in df.groupby(["data_source"]):
+            stored_offsets[f"{platform}_{src}"] = stored_offset_distribution(grp[["raw_file", "tz_offset"]], inputs.ledger)
         counts = df.groupby("raw_file").size()
         for fn, n in counts.items():
             events_per_file[str(fn)] = int(n)
@@ -1353,7 +1526,8 @@ def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, 
             comments = comment_gap_stats(df)
         supplied = {fn: e.get("tz") for fn, e in inputs.ledger.items() if e.get("tz")}
         for fn, sub in df[df["raw_file"].isin(list(supplied))].groupby("raw_file"):
-            rec = calibrate_one_file(sub["utc_timestamp"], supplied[str(fn)])
+            rec = calibrate_one_file(sub["utc_timestamp"], supplied[str(fn)],
+                                     stored_offsets=sub["tz_offset"].dropna().unique().tolist())
             rec.update({"raw_file": str(fn), "platform": platform, "tz": supplied[str(fn)]})
             calibration.append(rec)
         del df
@@ -1363,13 +1537,15 @@ def build_report(inputs: Inputs, commits: list[dict], classification: dict[str, 
     shared = {(str(a), str(b)): int(s) for a, b, s in
               zip(pairs_df["a"].to_list(), pairs_df["b"].to_list(), pairs_df["shared"].to_list(), strict=True)}
     report["composition"] = composition
+    report["table_reconciliation"] = table_reconciliation(inputs.ledger, route_per_file)
+    report["stored_offsets"] = stored_offsets
     report["calibration"] = calibration_summary(calibration)
     report["calibration_per_file"] = calibration
     report["sessions"] = sessions
     report["sessions_plays_only"] = sessions_plays
     report["comments"] = comments
     report["overlap"] = overlap_sensitivity(pairs, inputs.ledger, events_per_file, platform_per_file,
-                                            collection_per_file, shared)
+                                            collection_per_file, shared, route_per_file, inputs.tags)
     return report, rows
 
 

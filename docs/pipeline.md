@@ -72,7 +72,8 @@ Notable behaviors:
   approved uploads stayed pending for that reason).
 - **Per-file intake report**: the load loop records each file's true raw row
   count (including too-small discards) and a per-file drop-reason breakdown —
-  rows that couldn't be interpreted (`not_parseable`), rows missing
+  records in sections the parser never ingests (`outside_whitelist`, by
+  design), rows that couldn't be interpreted (`not_parseable`), rows missing
   required-core fields (`missing_required`), rows deduplicated against the
   archive (key: collection, item, timestamp, type — never `tz_offset`, so a
   re-donation with a corrected zone deduplicates and the newest offset wins). Persisted in the ingestion ledger (`ingestion_ledger.json`) and

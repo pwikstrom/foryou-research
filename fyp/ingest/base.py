@@ -1078,6 +1078,16 @@ class ForYouBaseCollection(ABC):
 
 
 
+    def _explicit_drops(self, filename: str) -> int:
+        """Rows already recorded under any drop reason for ``filename`` this run."""
+        dropped = (self.file_stats_this_run.get(str(filename)) or {}).get("dropped") or {}
+        return int(sum(int(n) for n in dropped.values()))
+
+
+
+
+
+
     def _record_file_drops(self, counts, reason: str) -> None:
         """Accumulate per-file dropped-row counts under a reason key.
 
@@ -1216,14 +1226,18 @@ class ForYouBaseCollection(ABC):
         # generically, per raw_file — because each platform drops these rows
         # inside its own process_single.
         _before = {str(k): int(v) for k, v in self.data.groupby("raw_file").size().items()}
+        _explicit_before = {fn: self._explicit_drops(fn) for fn in _before}
 
         self.data = self.data.groupby("raw_file", group_keys=False)[self.data.columns].apply(self.process_single)
 
+        # A platform may record its own reasons inside process_single (the
+        # TikTok parser counts records outside its section whitelist); those
+        # are subtracted so not_parseable is only the rows it failed to read.
         _after: dict[str, int] = {}
         if "raw_file" in self.data.columns and len(self.data) > 0:
             _after = {str(k): int(v) for k, v in self.data.groupby("raw_file").size().items()}
         self._record_file_drops(
-            {fn: n - _after.get(fn, 0) for fn, n in _before.items()},
+            {fn: n - _after.get(fn, 0) - (self._explicit_drops(fn) - _explicit_before[fn]) for fn, n in _before.items()},
             "not_parseable",
         )
 
@@ -1258,6 +1272,7 @@ class ForYouBaseCollection(ABC):
     def identify_similar_file_content(
         self,
         overlap_threshold: float = 0.2,
+        min_shared_seconds: int = 3,
         drop_them: bool = True,
     ) -> dict[str, str]:
         """Cluster raw_files by timestamp-sequence similarity and dedupe within
@@ -1302,6 +1317,12 @@ class ForYouBaseCollection(ABC):
         Args:
             overlap_threshold: Per-second timestamp-set overlap (relative to
                 the smaller set) above which two raw_files are clustered.
+            min_shared_seconds: A pair sharing fewer distinct seconds than
+                this is never clustered, whatever its ratio. The ratio alone
+                lets a five-event browser capture coinciding with one second
+                of a large export reach 20 %; three shared seconds is the
+                smallest overlap a genuine re-donation of a ten-event file
+                can show.
             drop_them: Retained for caller compatibility. The function always
                 mutates ``self.data`` in place.
 
@@ -1354,7 +1375,10 @@ class ForYouBaseCollection(ABC):
                 denom = min(len(ts_a), len(ts_b))
                 if denom == 0:
                     continue
-                if len(ts_a & ts_b) / denom > overlap_threshold:
+                shared = len(ts_a & ts_b)
+                if shared < min_shared_seconds:
+                    continue
+                if shared / denom > overlap_threshold:
                     union(a, b)
 
         clusters: dict[str, list[str]] = {}

@@ -66,6 +66,11 @@ MIN_ACCEPTED_FOR_STAT_CHECKS = 5
 
 STAT_Z_WARN = 3.0
 STAT_Z_QUARANTINE = 4.0
+# A file whose parser kept less than this share of the rows it should have
+# read (raw rows minus the sections it never ingests) quarantines whatever
+# the baseline's maturity. It needs no learned history: it is the check
+# that makes an operator look at a file before approving it past a loss.
+PARSE_RATE_FLOOR = 0.10
 # A key path present in at least this fraction of accepted files is "core":
 # its absence from a new file is a quarantine finding.
 CORE_PATH_SUPPORT = 0.9
@@ -447,16 +452,19 @@ def compute_raw_stats(df: pd.DataFrame, size_bytes: int | None) -> dict:
 
 
 
-def compute_processed_stats(raw_rows: int, df_file: pd.DataFrame) -> dict:
+def compute_processed_stats(raw_rows: int, df_file: pd.DataFrame, outside_whitelist: int = 0) -> dict:
     """Per-file sanity stats on the processed (post ``process()``) rows.
 
     Args:
         raw_rows: The file's row count before processing.
         df_file: The file's processed rows.
+        outside_whitelist: Rows the parser excluded by design (records in
+            sections it never ingests), from the file's drop reasons.
 
     Returns:
-        Dict with ``kept_rows``, ``kept_ratio`` (the timestamp parse rate,
-        since processing drops rows with unparseable timestamps),
+        Dict with ``kept_rows``, ``kept_ratio`` (kept over every raw row, the
+        drift metric), ``parse_rate`` (kept over the rows the parser should
+        have read, the floor metric; absent when that denominator is zero),
         ``null_item_id_frac`` and the ``activity_types`` count map.
     """
     kept = int(len(df_file))
@@ -464,6 +472,10 @@ def compute_processed_stats(raw_rows: int, df_file: pd.DataFrame) -> dict:
         "kept_rows": kept,
         "kept_ratio": round(kept / raw_rows, 4) if raw_rows > 0 else 0.0,
     }
+    ingestible = int(raw_rows) - int(outside_whitelist or 0)
+    if ingestible > 0:
+        stats["ingestible_rows"] = ingestible
+        stats["parse_rate"] = round(kept / ingestible, 4)
     if kept > 0:
         if "item_id" in df_file.columns:
             stats["null_item_id_frac"] = round(float(df_file["item_id"].isna().mean()), 4)
@@ -878,8 +890,45 @@ def evaluate_stats(metrics: dict, activity_types: dict | None, baseline: dict) -
 
 
 
+def evaluate_parse_floor(processed_stats: dict | None) -> list[dict]:
+    """The one stat check that needs no baseline: the parse-rate floor.
+
+    Args:
+        processed_stats: Output of :func:`compute_processed_stats`.
+
+    Returns:
+        A single quarantine finding when the parser kept less than
+        ``PARSE_RATE_FLOOR`` of the rows it should have read, else nothing.
+    """
+    if not processed_stats or processed_stats.get("parse_rate") is None:
+        return []
+    rate = float(processed_stats["parse_rate"])
+    if rate >= PARSE_RATE_FLOOR:
+        return []
+    kept = int(processed_stats.get("kept_rows") or 0)
+    ingestible = int(processed_stats.get("ingestible_rows") or 0)
+    return [{
+        "layer": "stats",
+        "metric": "parse_rate",
+        "value": round(rate, 4),
+        "severity": "quarantine",
+        "code": "parse_rate_floor",
+        "detail": f"parser kept {kept:,} of {ingestible:,} ingestible rows ({rate:.1%}); "
+                  f"the floor is {PARSE_RATE_FLOOR:.0%} regardless of baseline",
+    }]
+
+
+
+
+
 def status_from_findings(findings: list[dict], n_accepted: int) -> str:
-    """Derive a verdict status from findings and the baseline's maturity."""
+    """Derive a verdict status from findings and the baseline's maturity.
+
+    The parse-rate floor quarantines even while a baseline is still learning:
+    it does not depend on learned history.
+    """
+    if any(f.get("code") == "parse_rate_floor" for f in findings):
+        return "quarantined"
     if n_accepted < MIN_ACCEPTED_FOR_STRUCTURE_CHECKS:
         return "learning"
     if any(f["severity"] == "quarantine" for f in findings):
@@ -1094,16 +1143,20 @@ class StructureSentinel:
         baseline = self._baseline_for(collection, verdict.get("variant"))
 
         raw_rows = int(verdict["raw_stats"].get("raw_rows") or len(df_file))
-        processed_stats = compute_processed_stats(raw_rows, df_file)
+        file_stats = (getattr(collection, "file_stats_this_run", None) or {}).get(filename) or {}
+        outside = int((file_stats.get("dropped") or {}).get("outside_whitelist") or 0)
+        processed_stats = compute_processed_stats(raw_rows, df_file, outside_whitelist=outside)
         verdict["processed_stats"] = processed_stats
 
+        # parse_rate and ingestible_rows serve the floor, not the drift
+        # comparison; kept_ratio remains the learned metric.
         metrics = {
             k: v for stats in (verdict["raw_stats"], processed_stats)
             for k, v in stats.items()
             if isinstance(v, (int, float)) and not isinstance(v, bool)
-            and k not in ("raw_rows", "kept_rows", "file_size_mb")
+            and k not in ("raw_rows", "kept_rows", "file_size_mb", "parse_rate", "ingestible_rows")
         }
-        verdict["findings"] = verdict["findings"] + evaluate_stats(
+        verdict["findings"] = verdict["findings"] + evaluate_parse_floor(processed_stats) + evaluate_stats(
             metrics, processed_stats.get("activity_types"), baseline
         )
         verdict["status"] = status_from_findings(verdict["findings"], baseline["n_accepted"])

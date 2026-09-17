@@ -174,6 +174,20 @@ class TikTokDDPCollection(ForYouBaseCollection):
             if col in df.columns and df[col].dtype != object:
                 df[col] = pd.Series(list(df[col]), index=df.index, dtype=object)
 
+        # Records in sections the parser never ingests (Off TikTok Activity,
+        # ads data, direct messages, settings, ...) are counted per file as
+        # "outside_whitelist", so the ledger tells a by-design exclusion from
+        # a record the parser failed to read. Login records carry no section
+        # in the whitelist and are recognised by their second key, as below.
+        in_whitelist = df["activity_type"].isin(list(self._ACTIVITY_TYPE_MAP))
+        is_login = df["variable_list"].map(lambda x: isinstance(x, list) and len(x) > 1 and x[1] == "ip")
+        outside = ~(in_whitelist | is_login)
+        if outside.any() and "raw_file" in df.columns:
+            self._record_file_drops(df.loc[outside, "raw_file"].value_counts(), "outside_whitelist")
+        df = df[~outside].copy()
+        if len(df) == 0:
+            return df
+
         # -----------------------------------------------------
         # unpack the variable/value list. The two lists variable & value list contain a label (e.g. 'link')
         # and the value (e.g. 'https://www.tiktok.com/...') at the corresponding indeces. At index 0 is always the date

@@ -12,6 +12,28 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Added
 
+- **Ledger drop reason `outside_whitelist`.** Records in export sections a
+  parser never ingests (TikTok's Off TikTok Activity, ads data, direct
+  messages, settings) are now counted per file under their own reason
+  instead of inflating `not_parseable`, which is once again only the rows
+  the parser failed to read. Found through the methods paper's intake
+  report: a September upload had lost 85,033 of 85,933 rows to
+  "not parseable" that were tracking-pixel records without a timestamp,
+  excluded by design.
+- **Parse-rate floor in the structure sentinel.** A file whose parser kept
+  less than 10 % of the rows it should have read (raw rows minus the
+  sections it excludes by design) is quarantined whatever the baseline's
+  maturity: the drift layer needs five accepted files' statistics and had
+  fewer when that loss went through. `PARSE_RATE_FLOOR`, finding code
+  `parse_rate_floor`; an approval of it sticks like any other. The
+  structure-review modal now states "parser kept X of Y rows" and the
+  share of ingestible rows kept before the Approve button.
+- **Shared-seconds floor for the donor merge.** `identify_similar_file_content`
+  never clusters two files that share fewer than three distinct seconds,
+  whatever their overlap ratio (`min_shared_seconds=3`). The ratio alone
+  let a five-event browser capture coinciding with one second of a large
+  export reach the 20 % threshold.
+
 - **`scripts/intake_report.py`.** Every figure a methods write-up needs
   about ingestion, computed from a downloaded snapshot of the `recoded`
   storage location and never from the live bucket: intake attrition per
@@ -22,7 +44,13 @@ public version. Entries below describe the Hub as it stands at that release.
   supplied zones, and the sensitivity of the session gap, the comment-link
   window and the donor-merge overlap threshold. Writes `report.json`,
   `tables.md`, an attrition figure and a quarantine worksheet for the one
-  judgement a person has to make. Refuses to run against GCS.
+  judgement a person has to make. Refuses to run against GCS. Also
+  reconciles the table's files against the ledger, counts rows without an
+  activity type, reports the distribution of stored per-file offsets and
+  each calibrated file's rows in the other daylight-saving half, the share
+  of comments timestamped before the file's first play, and the donor-merge
+  sensitivity restricted to within-route pairs with each qualifying pair's
+  account relation.
 
 - **`link_method` on every activity row.** How an engagement event was
   linked to a play is now recorded on the row rather than only described in
