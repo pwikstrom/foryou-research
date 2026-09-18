@@ -52,6 +52,22 @@ public version. Entries below describe the Hub as it stands at that release.
   deduplication key included `tz_offset`, so the same events donated again
   under a different supplied zone survived twice. The offset is out of the
   key; the newest donation's row, and its offset, wins.
+- **One deleted post could report a platform as unhealthy for good.** The
+  System Health scrape check test-scraped a single item, picked as the newest
+  row whose `scraped_ok` was true — but that flag records only that the item
+  was fetchable when it was scraped, and nothing re-validates it. A canary
+  that had since been deleted therefore failed on every boot. On Instagram it
+  also failed *misleadingly*: a removed post returns "empty media response",
+  which the scraper classifies as `rate_limited` so genuinely throttled queue
+  items keep retrying, so the check reported "throttled/bot-checked — likely
+  environmental (datacenter IP)" about a post that simply no longer exists.
+  The check now tries up to three previously-scraped items: a failure that
+  only proves *that item* is gone moves on to the next, while a platform-level
+  failure (throttle, bot check, network, server) is still reported at once
+  without burning the rest. When every candidate fails the last verdict
+  stands, so the status mapping is unchanged, and the message and the new
+  `items_tried` field say how many were tried. The scraper's own error
+  classification is untouched — the queue's retry behaviour is the same.
 
 ### Changed
 

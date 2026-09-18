@@ -85,6 +85,11 @@ function _renderHealthCheckRow(key, check) {
     const detailParts = [];
     if (check.detail) detailParts.push(check.detail);
     if (check.item_id) detailParts.push(`Test item: ${check.item_id}`);
+    // More than one means earlier candidates were unavailable (deleted/private
+    // posts), so the reported verdict is not about them.
+    if (check.items_tried && check.items_tried.length > 1) {
+        detailParts.push(`Tried ${check.items_tried.length} items; earlier ones unavailable`);
+    }
     // Scraper rows: the main pill is the metadata check (test scrape +
     // fill-profile drift) — label it like the Cookie/Media sub-pills.
     const pillPrefix = key.startsWith('scrape_') ? 'Metadata' : 'API';

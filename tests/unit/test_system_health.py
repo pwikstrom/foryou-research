@@ -38,10 +38,15 @@ class FakeScraper:
         self._canonicalize_error = canonicalize_error
         self._probe_target = probe_target
         self._probe_error = probe_error
+        # Item ids this scraper was asked to fetch, in order.
+        self.fetched = []
 
 
     def fetch(self, item_id, *, save_media, save_path, stream_to_bucket=None, verbose=False):
         assert save_media is False
+        self.fetched.append(item_id)
+        if isinstance(self._fetch_result, dict):
+            return self._fetch_result[item_id]
         return self._fetch_result
 
 
@@ -104,13 +109,27 @@ def test_overall_precedence():
 
 
 
-def test_pick_test_item_takes_last_matching_row():
+def test_pick_test_items_newest_first():
+    """Candidates come from the tail of the frame, most recent first."""
     df = _status_frame()
-    assert sh._pick_test_item(df, "tiktok") == "333"
-    assert sh._pick_test_item(df, "instagram") == "222"
-    assert sh._pick_test_item(df, "youtube") is None
-    assert sh._pick_test_item(None, "tiktok") is None
-    assert sh._pick_test_item(pd.DataFrame(), "tiktok") is None
+    assert sh._pick_test_items(df, "tiktok") == ["333", "111"]
+    assert sh._pick_test_items(df, "instagram") == ["222"]
+    assert sh._pick_test_items(df, "youtube") == []
+    assert sh._pick_test_items(None, "tiktok") == []
+    assert sh._pick_test_items(pd.DataFrame(), "tiktok") == []
+
+
+
+
+
+
+def test_pick_test_items_respects_limit():
+    """At most `limit` candidates, still newest-first."""
+    df = pd.DataFrame(
+        {"source_platform": ["tiktok"] * 5, "scraped_ok": [True] * 5},
+        index=pd.Index(["1", "2", "3", "4", "5"], name="item_id"))
+    assert sh._pick_test_items(df, "tiktok", limit=2) == ["5", "4"]
+    assert len(sh._pick_test_items(df, "tiktok")) == sh._MAX_TEST_ITEMS
 
 
 
@@ -208,6 +227,95 @@ def test_check_platform_fetch_failure_classification(monkeypatch, error_type, ex
     result = sh._check_platform("tiktok", _status_frame(), expected_fields=[])
     assert result["status"] == expected_status
     assert "boom" in result["detail"]
+
+
+
+
+
+
+def test_check_platform_skips_a_deleted_canary(monkeypatch):
+    """A removed newest item must not report the platform as broken.
+
+    The real case: `scraped_ok` says the item was fetchable once, it has since
+    been deleted, and the check has no other candidate to fall back on.
+    """
+    scraper = FakeScraper(
+        fetch_result={"333": empty_fail("removed", "post is gone"),
+                      "111": pd.DataFrame([{"desc": "hello"}])},
+        canonical_columns=["desc"])
+    _patch_scraper(monkeypatch, scraper)
+    result = sh._check_platform("tiktok", _status_frame(), expected_fields=["desc"])
+    assert result["status"] == "ok"
+    assert result["item_id"] == "111"
+    assert scraper.fetched == ["333", "111"]
+    assert result["items_tried"] == ["333", "111"]
+    assert "after 1 unavailable item" in result["message"]
+
+
+
+
+
+
+def test_check_platform_skips_inconclusive_empty_media_response(monkeypatch):
+    """Instagram's ambiguous "empty media response" moves to the next candidate.
+
+    It is classified rate_limited for the scrape queue's benefit, but it is
+    also what a deleted post returns — so in the health check it must not be
+    taken as proof the platform is throttled.
+    """
+    scraper = FakeScraper(
+        fetch_result={"333": empty_fail("rate_limited",
+                                        "Instagram sent an empty media response"),
+                      "111": pd.DataFrame([{"desc": "hello"}])},
+        canonical_columns=["desc"])
+    _patch_scraper(monkeypatch, scraper)
+    result = sh._check_platform("tiktok", _status_frame(), expected_fields=["desc"])
+    assert result["status"] == "ok"
+    assert result["item_id"] == "111"
+
+
+
+
+
+
+def test_check_platform_reports_throttle_without_burning_candidates(monkeypatch):
+    """A real throttle is the signal the check exists for — report it at once."""
+    scraper = FakeScraper(fetch_result=empty_fail("rate_limited", "HTTP 429: slow down"))
+    _patch_scraper(monkeypatch, scraper)
+    result = sh._check_platform("tiktok", _status_frame(), expected_fields=[])
+    assert result["status"] == "warn"
+    assert scraper.fetched == ["333"]
+    assert result["items_tried"] == ["333"]
+    assert "tried" not in result["message"]
+
+
+
+
+
+
+def test_check_platform_all_candidates_unavailable_keeps_last_verdict(monkeypatch):
+    """Every canary gone: the last verdict stands, and the message says so."""
+    scraper = FakeScraper(fetch_result=empty_fail("removed", "post is gone"))
+    _patch_scraper(monkeypatch, scraper)
+    result = sh._check_platform("tiktok", _status_frame(), expected_fields=[])
+    assert result["status"] == "fail"
+    assert scraper.fetched == ["333", "111"]
+    assert "tried 2 previously-scraped items" in result["message"]
+
+
+
+
+
+
+def test_check_platform_fill_drift_does_not_skip_to_next_item(monkeypatch):
+    """Format drift is a real finding — it must not be retried away."""
+    scraper = FakeScraper(fetch_result=pd.DataFrame([{"desc": "hello"}]),
+                          canonical_columns=["desc"])
+    _patch_scraper(monkeypatch, scraper)
+    result = sh._check_platform("tiktok", _status_frame(),
+                                expected_fields=["desc", "author_name"])
+    assert result["status"] == "warn"
+    assert scraper.fetched == ["333"]
 
 
 

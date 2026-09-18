@@ -48,6 +48,20 @@ _FILL_THRESHOLD = 0.9
 # a fresh canonicalized row — excluded from the expected-fill comparison.
 _ORCHESTRATOR_FIELDS = {"storage_link", "scrape_ts"}
 
+# How many previously-scraped items the platform check may try before giving
+# up. Deliberately small: each fetch carries the scraper's own internal retries,
+# so a genuinely throttled platform pays this multiplier in wall-clock time.
+_MAX_TEST_ITEMS = 3
+
+# A failure detail containing one of these is not proof the platform is
+# unhealthy. Instagram returns "empty media response" both when it throttles
+# and when the post is gone, and instagram_dl._classify_error deliberately
+# calls that rate_limited so the scrape queue keeps retrying genuinely
+# throttled items. That trade-off is right for the queue (a wrongly retired
+# item loses data) and wrong for a canary: without this, one deleted post
+# reports the whole platform as throttled on every boot, forever.
+_INCONCLUSIVE_DETAIL_MARKERS = ("empty media response",)
+
 _MEDIA_PROBE_BYTES = 64 * 1024
 _MEDIA_PROBE_TIMEOUT_S = 15
 
@@ -447,23 +461,30 @@ def _load_status_frame() -> pd.DataFrame | None:
 
 
 
-def _pick_test_item(status_df: pd.DataFrame | None, platform: str) -> str | None:
-    """Return a recently-scraped item id for a platform, or None.
+def _pick_test_items(status_df: pd.DataFrame | None, platform: str,
+                     limit: int = _MAX_TEST_ITEMS) -> list[str]:
+    """Return up to ``limit`` recently-scraped item ids, most recent first.
 
-    Takes the last matching row: the frame is rebuilt from collections in
-    append order and carries no scrape timestamp, so the tail approximates the
-    most recently ingested item. Rows without a ``source_platform`` column
-    (legacy single-platform files) count as the default platform.
+    Takes the matching rows from the end: the frame is rebuilt from
+    collections in append order and carries no scrape timestamp, so the tail
+    approximates the most recently ingested items. Rows without a
+    ``source_platform`` column (legacy single-platform files) count as the
+    default platform.
+
+    Several candidates rather than one because ``scraped_ok`` only records
+    that an item was fetchable *when it was scraped* — nothing re-validates
+    it, so the newest item may since have been deleted. See
+    :func:`_check_platform` for how the extra candidates are used.
     """
     if status_df is None or status_df.empty or "scraped_ok" not in status_df.columns:
-        return None
+        return []
     mask = status_df["scraped_ok"].fillna(False).astype(bool)
     if "source_platform" in status_df.columns:
         mask &= status_df["source_platform"] == platform
     elif platform != sc.default_platform(sc.load_contract()):
-        return None
+        return []
     matching = status_df.index[mask]
-    return str(matching[-1]) if len(matching) else None
+    return [str(item_id) for item_id in reversed(matching[-limit:])]
 
 
 
@@ -617,22 +638,79 @@ def _media_probe_bot_walled(media: dict) -> bool:
 
 
 
+def _failure_may_be_stale_item(classified: str, detail: str) -> bool:
+    """True when a fetch failure only proves *this item* is inaccessible.
+
+    A permanent per-item category (removed, private, ...) says nothing about
+    the platform's health, and neither does an inconclusive detail — see
+    ``_INCONCLUSIVE_DETAIL_MARKERS``. Throttles, bot checks, network and
+    server errors are excluded: those are exactly the platform-level signals
+    the check exists to surface, so they must be reported, not skipped past.
+    """
+    if classified.startswith("permanent:"):
+        return True
+    return any(marker in detail.lower() for marker in _INCONCLUSIVE_DETAIL_MARKERS)
+
+
+
+
+
+
 def _check_platform(platform: str, status_df: pd.DataFrame | None,
                     expected_fields: list[str]) -> dict:
-    """Test-scrape one item for a platform and classify the outcome.
+    """Test-scrape a platform and classify the outcome.
 
     Metadata-only (``save_media=False``); the fetched row is validated against
     the contract + historical fill profile and then discarded — nothing is
     written to the scrape parquets or queues.
+
+    Up to ``_MAX_TEST_ITEMS`` previously-scraped items are tried in turn,
+    because ``scraped_ok`` records that an item was fetchable when it was
+    scraped, not that it still exists. A failure that only proves *that item*
+    is gone moves on to the next candidate, so one deleted post cannot report
+    the platform as broken for good; a platform-level failure (throttle, bot
+    check, network, server) is reported at once without burning the rest. When
+    every candidate fails, the last one's verdict stands — the status mapping
+    is the same one a single item has always produced.
     """
-    item_id = _pick_test_item(status_df, platform)
-    if item_id is None:
+    item_ids = _pick_test_items(status_df, platform)
+    if not item_ids:
         return {"status": "warn",
                 "message": "No test item available (no successfully scraped items yet)",
                 "detail": None, "duration_s": None, "checked_at": _now_iso(),
                 "item_id": None}
 
     scraper = get_scraper(platform)
+    tried: list[str] = []
+    for item_id in item_ids:
+        tried.append(item_id)
+        result, may_be_stale = _check_one_item(scraper, item_id, expected_fields)
+        if not may_be_stale:
+            break
+
+    result["items_tried"] = tried
+    if len(tried) > 1:
+        skipped = len(tried) - 1
+        if result["status"] == "ok":
+            result["message"] += (f" (after {skipped} unavailable "
+                                  f"item{'s' if skipped > 1 else ''})")
+        else:
+            result["message"] += (f" — tried {len(tried)} previously-scraped items, "
+                                  "none of them reachable")
+    return result
+
+
+
+
+
+
+def _check_one_item(scraper, item_id: str, expected_fields: list[str]) -> tuple[dict, bool]:
+    """Test-scrape one item.
+
+    Returns:
+        ``(result, may_be_stale)`` — the check result, and whether the failure
+        (if any) is one that another candidate item could disprove.
+    """
     save_path = tempfile.mkdtemp(prefix="fyp_health_")
     t0 = time.monotonic()
     try:
@@ -647,7 +725,8 @@ def _check_platform(platform: str, status_df: pd.DataFrame | None,
     if raw.empty:
         error_type = raw.attrs.get("error_type")
         classified = scraper.classify_error(error_type)
-        result["detail"] = f"{classified}: {raw.attrs.get('error_detail', '')}".strip(": ")
+        detail = f"{classified}: {raw.attrs.get('error_detail', '')}".strip(": ")
+        result["detail"] = detail
         if error_type in THROTTLE_CATEGORIES:
             result["status"] = "warn"
             result["message"] = (f"Throttled/bot-checked fetching {item_id} — "
@@ -658,7 +737,7 @@ def _check_platform(platform: str, status_df: pd.DataFrame | None,
         else:
             result["status"] = "fail"
             result["message"] = f"Scrape failed for {item_id}"
-        return result
+        return result, _failure_may_be_stale_item(classified, detail)
 
     fmt_status, fmt_message, fmt_detail = _check_row_format(scraper, raw, expected_fields)
     if fmt_status != "ok":
@@ -680,7 +759,10 @@ def _check_platform(platform: str, status_df: pd.DataFrame | None,
         # missing fields are environmental, not format drift.
         result["message"] += (" — likely environmental: media probe hit a bot "
                               "wall / rate limit on this IP, which also degrades metadata")
-    return result
+    # A row came back, so the item is not stale whatever the format check said:
+    # fill drift and a bot-walled media probe are real signals, not reasons to
+    # move to another canary.
+    return result, False
 
 
 
