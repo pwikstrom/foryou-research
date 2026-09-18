@@ -57,27 +57,49 @@ python scripts/setup.py
 
 The wizard asks for:
 
-1. **Data directory** (default `~/fyp_local`) — all project data except media.
-2. **Media directory** (default `<data>/media`) — video files; needs disk space.
-3. **Platforms you plan to scrape** — informational; tailors the printed
+1. **Google Cloud Storage** — off by default. If on, the bucket name, then
+   each of the three storage surfaces separately: **data** (activity data,
+   annotations, scrape records), **media** (the video files) and **cache**
+   (derived analysis artifacts). Answering yes to all three is the "everything
+   in the bucket" setup; any mix is valid.
+2. **Data directory** (default `~/fyp_local`) — all project data except media.
+   Skipped when data *and* cache are both on GCS: the cache directory is
+   derived from this path, so a local cache still needs it.
+3. **Media directory** (default `<data>/media`) — video files; needs disk
+   space. Skipped when media is on GCS.
+4. **Platforms you plan to scrape** — informational; tailors the printed
    guidance. All platforms are always available in the app.
-4. **Gemini annotation** — off / plain API key (`GEMINI_API_KEY`) / Vertex AI
+5. **Gemini annotation** — off / plain API key (`GEMINI_API_KEY`) / Vertex AI
    (your own GCP project, authenticated via `gcloud auth application-default
    login`).
-5. **Google Cloud Storage** — off by default; if on, the bucket name.
 6. **Contact email** (optional) — shown on the public guide/FAQ pages and the
    home-tab feedback note; those passages are hidden when skipped.
+
+Storage is asked first because it decides which local directories are still
+needed — a fully bucket-backed install is never asked for a path it would not
+use, and the generated overlay then overrides no local path at all (the
+committed `paths.local_data` stays in charge of deriving the bucket prefixes).
 
 It writes `config/config.local.toml`, a gitignored overlay merged over the
 committed `config/config.toml` — the committed file is never edited. Re-run
 the wizard any time; it uses your current values as defaults and backs up
 the old file. `python scripts/setup.py --check-only` just runs the
 environment checks. Flags (`--data-dir`, `--no-gemini`, `--yes`, ...) allow a
-fully non-interactive run — see `--help`.
+fully non-interactive run — see `--help`. For storage, `--gcs-bucket NAME`
+puts all three surfaces in that bucket, and `--gcs-for` narrows it to a
+subset:
+
+```bash
+python scripts/setup.py --yes --gcs-bucket my-bucket                 # data + media + cache
+python scripts/setup.py --yes --gcs-bucket my-bucket --gcs-for media # media only
+```
 
 The wizard can also **create the virtualenv and install the dependencies for
 you** — it offers this at the end of an interactive run, or run
-`python scripts/setup.py --install` directly. After installing, `python
+`python scripts/setup.py --install` directly. If you followed the Install
+section above, the dependencies are already in place and the offer is skipped
+(the environment checks report a `dependencies` row either way), so the
+wizard's only job is the configuration. After installing, `python
 scripts/setup.py --verify` live-checks your configuration: it imports the
 app, reports what `.env` supplies, makes a free Gemini test call with your
 configured credentials, and probes the GCS bucket if you enabled one — so a

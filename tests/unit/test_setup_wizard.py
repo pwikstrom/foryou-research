@@ -6,9 +6,12 @@ Covers the answers→TOML rendering, data-dir validation, and the append-only
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import tomllib
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -62,12 +65,52 @@ def test_build_config_toml_api_key_mode():
 
 
 
-def test_build_config_toml_gcs():
-    """GCS mode flips the toggles on and records the bucket."""
-    answers = setup.Answers(data_dir="/tmp/d", gcs=True, gcs_bucket="my-bucket")
+def test_build_config_toml_gcs_all_surfaces():
+    """All three surfaces on GCS: toggles on, bucket recorded, no local paths.
+
+    A fully bucket-backed install has no local directory to override, so the
+    committed paths.local_data stays in charge of the GCS prefix derivation.
+    """
+    answers = setup.Answers(gcs_data=True, gcs_media=True, gcs_cache=True,
+                            gcs_bucket="my-bucket")
     parsed = tomllib.loads(setup.build_config_toml(answers))
-    assert parsed["data_io"]["use_gcs_for_data"] is True
-    assert parsed["data_io"]["GCS_bucket_name"] == "my-bucket"
+    assert parsed["data_io"] == {
+        "use_gcs_for_data": True,
+        "use_gcs_for_media": True,
+        "use_gcs_for_cache": True,
+        "GCS_bucket_name": "my-bucket",
+    }
+    assert "paths" not in parsed
+
+
+
+
+
+
+def test_build_config_toml_gcs_media_only():
+    """Media-only GCS keeps the local data path and drops the media path."""
+    answers = setup.Answers(data_dir="/tmp/d", gcs_media=True, gcs_bucket="b")
+    parsed = tomllib.loads(setup.build_config_toml(answers))
+    assert parsed["data_io"]["use_gcs_for_media"] is True
+    assert parsed["data_io"]["use_gcs_for_data"] is False
+    assert parsed["data_io"]["use_gcs_for_cache"] is False
+    assert parsed["paths"] == {"local_data": "/tmp/d"}
+
+
+
+
+
+
+def test_build_config_toml_gcs_data_only_keeps_local_data():
+    """Data on GCS with a local cache still needs local_data.
+
+    ``fyp_config`` derives ``paths.cache`` from ``paths.local_data``, so the
+    data path is not redundant until the cache moves to the bucket too.
+    """
+    answers = setup.Answers(data_dir="/tmp/d", gcs_data=True, gcs_bucket="b")
+    parsed = tomllib.loads(setup.build_config_toml(answers))
+    assert parsed["paths"]["local_data"] == "/tmp/d"
+    assert parsed["paths"]["local_media"] == "/tmp/d/media"
 
 
 
@@ -190,3 +233,99 @@ def test_free_space_gb_on_missing_path(tmp_path):
     """A not-yet-existing directory is measured via its nearest ancestor."""
     free = setup.free_space_gb(str(tmp_path / "does" / "not" / "exist"))
     assert free is not None and free > 0
+
+
+
+
+
+
+def test_gcs_surfaces_from_args_bucket_alone_means_all_three():
+    """``--gcs-bucket`` with no subset flag puts every surface in the bucket."""
+    args = argparse.Namespace(gcs_bucket="b", gcs_for=None)
+    answers = setup.gcs_surfaces_from_args(args, setup.Answers())
+    assert (answers.gcs_data, answers.gcs_media, answers.gcs_cache) == (True, True, True)
+    assert answers.gcs_bucket == "b"
+
+
+
+
+
+
+def test_gcs_surfaces_from_args_subset():
+    """``--gcs-for`` narrows the bucket to the named surfaces only."""
+    args = argparse.Namespace(gcs_bucket="b", gcs_for="media,cache")
+    answers = setup.gcs_surfaces_from_args(args, setup.Answers())
+    assert (answers.gcs_data, answers.gcs_media, answers.gcs_cache) == (False, True, True)
+
+
+
+
+
+
+def test_gcs_surfaces_from_args_rejects_unknown_surface():
+    """A typo in ``--gcs-for`` names the valid surfaces instead of silently ignoring it."""
+    args = argparse.Namespace(gcs_bucket="b", gcs_for="media,cashe")
+    with pytest.raises(SystemExit) as exc:
+        setup.gcs_surfaces_from_args(args, setup.Answers())
+    assert "cashe" in str(exc.value)
+
+
+
+
+
+
+def test_gcs_surfaces_from_args_subset_without_bucket_fails():
+    """``--gcs-for`` alone cannot work: there is no bucket to write to."""
+    args = argparse.Namespace(gcs_bucket=None, gcs_for="media")
+    with pytest.raises(SystemExit):
+        setup.gcs_surfaces_from_args(args, setup.Answers())
+
+
+
+
+
+
+def test_gcs_surfaces_from_args_keeps_existing_mix():
+    """With no GCS flags, an existing per-surface mix carries over untouched."""
+    defaults = setup.Answers(gcs_media=True, gcs_bucket="old-bucket")
+    args = argparse.Namespace(gcs_bucket=None, gcs_for=None)
+    answers = setup.gcs_surfaces_from_args(args, defaults)
+    assert (answers.gcs_data, answers.gcs_media, answers.gcs_cache) == (False, True, False)
+    assert answers.gcs_bucket == "old-bucket"
+
+
+
+
+
+
+def test_load_existing_defaults_preserves_mixed_surfaces(tmp_path, monkeypatch):
+    """A hand-edited mixed overlay round-trips instead of being flattened."""
+    overlay = tmp_path / "config.local.toml"
+    overlay.write_text(
+        "[data_io]\n"
+        "use_gcs_for_data = false\n"
+        "use_gcs_for_media = true\n"
+        "use_gcs_for_cache = false\n"
+        'GCS_bucket_name = "b"\n'
+    )
+    monkeypatch.setattr(setup, "CONFIG_LOCAL", overlay)
+    defaults = setup.load_existing_defaults()
+    assert (defaults.gcs_data, defaults.gcs_media, defaults.gcs_cache) == (False, True, False)
+    assert defaults.gcs is True
+
+
+
+
+
+
+def test_answers_needs_local_paths():
+    """The two path predicates follow the surfaces that still touch the disk."""
+    everything_local = setup.Answers()
+    assert everything_local.needs_local_data
+    assert everything_local.needs_local_media
+    # Cache is derived from local_data, so data-on-GCS alone does not free it.
+    data_only = setup.Answers(gcs_data=True)
+    assert data_only.needs_local_data
+    all_gcs = setup.Answers(gcs_data=True, gcs_media=True, gcs_cache=True)
+    assert not all_gcs.needs_local_data
+    assert not all_gcs.needs_local_media

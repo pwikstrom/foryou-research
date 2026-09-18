@@ -55,6 +55,23 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Changed
 
+- **The setup wizard asks about storage first, and per surface.** Google
+  Cloud Storage was one yes/no that flipped all three `use_gcs_for_*` flags
+  together, asked after the local paths. It is now the first question, with
+  data, media and cache chosen separately, and the local data and media
+  directories are only asked for when something still lands on the disk — a
+  fully bucket-backed install is never asked for a path it would not use, and
+  its generated overlay overrides no local path. Re-running the wizard over a
+  hand-edited mixed overlay now offers each surface's recorded value back
+  instead of flattening the mix. Non-interactively, `--gcs-bucket` still means
+  all three; the new `--gcs-for data,media,cache` narrows it to a subset.
+- **The wizard no longer offers to install what is already installed.** The
+  "create the virtualenv and install the dependencies now?" question is
+  skipped when the wizard is already running inside a virtualenv that has the
+  dependencies — the state `docs/installation.md` leaves you in. The
+  environment checks report a `dependencies` row so the state is visible
+  either way.
+
 - **Semantic Space legend and labels.** Double-click a category swatch to
   show only that category, and double-click it again to bring the rest back,
   as in a Plotly legend. Niche labels on the map are stacked onto several

@@ -45,7 +45,11 @@ local_media = "~CHANGE-ME~/fyp_local/media"
 # (Overlays written before 2026-07 used flat [machine] keys — still accepted.)
 
 # [data_io]
-# GCS-backed storage (local disk is the committed default):
+# GCS-backed storage (local disk is the committed default). The three
+# surfaces are independent - any mix is valid, e.g. media in the bucket
+# with data and cache on the local disk. Note that paths.cache is derived
+# from paths.local_data, so a local cache keeps that path in use even
+# when use_gcs_for_data = true.
 # use_gcs_for_data = true
 # use_gcs_for_media = true
 # use_gcs_for_cache = true

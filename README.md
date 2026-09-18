@@ -77,7 +77,8 @@ python web_interface/fyp_data_hub.py   # → http://localhost:5002
 Your first boot after installation prints a one-time random password for the default
 `admin@admin.net` account — copy it from the console and change it after
 logging in. Data storage defaults to `~/fyp_local` on the local disk; the
-wizard can point it elsewhere or enable GCS/Gemini. (Manual alternative to
+wizard can point it elsewhere, or move data, media and cache into a GCS
+bucket (each one independently), and enable Gemini. (Manual alternative to
 the wizard: `cp config/config.local.toml.example config/config.local.toml`
 and edit it.) The full walkthrough — prerequisites per platform, optional
 services, first data upload — is in
