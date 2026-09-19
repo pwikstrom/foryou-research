@@ -56,7 +56,8 @@ the five abstract methods:
 
 Optional overrides, all with working defaults: `throttle_limits`
 (per-batch concurrency bounds), `inter_request_delay` (per-worker pacing
-for session-level rate limits), `health_check` (pre-batch auth/quota
+for session-level rate limits), `max_batch_size` (cap on one drain's batch
+when a single session is the scarce resource), `health_check` (pre-batch auth/quota
 probe), `media_probe_url` (system-health CDN reachability probe),
 `prepare_raw_batch` (raw-frame fix-ups before canonicalization),
 `media_duration_cap` / `should_download_media` (media-phase gating), and

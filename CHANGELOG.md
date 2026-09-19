@@ -84,6 +84,30 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Fixed
 
+- **A media-download failure no longer prunes the item from the scrape
+  queue.** When metadata scraped but the media download failed with a
+  *permanent* verdict, the orchestrator saved the metadata-only row, counted
+  it as a success and dropped the item from the queue — nothing would ever
+  fetch its media. On 2026-09-18 a rate-limited YouTube session answered a
+  bare "Video unavailable" for 187 videos that were all alive; 181 were lost
+  that way. Every media failure now keeps the item queued for a media retry,
+  bounded by a per-item budget of three healthy runs
+  (`scrape_queues.charge_media_retry`); an item that exhausts it keeps its
+  metadata-only row and leaves the queue without a failed-scrapes entry.
+  The permanent-storm guard, which those media-leg verdicts had tripped,
+  now reports them instead of "0 demoted".
+- **The scrape batch deadline keeps the work it interrupts.** Waves are
+  counted at the throttle ceiling rather than the oversized thread pool, the
+  1800 s clamp applies only on Cloud Run (`[misc]
+  scraper_local_batch_deadline_seconds` bounds a local drain, default 4 h),
+  and on timeout un-started items return to the queue while in-flight
+  downloads finish and their rows are saved — previously every unfinished
+  item was written off and the batch blocked on them anyway.
+- **YouTube pacing.** Concurrency 2, a 5 s per-item delay and a 250-item
+  batch cap (`BaseScraper.max_batch_size`), overridable under `[misc]
+  scraper_youtube_*`: every YouTube request rides one signed-in session and
+  the platform throttles the session, not the videos.
+
 - **A donor timezone supplied at upload was ignored for TikTok exports.**
   The TikTok DDP parser inferred the offset from the activity rhythm even
   when the upload carried an authoritative zone; Instagram and YouTube

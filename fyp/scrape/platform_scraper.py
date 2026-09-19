@@ -164,9 +164,12 @@ class BaseScraper(ABC):
         download fails, the returned (non-empty) row must carry
         ``attrs['media_error_type']`` / ``attrs['media_error_detail']`` and
         ``video_downloaded=False``. The orchestrator saves the metadata row
-        either way, but keeps the item queued for a media retry when
-        :meth:`classify_error` buckets the media error as transient, and
-        feeds the category to the throttle controller.
+        either way and keeps the item queued for a media retry WHATEVER the
+        category — a permanent verdict on the media leg is not trusted on its
+        own (a throttled session's "Video unavailable" reads like a removal);
+        the media-retry budget in :func:`scrape_queues.charge_media_retry`
+        bounds the retries instead. The category also feeds the throttle
+        controller and the storm guards.
         """
 
 
@@ -218,6 +221,16 @@ class BaseScraper(ABC):
         requests instead of relying on the throttle controller alone.
         """
         return 0.0
+
+
+    def max_batch_size(self) -> int | None:
+        """Largest batch one drain should cut for this platform (``None`` = no cap).
+
+        Platforms where every request rides one signed-in session (YouTube)
+        override this: the session, not the queue, is the scarce resource,
+        and a batch sized for the queue outruns it.
+        """
+        return None
 
 
     def health_check(self) -> dict | None:
