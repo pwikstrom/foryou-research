@@ -63,6 +63,10 @@
         const byId = {};
         for (const s of review.sections) byId[s.id] = s;
         const ipRule = review.sections.find(s => s.id_rule === 'second_key_ip') || null;
+        // Sections claimed by the key they sit under rather than their own
+        // name: TikTok reuses 'VideoList' for watch history and for the
+        // donor's own uploads, so only the parent tells them apart.
+        const parentRules = review.sections.filter(s => s.id_rule === 'parent_in');
 
         const sections = [];
         const stripped = [];
@@ -74,9 +78,20 @@
                 const lowered = (key || '').toLowerCase();
                 const firstDict = obj.find(it => isPlainDict(it) && Object.keys(it).length);
                 const keys = Object.keys(firstDict);
+                const parentKey = (path.length ? path[path.length - 1] : '').toLowerCase();
+                const parentRule = parentRules.find(
+                    s => s.match_key === lowered && (s.parents || []).indexOf(parentKey) !== -1
+                ) || null;
                 let manifestEntry = null;
+                let matchId = lowered;
                 if (lowered.indexOf('chat history with') !== -1) {
                     manifestEntry = null;  // DMs: never uploaded
+                } else if (parentRule) {
+                    // Checked before the plain id match, and it takes the rule's
+                    // own id as matchId so a viability floor naming the watch
+                    // section does not sum this one too.
+                    manifestEntry = parentRule;
+                    matchId = parentRule.id;
                 } else if (byId[lowered]) {
                     manifestEntry = byId[lowered];
                 } else if (ipRule && keys.length > 1 && keys[1].toLowerCase() === 'ip') {
@@ -89,7 +104,7 @@
                 }
                 const sec = newSection({
                     id: manifestEntry.id,
-                    matchId: lowered,
+                    matchId: matchId,
                     title: manifestEntry.title || key,
                     rowDelete: manifestEntry.row_delete !== false,
                     columns: keys.slice(0, 2),
@@ -297,11 +312,15 @@
                     sec.listRef = payload;
                     sec.columns = ['When', 'Video', 'Channel', ''];
                     sec.hrefCol = 1;  // the Video cell opens rec.titleUrl
+                    // Ads are shown, and are uploaded like any other row, but
+                    // they do not count toward viability — see viabilityCount.
+                    sec.nonCounting = new Set();
                     payload.forEach((rec, i) => {
                         if (!isPlainDict(rec)) return;
                         const isAd = (rec.details || []).some(d => isPlainDict(d) && d.name === 'From Google Ads');
                         const title = String(rec.title || '').replace(/^Watched /, '');
                         const channel = (rec.subtitles && rec.subtitles[0] && rec.subtitles[0].name) || '';
+                        if (isAd) sec.nonCounting.add(sec.rows.length);
                         sec.rows.push([fmtIso(rec.time), title, String(channel), isAd ? 'Ad' : '']);
                         sec.hrefs.push(rec.titleUrl || null);
                         sec.itemIdx.push(i);
@@ -378,6 +397,12 @@
             // is absent from the upload by construction.
             const out = {};
             for (const sec of model.sections) {
+                // keptCount() already reports an excluded section as zero kept
+                // rows, so the rebuild has to agree — otherwise the donor is
+                // shown nothing kept while the section is uploaded in full.
+                // No json section offers an include toggle today; the zip path
+                // below has always had this guard.
+                if (!sec.included) continue;
                 const kept = keptItems(sec);
                 if (!kept.length) continue;
                 let node = out;
@@ -450,12 +475,30 @@
     // warned before upload instead of hitting the 422 backstop.
     // ------------------------------------------------------------------
 
+    function viabilityCount(sec) {
+        // Rows that prove the donation carries viewing. Differs from keptCount
+        // only where some kept rows do not count: YouTube's ad impressions ride
+        // along in the watch history but are dropped from every study, so they
+        // must not make a donation look usable.
+        if (!sec.included) return 0;
+        if (sec.toggleOnly || !sec.nonCounting || !sec.nonCounting.size) return keptCount(sec);
+        let n = 0;
+        for (let r = 0; r < sec.rows.length; r++) {
+            if (!sec.deleted.has(r) && !sec.nonCounting.has(r)) n++;
+        }
+        return n;
+    }
+
     function viability(model) {
         const v = model.review.viability || {};
-        if (v.section) {
+        // `sections` names several ids (a platform whose viewing arrives in more
+        // than one member); `section` is the single-id form.
+        const ids = v.sections || (v.section ? [v.section] : null);
+        if (ids) {
+            const want = new Set(ids);
             const kept = model.sections
-                .filter(s => s.matchId === v.section || s.id === v.section)
-                .reduce((n, s) => n + keptCount(s), 0);
+                .filter(s => want.has(s.matchId) || want.has(s.id))
+                .reduce((n, s) => n + viabilityCount(s), 0);
             if (kept < (v.min_rows || 1)) return v.message || 'Too few items would remain.';
         } else if (v.min_total_rows) {
             const total = model.sections.reduce((n, s) => n + keptCount(s), 0);

@@ -5615,6 +5615,22 @@ function _ingestDropLines(r) {
     return lines;
 }
 
+function _ingestPlaysCellHtml(r) {
+    // Viewing rows kept. A Zeeschuimer capture has no DDP structure and emits
+    // no play events at all — every row is an observation of what the feed
+    // showed — so the hover names them that way rather than calling them plays.
+    const v = r.play_rows;
+    if (v === undefined || v === null) {
+        return '<span style="color: var(--color-text-tertiary);">—</span>';
+    }
+    const noun = r.source === 'zeeschuimer' ? 'observation' : 'play';
+    const title = v === 0
+        ? `No viewing activity — this donation contributed no ${noun}s.`
+        : `${v.toLocaleString()} ${noun}${v === 1 ? '' : 's'} kept`;
+    const style = v === 0 ? 'color: var(--color-danger); font-weight: 600;' : '';
+    return `<span style="${style}" title="${_escapeHtml(title)}">${v.toLocaleString()}</span>`;
+}
+
 function _ingestDroppedCellHtml(r) {
     // Entries written before the drop-stats extension have no `dropped` key —
     // render an em-dash rather than implying "nothing was dropped".
@@ -5766,13 +5782,14 @@ function renderIngestResultsPanel(data) {
                     <td style="${numStyle}">${(r.raw_rows ?? 0).toLocaleString()}</td>
                     <td style="${numStyle}">${(r.processed_rows ?? 0).toLocaleString()}</td>
                     <td style="${numStyle}">${(r.final_rows ?? 0).toLocaleString()}</td>
+                    <td style="${numStyle}">${_ingestPlaysCellHtml(r)}</td>
                     <td style="${tdStyle} max-width: 260px;">${_ingestDroppedCellHtml(r)}</td>
                 </tr>
             `;
         }).join('');
 
         wrap.innerHTML = `
-            <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 860px;">
+            <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 960px;">
                 <thead>
                     <tr>
                         <th style="${thStyle}">File</th>
@@ -5780,6 +5797,7 @@ function renderIngestResultsPanel(data) {
                         <th style="${thStyle} text-align: right;">Raw rows</th>
                         <th style="${thStyle} text-align: right;">Processed</th>
                         <th style="${thStyle} text-align: right;">Rows kept</th>
+                        <th style="${thStyle} text-align: right;" title="Viewing rows kept — plays, or observations for Zeeschuimer captures, which have no play events. A donation can keep thousands of rows (favourites, followers) and still contribute no viewing.">Plays</th>
                         <th style="${thStyle}">Rows left out — why</th>
                     </tr>
                 </thead>
@@ -5926,6 +5944,7 @@ function renderIngestionHistory(entries) {
                 </td>
                 <td style="${numStyle}">${numOrDash(r.raw_rows)}</td>
                 <td style="${numStyle}">${numOrDash(r.kept_rows)}</td>
+                <td style="${numStyle}">${_ingestPlaysCellHtml(r)}</td>
                 <td style="${tdStyle} max-width: 280px;">${_ingestDroppedCellHtml(r)}</td>
                 <td style="${tdStyle} text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text-tertiary);">${fypFmtDate(r.ts_last_seen, '—')}</td>
             </tr>
@@ -5933,13 +5952,14 @@ function renderIngestionHistory(entries) {
     };
 
     const tableHtml = (rows) => `
-        <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 860px;">
+        <table class="text-sm" style="width: 100%; border-collapse: collapse; min-width: 960px;">
             <thead>
                 <tr>
                     <th style="${thStyle}">File</th>
                     <th style="${thStyle}">Outcome</th>
                     <th style="${thStyle} text-align: right;">Rows read</th>
                     <th style="${thStyle} text-align: right;">Rows kept</th>
+                    <th style="${thStyle} text-align: right;" title="Viewing rows kept — plays, or observations for Zeeschuimer captures, which have no play events. A donation can keep thousands of rows (favourites, followers) and still contribute no viewing.">Plays</th>
                     <th style="${thStyle}">Rows left out — why</th>
                     <th style="${thStyle} text-align: right;">Last processed</th>
                 </tr>

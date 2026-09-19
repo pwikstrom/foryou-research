@@ -26,14 +26,26 @@ def test_tiktok_manifest_matches_whitelist():
     section_ids = {s["id"] for s in manifest["sections"]}
     # Every whitelisted export section the parser keeps must be reviewable.
     assert section_ids >= set(TikTokDDPCollection._ACTIVITY_TYPE_MAP)
-    # Login history is matched by rule (no stable parent key), not by id.
-    rules = [s for s in manifest["sections"] if s.get("id_rule")]
-    assert [s["id_rule"] for s in rules] == ["second_key_ip"]
+    # Matched by rule rather than by id: login history (no stable parent key)
+    # and the donor's own uploads (same 'VideoList' key as watch history).
+    rules = {s["id_rule"]: s for s in manifest["sections"] if s.get("id_rule")}
+    assert set(rules) == {"second_key_ip", "parent_in"}
+
+    posted = rules["parent_in"]
+    assert posted["id"] == "posted_videolist"
+    assert posted["match_key"] == "videolist"
+    # The client's parent test must use the same sections the parser does.
+    assert set(posted["parents"]) == TikTokDDPCollection._POSTED_VIDEO_SECTIONS
+    assert posted["title"] != TikTokDDPCollection._REVIEW_TITLES["videolist"], \
+        "posted videos must not be shown as a second 'Videos you watched' card"
 
     # Viability mirrors load_single_raw's discard gate (> 10 videolist rows).
     v = manifest["viability"]
     assert v["section"] == "videolist"
     assert v["min_rows"] == TikTokDDPCollection(verbose=False).min_required_rows_per_raw_file + 1
+    # ...and must not name the posted-videos section, or the donor-side gate
+    # goes back to counting uploads as watch history.
+    assert posted["id"] not in {v.get("section"), *(v.get("sections") or [])}
 
     # process_single must use the shared map (not a re-inlined literal).
     assert TikTokDDPCollection._ACTIVITY_TYPE_MAP["videolist"] == "play"
@@ -46,7 +58,17 @@ def test_instagram_manifest_matches_streams():
     assert section_ids == InstagramDDPCollection.zip_member_suffixes()
     assert all(s["parser"] == "instagram_records" for s in manifest["sections"])
     assert all(s.get("row_delete", True) for s in manifest["sections"])
-    assert manifest["viability"]["min_total_rows"] == 10
+
+    # Viability counts the viewing streams only — liked posts must not carry a
+    # donation past the gate that load_single_raw then rejects.
+    v = manifest["viability"]
+    assert "min_total_rows" not in v
+    assert set(v["sections"]) == {
+        suffix for suffix, activity in InstagramDDPCollection._STREAMS if activity == "play"
+    }
+    assert v["min_rows"] == InstagramDDPCollection(verbose=False).min_required_rows_per_raw_file
+    liked = [s for s, a in InstagramDDPCollection._STREAMS if a != "play"]
+    assert liked and not (set(liked) & set(v["sections"]))
 
 
 def test_youtube_manifest_matches_members():
@@ -64,6 +86,17 @@ def test_youtube_manifest_matches_members():
     assert html["row_delete"] is False
     for suffix, _, _ in YouTubeDDPCollection._ENGAGEMENT_MEMBERS:
         assert by_id[suffix]["parser"] == "csv"
+
+    # Viability counts the watch-history members only — comments and liked
+    # videos must not carry a donation past the gate.
+    v = manifest["viability"]
+    assert "min_total_rows" not in v
+    assert set(v["sections"]) == {
+        YouTubeDDPCollection._MEMBER_SUFFIX_JSON, YouTubeDDPCollection._MEMBER_SUFFIX_HTML,
+    }
+    assert v["min_rows"] == YouTubeDDPCollection(verbose=False).min_required_rows_per_raw_file
+    for suffix, _, _ in YouTubeDDPCollection._ENGAGEMENT_MEMBERS:
+        assert suffix not in v["sections"]
 
 
 def test_manifests_are_json_serializable():

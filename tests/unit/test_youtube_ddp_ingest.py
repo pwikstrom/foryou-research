@@ -120,3 +120,45 @@ def test_unrecognised_label_is_recorded_on_the_file(collection, monkeypatch, tmp
     notes = collection.parse_notes_this_run.get("takeout.zip") or []
     assert len(notes) == 1
     assert "unrecognised" in notes[0] and "XQZ" in notes[0]
+
+
+def _ad_heavy_export(path, n_organic: int, n_ads: int, n_comments: int = 0) -> str:
+    """A Takeout whose row count clears the floor only on ads and comments."""
+    records = []
+    for i in range(n_organic + n_ads):
+        vid = f"vid{i:08d}"
+        record = {
+            "title": f"Watched Video {i}",
+            "titleUrl": f"https://www.youtube.com/watch?v={vid}",
+            "subtitles": [{"name": "Some Channel", "url": "https://www.youtube.com/channel/UCabcdef"}],
+            "time": f"2026-05-01T10:{i:02d}:00.000Z",
+        }
+        if i >= n_organic:
+            record["details"] = [{"name": "From Google Ads"}]
+        records.append(record)
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("Takeout/YouTube and YouTube Music/history/watch-history.json", json.dumps(records))
+        if n_comments:
+            rows = "".join(
+                f"2026-05-01T10:{i:02d}:30.000Z,vid{i:08d},\"{{\"\"text\"\": \"\"hi\"\"}}\"\n"
+                for i in range(n_comments)
+            )
+            zf.writestr("Takeout/YouTube and YouTube Music/comments/comments.csv",
+                        "Comment create timestamp,Video ID,Comment text\n" + rows)
+    return str(path)
+
+
+def test_ads_and_comments_do_not_satisfy_the_viability_floor(collection, monkeypatch, tmp_path):
+    """35 rows, but only 5 organic watches — ads are dropped from every study."""
+    _patch(monkeypatch, _ad_heavy_export(tmp_path / "ads.zip", n_organic=5, n_ads=20, n_comments=10))
+
+    assert collection.load_single_raw("ads.zip").empty
+
+
+def test_enough_organic_watches_still_load_alongside_ads(collection, monkeypatch, tmp_path):
+    """The floor counts organic watches only — it must not reject a healthy export."""
+    _patch(monkeypatch, _ad_heavy_export(tmp_path / "ok.zip", n_organic=10, n_ads=3))
+
+    df = collection.load_single_raw("ok.zip")
+    assert int(df["is_ad"].ne(True).sum()) == 10
+    assert int(df["is_ad"].eq(True).sum()) == 3

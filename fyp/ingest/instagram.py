@@ -98,9 +98,15 @@ class InstagramDDPCollection(ForYouBaseCollection):
         """Pre-upload review manifest: one row-level section per ingested stream."""
         return {
             "kind": "zip_members",
+            # Counts the viewing streams only. A total across every section let
+            # liked posts carry a donation over the line, which load_single_raw
+            # then rejects for having too few views — the donor saw the refusal
+            # only after uploading. min_rows tracks min_required_rows_per_raw_file.
             "viability": {
-                "min_total_rows": 10,
-                "message": "Removing this many items would leave too little activity to be usable.",
+                "sections": [suffix for suffix, activity in cls._STREAMS if activity == "play"],
+                "min_rows": 10,
+                "message": "An Instagram donation needs at least 10 viewed posts, "
+                           "videos or stories to be usable.",
             },
             "sections": [
                 {"id": suffix, "title": cls._STREAM_TITLES.get(suffix, suffix),
@@ -236,7 +242,20 @@ class InstagramDDPCollection(ForYouBaseCollection):
 
         if not rows:
             return pd.DataFrame()
-        return pd.DataFrame.from_records(rows)
+        df = pd.DataFrame.from_records(rows)
+
+        # Only the viewing streams make a donation useful. Liked posts are
+        # engagement, so without this the generic row-count floor in the load
+        # loop would admit an export of nothing but likes — a collection that
+        # contributes no viewing at all. Mirrors the watch-history floor in
+        # TikTokDDPCollection.load_single_raw.
+        n_views = int((df["activity_type"] == "play").sum())
+        if n_views < self.min_required_rows_per_raw_file:
+            if self.verbose:
+                logger.info(f"Discarding {filename} as it only has {n_views} viewing activities.")
+            return pd.DataFrame()
+
+        return df
 
 
 

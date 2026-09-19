@@ -204,3 +204,54 @@ def test_sections_outside_the_whitelist_are_counted_by_design_not_as_parse_failu
     # 12 plays + 1 login survive; raw = 12 + 1 + 1 bad date + 50 off-platform
     assert len(collection.data) == 13
     assert len(df) == 13 + 1 + 50
+
+
+def _posted_videos(n: int) -> dict:
+    """The donor's own uploads: Post -> Posts -> VideoList, same key as watch history."""
+    return {
+        "Post": {
+            "Posts": {
+                "VideoList": [
+                    {
+                        "Date": f"2026-04-{(i % 28) + 1:02d} 08:{i % 60:02d}:00",
+                        "Link": f"https://video-my.tiktokv.com/storage/v1/tos-alisg-pve-0037c001/o{i:022d}?a=1233",
+                    }
+                    for i in range(n)
+                ]
+            }
+        }
+    }
+
+
+def test_posted_videos_do_not_satisfy_the_viability_floor(collection, monkeypatch):
+    """A donation with no watch history is discarded however much the donor posted.
+
+    TikTok keys the donor's own uploads with the same 'VideoList' name as watch
+    history, so before the parent-section check these 80 counted as plays and
+    carried the file over the floor.
+    """
+    doc = _posted_videos(80)
+    monkeypatch.setattr(
+        tiktok_mod.data_io, "load_json",
+        lambda storage_location=None, filename=None, _doc=doc, **kw: _doc,
+    )
+
+    assert collection.load_single_raw("posted_only.json").empty
+
+
+def test_posted_videos_are_excluded_by_design_not_counted_as_plays(collection, monkeypatch):
+    """Alongside real watch history they neither inflate plays nor look like failures."""
+    doc = _flat_ddp_document(seed=7, n_plays=20)
+    doc.update(_posted_videos(15))
+
+    df = _load(collection, monkeypatch, "both.json", doc)
+    assert (df["activity_type"] == "videolist").sum() == 20, "only watch history is a play"
+    assert (df["activity_type"] == "posted_videolist").sum() == 15
+
+    collection.data = df
+    collection.state = "raw"
+    collection.file_stats_this_run = {"both.json": {"raw_rows": int(len(df)), "dropped": {}}}
+    collection.process()
+
+    assert collection.file_stats_this_run["both.json"]["dropped"]["outside_whitelist"] == 15
+    assert (collection.data["activity_type"] == "play").sum() == 20

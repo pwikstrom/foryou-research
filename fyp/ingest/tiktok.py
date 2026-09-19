@@ -43,6 +43,16 @@ class TikTokDDPCollection(ForYouBaseCollection):
         'searchlist': 'search', 'fanslist': 'followed_by', 'following': 'following',
         'itemfavoritelist': 'fave', 'favoritevideolist': 'fave',
     }
+    # Sections whose 'VideoList' holds the donor's OWN uploads rather than
+    # watch history. TikTok reuses the key for both — Your Activity -> Watch
+    # History -> VideoList is what they watched, Post -> Posts -> VideoList is
+    # what they posted — so the key alone cannot tell them apart and posted
+    # videos used to count toward the play floor in load_single_raw. Matched on
+    # the PARENT section, and deliberately a denylist: an export vintage that
+    # renames the watch-history section must keep ingesting, not silently lose
+    # every play. ("Videos" is the older layout's Video -> Videos -> VideoList.)
+    _POSTED_VIDEO_SECTIONS = {"posts", "videos"}
+
     # Participant-facing card titles for the review UI, keyed by section id.
     _REVIEW_TITLES = {
         'videolist': 'Videos you watched',
@@ -77,6 +87,16 @@ class TikTokDDPCollection(ForYouBaseCollection):
             "id": "__login__", "id_rule": "second_key_ip",
             "title": "Login history (IP addresses)", "row_delete": True,
         })
+        # The donor's own uploads sit under a second 'VideoList'. Keyed on that
+        # name alone the client showed them as a *second* "Videos you watched"
+        # card and counted them toward the viability floor below — the same
+        # confusion _section_activity_type fixes on the parser side, so the
+        # parent sections listed here are the same ones.
+        sections.append({
+            "id": "posted_videolist", "id_rule": "parent_in",
+            "match_key": "videolist", "parents": sorted(cls._POSTED_VIDEO_SECTIONS),
+            "title": "Videos you posted", "row_delete": True,
+        })
         return {
             "kind": "json_sections",
             "unmapped_policy": "strip",
@@ -99,6 +119,21 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
 
 
+    @classmethod
+    def _section_activity_type(cls, parent: str | None, feature: str | None) -> str:
+        """Name the section a list belongs to, disambiguating reused keys.
+
+        Returns the lowercased key, except for a 'VideoList' sitting under a
+        posted-videos section, which gets a name outside _ACTIVITY_TYPE_MAP so
+        process_single books it as an excluded-by-design section instead of a
+        play.
+        """
+        name = (feature or '').lower()
+        if name == "videolist" and (parent or '').lower() in cls._POSTED_VIDEO_SECTIONS:
+            return "posted_videolist"
+        return name
+
+
     def load_single_raw(self, filename: str) -> pd.DataFrame:
 
         donation_dict = data_io.load_json(storage_location = self.raw_path, filename = filename)
@@ -112,31 +147,36 @@ class TikTokDDPCollection(ForYouBaseCollection):
                 f"the export .zip."
             )
 
-        # find list of dicts
+        # find list of dicts. The stack carries the PARENT key alongside each
+        # node because the section name alone is ambiguous: TikTok uses the
+        # same 'VideoList' key for watch history and for the donor's own
+        # uploads (see _POSTED_VIDEO_SECTIONS).
         donation_items = []
-        
-        stack = deque([(None, donation_dict)])
+
+        stack = deque([(None, None, donation_dict)])
         while stack:
-            feature, obj = stack.pop()
+            parent, feature, obj = stack.pop()
             if isinstance(obj, list):
+                activity_type = self._section_activity_type(parent, feature)
                 for item in obj:
                     if isinstance(item, dict) and item:
                         donation_items.append({
-                            "activity_type": (feature or '').lower(),
+                            "activity_type": activity_type,
                             "variable_list": [k.lower() for k in item.keys()],
                             "value_list": list(item.values())
                         })
             elif isinstance(obj, dict):
                 for k, v in obj.items():
-                    stack.append((k, v))
+                    stack.append((feature, k, v))
 
         # initialising the dataframe from the raw data.
         if len(donation_items) == 0:
             return pd.DataFrame()
         df = pd.DataFrame.from_records(donation_items)
 
-        # a data donation package without at least a few play activities is not useful
-        # play activities are referred to as 'videolist' by TikTok
+        # a data donation package without at least a few play activities is not useful.
+        # Watch history is 'videolist'; the donor's own uploads were relabelled above
+        # so they cannot prop a donation up over this floor (see _section_activity_type).
         n_play_activities = len(df[df['activity_type'] == 'videolist'])
         if n_play_activities <= 10:
             if self.verbose: logger.info(f"Discarding {filename} as it only has {n_play_activities} play activities.")

@@ -1745,6 +1745,11 @@ class ForYouCollection(ForYouBaseCollection):
                 "raw_rows": int(entry.get("raw_rows") or 0),
                 "processed_rows": int(entry.get("processed_rows") or 0),
                 "kept_rows": int(entry.get("final_rows") or 0),
+                # None (not 0) when the caller never computed it — entries
+                # written before this field existed, and the secondary writers
+                # that record an outcome without processing a frame. The UI
+                # renders that as "—" rather than claiming zero viewing.
+                "play_rows": entry.get("play_rows"),
                 "deduped_rows": int(entry.get("deduped_rows") or 0),
                 "dropped": entry.get("dropped") or {},
                 "collection_id": entry.get("canonical_collection_id"),

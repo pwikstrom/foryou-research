@@ -12,6 +12,19 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Added
 
+- **Plays column in the ingestion history.** Each ingested file now records
+  how many viewing rows it actually contributed, shown beside "Rows kept" in
+  the admin ingestion history and in the live run results, so a donation that
+  keeps thousands of rows of favourites and followers but no viewing is
+  visible at a glance rather than hidden inside a healthy-looking total. A
+  zero is called out; files ingested before the field existed show "—".
+  Zeeschuimer captures have no play events by construction, so the count
+  there is of observations, which the cell says on hover.
+- **`scripts/check_watch_history_missing.py`.** Lists the raw TikTok exports
+  in `ddp_raw` that carry no watch history, distinguishing a section the
+  donor withheld (present but empty) from one the export never contained,
+  and never confusing the donor's own uploads for watched videos.
+
 - **Ledger drop reason `outside_whitelist`.** Records in export sections a
   parser never ingests (TikTok's Off TikTok Activity, ads data, direct
   messages, settings) are now counted per file under their own reason
@@ -84,6 +97,24 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Fixed
 
+- **Viability floors counted rows that are not viewing.** A donation was
+  admitted on 10+ rows of *any* kind, so an export could become a collection
+  with no viewing activity in it at all. TikTok was the clearest case:
+  the export uses the same `VideoList` key for watch history
+  (`Your Activity → Watch History`) and for the donor's own uploads
+  (`Post → Posts`), and the parser named a section after its immediate
+  parent key alone, so 80 posted videos carried a donation with no watch
+  history whatsoever over the floor — it was ingested, the posted rows were
+  then dropped for having no usable video reference, and the result was a
+  1,429-row collection with zero plays. The parser's walk now carries the
+  parent section and books a posted `VideoList` as excluded by design.
+  Instagram (liked posts) and YouTube (engagement CSVs, and ad impressions,
+  which every downstream study filters out) fell through to a generic
+  total-row floor and had the same hole; both now count viewing rows only.
+  The pre-upload review in the browser had all three weaknesses too, and a
+  donor with posted videos saw *two* cards both titled "Videos you watched";
+  posted videos now get their own card and no longer count toward the
+  donor-side minimum.
 - **A donor timezone supplied at upload was ignored for TikTok exports.**
   The TikTok DDP parser inferred the offset from the activity rhythm even
   when the upload carried an authoritative zone; Instagram and YouTube

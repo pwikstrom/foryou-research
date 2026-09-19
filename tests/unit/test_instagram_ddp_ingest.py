@@ -101,3 +101,49 @@ def test_zip_without_expected_members_raises(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError):
         collection.load_single_raw("empty.zip")
+
+
+def _likes_heavy_zip(path, n_watched: int, n_likes: int) -> str:
+    """An export whose row count clears the floor only because of likes."""
+    watched = [
+        {
+            "label_values": [
+                {"label": "URL", "value": f"https://www.instagram.com/reel/SHORT{i:02d}/"},
+            ],
+            "timestamp": _T0 + 60 * i,
+        }
+        for i in range(n_watched)
+    ]
+    likes = {"likes_media_likes": [{
+        "title": "creator",
+        "string_list_data": [{"href": f"https://www.instagram.com/p/LIKED{i:02d}/",
+                              "timestamp": _T0 + 100 + i}],
+    } for i in range(n_likes)]}
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("ads_information/ads_and_topics/videos_watched.json", json.dumps(watched))
+        zf.writestr("your_instagram_activity/likes/liked_posts.json", json.dumps(likes))
+    return str(path)
+
+
+def test_likes_alone_do_not_satisfy_the_viability_floor(monkeypatch, tmp_path):
+    """23 rows, but only 3 of them are viewing — the donation is not usable."""
+    zip_path = _likes_heavy_zip(tmp_path / "likes.zip", n_watched=3, n_likes=20)
+    monkeypatch.setattr(instagram_mod.data_io, "local_copy",
+                        lambda storage_location=None, filename=None: zip_path)
+    monkeypatch.setattr(instagram_mod.data_io, "release_local_copy", lambda p: None)
+    col = instagram_mod.InstagramDDPCollection(verbose=False)
+
+    assert col.load_single_raw("likes.zip").empty
+
+
+def test_enough_views_still_load_when_likes_are_present(monkeypatch, tmp_path):
+    """The floor counts views only — it must not reject a healthy export."""
+    zip_path = _likes_heavy_zip(tmp_path / "ok.zip", n_watched=10, n_likes=1)
+    monkeypatch.setattr(instagram_mod.data_io, "local_copy",
+                        lambda storage_location=None, filename=None: zip_path)
+    monkeypatch.setattr(instagram_mod.data_io, "release_local_copy", lambda p: None)
+    col = instagram_mod.InstagramDDPCollection(verbose=False)
+
+    df = col.load_single_raw("ok.zip")
+    assert (df["activity_type"] == "play").sum() == 10
+    assert (df["activity_type"] == "fave").sum() == 1

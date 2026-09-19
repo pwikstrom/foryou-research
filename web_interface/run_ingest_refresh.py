@@ -10,6 +10,7 @@ from web_interface.task_status import TaskStatusReporter
 from fyp.ingest.base import BLOCKED_OUTCOME
 from fyp.ingest import LEDGER_SKIP_OUTCOMES
 from fyp.structure_sentinel import StructureSentinel, findings_digest
+from fyp.analysis.sequence_analysis import VIEWING_ACTIVITY_TYPES
 
 
 # Outcomes whose files we want to *show* as "previously skipped" in the UI.
@@ -198,6 +199,14 @@ def _build_per_file_summary(
 
         sub_df = final_df[final_df["raw_file"] == rf]
         final_rows = int(len(sub_df))
+        # Viewing rows that actually made it: a donation can keep thousands of
+        # rows (favourites, followers) and still contribute no viewing at all,
+        # which the total alone hides. 'observe' has to be in here — a
+        # Zeeschuimer capture is nothing but viewing yet never emits 'play', so
+        # counting 'play' alone would report every one of them as zero.
+        # YouTube's 'ad_play' is deliberately left out: ad impressions are
+        # filtered out of every downstream study too (organize_datasets).
+        play_rows = int(sub_df["activity_type"].isin(VIEWING_ACTIVITY_TYPES).sum()) if final_rows else 0
 
         if final_rows == 0:
             outcome = "fully_deduped"
@@ -224,6 +233,7 @@ def _build_per_file_summary(
             "raw_rows": raw_rows,
             "processed_rows": processed_rows,
             "final_rows": final_rows,
+            "play_rows": play_rows,
             "outcome": outcome,
             "canonical_collection_id": canonical_cid,
             "merged_with_siblings": siblings,

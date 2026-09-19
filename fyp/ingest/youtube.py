@@ -156,9 +156,16 @@ class YouTubeDDPCollection(ForYouBaseCollection):
         ]
         return {
             "kind": "zip_members",
+            # Counts the watch-history members only (whichever of the two is
+            # present), never the engagement CSVs — a total across every section
+            # let comments and liked videos carry a donation that load_single_raw
+            # then rejects. The client also leaves ad impressions out of this
+            # count, matching the floor there. min_rows tracks
+            # min_required_rows_per_raw_file.
             "viability": {
-                "min_total_rows": 10,
-                "message": "Removing this many items would leave too little activity to be usable.",
+                "sections": [cls._MEMBER_SUFFIX_JSON, cls._MEMBER_SUFFIX_HTML],
+                "min_rows": 10,
+                "message": "A YouTube donation needs at least 10 watched videos to be usable.",
             },
             "sections": sections,
         }
@@ -498,6 +505,19 @@ class YouTubeDDPCollection(ForYouBaseCollection):
                 f"'{filename}': {len(df)} watch event(s) found but no timestamp "
                 f"could be parsed{hint}"
             )
+
+        # Organic watches are the only rows that make a donation useful, and
+        # they are the ones still missing an activity_type at this point
+        # (process_single fills it in later). Ad impressions share the
+        # watch-history member but are dropped from every downstream study, and
+        # the engagement CSVs below are engagement, not viewing — so neither
+        # may carry a file over the floor on its own. Counted before the concat,
+        # while the frame is watch history alone.
+        n_watches = int(df["is_ad"].fillna(False).ne(True).sum())
+        if n_watches < self.min_required_rows_per_raw_file:
+            if self.verbose:
+                logger.info(f"Discarding {filename} as it only has {n_watches} organic watches.")
+            return pd.DataFrame()
 
         engagement = self._parse_engagement(members, filename)
         if not engagement.empty:
