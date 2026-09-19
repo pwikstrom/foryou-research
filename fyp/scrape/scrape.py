@@ -119,6 +119,20 @@ def _permanent_storm_threshold() -> int:
 # threshold is higher than the permanent guard's: transient runs (network
 # blips) are more plausible in a healthy session, and any success resets the
 # count. Overridable via ``[misc] scraper_transient_storm_threshold``.
+# Ceiling on one batch's wall clock. On Cloud Run the Cloud Tasks request
+# deadline (1800 s — web_interface.run_queue_scraper._DISPATCH_DEADLINE) is the
+# hard limit. A local drain has no such limit: the per-wave estimate governs,
+# bounded by ``[misc] scraper_local_batch_deadline_seconds`` (default 4 h).
+def _batch_deadline_cap() -> int:
+    """Lazy accessor for the batch-deadline ceiling (see comment above)."""
+    if os.environ.get("K_SERVICE"):
+        return 1800
+    try:
+        return int(_cf()["misc"].get("scraper_local_batch_deadline_seconds", 4 * 3600))
+    except Exception:
+        return 4 * 3600
+
+
 def _transient_storm_threshold() -> int:
     """Lazy accessor for the transient-storm guard threshold (see comment above)."""
     try:
@@ -1150,7 +1164,7 @@ def download_video_threads(
             if abort_event.is_set():
                 aborted = pd.DataFrame()
                 aborted.attrs['error_type'] = 'batch_aborted'
-                aborted.attrs['error_detail'] = 'batch aborted by rate-limit circuit breaker'
+                aborted.attrs['error_detail'] = 'batch aborted (rate-limit breaker, storm guard or batch deadline)'
                 return idx, aborted
             if mem_stop_event.is_set():
                 deferred = pd.DataFrame()
@@ -1236,9 +1250,16 @@ def download_video_threads(
 
         # Batch-level deadline: prevents a single slow download from blocking
         # the entire batch indefinitely.  Stuck items are recorded as failures.
+        # Waves are counted at the throttle CEILING, not the pool size: the
+        # pool is oversized on purpose and the semaphore is what bounds real
+        # concurrency (YouTube: 2-4). Counting the pool made the estimate 3-6x
+        # optimistic, and the old fixed 1800 s clamp then made a 1020-item
+        # YouTube batch unfinishable by construction (2026-09-18: 341 items
+        # cut off at the deadline). The clamp now applies only on Cloud Run.
         _per_item_ceiling = 120
-        _waves = max(1, (len(interesting_videos) + pool_size - 1) // pool_size)
-        batch_deadline = min(int(_waves * _per_item_ceiling * 1.5 + 60), 1800)
+        _waves = max(1, (len(interesting_videos) + throttle_max - 1) // throttle_max)
+        batch_deadline = min(int(_waves * _per_item_ceiling * 1.5 + 60), _batch_deadline_cap())
+        deadline_hit = False
 
         # Background memory watch: sample the container memory cgroup on a
         # ~1s timer, independent of item completion, so a fast climb is caught
@@ -1277,13 +1298,34 @@ def download_video_threads(
                 results_by_index[idx] = res
                 _mem_progress["done"] += 1
         except TimeoutError:
-            stuck = [interesting_videos[i] for i, f in enumerate(futures) if not f.done()]
+            pending = [(i, f) for i, f in enumerate(futures) if not f.done()]
             logger.warning(
-                f"  [scrape] Batch deadline of {batch_deadline}s exceeded; "
-                f"{len(stuck)} worker(s) did not finish: {stuck[:5]}"
-                + (" ..." if len(stuck) > 5 else "")
+                f"  [scrape] Batch deadline of {batch_deadline}s exceeded with "
+                f"{len(pending)} item(s) unfinished — stopping new downloads; "
+                f"in-flight ones get {_per_item_ceiling}s to land."
             )
-            # Record DNF items as empty DataFrames (failures)
+            # Stop the queue, keep the work. Un-started workers now return a
+            # 'batch_aborted' placeholder at once (transient, stays queued);
+            # the few in-flight downloads finish and their rows are KEPT. The
+            # old handler wrote every unfinished item off as 'timeout' and then
+            # blocked on the executor's exit anyway — on 2026-09-18 that ran
+            # the remaining 341 downloads for 11 more minutes, discarded every
+            # one of them, and pushed the already-throttled session into a storm.
+            abort_event.set()
+            deadline_hit = True
+            try:
+                for fut in as_completed([f for _, f in pending], timeout=_per_item_ceiling):
+                    idx, res = fut.result()
+                    results_by_index[idx] = res
+                    _mem_progress["done"] += 1
+            except TimeoutError:
+                pass
+            stuck = [interesting_videos[i] for i, _ in pending if i not in results_by_index]
+            if stuck:
+                logger.warning(
+                    f"  [scrape] {len(stuck)} download(s) still stuck after the grace "
+                    f"period: {stuck[:5]}" + (" ..." if len(stuck) > 5 else ""))
+            # Record the truly stuck items as failures (transient — they stay queued)
             for i in range(len(interesting_videos)):
                 if i not in results_by_index:
                     empty = pd.DataFrame()
@@ -1305,6 +1347,7 @@ def download_video_threads(
     transient_failed_ids: list[str] = []
     media_retry_ids: list[str] = []
     storm_demoted = 0
+    storm_media_kept = 0
     for idx in range(len(interesting_videos)):
         res = results_by_index.get(idx)
         if isinstance(res, pd.DataFrame) and res.shape[1] > 10:
@@ -1314,8 +1357,18 @@ def download_video_threads(
             # media is retried next run. attrs don't survive pd.concat, so
             # this is the last place they're visible.
             media_error = res.attrs.get('media_error_type')
-            if media_error is not None and not scraper.classify_error(media_error).startswith('permanent'):
+            if media_error is not None:
+                # Whatever the category. A permanent verdict on the media leg
+                # is not trusted on its own: a throttled session's bare "Video
+                # unavailable" reads exactly like a removal, and on 2026-09-18
+                # that wrote 187 live videos as scrape-ok rows with no media
+                # and pruned 181 of them for good. The row is saved, the id
+                # stays queued, and the caller's media-retry budget
+                # (scrape_queues.charge_media_retry) bounds the retries.
                 media_retry_ids.append(interesting_videos[idx])
+                if (storm_state["tripped"]
+                        and scraper.classify_error(media_error) == storm_state["classification"]):
+                    storm_media_kept += 1
         else:
             vid = interesting_videos[idx]
             error_type = res.attrs.get('error_type', 'unknown') if isinstance(res, pd.DataFrame) else 'unknown'
@@ -1339,9 +1392,14 @@ def download_video_threads(
     fine_ts = "".join([k for k in str(datetime.now()) if k in "0123456789"])
 
     if storm_state["tripped"]:
+        # Both populations the guard protects: failed fetches (demoted) and
+        # metadata-only rows whose MEDIA leg gave the storm verdict — the
+        # latter is what tripped the guard on 2026-09-18, and the old line
+        # reported "0 demoted" because they are results, not failures.
         logger.warning(f"  Permanent-storm guard: {storm_demoted} "
                        f"'{storm_state['classification']}' failures demoted to transient "
-                       f"— kept in queue, not recorded as failed.")
+                       f"and {storm_media_kept} metadata-only rows whose media leg gave that "
+                       f"verdict — all kept in queue, none recorded as failed.")
 
     # Durable, user-visible alert: a storm means the scraper (or its session)
     # is likely broken — e.g. the platform changed its site/API — and needs a
@@ -1383,7 +1441,7 @@ def download_video_threads(
 
     if media_retry_ids:
         logger.info(f"  Media retries: {len(media_retry_ids)} items scraped metadata-only "
-              f"(transient media failure) — kept in queue for media retry")
+              f"(media download failed) — kept in queue for media retry")
         transient_failed_ids += media_retry_ids
 
     if permanent_failed_ids or transient_failed_ids:
@@ -1409,6 +1467,8 @@ def download_video_threads(
         empty_results.attrs['transient_storm_tripped'] = t_storm_state["tripped"]
         empty_results.attrs['transient_storm_category'] = t_storm_state["classification"]
         empty_results.attrs['memory_stop'] = mem_stop_event.is_set()
+        empty_results.attrs['batch_deadline_hit'] = deadline_hit
+        empty_results.attrs['media_retry_ids'] = list(media_retry_ids)
         return empty_results, permanent_failed_ids, transient_failed_ids
 
     # ignore_index=True: each element is a single-row frame indexed 0, so a
@@ -1434,6 +1494,11 @@ def download_video_threads(
     results.attrs['transient_storm_tripped'] = t_storm_state["tripped"]
     results.attrs['transient_storm_category'] = t_storm_state["classification"]
     results.attrs['memory_stop'] = mem_stop_event.is_set()
+    results.attrs['batch_deadline_hit'] = deadline_hit
+    # Ids saved metadata-only (media failed): callers charge the media-retry
+    # budget with these — they are also in transient_failed_ids so the queue
+    # keeps them, and in the frame so the row is saved.
+    results.attrs['media_retry_ids'] = list(media_retry_ids)
 
     return results, permanent_failed_ids, transient_failed_ids
 
@@ -1466,6 +1531,14 @@ def scraper_loop_from_list(
     platform_resolved = platform or scrape_queues.default_platform()
     stop_key = process_name or f"queue_scraper_{platform_resolved}"
 
+    # A platform may cap the batch (YouTube: every request rides one signed-in
+    # session, so the session — not the queue — sizes a drain).
+    platform_cap = get_scraper(platform_resolved).max_batch_size()
+    if platform_cap and batch_size > platform_cap:
+        logger.info(f"  Batch size {batch_size} capped to {platform_cap} by the "
+                    f"{platform_resolved} scraper.")
+        batch_size = platform_cap
+
 
 
     logger.info(f"    Downloading media objects and metadata for selected videos, batch size: {batch_size}, max batches: {max_batches}")
@@ -1483,6 +1556,7 @@ def scraper_loop_from_list(
     good_scrapes = []
     all_permanent_failed = []
     all_transient_failed = []
+    all_media_retry = []
     # True when a storm / circuit-breaker abort ended the loop: those verdicts
     # implicate the scraper, not the items, so they must not burn retry budget.
     aborted = False
@@ -1521,6 +1595,11 @@ def scraper_loop_from_list(
 
         all_permanent_failed += perm_failed
         all_transient_failed += trans_failed
+        all_media_retry += list(results_from_scraper.attrs.get('media_retry_ids') or [])
+
+        if results_from_scraper.attrs.get('batch_deadline_hit'):
+            logger.warning("  Batch deadline hit — the completed rows are saved; the "
+                           "unfinished items stay in the queue for the next run.")
 
         if results_from_scraper.attrs.get('circuit_breaker_tripped'):
             logger.warning("  Rate-limit circuit breaker tripped — stopping the batch loop. "
@@ -1617,6 +1696,22 @@ def scraper_loop_from_list(
                 f"{scrape_queues.MAX_ZERO_PROGRESS_STRIKES} zero-progress runs of "
                 f"transient failures — removed from the queue and recorded as "
                 f"permanently failed. Queue length: {remaining}")
+
+    # ----------------
+    # Media-retry budget: metadata-only rows (media failed) stay queued, but not
+    # forever. An aborted run never charges — the verdicts implicate the session.
+    # -----------------
+    if all_media_retry and not aborted and not dry_run:
+        retry_set = set(all_media_retry)
+        got_media = [v for v in good_scrapes if v not in retry_set]
+        exhausted = scrape_queues.charge_media_retry(platform_resolved, all_media_retry, got_media)
+        if exhausted:
+            _, remaining = scrape_queues.prune_scrape_queue(platform_resolved, set(exhausted))
+            logger.warning(
+                f"  Gave up on media for {len(exhausted)} item(s) after "
+                f"{scrape_queues.MAX_MEDIA_RETRY_STRIKES} healthy runs — their "
+                f"metadata-only rows stand; removed from the queue. "
+                f"Queue length: {remaining}")
 
 
     logger.info(f"  Loop ended: {datetime.now()}")

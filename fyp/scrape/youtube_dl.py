@@ -464,16 +464,34 @@ class YouTubeScraper(BaseScraper):
         return df
 
 
+    # Pacing. Every request rides ONE signed-in session (locally: the user's
+    # own Chrome cookies on a residential IP), and YouTube throttles that
+    # session, not the individual videos — on 2026-09-18 it soft-blocked after
+    # ~700 media pulls in 34 min at 2-4 concurrent with a 1.5 s delay, and
+    # answered a bare "Video unavailable" for every stream after that. These
+    # defaults keep a drain to roughly a dozen pulls a minute; override under
+    # ``[misc]`` with scraper_youtube_max_concurrency /
+    # scraper_youtube_inter_request_delay / scraper_youtube_max_batch_size.
+    def _pacing(self, key: str, default):
+        try:
+            return type(default)(_cf()["misc"].get(f"scraper_youtube_{key}", default))
+        except Exception:
+            return default
+
+
     def throttle_limits(self, max_workers: int) -> tuple[int, int, int]:
-        # One authenticated session shared by all threads; bot_check events
-        # shrink concurrency via the throttle controller.
-        return (min(max_workers, 2), 1, 4)
+        # bot_check events shrink concurrency further via the throttle controller.
+        cap = max(1, self._pacing("max_concurrency", 2))
+        return (min(max_workers, cap), 1, cap)
 
 
     def inter_request_delay(self) -> float:
-        # YouTube rate-limits the whole session for up to an hour when hit
-        # too fast; pacing is cheaper than tripping that wall.
-        return 1.5
+        return max(0.0, self._pacing("inter_request_delay", 5.0))
+
+
+    def max_batch_size(self) -> int | None:
+        cap = self._pacing("max_batch_size", 250)
+        return cap if cap > 0 else None
 
 
     def health_check(self) -> dict | None:

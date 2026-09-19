@@ -182,7 +182,10 @@ def test_duration_cap_numpy_scalar_regression():
 
 def test_throttle_limits_capped():
     scraper = YouTubeScraper()
-    assert scraper.throttle_limits(8) == (2, 1, 4)
+    # Ceiling 2 since 2026-09-18: one signed-in session, and YouTube throttles
+    # the session — 4 concurrent at a 1.5 s delay soft-blocked it in 34 min.
+    assert scraper.throttle_limits(8) == (2, 1, 2)
+    assert scraper.max_batch_size() == 250
     print("PASS: YouTube throttle limits capped")
 
 

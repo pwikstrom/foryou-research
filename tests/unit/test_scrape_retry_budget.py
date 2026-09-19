@@ -134,6 +134,10 @@ class _Reporter:
 
 class _HealthyScraper:
     @staticmethod
+    def max_batch_size():
+        return None
+
+    @staticmethod
     def health_check():
         return None
 

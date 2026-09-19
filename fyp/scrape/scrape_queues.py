@@ -348,3 +348,83 @@ def clear_zero_progress(platform: str) -> None:
     target = strikes_filename(platform)
     if data_io.exists(storage_location=QUEUE_LOCATION, filename=target):
         data_io.remove(storage_location=QUEUE_LOCATION, filename=target)
+
+
+
+
+
+
+# Media-retry budget. An item whose metadata scraped fine but whose media
+# download failed keeps its (metadata-only) row AND stays queued for a media
+# retry — whatever the failure category. A permanent verdict on the media leg
+# is not trusted on its own: on 2026-09-18 a rate-limited YouTube session
+# answered a bare "Video unavailable" for 187 videos that were all alive, and
+# treating that as permanent wrote them as scrape-ok rows with no media and
+# pruned them for good. The budget bounds the retries instead: after
+# MAX_MEDIA_RETRY_STRIKES healthy runs (no storm / breaker abort) in which the
+# media still failed, the item is pruned and its metadata-only row stands.
+MAX_MEDIA_RETRY_STRIKES = 3
+
+
+
+
+
+
+def media_strikes_filename(platform: str) -> str:
+    """Return the media-retry strike sidecar filename for one platform."""
+    return f"scrape_media_retry_strikes_{platform}.json"
+
+
+
+
+
+
+def charge_media_retry(
+    platform: str,
+    retry_ids: list[str],
+    resolved_ids: list[str] | None = None,
+) -> list[str]:
+    """Charge one media-retry strike per id and drop the ids that resolved.
+
+    Callers invoke this after a batch that was NOT aborted by a storm,
+    circuit breaker or memory stop — an abort implicates the session rather
+    than the items, and must not burn retry budget.
+
+    Args:
+        platform: Platform whose sidecar to update.
+        retry_ids: Ids scraped metadata-only this batch (media failed).
+        resolved_ids: Ids whose media was downloaded this batch — their
+            strikes, if any, are cleared in the same write.
+
+    Returns:
+        The ids whose strike count reached ``MAX_MEDIA_RETRY_STRIKES`` —
+        the caller should prune them from the queue (their metadata row is
+        already saved, so they are NOT recorded in the failed-scrapes
+        ledger). They are dropped from the sidecar in the same write.
+    """
+    data_io = _data_io()
+    resolved = set(resolved_ids or [])
+    charged: dict[str, int] = {}
+
+    def _mutate(current):
+        counts = current if isinstance(current, dict) else {}
+        charged.clear()
+        kept = {vid: n for vid, n in counts.items() if vid not in resolved}
+        for vid in _dedup(retry_ids):
+            strikes = int(kept.get(vid) or 0) + 1
+            charged[vid] = strikes
+            if strikes < MAX_MEDIA_RETRY_STRIKES:
+                kept[vid] = strikes
+            else:
+                kept.pop(vid, None)
+        if kept == counts and not charged:
+            return None
+        return kept
+
+    data_io.update_json(
+        storage_location=QUEUE_LOCATION,
+        filename=media_strikes_filename(platform),
+        mutate=_mutate,
+        default={},
+    )
+    return [vid for vid, n in charged.items() if n >= MAX_MEDIA_RETRY_STRIKES]

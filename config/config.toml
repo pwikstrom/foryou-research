@@ -338,6 +338,23 @@ local_mode = false
 # connectivity_probe_host = "connectivitycheck.gstatic.com"
 max_duration_for_download = 300
 min_media_object_size = 8_000
+
+# Scraper safety knobs (defaults shown; uncomment to override).
+# A storm = this many consecutive identical permanent / transient verdicts in
+# one batch — the session, not the items, is then suspect and the batch aborts.
+# scraper_permanent_storm_threshold = 15
+# scraper_transient_storm_threshold = 25
+# Wall-clock ceiling for one batch in a LOCAL drain (Cloud Run is pinned to the
+# 1800 s Cloud Tasks request deadline regardless).
+# scraper_local_batch_deadline_seconds = 14400
+# YouTube pacing. Every request rides one signed-in session and YouTube
+# throttles the session, not the videos: 2026-09-18 it soft-blocked after ~700
+# media pulls in 34 min (2–4 concurrent, 1.5 s delay). These keep a drain to
+# roughly a dozen pulls a minute; a batch is capped so one drain cannot outrun
+# the session (0 = no cap).
+# scraper_youtube_max_concurrency = 2
+# scraper_youtube_inter_request_delay = 5.0
+# scraper_youtube_max_batch_size = 250
 # Supplement Instagram scrapes with play/like/comment counts from Instagram's
 # authenticated media-info endpoint (fyp.instagram_dl._fetch_media_info_counts).
 # It is the private authenticated web API; set false to disable instantly if the

@@ -82,6 +82,11 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
 
     platform: str = str(task_args.get("platform") or "") or scrape_queues.default_platform()
     batch_size: int = min(int(task_args.get("batch_size", 500)), MAX_BATCH_SIZE)
+    # A platform may cap the batch below that (YouTube: one signed-in session).
+    platform_cap = get_scraper(platform).max_batch_size()
+    if platform_cap and batch_size > platform_cap:
+        reporter.log(f"Batch size {batch_size} capped to {platform_cap} by the {platform} scraper.")
+        batch_size = platform_cap
     max_batches: int | None = task_args.get("max_batches")
     if max_batches is not None:
         max_batches = int(max_batches)
@@ -212,8 +217,8 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     # ---- Update queue: remove successful + permanently failed items ----
     # prune_scrape_queue reloads fresh to avoid clobbering concurrent writes.
     # Transient failures are excluded: they include metadata-only rows whose
-    # media phase failed transiently (also present in good_ids) — those must
-    # stay queued for a media retry.
+    # media phase failed (also present in good_ids) — those must stay queued
+    # for a media retry, bounded by the media-retry budget below.
     items_to_remove: set[str] = (set(good_ids) | set(permanent_failed)) - set(transient_failed)
     pruned_this_batch, queue_remaining = scrape_queues.prune_scrape_queue(platform, items_to_remove)
 
@@ -260,6 +265,32 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
                 f"recorded as permanently failed. Queue: {queue_remaining:,} "
                 f"remaining."
             )
+
+    # ---- Media-retry budget ----
+    # Metadata-only rows (media failed, any category) stay queued for a media
+    # retry, but not forever: after MAX_MEDIA_RETRY_STRIKES healthy runs the
+    # item is pruned and its metadata-only row stands (no ledger entry — the
+    # metadata did scrape). An aborted batch never charges.
+    media_retry = list(results_df.attrs.get('media_retry_ids') or [])
+    if media_retry and not batch_aborted:
+        retry_set = set(media_retry)
+        got_media = [v for v in good_ids if v not in retry_set]
+        media_exhausted = scrape_queues.charge_media_retry(platform, media_retry, got_media)
+        if media_exhausted:
+            gave_up, queue_remaining = scrape_queues.prune_scrape_queue(
+                platform, set(media_exhausted))
+            pruned_this_batch += gave_up
+            reporter.emit_data({"scrape_queue_len": queue_remaining})
+            reporter.log(
+                f"Gave up on media for {len(media_exhausted)} item(s) after "
+                f"{scrape_queues.MAX_MEDIA_RETRY_STRIKES} healthy runs — their "
+                f"metadata-only rows stand; removed from the queue. Queue: "
+                f"{queue_remaining:,} remaining."
+            )
+
+    if results_df.attrs.get('batch_deadline_hit'):
+        reporter.log("Batch deadline hit — completed rows saved; unfinished items "
+                     "stay queued for the next batch.")
 
     def _finish(reason: str) -> None:
         """The run's one history line, whichever exit the chain takes.
