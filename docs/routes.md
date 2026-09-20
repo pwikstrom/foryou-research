@@ -30,6 +30,8 @@ python scripts/gen_route_inventory.py
 | auth_bp | `/login` | GET,POST | `auth_bp.login` |
 | auth_bp | `/logout` | GET | `auth_bp.logout` |
 | auth_bp | `/signup` | GET,POST | `auth_bp.signup` |
+| auth_bp | `/verify-email/<token>` | GET | `auth_bp.verify_email` |
+| auth_bp | `/verify-email/resend` | POST | `auth_bp.resend_verification` |
 | correlations_bp | `/api/correlations/correlation_matrix` | POST | `correlations_bp.api_pca_correlation_matrix` |
 | correlations_bp | `/api/correlations/data` | POST | `correlations_bp.api_pca_data` |
 | correlations_bp | `/api/correlations/group_stats` | POST | `correlations_bp.api_correlations_group_stats` |
@@ -199,4 +201,4 @@ python scripts/gen_route_inventory.py
 | viewer_bp | `/api/video_analysis/vote` | POST | `viewer_bp.api_save_vote` |
 | viewer_bp | `/api/video_analysis/votes` | GET | `viewer_bp.api_get_votes` |
 
-188 routes total.
+190 routes total.

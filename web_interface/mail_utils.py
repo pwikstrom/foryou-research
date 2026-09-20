@@ -54,6 +54,65 @@ def _mail_credentials(context: str):
         return None
     return sender, password
 
+def mail_configured() -> bool:
+    """True when outgoing mail can be sent (MAIL_PASSWORD + a sender).
+
+    The quiet counterpart of :func:`_mail_credentials`: no warning is logged,
+    so it is safe to call on every signup / settings read.
+    """
+    if not os.environ.get("MAIL_PASSWORD"):
+        return False
+    return bool(str(_site().get("mail_sender", "") or "").strip())
+
+
+def send_verification_email(to_email, verify_url, expires_hours) -> bool:
+    """Send the signup email-verification link.
+
+    Args:
+        to_email: The address the person signed up with.
+        verify_url: Absolute URL of the verify route carrying the signed token.
+        expires_hours: How long the link stays valid, for the email text.
+
+    Returns:
+        True when actually sent; False on no-op (mail unconfigured) or
+        failure. Never raises.
+    """
+    subject = "Verify your email — For You Data Hub"
+    body = f"""
+    <html>
+      <body>
+        <h2>Verify your email address</h2>
+        <p>Someone (hopefully you) signed up for the For You Data Hub with
+           <b>{to_email}</b>. To finish creating the account, open this link:</p>
+        <p><a href="{verify_url}">{verify_url}</a></p>
+        <p>The link works for {expires_hours} hours. If you did not sign up,
+           ignore this email and the account will be removed automatically.</p>
+        <br>
+        <p>Best regards,<br>The Data Hub team</p>
+      </body>
+    </html>
+    """
+    return _send_html_email(to_email, subject, body)
+
+
+def send_verification_email_async(to_email, verify_url, expires_hours, on_success=None):
+    """Send the verification link in a background thread.
+
+    Args:
+        on_success: optional zero-arg callable invoked only when the send
+            actually succeeded (used to stamp ``email_verification_sent_at``).
+    """
+    def _worker():
+        if send_verification_email(to_email, verify_url, expires_hours) and on_success:
+            try:
+                on_success()
+            except Exception as e:
+                logger.error(f"Verification on_success callback failed: {e}")
+
+    thread = threading.Thread(target=_worker)
+    thread.start()
+
+
 def send_welcome_email_async(to_email):
     """Sends a welcome email in a background thread."""
     thread = threading.Thread(target=send_welcome_email, args=(to_email,))

@@ -106,8 +106,13 @@ def test_full_mutation_lifecycle() -> None:
         # unapproved user cannot log in
         assert um.verify_user("alice", "pw") is None
 
-        # approve, then login works; wrong password rejected
+        # approved but email still unverified: still cannot log in
         ok, _ = um.approve_user("alice")
+        assert ok
+        assert um.verify_user("alice", "pw") is None
+
+        # verify the email, then login works; wrong password rejected
+        ok, _ = um.mark_email_verified("alice", via="link")
         assert ok
         u = um.verify_user("alice", "pw")
         assert u is not None and u.username == "alice"

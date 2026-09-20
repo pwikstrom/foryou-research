@@ -1335,5 +1335,19 @@
   [
    "GET"
   ]
+ ],
+ [
+  "/verify-email/<token>",
+  "auth_bp.verify_email",
+  [
+   "GET"
+  ]
+ ],
+ [
+  "/verify-email/resend",
+  "auth_bp.resend_verification",
+  [
+   "POST"
+  ]
  ]
 ]

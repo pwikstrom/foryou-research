@@ -17,6 +17,23 @@
         </label>
     </div>
 
+    <div style="margin-bottom: 12px;">
+        <label class="meta-tooltip"
+            data-tooltip="When on, a new signup must open a link emailed to its address before it can log in (and before an admin is asked to approve it). Needs outgoing mail configured (MAIL_PASSWORD and a mail sender); without it signups are admitted with a warning in the log."
+            style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="setting-signup-email-verification"
+                onchange="saveSignupEmailVerificationSetting(this)" disabled />
+            <span class="text-sm">Require email verification for new user signups</span>
+            <span id="setting-signup-email-verification-status" class="text-xs"
+                style="color: var(--color-text-muted); margin-left: 8px;"></span>
+        </label>
+        <div id="setting-signup-email-verification-note" class="text-xs"
+            style="color: var(--color-warning); margin: 4px 0 0 26px; display: none;">
+            Outgoing mail is not configured on this instance, so this switch has no
+            effect: signups are admitted without verification (see the log).
+        </div>
+    </div>
+
     <div style="display: flex; align-items: center; gap: 8px;">
         <label for="setting-default-new-user-role" class="text-sm" style="color: var(--color-text-primary);">
             Default role for new users

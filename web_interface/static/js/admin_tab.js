@@ -115,6 +115,17 @@
                 cb.disabled = false;
             }
 
+            // General → "Require email verification" checkbox. The note
+            // appears when the switch is on but mail is unconfigured, i.e.
+            // when it cannot take effect.
+            const verifyCb = document.getElementById('setting-signup-email-verification');
+            if (verifyCb) {
+                verifyCb.checked = !!settings.signup_email_verification_required;
+                verifyCb.disabled = false;
+                window._adminMailConfigured = !!data.mail_configured;
+                _updateVerificationNote(verifyCb.checked);
+            }
+
             // General → "Automatic enrichment" switch
             const autoEnrich = document.getElementById('setting-auto-enrichment');
             if (autoEnrich) {
@@ -389,6 +400,43 @@
             if (status) status.textContent = `Failed — reverted (${e.message})`;
         } finally {
             input.disabled = false;
+        }
+    }
+
+    function _updateVerificationNote(switchOn) {
+        const note = document.getElementById('setting-signup-email-verification-note');
+        if (!note) return;
+        note.style.display = (switchOn && window._adminMailConfigured === false) ? '' : 'none';
+    }
+
+    async function saveSignupEmailVerificationSetting(checkbox) {
+        const status = document.getElementById('setting-signup-email-verification-status');
+        const previous = !checkbox.checked; // value before this change
+        const desired = checkbox.checked;
+        checkbox.disabled = true;
+        if (status) status.textContent = 'Saving…';
+        try {
+            const response = await fetch('/api/admin/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ signup_email_verification_required: desired })
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'Save failed');
+            }
+            (window._adminSettings || (window._adminSettings = {})).signup_email_verification_required = desired;
+            _updateVerificationNote(desired);
+            if (status) {
+                status.textContent = 'Saved';
+                setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
+            }
+        } catch (e) {
+            console.error('saveSignupEmailVerificationSetting:', e);
+            checkbox.checked = previous; // revert
+            if (status) status.textContent = 'Failed — reverted';
+        } finally {
+            checkbox.disabled = false;
         }
     }
 
@@ -1027,10 +1075,15 @@
                         const to = n.sent_to || 'an admin';
                         noteHtml = `<div class="text-xs" style="margin-top: 4px; color: var(--color-text-muted);">&#9993; Approval request emailed to <strong>${to}</strong> at ${when}</div>`;
                     }
+                    const safeU = u.username.replace(/'/g, "\\'");
+                    const actions = u.email_verified
+                        ? `<button onclick="approveUser('${safeU}')" class="action-btn" style="padding: 6px 12px; flex-shrink: 0;">Approve</button>`
+                        : `<button onclick="resendVerification('${safeU}')" class="action-btn" style="padding: 6px 12px; flex-shrink: 0;">Resend link</button>
+                           <button onclick="markVerified('${safeU}')" class="action-btn" style="padding: 6px 12px; flex-shrink: 0;" title="Treat the address as verified without the link (e.g. you know the person)">Mark verified</button>`;
                     pendingHtml += `
                  <li style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px dashed var(--color-warning);">
-                     <div><span><strong>${u.username}</strong> &mdash; will be assigned the <em>${u.role}</em> role on approval</span>${noteHtml}</div>
-                     <button onclick="approveUser('${u.username}')" class="action-btn" style="padding: 6px 12px; flex-shrink: 0;">Approve</button>
+                     <div><span><strong>${u.username}</strong>${_verificationBadgeHtml(u)} &mdash; will be assigned the <em>${u.role}</em> role on approval</span>${noteHtml}</div>
+                     <div style="display: flex; gap: 6px; flex-shrink: 0;">${actions}</div>
                  </li>`;
                 });
                 pendingHtml += '</ul>';
@@ -1081,7 +1134,7 @@
                     style="width: 130px; padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-input); color: var(--color-text-primary);">
             </td>
             <td style="padding: 12px 16px;">
-                <span class="text-sm" style="color: var(--color-text-muted);">${_adminEsc(user.username)}</span>${_accountBadgeHtml(user)}
+                <span class="text-sm" style="color: var(--color-text-muted);">${_adminEsc(user.username)}</span>${_accountBadgeHtml(user)}${_verificationBadgeHtml(user)}
             </td>
             <td style="padding: 12px 16px;" onclick="event.stopPropagation();">
                 <select onchange="updateRole('${safeUser}', this.value)" onclick="event.stopPropagation();" class="role-select text-xs" data-current-role="${user.role}"
@@ -1329,6 +1382,13 @@
                 if (!user.can_login) bits.push('no password set — cannot log in until one is set via Reset Password');
             } else {
                 bits.push('Member account');
+            }
+            if (user.can_login && !user.email_verified) {
+                bits.push('email not verified — cannot log in until the emailed link is opened (or an admin marks it verified)');
+            } else if (user.email_verified_via && user.email_verified_via !== 'legacy') {
+                let v = `email verified via ${_adminEsc(user.email_verified_via)}`;
+                if (user.email_verified_at) v += ` on ${_adminEsc(fypFmtDateTime(user.email_verified_at))}`;
+                bits.push(v);
             }
             if (user.origin && user.origin.source) {
                 let originStr = `Created from ${_adminEsc(user.origin.source === 'donation' ? 'donation data' : user.origin.source)}`;
@@ -1628,6 +1688,50 @@
             case 'researcher': return 'var(--color-info)';
             case 'viewer': return 'var(--color-text-faint)';
             default: return 'var(--color-text-faint)';
+        }
+    }
+
+    // "email unverified" badge for an account that holds a password but has
+    // not opened its verification link — it cannot log in yet. Verified
+    // accounts (and passwordless participant accounts) get nothing.
+    function _verificationBadgeHtml(user) {
+        if (user.email_verified || !user.can_login) return '';
+        const sent = user.email_verification_sent_at
+            ? `link emailed ${fypFmtDateTime(user.email_verification_sent_at)}`
+            : 'no link sent yet';
+        return ` <span class="text-xxs" style="color: var(--color-warning); border: 1px solid var(--color-warning); border-radius: 3px; padding: 0 4px; white-space: nowrap;" title="${_adminEsc(sent)}">email unverified</span>`;
+    }
+
+    async function resendVerification(username) {
+        try {
+            const response = await fetch('/api/admin/users', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'resend_verification', username: username })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'Failed to resend the link');
+            setTimeout(loadUsers, 1500); // the sent-at stamp lands after the background send
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    }
+
+    async function markVerified(username) {
+        if (!confirm(`Mark ${username} as verified without the emailed link?`)) return;
+        try {
+            const response = await fetch('/api/admin/users', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'mark_verified', username: username })
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'Failed to mark verified');
+            }
+            loadUsers();
+        } catch (error) {
+            alert('Error: ' + error.message);
         }
     }
 

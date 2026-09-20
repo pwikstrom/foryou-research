@@ -307,9 +307,10 @@ def resolve_or_create_account(participant: dict, *, origin_source: str, collecti
         if dry_run:
             return email, "created", {"profile": profile}
         from .admin_settings import get_default_new_user_role
-        from .auth import ACCOUNT_KIND_PARTICIPANT
+        from .auth import ACCOUNT_KIND_PARTICIPANT, EMAIL_VERIFIED_INGEST
         ok, msg = um.add_user(email, None, get_default_new_user_role(), approved=True,
-                              account_kind=ACCOUNT_KIND_PARTICIPANT, profile=profile, origin=origin)
+                              account_kind=ACCOUNT_KIND_PARTICIPANT, profile=profile, origin=origin,
+                              email_verified_via=EMAIL_VERIFIED_INGEST)
         if not ok:
             return None, "skipped", {"error": msg}
         return email, "created", {"profile": profile}
@@ -321,10 +322,10 @@ def resolve_or_create_account(participant: dict, *, origin_source: str, collecti
     if dry_run:
         return username, "placeholder", {"profile": profile}
     from .admin_settings import get_default_new_user_role
-    from .auth import ACCOUNT_KIND_PARTICIPANT
+    from .auth import ACCOUNT_KIND_PARTICIPANT, EMAIL_VERIFIED_INGEST
     ok, msg = um.add_user(username, None, get_default_new_user_role(), approved=True,
                           account_kind=ACCOUNT_KIND_PARTICIPANT, profile=profile, origin=origin,
-                          placeholder=True)
+                          placeholder=True, email_verified_via=EMAIL_VERIFIED_INGEST)
     if not ok:
         return None, "skipped", {"error": msg}
     return username, "placeholder", {"profile": profile}

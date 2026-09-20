@@ -490,14 +490,25 @@ delete `users/admin@admin.net.json` from your data directory, and start
 again — a fresh password is generated. Set `FLASK_DEBUG=1` for the
 auto-reloading development server.
 
-**Anyone else who signs up lands unapproved.** `/signup` is reachable without
-a login, so on a hosted instance a stranger who finds the URL can create an
-account — but by default that account is inactive until an admin approves it,
-and the oldest admin is emailed when one is waiting (which needs
-`MAIL_PASSWORD` and `FYP_MAIL_SENDER` set, or the request queues silently).
-Approve people under **Admin → New Users**. If you want open registration
-instead, turn off "Require approval for new user signups" under **Admin → Site
-Settings** — but read the next paragraph first.
+**Anyone else who signs up must verify their email, then lands unapproved.**
+`/signup` is reachable without a login, so on a hosted instance a stranger who
+finds the URL can create an account. Two gates stand between that and an
+active account, both on by default:
+
+1. **Email verification.** The signup is emailed a link (valid 48 hours) and
+   cannot log in until it is opened. This needs outgoing mail configured
+   (`MAIL_PASSWORD` and `FYP_MAIL_SENDER`); without it, signups are admitted
+   unverified with a warning in the log and a notice on **Admin → System
+   Information**. Accounts that never open their link are deleted by the
+   daily ops report after 7 days. Switch: "Require email verification for
+   new user signups" under **Admin → Site Settings**.
+2. **Admin approval.** The account is inactive until an admin approves it,
+   and the oldest admin is emailed when one is waiting — only after the
+   address is verified, so the request comes from a mailbox that works.
+   Approve people under **Admin → New Users** (unverified accounts are badged
+   there, with "Resend link" and "Mark verified" buttons). If you want open
+   registration instead, turn off "Require approval for new user signups"
+   under **Admin → Site Settings** — but read the next paragraph first.
 
 The role a new account gets is **Admin → Site Settings → Default role for new
 users**. Check what that role can reach before you open registration: a study

@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import datetime, timezone
 
@@ -28,11 +29,18 @@ from ..collection_accounts import (
     orphan_placeholder_accounts,
     unlink_user,
 )
-from ..mail_utils import is_email, send_new_user_pending_email_async, send_welcome_email_async
+from .. import email_verification
+from ..mail_utils import (
+    is_email,
+    mail_configured,
+    send_new_user_pending_email_async,
+    send_welcome_email_async,
+)
 from ..permissions import permission_required
 from ..security import user_manager
 
 auth_bp = Blueprint('auth_bp', __name__)
+logger = logging.getLogger(__name__)
 
 from ..slack_service import get_recent_messages
 
@@ -63,7 +71,12 @@ def login():
         if user_obj:
             # Verify password first (Mitigates timing attacks by always checking password)
             if auth.verify_password(user_obj.password_hash, password):
-                if not user_obj.approved:
+                if not user_obj.email_verified():
+                    # The resend form on the login page keys off this category.
+                    flash('Please verify your email address first — open the link '
+                          'we emailed you when you signed up.', 'unverified')
+                    session['unverified_username'] = user_obj.username
+                elif not user_obj.approved:
                     flash('Your account is pending approval from an administrator.')
                 else:
                     login_user(user_obj)
@@ -139,6 +152,14 @@ def signup():
         terms_accepted_at = datetime.now(timezone.utc).isoformat()
 
         existing = user_manager.find_user_by_email(username)
+        if existing is not None and existing.can_login() and not existing.email_verified():
+            # The address already signed up but never opened its link (a
+            # lost email, most often). Nothing about the account changes —
+            # the password typed here is ignored — it just gets a new link.
+            email_verification.send_verification_link(user_manager, existing, next_target)
+            flash(VERIFY_FLASH)
+            return redirect(url_for('auth_bp.login', next=next_target) if next_target
+                            else url_for('auth_bp.login'))
         if existing is not None and not existing.can_login() and not existing.placeholder:
             success, msg = user_manager.claim_participant_account(
                 existing.username, password, cleaned_display, approved=is_approved,
@@ -155,13 +176,28 @@ def signup():
                 # Funnel-origin signup: queue the guided tour for the first
                 # visit to the app shell (index.html checks this setting).
                 user_manager.update_user_settings(username, {"hub_tour_pending": True})
-            if is_approved:
-                flash("Account created! You can now login.")
+            skip = email_verification.skip_reason()
+            if skip is None:
+                # The address must be proven before this account can log in.
+                # When approval gating is also on, the admin hears about the
+                # account from the verify route, not from here — an address
+                # nobody can open should never reach the approval list.
+                new_user = user_manager.get_user(username)
+                email_verification.send_verification_link(user_manager, new_user, next_target)
+                flash(VERIFY_FLASH)
             else:
-                flash("Account created! Please wait for an administrator to approve your account.")
-                # Approval gating is on: email the oldest admin so they know a
-                # request is waiting, and stamp the pending user once it sends.
-                _notify_admin_of_pending_signup(username, cleaned_display)
+                if skip == auth.EMAIL_VERIFIED_MAIL_UNCONFIGURED:
+                    logger.warning(
+                        f"Signup {username} admitted WITHOUT email verification: "
+                        f"outgoing mail is not configured (MAIL_PASSWORD / mail sender).")
+                user_manager.mark_email_verified(username, via=skip)
+                if is_approved:
+                    flash("Account created! You can now login.")
+                else:
+                    flash("Account created! Please wait for an administrator to approve your account.")
+                    # Approval gating is on: email the oldest admin so they know a
+                    # request is waiting, and stamp the pending user once it sends.
+                    _notify_admin_of_pending_signup(username, cleaned_display)
             return redirect(url_for('auth_bp.login', next=next_target) if next_target
                             else url_for('auth_bp.login'))
         else:
@@ -188,7 +224,54 @@ def api_signup_email_check():
         return jsonify({"status": "available"})
     if not existing.can_login() and not existing.placeholder:
         return jsonify({"status": "claimable"})
+    if existing.can_login() and not existing.email_verified():
+        return jsonify({"status": "unverified"})
     return jsonify({"status": "taken"})
+
+
+@auth_bp.route('/verify-email/<token>')
+def verify_email(token):
+    """Open a signup verification link: prove the address, then gate onward.
+
+    A bad, expired or superseded token lands on the login page with a hint
+    to request a new link. A good one stamps the account and, when approval
+    gating is on, THIS is where the admin is told a request is waiting.
+    """
+    parsed = email_verification.parse_token(token, user_manager.get_user)
+    if parsed is None:
+        flash("That verification link is invalid or has expired. Log in to request a new one.")
+        return redirect(url_for('auth_bp.login'))
+    user, next_target = parsed
+    next_target = _safe_next(next_target)
+    if not user.email_verified():
+        user_manager.mark_email_verified(user.username, via=auth.EMAIL_VERIFIED_LINK)
+        if not user.approved:
+            _notify_admin_of_pending_signup(user.username, user.display_username or None)
+    if user.approved:
+        flash("Email verified! You can now log in.")
+    else:
+        flash("Email verified! Please wait for an administrator to approve your account.")
+    return redirect(url_for('auth_bp.login', next=next_target) if next_target
+                    else url_for('auth_bp.login'))
+
+
+@auth_bp.route('/verify-email/resend', methods=['POST'])
+def resend_verification():
+    """Send a fresh verification link to an unverified account.
+
+    Always answers with the same neutral message, whatever the address, so
+    the form cannot be used to learn which emails hold accounts.
+    """
+    username = (request.form.get('username') or session.get('unverified_username') or '').strip()
+    user = user_manager.find_user_by_email(username) if username else None
+    if user is not None and user.can_login() and not user.email_verified():
+        email_verification.send_verification_link(user_manager, user)
+    flash("If that address has an unverified account, a new verification link is on its way.")
+    return redirect(url_for('auth_bp.login'))
+
+
+VERIFY_FLASH = ("Account created! Check your inbox for a verification link — "
+                "you need to open it before you can log in.")
 
 
 def _notify_admin_of_pending_signup(new_username: str, new_display: str | None) -> None:
@@ -243,6 +326,7 @@ def api_admin_users():
             ud = u.to_dict()
             del ud['password_hash']
             ud['can_login'] = u.can_login()
+            ud['email_verified'] = u.email_verified()
             ud['collections'] = sorted(owned.get(u.username, []))
             ud['collections_count'] = len(ud['collections'])
 
@@ -339,7 +423,8 @@ def api_admin_users():
         success, msg = user_manager.add_user(
             username, password, role, approved=True, display_username=cleaned_display,
             origin={"source": "admin", "at": datetime.now(timezone.utc).isoformat(),
-                    "by": current_user.username})
+                    "by": current_user.username},
+            email_verified_via=auth.EMAIL_VERIFIED_ADMIN)
         if success:
             activity_log.record(
                 actor=current_user.username,
@@ -420,6 +505,37 @@ def api_admin_users():
                  )
                  return jsonify({"status": "success", "message": msg})
              else: return jsonify({"error": msg}), 400
+
+        elif action == 'mark_verified':
+             success, msg = user_manager.mark_email_verified(username, via=auth.EMAIL_VERIFIED_ADMIN)
+             if success:
+                 activity_log.record(
+                     actor=current_user.username,
+                     category=activity_log.CATEGORY_USER_MANAGEMENT,
+                     action="user.mark_email_verified",
+                     target=username,
+                 )
+                 return jsonify({"status": "success", "message": msg})
+             else: return jsonify({"error": msg}), 400
+
+        elif action == 'resend_verification':
+             target = user_manager.get_user(username)
+             if target is None:
+                 return jsonify({"error": "User not found"}), 404
+             if target.email_verified():
+                 return jsonify({"error": "This account is already verified"}), 400
+             if not target.can_login():
+                 return jsonify({"error": "This account has no password to verify"}), 400
+             if not mail_configured():
+                 return jsonify({"error": "Outgoing mail is not configured on this instance"}), 400
+             email_verification.send_verification_link(user_manager, target, force=True)
+             activity_log.record(
+                 actor=current_user.username,
+                 category=activity_log.CATEGORY_USER_MANAGEMENT,
+                 action="user.resend_verification",
+                 target=username,
+             )
+             return jsonify({"status": "success", "message": "Verification link sent"})
 
         elif action == 'set_profile':
              success, msg = user_manager.update_profile(username, data.get('profile'))
@@ -663,7 +779,10 @@ def api_admin_settings():
         from fyp.annotation.backends import BACKEND_IDS, implemented_backend_ids
         payload = {"settings": merged,
                    "backend_ids": list(BACKEND_IDS),
-                   "implemented_backends": list(implemented_backend_ids())}
+                   "implemented_backends": list(implemented_backend_ids()),
+                   # Lets Site Settings say when the verification switch is
+                   # on but cannot take effect (no MAIL_PASSWORD / sender).
+                   "mail_configured": mail_configured()}
         # Choices for the default-study picker. Only Site Settings holders get
         # them — the other two sub-pages that may read this endpoint have no
         # business learning every study name.

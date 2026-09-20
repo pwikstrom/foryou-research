@@ -133,6 +133,10 @@ def test_participant_account_cannot_login_until_claimed(env):
 
     ok, msg = um.claim_participant_account("p@x.org", "secret", "Pat")
     assert ok, msg
+    # The claim proves nothing about the mailbox: login waits for the
+    # emailed verification link (or an admin marking it verified).
+    assert um.verify_user("p@x.org", "secret") is None
+    assert um.mark_email_verified("p@x.org", via=auth.EMAIL_VERIFIED_LINK)[0]
     assert um.verify_user("p@x.org", "secret") is not None
     assert um.get_user("p@x.org").profile["age"] == "30"  # profile survives the claim
     # A claimed (login-capable) account is not claimable again.

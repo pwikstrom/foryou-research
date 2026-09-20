@@ -34,6 +34,13 @@ DEFAULTS: dict = {
     # the first admin is created by UserManager._ensure_default_admin() with a
     # one-time console password, never through the signup route.
     "new_user_admin_approval_required": True,
+    # A self-service signup must open a link emailed to its address before it
+    # can log in, so a typo'd or borrowed address never reaches the approval
+    # list (and welcome / batch-ready emails have somewhere to go). Only
+    # effective when outgoing mail is configured (MAIL_PASSWORD + sender):
+    # without it the account is admitted with a logged warning, so a local
+    # install never bricks its own signup.
+    "signup_email_verification_required": True,
     "default_new_user_role": "viewer",
     # The site-wide default study (Admin -> Site Settings). Empty means "no
     # default" and the app keeps its historical behaviour: every user only
@@ -90,6 +97,7 @@ SESSION_FLOOR_KEYS: dict = {
 # is introduced so the route can validate it without growing a switch statement.
 SETTING_TYPES: dict = {
     "new_user_admin_approval_required": bool,
+    "signup_email_verification_required": bool,
     "default_new_user_role": str,
     "default_study": str,
     "demo_collection": str,
@@ -289,6 +297,16 @@ def get_setting(key: str):
 def get_new_user_approval_required() -> bool:
     """Whether new signups must be approved by an admin before activation."""
     return bool(get_setting("new_user_admin_approval_required"))
+
+
+def get_signup_email_verification_required() -> bool:
+    """Whether a signup must verify its email address before it can log in.
+
+    This is the admin's wish; whether it can be honoured also depends on
+    outgoing mail being configured — see
+    ``email_verification.verification_required``.
+    """
+    return bool(get_setting("signup_email_verification_required"))
 
 
 

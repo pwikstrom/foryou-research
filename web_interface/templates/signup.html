@@ -91,6 +91,9 @@
                     if (d.status === 'taken') {
                         setNote('An account with this email already exists. Log in instead (link below).', 'error');
                         submitEl.disabled = true;
+                    } else if (d.status === 'unverified') {
+                        setNote('This email signed up but has not opened its verification link yet. Submitting the form again sends a new link (the password you type here is not used).');
+                        submitEl.disabled = false;
                     } else if (d.status === 'claimable') {
                         setNote('Good news: we already hold data linked to this email. Signing up claims that account and keeps your collections.');
                         submitEl.disabled = false;

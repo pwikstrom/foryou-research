@@ -131,10 +131,14 @@ def test_user_record_roundtrips_terms_accepted_at():
 def test_email_check_endpoint(client, monkeypatch):
     from web_interface.security import user_manager
 
-    taken = User("t@example.org", "viewer", password_hash="x", approved=True)
+    taken = User("t@example.org", "viewer", password_hash="x", approved=True,
+                 email_verified_via="legacy")
+    # Holds a password but never opened its verification link.
+    unverified = User("u@example.org", "viewer", password_hash="x", approved=True)
     claimable = User("p@example.org", "viewer", password_hash=None, approved=True)
     placeholder = User("p-1@x.org", "viewer", password_hash=None, placeholder=True)
-    roster = {"t@example.org": taken, "p@example.org": claimable, "p-1@x.org": placeholder}
+    roster = {"t@example.org": taken, "u@example.org": unverified,
+              "p@example.org": claimable, "p-1@x.org": placeholder}
     monkeypatch.setattr(user_manager, "find_user_by_email", lambda e: roster.get(e))
 
     def status(email):
@@ -142,6 +146,7 @@ def test_email_check_endpoint(client, monkeypatch):
 
     assert status("new@example.org") == "available"
     assert status("t@example.org") == "taken"
+    assert status("u@example.org") == "unverified"
     assert status("p@example.org") == "claimable"
     # A placeholder address is not claimable (nobody owns that mailbox); the
     # form lets them proceed and the POST path answers definitively.

@@ -6,11 +6,22 @@
     <div class="auth-form-container">
         <h3 class="text-h3 auth-card-title">Login</h3>
 
-        {% with messages = get_flashed_messages() %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
         <div class="auth-flash-info">
-            {% for message in messages %}
+            {% for category, message in messages %}
             <div>{{ message }}</div>
+            {% if category == 'unverified' %}
+            {# Login was refused because the address is unproven: offer a
+               fresh link right here. The username comes from the session
+               (set by the refused login), so nothing is echoed back. #}
+            <form method="POST" action="{{ url_for('auth_bp.resend_verification') }}" style="margin-top: 8px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <button type="submit" class="auth-submit-btn" style="width: auto; padding: 6px 14px;">
+                    Resend verification link
+                </button>
+            </form>
+            {% endif %}
             {% endfor %}
         </div>
         {% endif %}

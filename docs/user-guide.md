@@ -13,9 +13,12 @@ internals of the data pipeline (see [pipeline.md](pipeline.md)).
 ### Logging in
 
 You log in with your email address at `/login`. Signing up requires accepting
-the terms of use (`/terms`), and by default new accounts also wait for admin
-approval before they become active (Admin → Site Settings → "Require approval
-for new user signups" — on by default on a fresh install). Before login you
+the terms of use (`/terms`). By default a new account must then open the
+verification link emailed to it before it can log in (the login page offers
+a "Resend verification link" button if the email went astray), and also waits
+for admin approval before it becomes active (both under Admin → Site
+Settings: "Require email verification for new user signups" and "Require
+approval for new user signups" — on by default on a fresh install). Before login you
 see the public mini-site — the landing page plus About, Participate (with its
 step-by-step start wizard), The Hub, FAQ and the terms, ethics and
 data-donation pages; after login the same landing content appears on the

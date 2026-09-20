@@ -208,9 +208,29 @@ def collect_status(hours_back: int = 24) -> dict:
         if pending:
             check(sec, "Pending approval", "yellow",
                   f"{len(pending)} account(s) awaiting approval",
-                  [u.username for u in pending])
+                  [u.username + ("" if u.email_verified() else " (email unverified)")
+                   for u in pending])
         else:
             check(sec, "Pending approval", "green", "No accounts waiting")
+        # Signups that never opened their verification link. Self-service
+        # ones are pruned after UNVERIFIED_PRUNE_DAYS by generate_ops_report;
+        # a claimed participant account is never pruned (data behind it), so
+        # it stays listed until an admin resends the link or marks it.
+        unv_signups, unv_claims = user_manager.unverified_signups()
+        unverified = unv_signups + unv_claims
+        if unverified:
+            oldest = min((_parse_iso(u.created_at) or now) for u in unverified)
+            stale = (now - oldest).days >= 3
+            check(sec, "Unverified signups", "yellow" if stale else "blue",
+                  f"{len(unverified)} account(s) have not verified their email "
+                  f"({len(unv_claims)} claimed participant account(s); oldest "
+                  f"{_ago(oldest, now)})",
+                  [f"{u.username} — created {_local(_parse_iso(u.created_at), tz)}, "
+                   f"link sent {_local(_parse_iso(u.email_verification_sent_at), tz) if u.email_verification_sent_at else 'never'}"
+                   + (" (claimed participant account — not pruned)" if u in unv_claims else "")
+                   for u in unverified])
+        else:
+            check(sec, "Unverified signups", "green", "None")
         check(sec, "Logins", "blue",
               f"{len(logins_24h)} in last 24h, {len(logins_7d)} in last 7d",
               [f"{u.username} ({u.role}) — {_ago(_parse_iso(u.last_login), now)}"
@@ -1506,9 +1526,23 @@ def generate_ops_report(reporter=None, hours_back: int = 24,
         if reporter is not None:
             reporter.update_progress(pct, msg)
 
+    # Prune before collecting so the report describes the store as it is
+    # after the prune, and lists what went.
+    pruned = _prune_unverified_signups()
+
     progress(5, "Collecting status checks...")
     doc = collect_status(hours_back=hours_back)
     new_state = doc.pop("_new_state", None)
+    if pruned:
+        for sec in doc.get("sections", []):
+            if sec.get("title") == "Users & access":
+                sec["checks"].append({
+                    "title": "Pruned unverified signups", "status": "yellow",
+                    "summary": f"{len(pruned)} account(s) deleted: signed up more than "
+                               f"{UNVERIFIED_PRUNE_DAYS} days ago and never verified "
+                               f"their email",
+                    "details": pruned})
+                break
 
     progress(55, "Writing the assessment...")
     narrative_md, narrative_source = build_narrative(doc)
@@ -1543,6 +1577,25 @@ def generate_ops_report(reporter=None, hours_back: int = 24,
                   f"email {'sent' if email_sent else 'not sent'}.")
     return {"overall": doc["overall"], "counts": doc["counts"],
             "narrative_source": narrative_source, "email_sent": email_sent}
+
+
+# Self-service signups that never verify their address are deleted after
+# this many days (the verification email tells them so). Claimed participant
+# accounts are exempt — see UserManager.prune_unverified_signups.
+UNVERIFIED_PRUNE_DAYS = 7
+
+
+def _prune_unverified_signups() -> list[str]:
+    """Delete stale unverified signups; returns the usernames removed."""
+    try:
+        from web_interface.security import user_manager
+        removed = user_manager.prune_unverified_signups(max_age_days=UNVERIFIED_PRUNE_DAYS)
+    except Exception as e:
+        logger.warning(f"ops_report: unverified-signup prune failed: {e}")
+        return []
+    if removed:
+        logger.info(f"ops_report: pruned {len(removed)} unverified signup(s): {removed}")
+    return removed
 
 
 def _prune_dated_reports(data_io):

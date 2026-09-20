@@ -398,6 +398,11 @@ def _run_all_checks(trigger: str) -> None:
         doc["checks"]["embedding"] = {"status": "fail", "message": "Embedding backend check crashed",
                                       "detail": repr(e), "duration_s": None, "checked_at": _now_iso()}
     try:
+        doc["checks"]["email"] = _check_email()
+    except Exception as e:
+        doc["checks"]["email"] = {"status": "fail", "message": "Email check crashed",
+                                  "detail": repr(e), "duration_s": None, "checked_at": _now_iso()}
+    try:
         doc["checks"]["background_tasks"] = _check_task_failures()
     except Exception as e:
         doc["checks"]["background_tasks"] = {
@@ -410,6 +415,33 @@ def _run_all_checks(trigger: str) -> None:
 
 
 
+
+
+def _check_email() -> dict:
+    """Outgoing mail vs. the signup email-verification switch (config only).
+
+    No email is sent. The one state worth a warning is "verification is
+    switched on but cannot happen": every signup is then admitted unproven
+    and the only trace is a line in the log.
+    """
+    from web_interface.admin_settings import get_signup_email_verification_required
+    from web_interface.mail_utils import mail_configured
+
+    configured = mail_configured()
+    wanted = get_signup_email_verification_required()
+    base = {"detail": None, "duration_s": None, "checked_at": _now_iso()}
+    if configured:
+        msg = ("Outgoing mail configured; signups verify their email"
+               if wanted else "Outgoing mail configured; email verification is switched off")
+        return {"status": "ok", "message": msg, **base}
+    if wanted:
+        return {"status": "warn",
+                "message": "Email verification is on but outgoing mail is not configured — "
+                           "signups are being admitted without verification",
+                **base, "detail": "Set MAIL_PASSWORD and [site].mail_sender / FYP_MAIL_SENDER"}
+    return {"status": "ok",
+            "message": "Outgoing mail not configured (no emails are sent); verification is off",
+            **base}
 
 
 def _check_task_failures() -> dict:

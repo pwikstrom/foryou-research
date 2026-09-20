@@ -312,6 +312,14 @@ def validate_display_username(name) -> tuple[str | None, str | None]:
 # Account kinds. A "member" signed up or was created by an admin; a
 # "participant" account was created from donation data (AIO ingest or the
 # one-off migration) and starts without a password.
+# Values of User.email_verified_via once an address counts as verified.
+EMAIL_VERIFIED_LINK = "link"
+EMAIL_VERIFIED_ADMIN = "admin"
+EMAIL_VERIFIED_INGEST = "ingest"
+EMAIL_VERIFIED_LEGACY = "legacy"
+EMAIL_VERIFIED_SETTING_OFF = "setting_off"
+EMAIL_VERIFIED_MAIL_UNCONFIGURED = "mail_unconfigured"
+
 ACCOUNT_KIND_MEMBER = "member"
 ACCOUNT_KIND_PARTICIPANT = "participant"
 
@@ -418,7 +426,7 @@ def empty_profile() -> dict:
 # --- User Class ---
 
 class User(UserMixin):
-    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None, created_at=None, approval_notification=None, profile=None, account_kind=None, placeholder=False, origin=None, terms_accepted_at=None, last_active=None):
+    def __init__(self, username, role, password_hash, approved=True, last_login=None, settings=None, machine_annotation_votes=None, display_username=None, created_at=None, approval_notification=None, profile=None, account_kind=None, placeholder=False, origin=None, terms_accepted_at=None, last_active=None, email_verified_via=None, email_verified_at=None, email_verification_sent_at=None):
         self.id = username
         self.username = username
         self.role = role
@@ -455,6 +463,22 @@ class User(UserMixin):
         # accounts that predate the checkbox or were created by an admin/ingest.
         # Compliance data, so a top-level field rather than a settings entry.
         self.terms_accepted_at = terms_accepted_at
+        # Email verification. ``email_verified_via`` is None until the address
+        # is proven, then one of the EMAIL_VERIFIED_* values: "link" (the signup
+        # verification link was opened), "admin" (created or marked by an
+        # admin), "ingest" (account minted from donation data), "legacy" (record
+        # predates the field — see _user_from_record), "setting_off" /
+        # "mail_unconfigured" (verification was not required at signup time).
+        # ``email_verified_at`` is the ISO timestamp of that event and
+        # ``email_verification_sent_at`` the last time a link was emailed
+        # (resend cooldown + admin display).
+        self.email_verified_via = email_verified_via
+        self.email_verified_at = email_verified_at
+        self.email_verification_sent_at = email_verification_sent_at
+
+    def email_verified(self) -> bool:
+        """True once the address is proven (or verification was never owed)."""
+        return bool(self.email_verified_via)
 
     def is_admin(self):
         return self.role == ROLE_ADMIN and self.approved
@@ -493,10 +517,23 @@ class User(UserMixin):
             "placeholder": self.placeholder,
             "origin": self.origin,
             "terms_accepted_at": self.terms_accepted_at,
+            "email_verified_via": self.email_verified_via,
+            "email_verified_at": self.email_verified_at,
+            "email_verification_sent_at": self.email_verification_sent_at,
         }
 
 def _user_from_record(user_data: dict) -> "User":
-    """Build a :class:`User` from a stored JSON record (missing keys → defaults)."""
+    """Build a :class:`User` from a stored JSON record (missing keys → defaults).
+
+    A record written before email verification existed has no
+    ``email_verified_via`` key at all; it loads as ``"legacy"`` (verified) so
+    the feature cannot lock out anyone who already had an account. A record
+    that HAS the key with a null value is a genuinely unverified signup.
+    """
+    if "email_verified_via" in user_data:
+        verified_via = user_data.get("email_verified_via")
+    else:
+        verified_via = EMAIL_VERIFIED_LEGACY
     return User(
         username=user_data["username"],
         role=user_data.get("role", "viewer"),
@@ -514,6 +551,9 @@ def _user_from_record(user_data: dict) -> "User":
         placeholder=user_data.get("placeholder", False),
         origin=user_data.get("origin"),
         terms_accepted_at=user_data.get("terms_accepted_at"),
+        email_verified_via=verified_via,
+        email_verified_at=user_data.get("email_verified_at"),
+        email_verification_sent_at=user_data.get("email_verification_sent_at"),
     )
 
 
@@ -598,7 +638,8 @@ class UserManager:
         if not has_user:
             logger.info("No users found. Creating default admin.")
             password = secrets.token_urlsafe(12)
-            self.add_user("admin@admin.net", password, ROLE_ADMIN, approved=True)
+            self.add_user("admin@admin.net", password, ROLE_ADMIN, approved=True,
+                          email_verified_via=EMAIL_VERIFIED_ADMIN)
             print(
                 "\n"
                 "[AUTH] ============================================================\n"
@@ -852,9 +893,14 @@ class UserManager:
 
     def add_user(self, username, password, role, approved=False, display_username=None,
                  account_kind=None, profile=None, origin=None, placeholder=False,
-                 terms_accepted_at=None):
+                 terms_accepted_at=None, email_verified_via=None):
         """Create a user. ``password=None`` creates an account that cannot log
-        in until an admin sets a password (participant accounts)."""
+        in until an admin sets a password (participant accounts).
+
+        ``email_verified_via`` is None for a self-service signup (the address
+        still has to be proven) and one of the EMAIL_VERIFIED_* values for an
+        account whose address needs no proof (admin-created, ingest-minted).
+        """
         if not role_manager.role_exists(role):
             return False, "Invalid role"
 
@@ -871,7 +917,9 @@ class UserManager:
                 logger.warning(f"Dropped invalid profile data while creating {username}: {dropped}")
         new_user = User(username, role, password_hash, approved=approved, display_username=display_username,
                         created_at=created_at, profile=profile, account_kind=account_kind,
-                        placeholder=placeholder, origin=origin, terms_accepted_at=terms_accepted_at)
+                        placeholder=placeholder, origin=origin, terms_accepted_at=terms_accepted_at,
+                        email_verified_via=email_verified_via,
+                        email_verified_at=created_at if email_verified_via else None)
         # Default Settings for New Users (annotation sharing is opt-in)
         new_user.settings = {
             "share_annotations": False,
@@ -905,6 +953,10 @@ class UserManager:
         user.approved = approved
         if terms_accepted_at is not None:
             user.terms_accepted_at = terms_accepted_at
+        # Ingest minted the account from an address in a donation file; the
+        # person claiming it still has to prove the mailbox is theirs.
+        user.email_verified_via = None
+        user.email_verified_at = None
         self.save_user(username)
         return True, "Account claimed"
 
@@ -1075,6 +1127,91 @@ class UserManager:
         self.save_user(username)
         return True, "Notification recorded"
 
+    def mark_email_verified(self, username, via, at=None):
+        """Record that ``username``'s address is verified (``via`` says how).
+
+        Args:
+            username: Account id.
+            via: One of the EMAIL_VERIFIED_* values (never None/empty).
+            at: ISO timestamp; defaults to now (UTC).
+        """
+        if not via:
+            return False, "Missing verification source"
+        user = self.get_user(username)
+        if user is None:
+            return False, "User not found"
+        user.email_verified_via = via
+        user.email_verified_at = at or datetime.datetime.now(datetime.timezone.utc).isoformat()
+        self.save_user(username)
+        return True, "Email verified"
+
+    def record_verification_sent(self, username, sent_at=None):
+        """Stamp when a verification link was last emailed to ``username``."""
+        user = self.get_user(username)
+        if user is None:
+            return False, "User not found"
+        user.email_verification_sent_at = (
+            sent_at or datetime.datetime.now(datetime.timezone.utc).isoformat())
+        self.save_user(username)
+        return True, "Verification send recorded"
+
+    def unverified_signups(self):
+        """Accounts holding a password whose address was never verified.
+
+        Returns:
+            ``(signups, claims)``: self-service signups (``origin.source ==
+            "signup"``, member accounts) and claimed participant accounts, as
+            two lists of :class:`User`. Both are unverified; only the first
+            list is ever pruned.
+        """
+        self._ensure_loaded()
+        signups, claims = [], []
+        for u in self.users.values():
+            if u.email_verified() or not u.can_login():
+                continue
+            source = (u.origin or {}).get("source") if isinstance(u.origin, dict) else None
+            if source == "signup" and u.account_kind == ACCOUNT_KIND_MEMBER:
+                signups.append(u)
+            else:
+                claims.append(u)
+        return signups, claims
+
+    def prune_unverified_signups(self, max_age_days=7, now=None):
+        """Delete self-service signups that never verified their address.
+
+        Only accounts from :meth:`unverified_signups`' first list, older than
+        ``max_age_days`` and with no linked collections are removed. A claimed
+        participant account (data behind it) is never pruned here.
+
+        Returns:
+            The usernames that were deleted.
+        """
+        from .collection_accounts import collections_for_user
+        now = now or datetime.datetime.now(datetime.timezone.utc)
+        cutoff = now - datetime.timedelta(days=max_age_days)
+        removed = []
+        signups, _ = self.unverified_signups()
+        for u in signups:
+            try:
+                created = datetime.datetime.fromisoformat(u.created_at) if u.created_at else None
+            except (TypeError, ValueError):
+                created = None
+            if created is None:
+                continue
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=datetime.timezone.utc)
+            if created > cutoff:
+                continue
+            if collections_for_user(u.username, fresh=True):
+                continue
+            ok, msg = self.delete_user(u.username)
+            if ok:
+                removed.append(u.username)
+                logger.info(f"Pruned unverified signup {u.username} (created {u.created_at})")
+            else:
+                logger.warning(f"Could not prune unverified signup {u.username}: {msg}")
+        return removed
+
     def update_password(self, username, new_password):
         user = self.get_user(username)
         if user is None:
@@ -1179,7 +1316,7 @@ class UserManager:
     def verify_user(self, username, password):
         user = self.get_user(username)
         if user and user.can_login() and verify_password(user.password_hash, password):
-            if not user.approved:
+            if not user.email_verified() or not user.approved:
                 return None # Or handle differently in calling code
             return user
         return None

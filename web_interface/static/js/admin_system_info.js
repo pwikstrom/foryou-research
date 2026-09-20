@@ -54,6 +54,7 @@ const _HEALTH_CHECK_LABELS = {
     // active (Gemini ping, or the local backend's requirement checks).
     gemini:           'Annotation backend',
     embedding:        'Embedding backend',
+    email:            'Outgoing mail',
 };
 
 let _healthPollTimer = null;

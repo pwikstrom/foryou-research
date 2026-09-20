@@ -136,7 +136,10 @@ them; the app does not clean them up.
   backend choice and the Sessions-tab list floors (which override the
   `[sessions]` seed values per key once saved). The other defaults:
   `new_user_admin_approval_required` (`True` — new signups land inactive
-  until an admin approves them), `default_new_user_role` (`"viewer"`),
+  until an admin approves them), `signup_email_verification_required`
+  (`True` — a signup must open an emailed link before it can log in;
+  effective only when outgoing mail is configured), `default_new_user_role`
+  (`"viewer"`),
   `default_study` (`""`), `demo_collection` (`""` — the collection the
   guided tour uses; it must belong to the default study), and the non-admin
   queue caps `queue_cap_annotation_items` (5000) /

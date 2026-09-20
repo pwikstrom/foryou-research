@@ -34,7 +34,9 @@ Donations arrive in three ways, all consent-first:
 - **Participant self-serve upload**: a participant with an account uploads
   their own export through My stuff → My Collections. The route is
   authenticated, and available only after the participant has accepted the
-  terms of use at signup (`terms_accepted_at` is stamped on the account).
+  terms of use at signup (`terms_accepted_at` is stamped on the account)
+  and verified their email address by opening the emailed link
+  (`email_verified_via` / `email_verified_at` on the account).
 
 Participants obtain their exports themselves through each platform's own
 data-access mechanism (GDPR/CCPA-mandated "Download Your Data" flows), so

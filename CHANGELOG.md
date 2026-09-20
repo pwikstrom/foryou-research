@@ -12,6 +12,21 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Added
 
+- **Email verification at signup.** A new account is emailed a signed link
+  (valid 48 hours) and cannot log in until it is opened; the login page
+  offers a resend button, and signing up again with the same address just
+  resends the link. When admin approval is also on, the admin is notified
+  only once the address is verified, so the New Users list never fills with
+  typo'd or borrowed addresses. Admin → New Users badges unverified accounts
+  with "Resend link" and "Mark verified" buttons; the daily ops report lists
+  unverified signups and deletes self-service ones older than 7 days
+  (claimed participant accounts are never pruned). Switch: Admin → Site
+  Settings → "Require email verification for new user signups" (on by
+  default). Effective only when outgoing mail is configured; otherwise
+  signups are admitted with a logged warning and System Information shows
+  an "Outgoing mail" warning. Existing accounts are unaffected: a record
+  written before the field existed loads as verified.
+
 - **Plays column in the ingestion history.** Each ingested file now records
   how many viewing rows it actually contributed, shown beside "Rows kept" in
   the admin ingestion history and in the live run results, so a donation that
