@@ -436,8 +436,8 @@ def _check_email() -> dict:
         return {"status": "ok", "message": msg, **base}
     if wanted:
         return {"status": "warn",
-                "message": "Email verification is on but outgoing mail is not configured — "
-                           "signups are being admitted without verification",
+                "message": "Email verification is on but outgoing mail is not configured, "
+                           "so signups are being admitted without verification",
                 **base, "detail": "Set MAIL_PASSWORD and [site].mail_sender / FYP_MAIL_SENDER"}
     return {"status": "ok",
             "message": "Outgoing mail not configured (no emails are sent); verification is off",

@@ -98,7 +98,7 @@
         const list = [];
 
         list.push({
-            title: real ? 'Your first annotated videos are in!' : 'Welcome to the For You Data Hub',
+            title: real ? 'Your first annotated videos are in!' : 'Welcome to The For You Data Hub',
             body: real
                 ? 'The first batch of your videos has been analysed. This short tour shows what that unlocks across the analysis tabs. Two minutes, tops.'
                 : 'This is the research workbench your data will feed into. This short tour shows you around the analysis tools and what your own data will look like. Two minutes, tops.',

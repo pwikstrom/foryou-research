@@ -77,12 +77,12 @@ def send_verification_email(to_email, verify_url, expires_hours) -> bool:
         True when actually sent; False on no-op (mail unconfigured) or
         failure. Never raises.
     """
-    subject = "Verify your email — For You Data Hub"
+    subject = "Verify your email address for The For You Data Hub"
     body = f"""
     <html>
       <body>
         <h2>Verify your email address</h2>
-        <p>Someone (hopefully you) signed up for the For You Data Hub with
+        <p>Someone (hopefully you) signed up for The For You Data Hub with
            <b>{to_email}</b>. To finish creating the account, open this link:</p>
         <p><a href="{verify_url}">{verify_url}</a></p>
         <p>The link works for {expires_hours} hours. If you did not sign up,
@@ -129,13 +129,13 @@ def send_welcome_email(to_email):
         msg = MIMEMultipart()
         msg["From"] = sender
         msg["To"] = to_email
-        msg["Subject"] = "Welcome to the For You Data Hub"
+        msg["Subject"] = "Welcome to The For You Data Hub"
 
         body = f"""
         <html>
           <body>
             <h2>Welcome!</h2>
-            <p>Your account (<b>{to_email}</b>) has been approved to access the For You Data Hub.</p>
+            <p>Your account (<b>{to_email}</b>) has been approved to access The For You Data Hub.</p>
             <p>You can now log in at {_app_link()}.</p>
             <br>
             <p>Best regards,<br>The Data Hub team</p>
@@ -194,14 +194,14 @@ def send_invitation_email(to_email, run_id, task_type, inviter,
         msg = MIMEMultipart()
         msg["From"] = sender
         msg["To"] = to_email
-        msg["Subject"] = "Invitation: help evaluate video annotations on the For You Data Hub"
+        msg["Subject"] = "Invitation: help evaluate video annotations on The For You Data Hub"
 
         body = f"""
         <html>
           <body>
             <h2>You have been invited to a {task_label} task</h2>
             <p><b>{inviter}</b> invited you (<b>{to_email}</b>) to contribute human
-               input to an annotation test run on the For You Data Hub:
+               input to an annotation test run on The For You Data Hub:
                {n_items} videos, {n_variables} variables.</p>
             <p>Log in at {_app_link()}
                and open <b>My stuff &rarr; My Tasks</b> to start. Your work is saved
@@ -445,7 +445,7 @@ def send_first_batch_ready_email(to_email, collection_id, n_items) -> bool:
         collection is annotated in further batches over time; the
         &ldquo;Scraped&nbsp;/&nbsp;annotated&rdquo; column on My Collections
         always shows how far along it is.</p>
-        <p>Thank you again for taking part in the For You Research Project.</p>
+        <p>Thank you again for taking part in The For You Research Project.</p>
       </body>
     </html>
     """

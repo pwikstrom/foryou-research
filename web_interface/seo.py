@@ -45,7 +45,7 @@ PUBLIC_PAGES = {
         "title": "For You Research: What Shapes Your For You Feed?",
         "description": (
             "How do TikTok, Instagram Reels and YouTube Shorts decide what you see? "
-            "Share your own feed, or use the For You Data Hub to study short-video "
+            "Share your own feed, or use The For You Data Hub to study short-video "
             "culture at scale."
         ),
     },
@@ -74,7 +74,7 @@ PUBLIC_PAGES = {
         ),
     },
     "public_bp.about": {
-        "title": "About the For You Research Project",
+        "title": "About The For You Research Project",
         "description": (
             "An ARC-funded study of TikTok's recommendation algorithm and Australian "
             "audiences, based at QUT's Digital Media Research Centre and the "
@@ -108,7 +108,7 @@ PUBLIC_PAGES = {
     "public_bp.terms": {
         "title": "For You Data Hub: Terms of Use",
         "description": (
-            "The account terms for the For You Data Hub: what an account needs, how "
+            "The account terms for The For You Data Hub: what an account needs, how "
             "account and profile data are handled, and acceptable use."
         ),
     },

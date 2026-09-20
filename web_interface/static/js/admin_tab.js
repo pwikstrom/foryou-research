@@ -434,7 +434,7 @@
         } catch (e) {
             console.error('saveSignupEmailVerificationSetting:', e);
             checkbox.checked = previous; // revert
-            if (status) status.textContent = 'Failed — reverted';
+            if (status) status.textContent = 'Failed, reverted';
         } finally {
             checkbox.disabled = false;
         }
@@ -1384,7 +1384,7 @@
                 bits.push('Member account');
             }
             if (user.can_login && !user.email_verified) {
-                bits.push('email not verified — cannot log in until the emailed link is opened (or an admin marks it verified)');
+                bits.push('email not verified: cannot log in until the emailed link is opened (or an admin marks it verified)');
             } else if (user.email_verified_via && user.email_verified_via !== 'legacy') {
                 let v = `email verified via ${_adminEsc(user.email_verified_via)}`;
                 if (user.email_verified_at) v += ` on ${_adminEsc(fypFmtDateTime(user.email_verified_at))}`;

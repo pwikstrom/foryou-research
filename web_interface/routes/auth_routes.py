@@ -73,7 +73,7 @@ def login():
             if auth.verify_password(user_obj.password_hash, password):
                 if not user_obj.email_verified():
                     # The resend form on the login page keys off this category.
-                    flash('Please verify your email address first — open the link '
+                    flash('Please verify your email address first: open the link '
                           'we emailed you when you signed up.', 'unverified')
                     session['unverified_username'] = user_obj.username
                 elif not user_obj.approved:
@@ -270,8 +270,8 @@ def resend_verification():
     return redirect(url_for('auth_bp.login'))
 
 
-VERIFY_FLASH = ("Account created! Check your inbox for a verification link — "
-                "you need to open it before you can log in.")
+VERIFY_FLASH = ("Account created! Check your inbox for a verification link. "
+                "You need to open it before you can log in.")
 
 
 def _notify_admin_of_pending_signup(new_username: str, new_display: str | None) -> None:

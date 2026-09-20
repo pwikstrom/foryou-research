@@ -15,19 +15,22 @@
         {% endif %}
         {% endwith %}
 
-        <form method="POST" action="{{ url_for('auth_bp.signup') }}" class="auth-form">
+        {# autocomplete: this is a NEW account, so the browser must not offer the
+           saved Hub login here. "new-password" is the one value password managers
+           honour for that (plain "off" is ignored on password fields). #}
+        <form method="POST" action="{{ url_for('auth_bp.signup') }}" class="auth-form" autocomplete="off">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
             {% if next_target %}<input type="hidden" name="next" value="{{ next_target }}" />{% endif %}
             <div>
                 <label for="username">Email</label>
-                <input type="text" id="username" name="username" required>
+                <input type="text" id="username" name="username" required autocomplete="off">
                 <div id="email-check-note" class="text-xs" style="margin-top: 4px; display: none;"></div>
             </div>
 
             <div>
                 <label for="display_username">Username</label>
                 <input type="text" id="display_username" name="display_username" required
-                    minlength="3" maxlength="15">
+                    minlength="3" maxlength="15" autocomplete="off">
                 <div class="text-xs" style="color: var(--color-text-muted); margin-top: 4px;">
                     3&ndash;15 characters, shown instead of your email.
                 </div>
@@ -35,12 +38,12 @@
 
             <div>
                 <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
+                <input type="password" id="password" name="password" required autocomplete="new-password">
             </div>
 
             <div>
                 <label for="confirm_password">Confirm Password</label>
-                <input type="password" id="confirm_password" name="confirm_password" required>
+                <input type="password" id="confirm_password" name="confirm_password" required autocomplete="new-password">
             </div>
 
             <label class="text-sm" style="display: flex; gap: 8px; align-items: flex-start; cursor: pointer;">

@@ -225,9 +225,9 @@ def collect_status(hours_back: int = 24) -> dict:
                   f"{len(unverified)} account(s) have not verified their email "
                   f"({len(unv_claims)} claimed participant account(s); oldest "
                   f"{_ago(oldest, now)})",
-                  [f"{u.username} — created {_local(_parse_iso(u.created_at), tz)}, "
+                  [f"{u.username}: created {_local(_parse_iso(u.created_at), tz)}, "
                    f"link sent {_local(_parse_iso(u.email_verification_sent_at), tz) if u.email_verification_sent_at else 'never'}"
-                   + (" (claimed participant account — not pruned)" if u in unv_claims else "")
+                   + (" (claimed participant account, not pruned)" if u in unv_claims else "")
                    for u in unverified])
         else:
             check(sec, "Unverified signups", "green", "None")
