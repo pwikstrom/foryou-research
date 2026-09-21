@@ -246,6 +246,20 @@ def _start(name: str, task_args: dict | None = None) -> tuple[bool, str]:
                          started_by="enrichment_supervisor")
 
 
+def _unavailable_here(platform: str) -> str | None:
+    """Why this platform's scraper must not run here, if it must not.
+
+    See :meth:`fyp.scrape.platform_scraper.BaseScraper.unavailable_here` —
+    Instagram and YouTube on Cloud Run. Never raises: an unknown platform is
+    left to the checks that follow.
+    """
+    try:
+        from fyp.scrape.platform_scraper import get_scraper
+        return get_scraper(platform).unavailable_here()
+    except Exception:
+        return None
+
+
 def _scraper_blocked(platform: str) -> str | None:
     """A storm/circuit-breaker abort the operator has to clear, if any.
 
@@ -470,6 +484,14 @@ def _drain(reporter, plans: dict) -> dict | None:
                 continue
             if _scrape_lane_busy(platform):
                 continue  # already being drained
+            unavailable = _unavailable_here(platform)
+            if unavailable:
+                # Left for a local install on a residential IP. Skipping here —
+                # not starting a worker that would refuse — keeps the refusal
+                # from re-ticking the supervisor into a dispatch loop, and it
+                # charges no stall, so the plan waits rather than parks.
+                reporter.log(f"Leaving the '{platform}' queue ({count} item(s)): {unavailable}.")
+                continue
             tripped = _scraper_blocked(platform)
             if tripped:
                 reporter.log(f"Scraper for '{platform}' is held off: {tripped}. "

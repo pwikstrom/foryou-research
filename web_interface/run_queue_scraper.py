@@ -81,6 +81,13 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         task_args = {}
 
     platform: str = str(task_args.get("platform") or "") or scrape_queues.default_platform()
+    # Instagram and YouTube only scrape from a residential IP: on Cloud Run a
+    # run would burn the queue against the wall and trip storm guards that then
+    # hold off the local install (BaseScraper.residential_ip_only).
+    unavailable = get_scraper(platform).unavailable_here()
+    if unavailable:
+        reporter.log(f"Not scraping — {unavailable}. The queue is untouched.")
+        return None
     batch_size: int = min(int(task_args.get("batch_size", 500)), MAX_BATCH_SIZE)
     # A platform may cap the batch below that (YouTube: one signed-in session).
     platform_cap = get_scraper(platform).max_batch_size()
@@ -236,17 +243,19 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     # supervisor restarts the worker, gets the same verdict, and its no-drain
     # guard then parks every armed plan. A misclassified permanent failure
     # (e.g. yt-dlp's "No video formats found") stays "transient" forever.
-    # Items that produce MAX_ZERO_PROGRESS_STRIKES such batches in a row are
-    # given up on: recorded in the failed-scrapes ledger (consolidation then
-    # marks them scrape_fail like any other permanent failure) and pruned so
-    # the queue drains. Storm / circuit-breaker / memory aborts never charge
-    # strikes — those verdicts implicate the scraper, not the items.
+    # Items charged in MAX_ZERO_PROGRESS_STRIKES such batches without
+    # succeeding in between are given up on: recorded in the failed-scrapes
+    # ledger (consolidation then marks them scrape_fail like any other
+    # permanent failure) and pruned so the queue drains. A batch that makes
+    # progress clears only the strikes of the items it pruned. Storm /
+    # circuit-breaker / memory aborts never charge strikes — those verdicts
+    # implicate the scraper, not the items.
     batch_aborted = any(results_df.attrs.get(k) for k in (
         'circuit_breaker_tripped', 'permanent_storm_tripped',
         'transient_storm_tripped', 'memory_stop'))
     given_up: list[str] = []
     if pruned_this_batch > 0:
-        scrape_queues.clear_zero_progress(platform)
+        scrape_queues.clear_zero_progress(platform, items_to_remove)
     elif transient_failed and not batch_aborted:
         exhausted = scrape_queues.charge_zero_progress(platform, transient_failed)
         if exhausted:
@@ -270,12 +279,12 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     # Metadata-only rows (media failed, any category) stay queued for a media
     # retry, but not forever: after MAX_MEDIA_RETRY_STRIKES healthy runs the
     # item is pruned and its metadata-only row stands (no ledger entry — the
-    # metadata did scrape). An aborted batch never charges.
+    # metadata did scrape). An aborted batch never charges, but every id that
+    # left the queue drops its strikes either way.
     media_retry = list(results_df.attrs.get('media_retry_ids') or [])
-    if media_retry and not batch_aborted:
-        retry_set = set(media_retry)
-        got_media = [v for v in good_ids if v not in retry_set]
-        media_exhausted = scrape_queues.charge_media_retry(platform, media_retry, got_media)
+    if media_retry or items_to_remove:
+        media_exhausted = scrape_queues.charge_media_retry(
+            platform, [] if batch_aborted else media_retry, items_to_remove)
         if media_exhausted:
             gave_up, queue_remaining = scrape_queues.prune_scrape_queue(
                 platform, set(media_exhausted))

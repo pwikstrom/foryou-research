@@ -128,6 +128,31 @@ def test_classify_error_truth_table():
         "HTTP Error 429: Too Many Requests": ("rate_limited", "transient"),
         "Connection timed out": ("network", "transient"),
         "brand new failure mode": ("unknown", "transient"),
+        # Every reason the tv player client gave across the live queue on
+        # 2026-09-21 (see test_scrape_verdict_corroboration.py).
+        "This video is unavailable": ("removed", "permanent"),
+        "This video is private": ("private", "permanent"),
+        "This video is not available": ("removed", "permanent"),
+        "This video is no longer available because the YouTube account associated "
+        "with this video has been terminated.": ("removed", "permanent"),
+        "This video is no longer available because the uploader has closed their "
+        "YouTube account.": ("removed", "permanent"),
+        "This video is no longer available due to a privacy claim by a third party.":
+            ("removed", "permanent"),
+        "This video has been removed for violating YouTube's Terms of Service":
+            ("removed", "permanent"),
+        "This video has been removed for violating YouTube's policy on violent or "
+        "graphic content": ("removed", "permanent"),
+        "It was removed following a copyright removal request by NBC Universal.":
+            ("removed", "permanent"),
+        "It was blocked due to the claimed content by Paramount Global (PMN).":
+            ("blocked", "permanent"),
+        "This video contains content from UFC, who has blocked it on copyright grounds.":
+            ("blocked", "permanent"),
+        "This video contains content from UFC, who has blocked it in your country on "
+        "copyright grounds.": ("geo_blocked", "permanent"),
+        "Video unavailable. YouTube is requiring a captcha challenge before playback":
+            ("bot_check", "transient"),
     }
     for msg, (category, bucket) in cases.items():
         got_cat, _ = _classify_error(Exception(msg))

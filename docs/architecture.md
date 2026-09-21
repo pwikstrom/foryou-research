@@ -163,7 +163,12 @@ identical *permanent* classifications (a flagged session mis-reporting live
 items as removed) or identical *transient* ones (a bot wall failing every
 item retryably) abort the batch, stop self-chaining, and raise a persistent
 per-platform scraper alert; the failed-scrapes record stores each item's
-failure category so storms are diagnosable after the fact. On the analysis
+failure category so storms are diagnosable after the fact. Because those
+guards read a homogeneous run as a broken session, and a queue of nothing but
+retries is homogeneous by construction, a scraper can mark a verdict
+**corroborated** by per-item evidence — it then neither extends nor resets a
+storm run and is pruned even when the guard trips (see
+[pipeline.md](pipeline.md)). On the analysis
 side, every study refresh writes a
 **methods/provenance note** (`{study}_methods.json`) summarising filters,
 counts, and the contract/model versions behind the data — see

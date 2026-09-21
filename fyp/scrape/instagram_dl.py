@@ -5,13 +5,23 @@ Instagram scraper using yt-dlp as backend.
 Fetches metadata + media for Instagram posts/reels identified by their URL
 shortcode (the ``item_id`` produced by :class:`fyp.ingest.InstagramDDPCollection`).
 
-Extraction runs **anonymously** (no cookies): as of 2026-07 Instagram killed
-its authenticated web API (``api/v1/media/{pk}/info/`` 404s for web sessions
-and post pages render as an empty SPA shell), so attaching session cookies
-makes every yt-dlp extraction fail — while the logged-out GraphQL path
-yt-dlp ≥2026.7.4 uses works. Follow-gated/private content is therefore
-permanently inaccessible (classified ``private``); the donated enrichment
-seed still surfaces its caption/author.
+Run it from a residential IP. Instagram (like YouTube) does not scrape from
+Cloud Run's datacenter IPs in practice; the local install drains this queue.
+
+Extraction runs **anonymously first, then with the session cookies** for a
+post Instagram hides from logged-out viewers ("This content isn't available to
+everyone: It can't be seen by certain audiences", or yt-dlp's "Instagram sent
+an empty media response"). History: in 2026-07 Instagram's authenticated web
+API (``api/v1/media/{pk}/info/``) 404'd for web sessions, and yt-dlp takes that
+path whenever cookies are attached — so every cookie-bearing extraction failed
+and scraping went fully anonymous. By 2026-09 (yt-dlp 2026.8.19) that path
+works again, and anonymous extraction had left 65 of 75 queued posts failing
+every run: measured 2026-09-21, 13/13 sampled posts failed anonymously and
+13/13 extracted with the cookies. Anonymous-first keeps the logged-in account's
+footprint to the posts that need it, and survives either path breaking again.
+Follow-gated content ("only available for registered users who follow this
+account") stays permanently ``private``; the donated enrichment seed still
+surfaces its caption/author.
 
 Image-only posts (single photos and carousels): extraction uses yt-dlp's
 ``ignore_no_formats_error`` so an image post returns a full info dict; the
@@ -87,7 +97,8 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
         (category, detail) where category is one of:
         - "rate_limited"   — HTTP 429/403, empty media response, IG's ambiguous
                              "rate-limit reached or login required" catch-all
-        - "login_required" — bare login wall (usually dead cookies, account-wide)
+        - "login_required" — login wall: the post is shown only to logged-in
+                             viewers (retried with the session cookies)
         - "no_video"       — image-only post (no video to extract)
         - "private"        — private account/post
         - "removed"        — post deleted or id nonexistent
@@ -141,7 +152,13 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
     if 'private' in msg_lower or 'only available for registered users' in msg_lower:
         return "private", msg
 
-    if 'login required' in msg_lower or 'log in' in msg_lower or 'logged-in' in msg_lower:
+    # Instagram's own ruling for a post it shows only to logged-in viewers
+    # ("This content isn't available to everyone: It can't be seen by certain
+    # audiences"). It fell through to "unknown" until 2026-09-21; as a login
+    # wall it now triggers the retry with the session cookies.
+    if ("isn't available to everyone" in msg_lower or 'certain audiences' in msg_lower
+            or 'login required' in msg_lower or 'log in' in msg_lower
+            or 'logged-in' in msg_lower):
         return "login_required", msg
 
     if any(kw in msg_lower for kw in ('unavailable', 'removed', 'deleted', 'not found',
@@ -209,17 +226,51 @@ def _info_to_row(info: dict, item_id: str) -> pd.DataFrame:
 
 
 
+def _login_gated(category: str, detail: str) -> bool:
+    """True when a failure means "Instagram shows this post only to logged-in viewers".
+
+    "Instagram sent an empty media response" classifies ``rate_limited`` — with
+    the cookies attached it means throttling — but anonymously yt-dlp itself
+    says the post may need a login, and on 2026-09-21 every sampled one did.
+    """
+    return category == "login_required" or 'empty media response' in (detail or '').lower()
+
+
 def _extract_metadata(url: str, item_id: str, verbose: bool = False):
     """yt-dlp metadata extraction with retry. Returns (info, None) or (None, fail_df).
 
-    Runs anonymously (see module docstring — session cookies make every
-    extraction fail since Instagram's 2026-07 web-API change).
+    Anonymous first (see module docstring). A post Instagram shows only to
+    logged-in viewers is retried once with the session cookies; its info dict
+    is then marked ``_fyp_authenticated`` so the media leg follows suit.
     ``ignore_no_formats_error`` lets image-only posts return their info dict
     (metadata + image thumbnails) instead of raising ``no_video``.
+    """
+    info, fail = _extract_metadata_as(url, item_id, {}, verbose=verbose)
+    if fail is None or not _login_gated(fail.attrs.get('error_type'), fail.attrs.get('error_detail')):
+        return info, fail
+    cookies = scraper_cookies.cookie_opts("instagram")
+    if not cookies:
+        return info, fail
+    logger.info("Scrape %s: hidden from logged-out viewers — retrying with the session cookies",
+                item_id)
+    info, fail = _extract_metadata_as(url, item_id, cookies, verbose=verbose)
+    if info is not None:
+        info['_fyp_authenticated'] = True
+    return info, fail
+
+
+def _extract_metadata_as(url: str, item_id: str, cookies: dict, verbose: bool = False):
+    """One metadata pass, anonymous (``cookies={}``) or with the session cookies.
+
+    A login wall ends the pass at once: repeating the same request cannot get
+    past it (the anonymous pass used to burn three attempts per gated post).
+    With the cookies attached, an empty media response is throttling again
+    and retries with backoff like any rate limit.
     """
     ydl_opts: dict = {
         'quiet': True,
         'no_warnings': not verbose,
+        **cookies,
         'skip_download': True,
         'no_color': True,
         'ignore_no_formats_error': True,
@@ -233,8 +284,11 @@ def _extract_metadata(url: str, item_id: str, verbose: bool = False):
                 return ydl.extract_info(url, download=False), None
         except (yt_dlp.utils.DownloadError, ExtractorError) as e:
             category, detail = _classify_error(e)
-            logger.warning("Scrape %s metadata attempt %d/%d failed: [%s] %s",
-                           item_id, attempt + 1, _META_MAX_RETRIES, category, detail)
+            logger.warning("Scrape %s metadata attempt %d/%d failed%s: [%s] %s",
+                           item_id, attempt + 1, _META_MAX_RETRIES,
+                           " (with cookies)" if cookies else "", category, detail)
+            if category == "login_required" or (not cookies and _login_gated(category, detail)):
+                return None, _empty_fail(category, detail)
             if category in _RETRYABLE and attempt < _META_MAX_RETRIES - 1:
                 backoff = 3 * (2 ** attempt)
                 logger.info("Retrying %s in %ds...", item_id, backoff)
@@ -279,8 +333,14 @@ def _download_media(
     save_path: str,
     stream_to_bucket=None,
     verbose: bool = False,
+    authenticated: bool = False,
 ) -> tuple[bool, str | None, str, float | None]:
     """Download the post's video to temp and move/upload it.
+
+    Args:
+        authenticated: Attach the session cookies — set when the metadata leg
+            needed them (the download re-extracts the post, so a post hidden
+            from logged-out viewers fails anonymously here too).
 
     Returns:
         ``(ok, error_category, error_detail, duration)`` — category/detail are
@@ -294,6 +354,7 @@ def _download_media(
     dl_opts: dict = {
         'quiet': True,
         'no_warnings': not verbose,
+        **(scraper_cookies.cookie_opts("instagram") if authenticated else {}),
         'outtmpl': out_template,
         'no_color': True,
         'overwrites': True,
@@ -824,20 +885,23 @@ _RAW_TO_CANONICAL: dict[str, str] = {
 
 
 class InstagramScraper(BaseScraper):
-    """Instagram platform scraper (yt-dlp, anonymous logged-out extraction).
+    """Instagram platform scraper (yt-dlp; anonymous first, cookies for gated posts).
 
-    Handles video posts and reels via yt-dlp's anonymous GraphQL path; image
-    posts (photos and carousels) extract to format-less info dicts whose
+    Handles video posts and reels via yt-dlp's anonymous GraphQL path, falling
+    back to the session cookies for posts hidden from logged-out viewers;
+    image posts (photos and carousels) extract to format-less info dicts whose
     thumbnails carry the source images, downloaded for the orchestrator's
     silent-slideshow assembly (see module docstring). Anonymous access is
     tightly rate-limited by Instagram, so concurrency stays capped hard —
-    Instagram is the most ban-happy of the supported platforms.
+    Instagram is the most ban-happy of the supported platforms. Residential
+    IP only: it does not scrape from Cloud Run in practice.
     """
 
     platform = "instagram"
     # /p/ serves reel and tv shortcodes too (Instagram redirects).
     url_template = "https://www.instagram.com/p/{item_id}/"
     slideshow_image_column = "image_list"
+    residential_ip_only = True
 
 
     def item_url(self, item_id: str) -> str:
@@ -905,7 +969,8 @@ class InstagramScraper(BaseScraper):
 
         ok, media_category, media_detail, media_duration = _download_media(
             url, item_id, save_path,
-            stream_to_bucket=stream_to_bucket, verbose=verbose)
+            stream_to_bucket=stream_to_bucket, verbose=verbose,
+            authenticated=bool(info.get('_fyp_authenticated')))
         if ok:
             data_row.loc[0, 'video_downloaded'] = True
             # Backfill the duration metadata extraction no longer returns
@@ -1002,14 +1067,15 @@ class InstagramScraper(BaseScraper):
 
 
     def health_check(self) -> dict | None:
-        # Instagram scraping is anonymous (see module docstring) — there is no
-        # login session to monitor, and reporting cookie state here would send
-        # users chasing cookie renewals that have no effect.
-        return {
-            "present": False,
-            "status": "healthy",
-            "message": "Anonymous access — Instagram scraping does not use login cookies.",
-        }
+        # Public posts scrape anonymously, but posts Instagram hides from
+        # logged-out viewers need the session cookies (see module docstring),
+        # so their state is worth monitoring again. Without them those posts
+        # churn in the queue until the retry budget gives up on them.
+        health = scraper_cookies.cookie_health("instagram", session_cookie="sessionid")
+        health["message"] = (f"{health.get('message', '')} Public posts scrape anonymously; "
+                             f"the cookies are needed for posts hidden from logged-out "
+                             f"viewers.").strip()
+        return health
 
 
     def media_probe_url(self, item_id: str) -> dict | None:
