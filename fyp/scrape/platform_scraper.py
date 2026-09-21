@@ -15,6 +15,7 @@ implements the five platform-specific operations — :meth:`~BaseScraper.item_ur
 """
 
 import logging
+import os
 import threading
 from abc import ABC, abstractmethod
 from glob import glob
@@ -30,7 +31,8 @@ from fyp.scrape import scrape_contract as sc
 logger = logging.getLogger(__name__)
 
 
-def empty_fail(error_type: str = "unknown", error_detail: str = "") -> pd.DataFrame:
+def empty_fail(error_type: str = "unknown", error_detail: str = "", *,
+               corroborated: bool = False) -> pd.DataFrame:
     """Return an empty DataFrame tagged with error classification metadata.
 
     Shared by every platform scraper (hoisted from the per-platform copies in
@@ -40,13 +42,20 @@ def empty_fail(error_type: str = "unknown", error_detail: str = "") -> pd.DataFr
     Args:
         error_type: Scraper error category (e.g. ``"rate_limited"``).
         error_detail: Free-text detail for the failure row.
+        corroborated: The permanent verdict rests on per-item evidence beyond
+            the error message (see the corroboration clause of
+            :meth:`BaseScraper.fetch`). Stamped as
+            ``attrs['verdict_corroborated']``.
 
     Returns:
-        An empty DataFrame with ``error_type``/``error_detail`` in ``attrs``.
+        An empty DataFrame with ``error_type``/``error_detail`` (and
+        ``verdict_corroborated`` when set) in ``attrs``.
     """
     df = pd.DataFrame()
     df.attrs['error_type'] = error_type
     df.attrs['error_detail'] = error_detail
+    if corroborated:
+        df.attrs['verdict_corroborated'] = True
     return df
 
 
@@ -109,12 +118,19 @@ class BaseScraper(ABC):
         slideshow_image_column: raw column holding the ``" | "``-joined image
             URLs of a photo/carousel post, or ``None`` when the platform has no
             carousel concept.
+        residential_ip_only: the platform does not scrape from a datacenter IP
+            in practice, so its queue is drained by a local install on a
+            residential IP: on Cloud Run the queue worker refuses to run and
+            the enrichment supervisor leaves the queue alone. Instagram and
+            YouTube (operator experience, 2026-09): both wall off Cloud Run's
+            IPs whatever the cookies or PO tokens.
         base_columns: ``{column: pyarrow_dtype}`` for the canonical base fields.
         platform_columns: ``{column: pyarrow_dtype}`` for this platform's fields.
     """
 
     platform: str | None = None
     slideshow_image_column: str | None = None
+    residential_ip_only: bool = False
     _registry: list[type] = []
 
     def __init_subclass__(cls, **kwargs):
@@ -170,6 +186,23 @@ class BaseScraper(ABC):
         the media-retry budget in :func:`scrape_queues.charge_media_retry`
         bounds the retries instead. The category also feeds the throttle
         controller and the storm guards.
+
+        Corroboration clause: a failure frame (via ``empty_fail(...,
+        corroborated=True)``), or a metadata-only row for its media verdict,
+        may carry ``attrs['verdict_corroborated'] = True`` when the permanent
+        verdict rests on per-item evidence independent of the error text —
+        e.g. YouTube answering with no record of the video at all AND a stated
+        reason that is itself a removal, or keeping the record but naming a
+        region whitelist or rights claim as the reason it will not play. The
+        storm guards exist because one broken session can make every item read
+        as removed; a verdict the item itself corroborates is explained by the
+        item, so it neither extends nor resets a storm run. A corroborated
+        failure is pruned even when the guard trips; a corroborated media
+        verdict prunes the id with its metadata row standing, instead of
+        queueing a media retry. Without this, a queue that retries have
+        distilled down to dead items trips the guard on every run and never
+        drains (2026-09-21, YouTube). Never set it on a verdict that rests on
+        the message alone.
         """
 
 
@@ -240,6 +273,20 @@ class BaseScraper(ABC):
             ``{"status": ..., "message": ...}`` for the orchestrator to log,
             or ``None`` when the platform has nothing to report.
         """
+        return None
+
+
+    def unavailable_here(self) -> str | None:
+        """Why this scraper must not run in the current environment, or ``None``.
+
+        A ``residential_ip_only`` platform on Cloud Run (``K_SERVICE`` set)
+        would only burn its queue against the datacenter-IP wall and trip the
+        storm guards — whose tripped state, in the shared task status, would
+        then hold off the local install that can actually drain it.
+        """
+        if self.residential_ip_only and os.environ.get("K_SERVICE"):
+            return (f"the {self.platform} scraper needs a residential IP and does not "
+                    f"work from Cloud Run — drain this queue from a local install")
         return None
 
 

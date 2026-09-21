@@ -107,6 +107,11 @@ python web_interface/run_queue_annotator.py
 python web_interface/run_queue_scraper.py --platform tiktok
 ```
 
+The Instagram and YouTube scrapers have to be run this way, from a
+residential connection: both platforms wall off Cloud Run's datacenter IPs
+whatever cookies are attached, so the deployed services decline to scrape
+them and leave those queues to a local install.
+
 ## Verification
 
 Every change should pass the gate before merging:

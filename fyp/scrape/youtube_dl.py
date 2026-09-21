@@ -5,13 +5,20 @@ YouTube scraper using yt-dlp as backend.
 Fetches metadata + media for YouTube videos identified by their 11-character
 video id (the ``item_id`` produced by :class:`fyp.ingest.YouTubeDDPCollection`).
 
-Datacenter IPs (Cloud Run) frequently hit YouTube's bot wall ("Sign in to
-confirm you're not a bot"); research-account cookies partially mitigate it
-(see :mod:`fyp.scraper_cookies`) and the distinct ``bot_check`` category is a
-throttle signal so concurrency backs off. Media streams additionally require
-proof-of-origin (PO) tokens from datacenter IPs: the bgutil provider
-(pip plugin + script built in Dockerfile.base, wired via
-:func:`_pot_extractor_args`) supplies them in production.
+Run it from a residential IP. In practice YouTube (like Instagram) does not
+scrape from Cloud Run's datacenter IPs — the bot wall ("Sign in to confirm
+you're not a bot") holds even with research-account cookies and proof-of-origin
+(PO) tokens — so the local install, signed in through the operator's own
+Chrome, drains this queue. The Cloud Run pieces remain wired but are not a
+working path: the bgutil PO-token provider (pip plugin + script built in
+Dockerfile.base, via :func:`_pot_extractor_args`), and ``bot_check`` as a
+throttle signal so concurrency backs off.
+
+Refused videos: the metadata leg adds the tv player client, the only one that
+states WHY YouTube will not play a video, and captures that reason (see
+:class:`_ReasonLog`). A video YouTube has no record of is a failure — never a
+placeholder row — and one it keeps but will not play here (region, rights
+claim) is scraped metadata-only and leaves the queue.
 
 Most watch-history items are long-form and exceed the media duration cap —
 they are deliberately scraped metadata-only; Shorts and clips get media.
@@ -58,9 +65,21 @@ def _cf():
 # "bot_check" is transient AND a throttle signal (_THROTTLE_CATEGORIES in
 # platform_scraper): the batch backs off instead of burning the whole queue
 # against the bot wall. HTTP 403 is typically YouTube throttling (unlike
-# TikTok, where it means an IP block) — kept retryable.
+# TikTok, where it means an IP block) — kept retryable. "blocked" is a
+# copyright (Content ID) block — "It was blocked due to the claimed content
+# by <claimant>" — distinct from "removed" so a later run from another
+# vantage point can single it out, like "geo_blocked".
 _RETRYABLE = {"bot_check", "rate_limited", "network", "server_error", "unknown"}
-_PERMANENT = {"removed", "private", "age_restricted", "members_only", "geo_blocked"}
+_PERMANENT = {"removed", "private", "age_restricted", "members_only", "geo_blocked",
+              "blocked"}
+
+# Permanent verdicts that stand even when YouTube still has the video's record
+# (channel, views, duration): the player refuses it HERE, on grounds that name
+# the video itself — a region whitelist or a rights holder's claim. No
+# throttled session has ever produced these; it answers a bare "Video
+# unavailable" (2026-09-18). Anything else with the record intact goes down
+# the ordinary media leg, whose verdict is distrusted and budgeted.
+_UNPLAYABLE_WITH_RECORD = {"geo_blocked", "blocked"}
 
 _META_MAX_RETRIES = 3
 _DL_MAX_RETRIES = 2
@@ -75,6 +94,15 @@ _FORMAT = ('bv*[height<=720][ext=mp4]+ba[ext=m4a]'
 # used when deno is absent (e.g. local dev). An unavailable runtime is simply
 # not used, so enabling both is safe everywhere.
 _JS_RUNTIMES = {'deno': {'path': None}, 'node': {'path': None}}
+
+# Player clients for the metadata leg: yt-dlp's defaults plus "tv". When
+# YouTube refuses a video, the default web clients all report a bare "Video
+# unavailable" — the very text a throttled session returns — whereas the tv
+# client states the reason: "removed by the uploader", "The uploader has not
+# made this video available in your country", "It was blocked due to the
+# claimed content by …". Measured 2026-09-21: ~1 s more per item, and a
+# playable video resolves the same formats. The media leg keeps the defaults.
+_METADATA_PLAYER_CLIENTS = ['default', 'tv']
 
 # The bgutil PO-token provider's script directory (Dockerfile.base builds it
 # and sets this env var). YouTube requires proof-of-origin tokens for media
@@ -103,13 +131,14 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
 
     Returns:
         (category, detail) where category is one of:
-        - "bot_check"      — "Sign in to confirm you're not a bot" wall
+        - "bot_check"      — "Sign in to confirm you're not a bot" wall, captcha
         - "rate_limited"   — HTTP 429/403, too many requests
         - "removed"        — video deleted/unavailable, account terminated
         - "private"        — private video
         - "age_restricted" — age gate (cookies already applied → permanent)
         - "members_only"   — channel-membership gate
         - "geo_blocked"    — GeoRestrictedError
+        - "blocked"        — copyright (Content ID) claim block
         - "network"        — timeout, connection refused, DNS failure, SSL
         - "server_error"   — HTTP 5xx
         - "unknown"        — unrecognised (kept retryable)
@@ -130,11 +159,22 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
     if isinstance(cause, TransportError):
         return "network", f"Transport error: {msg}"
 
+    return _classify_message(msg)
+
+
+def _classify_message(msg: str) -> tuple[str, str]:
+    """Classify a yt-dlp error or warning text; see :func:`_classify_error`.
+
+    Split out so the metadata leg can classify the playability reason it
+    captures from a warning (see :class:`_ReasonLog`) — there is no exception
+    object there, only the text.
+    """
     # YouTube uses typographic apostrophes ("confirm you’re not a bot") —
     # normalize so ASCII keyword matching works.
     msg_lower = msg.lower().replace('’', "'")
 
-    if "confirm you're not a bot" in msg_lower or 'not a robot' in msg_lower:
+    if ("confirm you're not a bot" in msg_lower or 'not a robot' in msg_lower
+            or 'captcha' in msg_lower):
         return "bot_check", msg
 
     # Rate-limit detection must precede the "removed" keywords: YouTube's
@@ -156,13 +196,30 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
         return "members_only", msg
 
     # Geo restrictions sometimes surface as a flattened message instead of a
-    # GeoRestrictedError instance.
+    # GeoRestrictedError instance. A territorial copyright block ("…who has
+    # blocked it in your country on copyright grounds") lands here too — it
+    # is region-bound, which is what the category records.
     if 'in your country' in msg_lower or 'geo restriction' in msg_lower:
         return "geo_blocked", msg
 
+    # A Content ID block names the rights holder: "It was blocked due to the
+    # claimed content by Paramount Global (PMN)." / "…who has blocked it on
+    # copyright grounds." Only the tv player client states it (the web clients
+    # say a bare "Video unavailable"). A copyright TAKEDOWN ("no longer
+    # available due to a copyright claim") says nothing of blocking and falls
+    # through to "removed".
+    if 'claimed content' in msg_lower or ('copyright' in msg_lower and 'blocked' in msg_lower):
+        return "blocked", msg
+
     # "This content isn't available, try again later" without the rate-limit
     # sentence is YouTube's soft-block/removal phrasing — kept as removed.
-    if any(kw in msg_lower for kw in ('video unavailable', 'has been removed',
+    # "This video is unavailable" is the phrasing for an id YouTube has no
+    # record of; it matched none of these until 2026-09-21 and churned as
+    # "unknown" for days (every one of the nine seen was gone for good). The
+    # tv client words takedowns as "It was removed following a copyright
+    # removal request by <claimant>".
+    if any(kw in msg_lower for kw in ('video unavailable', 'video is unavailable',
+                                       'has been removed', 'was removed', 'removal request',
                                        'no longer available', 'account associated',
                                        'terminated', 'does not exist', 'not available')):
         return "removed", msg
@@ -176,9 +233,10 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
 
 
 
-def _empty_fail(error_type: str = "unknown", error_detail: str = "") -> pd.DataFrame:
+def _empty_fail(error_type: str = "unknown", error_detail: str = "", *,
+                corroborated: bool = False) -> pd.DataFrame:
     """Return an empty DataFrame tagged with error classification metadata."""
-    return empty_fail(error_type, error_detail)
+    return empty_fail(error_type, error_detail, corroborated=corroborated)
 
 
 def _cleanup_temp_files(temp_dir: str, item_id: str) -> None:
@@ -238,8 +296,94 @@ def _info_to_row(info: dict, item_id: str) -> pd.DataFrame:
 
 
 
+def _metadata_extractor_args() -> dict:
+    """``extractor_args`` for the metadata leg: the PO-token wiring + tv client."""
+    args = dict(_pot_extractor_args().get('extractor_args', {}))
+    args['youtube'] = {'player_client': list(_METADATA_PLAYER_CLIENTS)}
+    return {'extractor_args': args}
+
+
+class _ReasonLog:
+    """yt-dlp logger that keeps the playability reasons of one extraction.
+
+    The metadata leg runs with ``ignore_no_formats_error``, under which yt-dlp
+    downgrades a player's refusal ("This video has been removed by the
+    uploader") to a warning and returns an info dict anyway — the reason
+    exists nowhere else. Only ``[youtube]`` extractor warnings are kept;
+    plugin chatter (the PO-token provider) and the generic no-formats
+    follow-ups are not reasons. yt-dlp routes errors here too once a logger
+    is set; our own "attempt failed" line re-reports them, so they go to
+    debug.
+    """
+
+    _NOT_REASONS = ('[pot', 'no video formats found', 'requested format is not available',
+                    'n challenge', 'formats have been skipped', 'sabr')
+
+    def __init__(self):
+        self.reasons: list[str] = []
+
+    def debug(self, msg):
+        pass
+
+    def info(self, msg):
+        pass
+
+    def warning(self, msg):
+        text = str(msg)
+        if not text.startswith('[youtube] '):
+            return
+        text = text[len('[youtube] '):]
+        lowered = text.lower()
+        if any(marker in lowered for marker in self._NOT_REASONS):
+            return
+        self.reasons.append(text)
+
+    def error(self, msg):
+        logger.debug("yt-dlp: %s", msg)
+
+
+def _playability_verdict(reasons: list[str]) -> tuple[str, str] | None:
+    """Classify the reasons one extraction reported; ``None`` when there were none.
+
+    Safety first: if any reason reads as throttling (bot wall, captcha, rate
+    limit), that verdict wins — a permanent reason must never mask a session
+    problem. Otherwise the first reason that names a category wins over an
+    unrecognised one.
+    """
+    if not reasons:
+        return None
+    verdicts = [_classify_message(r) for r in reasons]
+    for category, detail in verdicts:
+        if category in ("bot_check", "rate_limited"):
+            return category, detail
+    for category, detail in verdicts:
+        if category != "unknown":
+            return category, detail
+    return verdicts[0]
+
+
+def _has_no_record(info: dict) -> bool:
+    """True when yt-dlp returned only a placeholder for the video.
+
+    For a live video the player refuses here (geo- or copyright-blocked) the
+    info dict still carries the channel, view count and duration. For one that
+    no longer exists it carries none of them — only a synthesised title
+    ("youtube video #<id>") — and until 2026-09-21 that shell was saved as a
+    scraped row: no author, -1 plays, created 2000-01-01.
+    """
+    return all(info.get(k) is None for k in ('channel_id', 'uploader_id', 'view_count', 'duration'))
+
+
 def _extract_metadata(url: str, item_id: str, verbose: bool = False):
-    """yt-dlp metadata extraction with retry. Returns (info, None) or (None, fail_df)."""
+    """yt-dlp metadata extraction with retry. Returns (info, None) or (None, fail_df).
+
+    A video YouTube has no record of is a failure, not a row: the verdict is
+    the stated reason, and when that reason is itself permanent the failure is
+    corroborated (see :meth:`BaseScraper.fetch`) — two independent signals
+    agree that the item, not the session, is the problem. When the record
+    exists but no format does, the classified reason travels to
+    :meth:`YouTubeScraper.fetch` as ``info['_fyp_unplayable']``.
+    """
     ydl_opts: dict = {
         'quiet': True,
         'no_warnings': not verbose,
@@ -250,18 +394,32 @@ def _extract_metadata(url: str, item_id: str, verbose: bool = False):
         'extractor_retries': 3,
         'socket_timeout': 30,
         'js_runtimes': _JS_RUNTIMES,
-        **_pot_extractor_args(),
+        **_metadata_extractor_args(),
         # Metadata must never depend on the n-challenge solver: without a JS
         # runtime + yt-dlp-ejs, format extraction fails ("No video formats
         # found") even though all metadata fields are present. The media phase
-        # runs its own extraction and does need the solver.
+        # runs its own extraction and does need the solver. The flag also
+        # swallows a refused video's reason, hence the capturing logger.
         'ignore_no_formats_error': True,
     }
 
     for attempt in range(_META_MAX_RETRIES):
+        reason_log = _ReasonLog()
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                return ydl.extract_info(url, download=False), None
+            with yt_dlp.YoutubeDL({**ydl_opts, 'logger': reason_log}) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if info and not info.get('formats'):
+                verdict = _playability_verdict(reason_log.reasons)
+                if _has_no_record(info):
+                    category, detail = verdict or (
+                        "unknown", "no record of the video and no stated reason")
+                    logger.warning("Scrape %s metadata: no record of the video — [%s] %s",
+                                   item_id, category, detail)
+                    return None, _empty_fail(category, detail,
+                                             corroborated=category in _PERMANENT)
+                if verdict is not None:
+                    info['_fyp_unplayable'] = verdict
+            return info, None
         except (yt_dlp.utils.DownloadError, ExtractorError) as e:
             category, detail = _classify_error(e)
             logger.warning("Scrape %s metadata attempt %d/%d failed: [%s] %s",
@@ -394,6 +552,7 @@ class YouTubeScraper(BaseScraper):
     platform = "youtube"
     url_template = "https://www.youtube.com/watch?v={item_id}"
     slideshow_image_column = None
+    residential_ip_only = True
 
 
     def item_url(self, item_id: str) -> str:
@@ -426,6 +585,18 @@ class YouTubeScraper(BaseScraper):
         if not self.should_download_media(duration):
             logger.info("Item '%s' duration (%ss) exceeds %ss cap. Skipping download.",
                         item_id, duration, self.media_duration_cap())
+            return data_row
+
+        unplayable = info.get('_fyp_unplayable')
+        if unplayable is not None and unplayable[0] in _UNPLAYABLE_WITH_RECORD:
+            # YouTube keeps the video's record but will not play it here, and
+            # says why in terms of the video itself. The media leg could only
+            # repeat that, so the verdict is corroborated: the metadata row
+            # stands and the id leaves the queue instead of burning retries.
+            logger.info("Item '%s' is unplayable here — [%s] %s. Metadata only.",
+                        item_id, *unplayable)
+            data_row.attrs['media_error_type'], data_row.attrs['media_error_detail'] = unplayable
+            data_row.attrs['verdict_corroborated'] = True
             return data_row
 
         ok, media_category, media_detail = _download_media(

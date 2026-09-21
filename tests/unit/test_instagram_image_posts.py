@@ -385,11 +385,20 @@ def test_fetch_backfills_duration_from_downloaded_file(monkeypatch):
 
 
 
-def test_health_check_reports_anonymous_no_cookies():
+def test_health_check_reports_the_session_cookies(monkeypatch):
+    """Posts hidden from logged-out viewers need the cookies, so their health is real again."""
+    seen = {}
+
+    def fake_health(platform, session_cookie="sessionid"):
+        seen.update(platform=platform, session_cookie=session_cookie)
+        return {"present": False, "status": "missing", "message": "Local dev: not logged in."}
+
+    monkeypatch.setattr(instagram_dl.scraper_cookies, "cookie_health", fake_health)
     h = InstagramScraper().health_check()
-    assert h["status"] == "healthy"
-    assert "cookie" in h["message"].lower()
-    assert h["present"] is False
+    assert seen == {"platform": "instagram", "session_cookie": "sessionid"}
+    assert h["status"] == "missing" and h["present"] is False
+    assert h["message"].startswith("Local dev: not logged in.")
+    assert "hidden from logged-out viewers" in h["message"]
 
 
 

@@ -112,6 +112,71 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Fixed
 
+- **Instagram scraped public posts only, and said nothing about it.** Since
+  2026-07 the scraper ran fully anonymously, because attaching cookies then
+  made yt-dlp take Instagram's authenticated web API, which 404'd on every
+  post. That path works again, and anonymous-only had quietly become the
+  binding constraint: a queue drained 10 of 75 posts per run while the other
+  65 failed every attempt, 50 of them on Instagram's own ruling ("This
+  content isn't available to everyone: It can't be seen by certain
+  audiences", which matched no classifier rule and churned as a retryable
+  `unknown`) and 15 on yt-dlp's "empty media response". Sampled the day of
+  the fix, 13 of 13 such posts failed anonymously and 13 of 13 extracted with
+  the operator's cookies. The scraper now goes anonymous first and retries
+  once with the session cookies for a post hidden from logged-out viewers —
+  immediately, instead of burning three anonymous attempts on a wall it
+  cannot pass — and the media leg follows the metadata leg's auth mode. The
+  ruling classifies as a login wall; with cookies attached an empty media
+  response means throttling again, as it did before. Instagram's health check
+  reports the cookies' real state instead of "anonymous access".
+
+- **A YouTube queue of dead videos could never drain.** Every id in the queue
+  had already failed, so retries had distilled it down to videos that were
+  gone or blocked. Three things then interlocked: the metadata leg runs with
+  `ignore_no_formats_error`, so a refused video still returned an info dict
+  and was saved as an empty placeholder row (no author, -1 plays, created
+  2000-01-01 — 224 such rows in the last 25 scrape files); the media leg then
+  answered a bare "Video unavailable", which reads as a removal but is also
+  what a throttled session returns, so the verdict is deliberately
+  distrusted; and 15 of those in a row tripped the permanent-storm guard,
+  which aborts the batch — and an aborted batch charges no retry budget. The
+  result was 190 items queued, 45 attempted, 0 drained, run after run, with
+  the queue file untouched for two days. Fixed by giving the metadata leg the
+  tv player client, the only one that states *why* YouTube will not play a
+  video, and capturing the reason the flag otherwise swallows. A video the
+  platform has no record of is now a failure rather than a placeholder row,
+  and both it and a video whose record is intact but which names a region
+  whitelist or a rights claim are treated as *corroborated*: verdicts backed
+  by per-item evidence, which neither feed the storm guards nor are demoted
+  by them. A bare "Video unavailable" with the record intact is still
+  distrusted, so the protection added after 2026-09-18 stands. Replayed
+  against the live queue, the next run prunes 187 of 190 and downloads the
+  one video that plays.
+
+- **YouTube read two spellings of the same failure oppositely.** "Video
+  unavailable" classified as a permanent removal while "This video is
+  unavailable" matched no rule and churned as a retryable `unknown` — every
+  one of the nine seen was gone for good. Takedown and block phrasings the tv
+  client reports are classified too: copyright claim blocks as their own
+  `blocked` category (kept distinct from `geo_blocked` and `removed` so a run
+  from another vantage point can single them out), copyright *takedowns* as
+  removals, and a captcha challenge as a bot check.
+
+- **One item's success reset every other item's retry strikes.** A batch that
+  pruned anything deleted the whole per-platform strike sidecar, so a queue
+  that trickled forward could carry a tail that failed every run
+  indefinitely — no strikes ever accumulated against it. Progress now clears
+  only the strikes of the ids it actually pruned, and every id that leaves
+  the queue drops its media-retry strikes even when the batch was aborted.
+
+- **Instagram and YouTube scraping is refused on Cloud Run.** Neither works
+  from a datacenter IP whatever cookies or PO tokens are attached, and a run
+  there would burn the queue and trip guards whose state, shared through the
+  bucket, then holds off the local install that can actually drain it. Both
+  scrapers are marked `residential_ip_only`: the queue worker declines to
+  start and the enrichment supervisor leaves the queue alone without charging
+  the plan a stall. TikTok is unaffected.
+
 - **Viability floors counted rows that are not viewing.** A donation was
   admitted on 10+ rows of *any* kind, so an export could become a collection
   with no viewing activity in it at all. TikTok was the clearest case:

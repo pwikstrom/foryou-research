@@ -1101,7 +1101,7 @@ def download_video_threads(
     mem_stop_event = threading.Event()
     inter_delay = scraper.inter_request_delay()
 
-    def _breaker_track(category) -> None:
+    def _breaker_track(category, corroborated: bool = False) -> None:
         with breaker_lock:
             if category in THROTTLE_CATEGORIES:
                 breaker_state["consecutive"] += 1
@@ -1118,6 +1118,12 @@ def download_video_threads(
                 # transient and would otherwise wipe the storm classification.
                 return
             classification = scraper.classify_error(category)
+            if corroborated and classification.startswith("permanent"):
+                # Explained by the item, not the session (the corroboration
+                # clause of BaseScraper.fetch): no evidence either way, so it
+                # neither extends nor resets a storm run. A retry-only queue
+                # of dead videos otherwise trips the guard on every run.
+                return
             if classification.startswith("permanent"):
                 if classification == storm_state["classification"]:
                     storm_state["consecutive"] += 1
@@ -1195,8 +1201,9 @@ def download_video_threads(
                 error_cat = res.attrs.get('media_error_type')
             else:
                 error_cat = None
+            corroborated = isinstance(res, pd.DataFrame) and bool(res.attrs.get('verdict_corroborated'))
             throttle.report_result(error_cat)
-            _breaker_track(error_cat)
+            _breaker_track(error_cat, corroborated)
             if inter_delay > 0:
                 # Sleep while holding the throttle slot: paces the whole
                 # session, not just this thread.
@@ -1346,6 +1353,7 @@ def download_video_threads(
     permanent_failed_ids: list[str] = []
     transient_failed_ids: list[str] = []
     media_retry_ids: list[str] = []
+    media_unplayable = 0
     storm_demoted = 0
     storm_media_kept = 0
     for idx in range(len(interesting_videos)):
@@ -1357,7 +1365,12 @@ def download_video_threads(
             # media is retried next run. attrs don't survive pd.concat, so
             # this is the last place they're visible.
             media_error = res.attrs.get('media_error_type')
-            if media_error is not None:
+            if media_error is not None and res.attrs.get('verdict_corroborated'):
+                # The platform named why this item will never play here (e.g.
+                # a region whitelist or a rights claim, record intact): the
+                # metadata row stands and the id is pruned like any success.
+                media_unplayable += 1
+            elif media_error is not None:
                 # Whatever the category. A permanent verdict on the media leg
                 # is not trusted on its own: a throttled session's bare "Video
                 # unavailable" reads exactly like a removal, and on 2026-09-18
@@ -1372,10 +1385,12 @@ def download_video_threads(
         else:
             vid = interesting_videos[idx]
             error_type = res.attrs.get('error_type', 'unknown') if isinstance(res, pd.DataFrame) else 'unknown'
+            corroborated = isinstance(res, pd.DataFrame) and bool(res.attrs.get('verdict_corroborated'))
             # The scraper owns its platform's permanent-vs-transient taxonomy.
             classification = scraper.classify_error(error_type)
             if classification.startswith('permanent'):
-                if storm_state["tripped"] and classification == storm_state["classification"]:
+                if (storm_state["tripped"] and classification == storm_state["classification"]
+                        and not corroborated):
                     # Suspect storm verdict: keep the id queued and off the
                     # failed record — a later healthy session re-scrapes it.
                     transient_failed_ids.append(vid)
@@ -1438,6 +1453,10 @@ def download_video_threads(
             )
         elif results:
             scraper_alerts.clear_alert(scraper.platform, reason="healthy batch")
+
+    if media_unplayable:
+        logger.info(f"  Unplayable here: {media_unplayable} items scraped metadata-only "
+              f"(the platform named why — e.g. region or rights block) — removed from queue")
 
     if media_retry_ids:
         logger.info(f"  Media retries: {len(media_retry_ids)} items scraped metadata-only "
@@ -1678,7 +1697,7 @@ def scraper_loop_from_list(
                   f"({len(good_scrapes)} OK, {len(all_permanent_failed)} permanent fail). "
                   f"{len(all_transient_failed)} transient failures remain for retry. "
                   f"Queue length: {remaining}")
-        scrape_queues.clear_zero_progress(platform_resolved)
+        scrape_queues.clear_zero_progress(platform_resolved, items_to_remove)
     elif all_transient_failed and not aborted and not dry_run:
         # Zero-progress run: every item failed "transiently" and nothing was
         # pruned, so without intervention the queue would never drain (and the
@@ -1699,12 +1718,12 @@ def scraper_loop_from_list(
 
     # ----------------
     # Media-retry budget: metadata-only rows (media failed) stay queued, but not
-    # forever. An aborted run never charges — the verdicts implicate the session.
+    # forever. An aborted run never charges — the verdicts implicate the session
+    # — but every id that left the queue drops its strikes either way.
     # -----------------
-    if all_media_retry and not aborted and not dry_run:
-        retry_set = set(all_media_retry)
-        got_media = [v for v in good_scrapes if v not in retry_set]
-        exhausted = scrape_queues.charge_media_retry(platform_resolved, all_media_retry, got_media)
+    if (all_media_retry or items_to_remove) and not dry_run:
+        exhausted = scrape_queues.charge_media_retry(
+            platform_resolved, [] if aborted else all_media_retry, items_to_remove)
         if exhausted:
             _, remaining = scrape_queues.prune_scrape_queue(platform_resolved, set(exhausted))
             logger.warning(

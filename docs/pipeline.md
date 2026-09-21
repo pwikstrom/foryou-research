@@ -114,6 +114,68 @@ plus optional overrides (throttle limits, health check, slideshow hooks).
 All three current scrapers (TikTok, Instagram, YouTube) are yt-dlp-based;
 cookies are managed per-platform by `scraper_cookies.py`.
 
+**Where each scraper runs.** Instagram and YouTube do not scrape from
+datacenter IPs in practice — both wall Cloud Run off whatever cookies or
+PO tokens are attached — so their queues are drained by a local install on a
+residential IP. That is a property of the scraper
+(`BaseScraper.residential_ip_only`): on Cloud Run the queue worker refuses to
+start and the enrichment supervisor leaves those queues alone, instead of
+burning them against the wall and tripping guards whose state, shared through
+the bucket, would then hold the local install off too.
+
+**Authentication.** TikTok and YouTube scrape signed in (locally, from the
+operator's own Chrome profile). Instagram goes anonymous first and retries
+with the session cookies only for a post it hides from logged-out viewers,
+which keeps the account's footprint to the posts that need it and survives
+either path breaking — both have (2026-07: attaching cookies broke every
+extraction; 2026-09: anonymous alone left 65 of 75 queued posts unfetchable).
+
+**Permanent vs transient.** Each scraper classifies a failure into its own
+taxonomy, and `classify_error` maps it to `permanent:<reason>` (pruned from
+the queue, recorded in the failed-scrapes ledger) or `transient:<reason>`
+(kept for a later run). One broken session can make every item read as
+permanently gone, so three guards sit on top — all of them abort the batch,
+and the storm guards also raise a scraper alert for a human:
+
+| Guard | Trips on | The items |
+|---|---|---|
+| circuit breaker | 15 consecutive throttle verdicts | stay queued |
+| permanent-storm guard | 15 consecutive identical *permanent* verdicts | demoted to transient, stay queued |
+| transient-storm guard | 25 consecutive identical *transient* verdicts | already transient; chaining stops |
+
+**Corroborated verdicts.** Those guards assume a healthy queue produces
+heterogeneous outcomes — which a queue of nothing but retries never does,
+since retrying only the failures distils it down to items that fail. A
+scraper may therefore mark a permanent verdict *corroborated*
+(`attrs['verdict_corroborated']`, see `BaseScraper.fetch`) when it rests on
+per-item evidence independent of the error text: such a verdict neither
+extends nor resets a storm run, and is pruned even when the guard trips.
+YouTube corroborates two cases, both read from the metadata leg, which adds
+the tv player client — the only one that states *why* a video will not play —
+and captures the reason yt-dlp otherwise swallows under
+`ignore_no_formats_error`:
+
+* the platform has no record of the video (no channel, no view count, no
+  duration) **and** the stated reason is itself a removal. A video with no
+  record is a failure, never the empty placeholder row it used to be saved as;
+* the record is intact but YouTube refuses to play it here, naming a region
+  whitelist or a rights claim. Its metadata is scraped, the media leg is
+  skipped, and the id leaves the queue with its metadata-only row standing.
+
+A bare "Video unavailable" with the record intact is never corroborated: that
+is exactly what a throttled session returns.
+
+**Retry budgets** bound everything that stays queued, in per-platform sidecars
+(`scrape_queues.py`). An item transiently failing through
+`MAX_ZERO_PROGRESS_STRIKES` runs in which the queue as a whole made no
+progress is given up on and recorded as failed; an item whose metadata scraped
+but whose media did not is retried for `MAX_MEDIA_RETRY_STRIKES` healthy runs
+and then pruned with its metadata-only row standing. An aborted batch never
+charges either budget — the verdicts implicate the session, not the items —
+but ids that left the queue always drop their strikes, and a batch that makes
+progress clears only the strikes of the ids it pruned (one item's success is
+no evidence for another's).
+
 The canonical cross-platform scrape schema lives in
 `config/scrape_contract.toml`: base fields every platform emits (including
 generic popularity counts `fave_count`/`comment_count`/... and per-K

@@ -336,18 +336,39 @@ def charge_zero_progress(platform: str, transient_ids: list[str]) -> list[str]:
 
 
 
-def clear_zero_progress(platform: str) -> None:
-    """Drop one platform's retry strikes after a batch that made progress.
+def clear_zero_progress(platform: str, resolved_ids) -> None:
+    """Drop the retry strikes of the items that left the queue this batch.
 
-    A draining queue means the transient failures are riding along with
-    successes — today's semantics (retry indefinitely) are right for those,
-    and keeping stale strikes would burn them spuriously if the queue later
-    stalls for an unrelated reason.
+    Only the resolved items' strikes go. Wiping the whole sidecar on any
+    progress let a queue that trickled forward carry a never-succeeding tail
+    indefinitely: on 2026-09-21 Instagram drained 10 of 75 items in a run
+    while 65 gated posts, failing every attempt, had their strikes reset to
+    zero by those 10 successes. Another item's success says nothing in an
+    item's favour. An item that still carries a strike has not succeeded
+    since it was charged — anything that does succeed is pruned, and cleared,
+    here first — so keeping its strike cannot burn a fetchable item.
+
+    Args:
+        platform: Platform whose sidecar to update.
+        resolved_ids: Ids pruned this batch (scraped OK or permanently failed).
     """
     data_io = _data_io()
     target = strikes_filename(platform)
-    if data_io.exists(storage_location=QUEUE_LOCATION, filename=target):
-        data_io.remove(storage_location=QUEUE_LOCATION, filename=target)
+    resolved = set(_dedup(list(resolved_ids or [])))
+    if not resolved or not data_io.exists(storage_location=QUEUE_LOCATION, filename=target):
+        return
+
+    def _mutate(current):
+        counts = current if isinstance(current, dict) else {}
+        kept = {vid: n for vid, n in counts.items() if vid not in resolved}
+        return None if kept == counts else kept
+
+    data_io.update_json(
+        storage_location=QUEUE_LOCATION,
+        filename=target,
+        mutate=_mutate,
+        default={},
+    )
 
 
 
@@ -386,15 +407,18 @@ def charge_media_retry(
 ) -> list[str]:
     """Charge one media-retry strike per id and drop the ids that resolved.
 
-    Callers invoke this after a batch that was NOT aborted by a storm,
+    Callers pass no ``retry_ids`` after a batch that was aborted by a storm,
     circuit breaker or memory stop — an abort implicates the session rather
-    than the items, and must not burn retry budget.
+    than the items, and must not burn retry budget — but still pass the ids
+    the batch pruned, so the sidecar never keeps strikes for ids that are no
+    longer queued.
 
     Args:
         platform: Platform whose sidecar to update.
         retry_ids: Ids scraped metadata-only this batch (media failed).
-        resolved_ids: Ids whose media was downloaded this batch — their
-            strikes, if any, are cleared in the same write.
+        resolved_ids: Ids that left the queue this batch (media downloaded,
+            unplayable here, or permanently failed) — their strikes, if any,
+            are cleared in the same write.
 
     Returns:
         The ids whose strike count reached ``MAX_MEDIA_RETRY_STRIKES`` —

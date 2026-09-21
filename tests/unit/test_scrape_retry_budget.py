@@ -94,18 +94,20 @@ def test_charge_zero_progress_accumulates_then_exhausts():
 
 
 
-def test_clear_zero_progress_resets_the_sidecar():
-    """A progressing batch wipes all strikes (and tolerates a missing file)."""
+def test_clear_zero_progress_drops_only_resolved_ids():
+    """Progress clears the strikes of the items that left the queue — only those."""
     with tempfile.TemporaryDirectory() as tmp:
         io = _fake_data_io(tmp)
         with patch.object(scrape_queues, "_data_io", return_value=io):
-            scrape_queues.clear_zero_progress("tiktok")  # no file: no-op
-            scrape_queues.charge_zero_progress("tiktok", ["a"])
-            scrape_queues.clear_zero_progress("tiktok")
+            scrape_queues.clear_zero_progress("tiktok", ["a"])  # no file: no-op
             assert not io.exists(filename=scrape_queues.strikes_filename("tiktok"))
-            assert scrape_queues.charge_zero_progress("tiktok", ["a"]) == [], \
-                "after a clear the count restarts from zero"
-    print("PASS: clear_zero_progress resets the sidecar")
+            scrape_queues.charge_zero_progress("tiktok", ["a", "b"])
+            scrape_queues.clear_zero_progress("tiktok", ["a"])
+            sidecar = io.load_json(filename=scrape_queues.strikes_filename("tiktok"))
+            assert sidecar == {"b": 1}, f"b did not succeed, so it keeps its strike: {sidecar}"
+            assert scrape_queues.charge_zero_progress("tiktok", ["a", "b"]) == ["b"], \
+                "a restarts from zero; b exhausts on its second zero-progress run"
+    print("PASS: clear_zero_progress drops only the resolved ids")
 
 
 
@@ -139,6 +141,10 @@ class _HealthyScraper:
 
     @staticmethod
     def health_check():
+        return None
+
+    @staticmethod
+    def unavailable_here():
         return None
 
 
@@ -196,27 +202,51 @@ def test_cloud_zero_progress_runs_burn_the_stuck_tail():
 
 
 
-def test_cloud_progressing_batch_clears_strikes():
-    """A batch that prunes something wipes earlier strikes."""
+def _mixed_batch(**kwargs):
+    """'good' scrapes, 'flaky' fails transiently; no storm, breaker or memory stop."""
+    frame = pd.DataFrame({"item_id": ["good"]})
+    for k in ("circuit_breaker_tripped", "permanent_storm_tripped",
+              "transient_storm_tripped", "memory_stop"):
+        frame.attrs[k] = False
+    return frame, [], ["flaky"]
+
+
+def test_cloud_progressing_batch_clears_only_the_pruned_strikes():
+    """A batch that prunes something clears the pruned ids' strikes, not the rest."""
     with tempfile.TemporaryDirectory() as tmp:
         io = _fake_data_io(tmp)
         io.save_json(data=["good", "flaky"], filename=scrape_queues.queue_filename("tiktok"))
+        io.save_json(data={"good": 1, "flaky": 1},
+                     filename=scrape_queues.strikes_filename("tiktok"))
         recorded = []
 
-        def mixed(**kwargs):
-            empty = pd.DataFrame({"item_id": ["good"]})
-            for k in ("circuit_breaker_tripped", "permanent_storm_tripped",
-                      "transient_storm_tripped", "memory_stop"):
-                empty.attrs[k] = False
-            return empty, [], ["flaky"]
-
-        io.save_json(data={"flaky": 1}, filename=scrape_queues.strikes_filename("tiktok"))
-        _run_cloud_batch(io, mixed, recorded)
-        assert not io.exists(filename=scrape_queues.strikes_filename("tiktok")), \
-            "queue progress must reset the strike counts"
+        _run_cloud_batch(io, _mixed_batch, recorded)
+        assert io.load_json(filename=scrape_queues.strikes_filename("tiktok")) == {"flaky": 1}, \
+            "another item's success must not reset flaky's strike"
         assert recorded == []
         assert io.load_json(filename=scrape_queues.queue_filename("tiktok")) == ["flaky"]
-    print("PASS: a progressing batch clears strikes")
+    print("PASS: a progressing batch clears only the pruned ids' strikes")
+
+
+
+
+def test_cloud_trickling_queue_still_sheds_its_stuck_tail():
+    """2026-09-21: a queue that drains a few items per run while a tail fails every
+    attempt must still give that tail up — successes elsewhere used to reset it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        io = _fake_data_io(tmp)
+        io.save_json(data=["flaky"], filename=scrape_queues.queue_filename("tiktok"))
+        recorded = []
+
+        _run_cloud_batch(io, _all_transient_threads, recorded)   # stall: strike 1
+        io.save_json(data=["good", "flaky"], filename=scrape_queues.queue_filename("tiktok"))
+        _run_cloud_batch(io, _mixed_batch, recorded)             # progress elsewhere
+        assert io.load_json(filename=scrape_queues.strikes_filename("tiktok")) == {"flaky": 1}
+        _run_cloud_batch(io, _all_transient_threads, recorded)   # stall: strike 2
+
+        assert len(recorded) == 1 and [r["item_id"] for r in recorded[0]] == ["flaky"]
+        assert io.load_json(filename=scrape_queues.queue_filename("tiktok")) == []
+    print("PASS: a trickling queue still sheds its stuck tail")
 
 
 
@@ -267,9 +297,10 @@ def test_no_video_formats_found_is_permanent():
 
 if __name__ == "__main__":
     test_charge_zero_progress_accumulates_then_exhausts()
-    test_clear_zero_progress_resets_the_sidecar()
+    test_clear_zero_progress_drops_only_resolved_ids()
     test_cloud_zero_progress_runs_burn_the_stuck_tail()
-    test_cloud_progressing_batch_clears_strikes()
+    test_cloud_progressing_batch_clears_only_the_pruned_strikes()
+    test_cloud_trickling_queue_still_sheds_its_stuck_tail()
     test_cloud_storm_abort_does_not_charge()
     test_no_video_formats_found_is_permanent()
     print("All scrape retry-budget tests passed.")
