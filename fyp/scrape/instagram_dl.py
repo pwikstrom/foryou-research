@@ -23,6 +23,15 @@ Follow-gated content ("only available for registered users who follow this
 account") stays permanently ``private``; the donated enrichment seed still
 surfaces its caption/author.
 
+The logged-in session is spent sparingly, because Instagram logs it out when
+it is not (2026-09-23: after ~14 gated posts in ~60 s). Every logged-in request
+is spaced ``[misc] scraper_instagram_auth_interval`` seconds apart across
+threads (default 20); the media leg downloads from the info dict the metadata
+leg already extracted, so a gated post costs one logged-in call, not two; and
+Instagram's login page in place of the API's JSON — how a logged-out session
+shows up — is ``session_expired``: no further logged-in request is made that
+run, the run stops, and a scraper alert asks for a fresh login.
+
 Image-only posts (single photos and carousels): extraction uses yt-dlp's
 ``ignore_no_formats_error`` so an image post returns a full info dict; the
 image URLs come from its thumbnails (single post) or its playlist entries'
@@ -45,7 +54,7 @@ from glob import glob
 from json import loads as json_loads
 from os import remove
 from os.path import exists, join
-from time import sleep
+from time import monotonic, sleep
 
 import pandas as pd
 import yt_dlp
@@ -54,6 +63,7 @@ from yt_dlp.utils import ExtractorError, GeoRestrictedError
 
 from fyp.scrape import scraper_cookies
 from fyp.scrape.platform_scraper import (
+    SESSION_EXPIRED,
     SLIDESHOW_SECONDS_PER_IMAGE,
     BaseScraper,
     cleanup_temp_files,
@@ -88,6 +98,67 @@ _PERMANENT = {"removed", "private", "no_video", "geo_blocked"}
 
 _META_MAX_RETRIES = 3
 _DL_MAX_RETRIES = 2
+
+# One format for both legs, so the info dict the metadata leg returns can be
+# downloaded as-is (see _download_media). Processed with yt-dlp's default
+# selection (DASH video+audio), an info dict carries that selection's residue,
+# and a second YoutubeDL instance re-processing it for this format got HTTP 403
+# from the CDN every time (measured 2026-09-23); with one format it downloads.
+_FORMAT = 'best[ext=mp4]/best'
+
+# The logged-in session. On 2026-09-23 Instagram logged it out after ~14
+# authenticated posts in ~60 s — two logged-in API calls each, two threads, no
+# pacing — and the scraper then sent 87 more attempts into the dead session.
+# Logged-in requests are now spaced across threads, and once the session is
+# seen logged out no further logged-in request is made in this process (one
+# process is one scraper run).
+_AUTH_LOCK = threading.Lock()
+_auth_next_at = [0.0]
+_SESSION_DEAD = threading.Event()
+
+
+def _auth_interval() -> float:
+    """Minimum seconds between logged-in requests (``[misc] scraper_instagram_auth_interval``)."""
+    try:
+        return max(0.0, float(_cf()["misc"].get("scraper_instagram_auth_interval", 20)))
+    except Exception:
+        return 20.0
+
+
+def _pace_authenticated() -> None:
+    """Block until the next logged-in request may go, across all threads."""
+    with _AUTH_LOCK:
+        wait = _auth_next_at[0] - monotonic()
+        if wait > 0:
+            sleep(wait)
+        _auth_next_at[0] = monotonic() + _auth_interval()
+
+
+def _session_logged_out(detail: str | None) -> bool:
+    """True when a logged-in request got Instagram's login page instead of JSON.
+
+    Instagram answers a logged-out session's API call with a 200 redirect to
+    ``/accounts/login/``. yt-dlp falls back to logged-out extraction only when
+    that redirect arrives as an HTTP error, so this one surfaces as "Failed to
+    parse JSON" — a retryable ``unknown`` until 2026-09-23, retried three times
+    per post.
+    """
+    return 'failed to parse json' in (detail or '').lower()
+
+
+def _mark_session_dead(item_id: str) -> None:
+    """Record that the session was logged out; say so once, loudly."""
+    if not _SESSION_DEAD.is_set():
+        _SESSION_DEAD.set()
+        logger.warning("Scrape %s: Instagram answered a logged-in request with its login page — "
+                       "the session was logged out. No further logged-in requests this run; "
+                       "log in to Instagram in Chrome again before the next one.", item_id)
+
+
+def _reset_session_state() -> None:
+    """Forget the pacing clock and a dead session (tests; a run is one process)."""
+    _SESSION_DEAD.clear()
+    _auth_next_at[0] = 0.0
 
 
 def _classify_error(exc: Exception) -> tuple[str, str]:
@@ -251,6 +322,10 @@ def _extract_metadata(url: str, item_id: str, verbose: bool = False):
     cookies = scraper_cookies.cookie_opts("instagram")
     if not cookies:
         return info, fail
+    if _SESSION_DEAD.is_set():
+        return None, _empty_fail(SESSION_EXPIRED,
+                                 "hidden from logged-out viewers, and the session was logged "
+                                 "out earlier in this run — not retried with the cookies")
     logger.info("Scrape %s: hidden from logged-out viewers — retrying with the session cookies",
                 item_id)
     info, fail = _extract_metadata_as(url, item_id, cookies, verbose=verbose)
@@ -265,7 +340,10 @@ def _extract_metadata_as(url: str, item_id: str, cookies: dict, verbose: bool = 
     A login wall ends the pass at once: repeating the same request cannot get
     past it (the anonymous pass used to burn three attempts per gated post).
     With the cookies attached, an empty media response is throttling again
-    and retries with backoff like any rate limit.
+    and retries with backoff like any rate limit; every attempt is paced
+    (:func:`_pace_authenticated`), and Instagram's login page in place of the
+    API's JSON ends the pass as ``session_expired`` and stops all further
+    logged-in requests this run.
     """
     ydl_opts: dict = {
         'quiet': True,
@@ -273,12 +351,18 @@ def _extract_metadata_as(url: str, item_id: str, cookies: dict, verbose: bool = 
         **cookies,
         'skip_download': True,
         'no_color': True,
+        'format': _FORMAT,
         'ignore_no_formats_error': True,
         'extractor_retries': 3,
         'socket_timeout': 30,
     }
 
     for attempt in range(_META_MAX_RETRIES):
+        if cookies:
+            if _SESSION_DEAD.is_set():
+                return None, _empty_fail(SESSION_EXPIRED, "the session was logged out earlier "
+                                                          "in this run — not retried")
+            _pace_authenticated()
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 return ydl.extract_info(url, download=False), None
@@ -287,6 +371,9 @@ def _extract_metadata_as(url: str, item_id: str, cookies: dict, verbose: bool = 
             logger.warning("Scrape %s metadata attempt %d/%d failed%s: [%s] %s",
                            item_id, attempt + 1, _META_MAX_RETRIES,
                            " (with cookies)" if cookies else "", category, detail)
+            if cookies and _session_logged_out(detail):
+                _mark_session_dead(item_id)
+                return None, _empty_fail(SESSION_EXPIRED, detail)
             if category == "login_required" or (not cookies and _login_gated(category, detail)):
                 return None, _empty_fail(category, detail)
             if category in _RETRYABLE and attempt < _META_MAX_RETRIES - 1:
@@ -334,13 +421,21 @@ def _download_media(
     stream_to_bucket=None,
     verbose: bool = False,
     authenticated: bool = False,
+    info: dict | None = None,
 ) -> tuple[bool, str | None, str, float | None]:
     """Download the post's video to temp and move/upload it.
 
+    The first attempt downloads from ``info`` — the dict the metadata leg
+    already extracted — so it makes no Instagram request at all: a gated post
+    costs one logged-in API call, not two (2026-09-23: the re-extraction
+    doubled the logged-in traffic that got the session logged out). Only a
+    retry re-extracts the post from ``url``, paced like any logged-in request.
+
     Args:
         authenticated: Attach the session cookies — set when the metadata leg
-            needed them (the download re-extracts the post, so a post hidden
-            from logged-out viewers fails anonymously here too).
+            needed them, because a re-extraction of a post hidden from
+            logged-out viewers fails anonymously too.
+        info: The metadata leg's info dict, extracted with :data:`_FORMAT`.
 
     Returns:
         ``(ok, error_category, error_detail, duration)`` — category/detail are
@@ -358,16 +453,27 @@ def _download_media(
         'outtmpl': out_template,
         'no_color': True,
         'overwrites': True,
-        'format': 'best[ext=mp4]/best',
+        'format': _FORMAT,
         'merge_output_format': 'mp4',
         'retries': 3,
         'socket_timeout': 30,
     }
 
     for attempt in range(_DL_MAX_RETRIES):
+        reuse = info is not None and attempt == 0
+        if authenticated and not reuse:
+            if _SESSION_DEAD.is_set():
+                return (False, SESSION_EXPIRED, "the session was logged out earlier in this "
+                        "run — not re-extracted with the cookies", None)
+            _pace_authenticated()
         try:
             with yt_dlp.YoutubeDL(dl_opts) as ydl:
-                ydl.download([url])
+                if reuse:
+                    ydl.process_ie_result(
+                        {k: v for k, v in info.items() if not k.startswith('_fyp_')},
+                        download=True)
+                else:
+                    ydl.download([url])
 
             downloaded = join(temp_dir, f"{item_id}.mp4")
             if not exists(downloaded):
@@ -404,6 +510,9 @@ def _download_media(
             logger.warning("Scrape %s download attempt %d/%d failed: [%s] %s",
                            item_id, attempt + 1, _DL_MAX_RETRIES, category, detail)
             _cleanup_temp_files(temp_dir, item_id)
+            if authenticated and not reuse and _session_logged_out(detail):
+                _mark_session_dead(item_id)
+                return False, SESSION_EXPIRED, detail, None
             if category in _RETRYABLE and attempt < _DL_MAX_RETRIES - 1:
                 backoff = 3 * (3 ** attempt)
                 logger.info("Retrying download %s in %ds...", item_id, backoff)
@@ -970,7 +1079,7 @@ class InstagramScraper(BaseScraper):
         ok, media_category, media_detail, media_duration = _download_media(
             url, item_id, save_path,
             stream_to_bucket=stream_to_bucket, verbose=verbose,
-            authenticated=bool(info.get('_fyp_authenticated')))
+            authenticated=bool(info.get('_fyp_authenticated')), info=info)
         if ok:
             data_row.loc[0, 'video_downloaded'] = True
             # Backfill the duration metadata extraction no longer returns

@@ -252,7 +252,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     # implicate the scraper, not the items.
     batch_aborted = any(results_df.attrs.get(k) for k in (
         'circuit_breaker_tripped', 'permanent_storm_tripped',
-        'transient_storm_tripped', 'memory_stop'))
+        'transient_storm_tripped', 'memory_stop', 'session_expired'))
     given_up: list[str] = []
     if pruned_this_batch > 0:
         scrape_queues.clear_zero_progress(platform, items_to_remove)
@@ -317,6 +317,15 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         return None
 
     # ---- Check whether to chain ----
+    if results_df.attrs.get('session_expired'):
+        reporter.log(
+            f"The platform logged the {platform} scraper's session out. Stopping the "
+            f"chain; items that need the login stay queued, uncharged. Log in again, "
+            f"then re-run the scraper."
+        )
+        reporter.emit_data({"session_expired": True})
+        return _finish("stopped — the platform logged the session out")
+
     if results_df.attrs.get('circuit_breaker_tripped'):
         reporter.log(
             "Rate-limit circuit breaker tripped — the platform is throttling "
