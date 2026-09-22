@@ -20,7 +20,7 @@ from fyp.ingest.base import (
     derive_play_duration,
 )
 from fyp.logging_setup import get_logger
-from fyp.utils import clean_url
+from fyp.utils import clean_url, share_method_with_count
 
 logger = get_logger(__name__)
 
@@ -189,6 +189,43 @@ class TikTokDDPCollection(ForYouBaseCollection):
         return donation_items
 
 
+    _SHARE_SECTIONS = ("sharehistorylist", "repostlist")
+
+    def _collapse_identical_shares(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Keep one row per group of byte-identical share records.
+
+        TikTok exports a video sent to several friends at once as that many
+        identical ShareHistory records (same second, link, content and
+        method; the recipients are not in the export). Storing each as a row
+        would count one send several times — and the merge dedupe collapsed
+        them anyway, silently. The surviving row carries the record count in
+        ``_share_copies`` (written onto the method later: ``chat_head ×3``);
+        the merged records are counted per file as ``share_copies_merged``.
+        """
+        df["_share_copies"] = 1
+        is_share = df["activity_type"].isin(self._SHARE_SECTIONS).to_numpy()
+        if not is_share.any():
+            return df
+        shares = df[is_share]
+        key = shares["activity_type"].astype(str) + "\x1f" + shares["value_list"].map(
+            lambda v: "\x1f".join(map(str, v)))
+        if "raw_file" in shares.columns:
+            key = shares["raw_file"].astype(str) + "\x1f" + key
+        key = key.to_numpy()
+        counts = pd.Series(key).value_counts()
+        copies = pd.Series(key).map(counts).to_numpy()
+        duplicate = pd.Series(key).duplicated(keep="first").to_numpy()
+        if not duplicate.any():
+            return df
+        all_copies = np.ones(len(df), dtype="int64")
+        all_copies[is_share] = copies
+        df["_share_copies"] = all_copies
+        drop = is_share.copy()
+        drop[is_share] = duplicate
+        if "raw_file" in df.columns:
+            self._record_file_drops(df.loc[drop, "raw_file"].value_counts(), "share_copies_merged")
+        return df[~drop].copy()
+
     @classmethod
     def _unpack_record(cls, variables, values) -> tuple:
         """Return ``(primary_label, extra_data, link, context)`` for one record.
@@ -333,6 +370,8 @@ class TikTokDDPCollection(ForYouBaseCollection):
         if self.verbose:
             logger.info(f"   [{df['raw_file'].iloc[0]}] Keeping {len(df):,} rows w OK timestamp.")
 
+        df = self._collapse_identical_shares(df)
+
 
         # Unpack the record. `primary_label` / `extra_data` are the name and
         # value at index 1 (the comment text, search term, followed username,
@@ -378,7 +417,14 @@ class TikTokDDPCollection(ForYouBaseCollection):
         df.loc[is_repost, "_context"] = "repost"
         has_context = df["_context"].notna()
         df.loc[has_context, "extra_data"] = df.loc[has_context, "_context"].astype("string").str.lower()
-        df.drop(columns=["_link", "_context"], inplace=True)
+        # One row per send: say how many identical records it stood for.
+        multi = df["_share_copies"] > 1
+        if multi.any():
+            df.loc[multi, "extra_data"] = [
+                share_method_with_count(m, n)
+                for m, n in zip(df.loc[multi, "extra_data"], df.loc[multi, "_share_copies"])
+            ]
+        df.drop(columns=["_link", "_context", "_share_copies"], inplace=True)
 
 
         # -----------------------------------------------------

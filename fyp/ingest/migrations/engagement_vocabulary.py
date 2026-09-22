@@ -13,7 +13,9 @@ standalone) — see ``fyp.core.utils``. This module rewrites the persisted
    and still there);
 3. optionally, ``share`` rows appended for TikTok raw files that still carry
    ``ShareHistoryList`` / ``RepostList`` (files uploaded through the review
-   flow had those sections stripped in the browser; AIO files predate them);
+   flow had those sections stripped in the browser; AIO files predate them),
+   one row per send with the identical-record count (``chat_head ×3``); the
+   recount option rebuilds already-stored share rows the same way;
 4. every ``(source_platform, raw_file)`` group re-folded with
    :func:`fyp.ingest.base.derive_play_duration`, so the play rows'
    ``extra_data`` / ``link_method`` tokens say ``save`` and ``share`` where
@@ -36,6 +38,7 @@ from fyp import activity_versioning as _activity_versioning
 from fyp.ingest.base import ForYouBaseCollection, assign_session_ids, derive_play_duration
 from fyp.ingest.tiktok import TikTokDDPCollection
 from fyp.logging_setup import get_logger
+from fyp.utils import share_method_with_count
 
 logger = get_logger(__name__)
 
@@ -88,11 +91,19 @@ def _section_records(donation_dict: dict, sections: set[str]) -> pd.DataFrame:
             "item_id": match.group(1) if match else None,
             "utc_timestamp": pd.to_datetime(values[0], format=_TIKTOK_DATE_FORMAT, errors="coerce", utc=True),
             "context": (context or "").lower() or None,
+            "_record": "\x1f".join(map(str, values)),
         })
     if not rows:
-        return pd.DataFrame(columns=["section", "item_id", "utc_timestamp", "context"])
+        return pd.DataFrame(columns=["section", "item_id", "utc_timestamp", "context", "copies"])
     out = pd.DataFrame(rows)
-    return out[out["utc_timestamp"].notna()]
+    out = out[out["utc_timestamp"].notna()]
+    # Byte-identical share records are one send to several friends: one row
+    # per send with the record count, exactly as the ingest parser does
+    # (TikTokDDPCollection._collapse_identical_shares).
+    key = out["section"] + "\x1f" + out["_record"]
+    out["copies"] = key.map(key.value_counts()).where(out["section"].isin(_NEW_SHARE_SECTIONS), 1)
+    out = out[~(key.duplicated(keep="first") & out["section"].isin(_NEW_SHARE_SECTIONS))]
+    return out.drop(columns="_record")
 
 
 def _utc_ns(series: pd.Series) -> pd.Series:
@@ -151,15 +162,27 @@ def retag_tiktok_bookmarks(df: pd.DataFrame, load_raw: Callable, log: Callable =
     return report
 
 
-def append_tiktok_shares(df: pd.DataFrame, load_raw: Callable, log: Callable = print) -> tuple[pd.DataFrame, dict]:
+def append_tiktok_shares(df: pd.DataFrame, load_raw: Callable, log: Callable = print, *,
+                         replace_existing: bool = False) -> tuple[pd.DataFrame, dict]:
     """Append ``share`` rows for stored TikTok files whose raw export still holds them.
 
     Copies ``collection_id`` / ``source_platform`` / ``data_source`` /
     ``tz_offset`` / ``raw_file`` from a sibling row of the same file, derives
     the local-time features, and returns the enlarged frame; session ids are
     reassigned by the caller once every append is in.
+
+    ``replace_existing`` rebuilds a file's share rows from its raw export
+    instead of only adding missing ones: the stored rows are dropped and every
+    send is appended again, one row per send with its record count
+    (``chat_head ×3``). That is the recount of 2026-09-23 — the first append
+    stored identical records as separate rows, which the next ingest's dedupe
+    collapsed, losing the count and the mixed-method shares in one second.
+    A file whose raw export is missing or has no share records keeps its rows.
     """
     report: dict = {"appended": 0, "files": {}, "missing_raw": []}
+    if replace_existing:
+        report["replaced"] = 0
+    drop_index: list = []
     is_tiktok = (df["source_platform"] == "tiktok") & df["data_source"].isin(list(_TIKTOK_RAW_LOCATIONS))
     new_frames = []
     for (raw_file, data_source), grp in df[is_tiktok].groupby(["raw_file", "data_source"]):
@@ -171,10 +194,15 @@ def append_tiktok_shares(df: pd.DataFrame, load_raw: Callable, log: Callable = p
         if records.empty:
             continue
         records = records.copy()
-        records["extra_data"] = records.apply(
-            lambda r: "repost" if r["section"] == "repostlist" else r["context"], axis=1)
+        records["extra_data"] = [
+            share_method_with_count("repost" if sec == "repostlist" else ctx, n)
+            for sec, ctx, n in zip(records["section"], records["context"], records["copies"])
+        ]
         existing = grp[grp["activity_type"] == "share"]
-        if not existing.empty:
+        if replace_existing and not existing.empty:
+            drop_index.extend(existing.index.tolist())
+            report["replaced"] += int(len(existing))
+        elif not existing.empty:
             have = set(zip(existing["item_id"].astype("string").fillna(""), _utc_ns(existing["utc_timestamp"])))
             keys = list(zip(records["item_id"].fillna("").astype(str), _utc_ns(records["utc_timestamp"])))
             records = records[[k not in have for k in keys]]
@@ -193,7 +221,12 @@ def append_tiktok_shares(df: pd.DataFrame, load_raw: Callable, log: Callable = p
         new_frames.append(part)
         report["appended"] += int(len(part))
         report["files"][str(raw_file)] = int(len(part))
-        log(f"  [{raw_file}] {len(part):,} share rows appended")
+        sends_with_copies = int((records["copies"] > 1).sum())
+        replaced = f", replacing {len(existing):,} stored" if replace_existing and not existing.empty else ""
+        log(f"  [{raw_file}] {len(part):,} share rows appended{replaced}"
+            + (f" ({sends_with_copies:,} sends carry a record count)" if sends_with_copies else ""))
+    if drop_index:
+        df = df.drop(index=drop_index)
     if not new_frames:
         return df, report
     added = pd.concat(new_frames, ignore_index=True)
@@ -236,7 +269,8 @@ def refold_all(df: pd.DataFrame, log: Callable = print) -> int:
 
 
 def migrate(df: pd.DataFrame, load_raw: Callable = default_raw_loader, *,
-            append_new_sections: bool = False, log: Callable = print) -> tuple[pd.DataFrame, dict]:
+            append_new_sections: bool = False, recount_shares: bool = False,
+            log: Callable = print) -> tuple[pd.DataFrame, dict]:
     """Run every step over ``df`` and return ``(migrated frame, report)``.
 
     ``df`` is not modified; the returned frame is a rewritten copy sorted the
@@ -253,10 +287,11 @@ def migrate(df: pd.DataFrame, load_raw: Callable = default_raw_loader, *,
     log("2. TikTok bookmarks stored as fave → save")
     report["retag"] = retag_tiktok_bookmarks(df, load_raw, log)
 
-    if append_new_sections:
-        log("3. append share rows still present in raw exports")
-        df, report["append"] = append_tiktok_shares(df, load_raw, log)
-        if report["append"]["appended"] and "collection_id" in df.columns:
+    if append_new_sections or recount_shares:
+        log("3. " + ("rebuild share rows from raw exports (one row per send, with its record count)"
+                     if recount_shares else "append share rows still present in raw exports"))
+        df, report["append"] = append_tiktok_shares(df, load_raw, log, replace_existing=recount_shares)
+        if (report["append"]["appended"] or report["append"].get("replaced")) and "collection_id" in df.columns:
             df = df.sort_values(["collection_id", "utc_timestamp"], kind="mergesort").reset_index(drop=True)
             df = assign_session_ids(df)
     else:

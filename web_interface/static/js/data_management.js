@@ -5598,6 +5598,7 @@ const _ingestDropReasonLabels = {
     not_parseable: (n) => `${n.toLocaleString()} row${n === 1 ? '' : 's'} couldn't be interpreted (unreadable timestamp or missing video reference)`,
     missing_required: (n) => `${n.toLocaleString()} row${n === 1 ? '' : 's'} ${n === 1 ? 'was' : 'were'} missing essential information and ${n === 1 ? 'was' : 'were'} excluded`,
     outside_whitelist: (n) => `${n.toLocaleString()} record${n === 1 ? '' : 's'} in sections this platform's ingestion does not use (excluded by design)`,
+    share_copies_merged: (n) => `${n.toLocaleString()} identical share record${n === 1 ? '' : 's'} merged into the send ${n === 1 ? 'it belongs' : 'they belong'} to (one video sent to several friends at once; the count is kept on the share)`,
 };
 
 function _ingestDropLines(r) {
@@ -5806,29 +5807,49 @@ function renderIngestResultsPanel(data) {
         `;
     }
 
-    // Reconciliation block: explain when newer rows superseded older ones in
-    // the same collection (net dataset change differs from per-file contribution).
+    // Reconciliation block: explain why the net dataset change is smaller
+    // than the rows this run's files kept. The merge dedupes the WHOLE
+    // dataset, so the gap has two sources: older copies a new donation
+    // replaced in its own collection, and duplicates already stored in other
+    // collections that the run cleared. Runs recorded before that split was
+    // emitted only carry the total.
     const contributed = data.rows_contributed_by_new_files ?? 0;
     const superseded = data.rows_superseded_in_existing_collections ?? 0;
     if (reconcileEl) {
         if (superseded > 0) {
-            const supersedeLines = perFile
-                .filter(r => r.outcome === 'added_as_new' || r.outcome === 'merged_with_existing')
-                .filter(r => (r.deduped_rows ?? 0) > 0 || r.outcome === 'merged_with_existing')
-                .map(r => {
-                    const cid = r.canonical_collection_id ? ` in collection "${_escapeHtml(r.canonical_collection_id)}"` : '';
-                    if (r.outcome === 'merged_with_existing') {
-                        return `<li>${(r.final_rows ?? 0).toLocaleString()} new rows from <code>${_escapeHtml(r.filename)}</code> joined existing rows${cid}, replacing the older copies where they overlapped.</li>`;
-                    }
-                    return `<li><code>${_escapeHtml(r.filename)}</code> contributed ${(r.final_rows ?? 0).toLocaleString()} rows${cid}.</li>`;
-                })
-                .join('');
+            const replaced = data.rows_replaced_by_this_run;
+            const elsewhere = data.rows_removed_elsewhere;
+            const hasSplit = typeof replaced === 'number' && typeof elsewhere === 'number';
+            const net = rowsAdded ?? 0;
+            const para = (html) => `<div class="text-sm" style="color: var(--color-text-secondary); margin-top: 6px;">${html}</div>`;
+            const listHtml = (items) => items ? `<ul class="text-xxs" style="color: var(--color-text-tertiary); margin: 6px 0 0 20px; padding: 0;">${items}</ul>` : '';
+            let body = para(`This run's files kept ${contributed.toLocaleString()} rows, but the dataset changed by ${net >= 0 ? '+' : ''}${net.toLocaleString()} rows.`);
+            if (!hasSplit) {
+                body += para(`${superseded.toLocaleString()} rows already in the dataset were removed as duplicates while merging. This run was recorded before the Hub noted which collections they came from.`);
+            } else {
+                if (replaced > 0) {
+                    const mergedLines = perFile
+                        .filter(r => r.outcome === 'merged_with_existing')
+                        .map(r => {
+                            const cid = r.canonical_collection_id ? ` in collection "${_escapeHtml(r.canonical_collection_id)}"` : '';
+                            return `<li><code>${_escapeHtml(r.filename)}</code> joined an earlier donation${cid}.</li>`;
+                        })
+                        .join('');
+                    body += para(`${replaced.toLocaleString()} rows were replaced: a new file repeated events that an earlier donation to the same collection had already supplied. Each event is stored once, so the older copy was removed and the newest donation's copy kept.`)
+                        + listHtml(mergedLines);
+                }
+                if (elsewhere > 0) {
+                    const byCid = data.rows_removed_elsewhere_by_collection || {};
+                    const cidLines = Object.entries(byCid)
+                        .map(([cid, n]) => `<li>${Number(n).toLocaleString()} from collection "${_escapeHtml(cid)}"</li>`)
+                        .join('');
+                    body += para(`${elsewhere.toLocaleString()} rows were removed from collections this run did not add to. They were duplicate events already stored there, for example left behind by a data migration. Each processing run removes duplicates across the whole dataset, so they would have gone on any run. This run's own files lost nothing to them.`)
+                        + listHtml(cidLines);
+                }
+            }
             reconcileEl.innerHTML = `
-                <div class="text-sm font-semibold" style="margin-bottom: 6px;">Why the net change is smaller than the rows added</div>
-                <div class="text-sm" style="color: var(--color-text-secondary);">
-                    ${contributed.toLocaleString()} new rows were contributed by this run, but ${superseded.toLocaleString()} older rows in the same collection(s) were superseded (the newer donation's rows win on overlapping events). Net change: ${(rowsAdded ?? 0) >= 0 ? '+' : ''}${(rowsAdded ?? 0).toLocaleString()} rows.
-                </div>
-                ${supersedeLines ? `<ul class="text-xxs" style="color: var(--color-text-tertiary); margin: 8px 0 0 20px; padding: 0;">${supersedeLines}</ul>` : ''}
+                <div class="text-sm font-semibold">Why the net change is smaller than the rows added</div>
+                ${body}
             `;
             reconcileEl.style.display = 'block';
         } else {
@@ -5932,10 +5953,18 @@ function renderIngestionHistory(entries) {
     const rowHtml = (r) => {
         const meta = _ingestOutcomeLabels[r.outcome] || { label: r.outcome, color: 'var(--color-text-secondary)' };
         const provenance = [r.platform, r.source].filter(Boolean).join(' · ');
+        // Who uploaded it (copied from the upload manifest). An admin upload on
+        // a participant's behalf also names the account it was linked to.
+        let uploaderLine = '';
+        if (r.uploaded_by || r.user_id) {
+            uploaderLine = r.uploaded_by ? `uploaded by ${r.uploaded_by}` : `account: ${r.user_id}`;
+            if (r.uploaded_by && r.user_id && r.user_id !== r.uploaded_by) uploaderLine += ` for ${r.user_id}`;
+        }
         return `
             <tr>
                 <td style="${tdStyle}">
                     <div class="text-sm" style="word-break: break-all;">${_escapeHtml(r.filename)}</div>
+                    ${uploaderLine ? `<div class="text-xxs" style="color: var(--color-text-tertiary); word-break: break-all;">${_escapeHtml(uploaderLine)}</div>` : ''}
                     ${provenance ? `<div class="text-xxs" style="color: var(--color-text-tertiary);">${_escapeHtml(provenance)}</div>` : ''}
                 </td>
                 <td style="${tdStyle} color: ${meta.color};">

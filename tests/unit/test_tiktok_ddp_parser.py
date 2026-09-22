@@ -375,3 +375,32 @@ def test_non_item_favorites_are_outside_the_whitelist(collection, monkeypatch):
     assert "favoritesoundlist" not in tiktok_mod.TikTokDDPCollection._ACTIVITY_TYPE_MAP
     assert "post" not in tiktok_mod.TikTokDDPCollection._ACTIVITY_TYPE_MAP, \
         "posted videos are relabelled posted_videolist; a 'post' key is unreachable"
+
+
+# A video sent to several friends at once is exported as that many identical
+# ShareHistory records (the recipients are not in the export). Measured on the
+# stored exports 2026-09-23: 814 such copies, 803 of them `chat_head`.
+
+
+def _ddp_with_multi_recipient_share() -> dict:
+    doc = _ddp_with_engagement()
+    send = {"Date": "2026-05-01 10:10:05", "SharedContent": "video",
+            "Link": "https://www.tiktokv.com/share/video/7000000000000000010/",
+            "Method": "chat_head"}
+    doc["Your Activity"]["Share History"]["ShareHistoryList"] += [
+        dict(send), dict(send), dict(send),
+        # Same video, same second, another method: a separate share.
+        {**send, "Method": "copy"},
+    ]
+    return doc
+
+
+def test_identical_share_records_become_one_send_with_a_count(collection, monkeypatch):
+    out = _process(collection, monkeypatch, _ddp_with_multi_recipient_share())
+    shares = out[(out["activity_type"] == "share") & (out["item_id"] == "7000000000000000010")]
+    assert sorted(shares["extra_data"]) == ["chat_head ×3", "copy"]
+    stats = collection.file_stats_this_run["donor_e.json"]
+    assert stats["dropped"]["share_copies_merged"] == 2
+    # The play the sends fold onto counts one share per send, not per record.
+    play = out[(out["activity_type"] == "play") & (out["item_id"] == "7000000000000000010")].iloc[0]
+    assert sorted(play["extra_data"].split(",")) == ["share:chat_head ×3", "share:copy"]

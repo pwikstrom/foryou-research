@@ -121,7 +121,7 @@ shared vocabulary in `fyp/core/utils.py` — never a platform's own word:
 | `fave` | a like / heart | yes |
 | `save` | a bookmark / favourite / collection | yes |
 | `comment` | a comment the donor wrote (text in `extra_data`) | yes, when it names the item |
-| `share` | a share or repost (method or `repost` in `extra_data`) | yes |
+| `share` | a share or repost (method or `repost` in `extra_data`; identical records of one send collapse to one row with ` ×n` appended, e.g. `chat_head ×3`) | yes |
 | `follow` | the donor followed an account (username in `extra_data`) | never — no item |
 | `followed_by`, `search`, `login`, `post` | kept for participant-facing stats only | never |
 

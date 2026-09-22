@@ -12,6 +12,11 @@ What it does to ``recoded/collections_recoded.parquet`` — see
   files that still contain ``ShareHistoryList`` / ``RepostList`` (only
   exports that bypassed the review strip — a second pass, once the retag has
   been verified);
+* with ``--recount-shares`` (2026-09-23), every stored TikTok ``share`` row
+  is rebuilt from its raw export: one row per send, with the number of
+  byte-identical records (a video sent to several friends at once) kept on
+  the method as ``chat_head ×3``. The first append stored those records as
+  separate rows and the next ingest's dedupe collapsed them without a count;
 * every raw file's engagement is re-folded onto its play rows, so the
   ``extra_data`` tokens and ``link_method`` match the new vocabulary;
 * every row is re-stamped with the active activity-contract version.
@@ -27,6 +32,7 @@ development-only) local data directory by accident:
     FYP_FORCE_GCS=1 FYP_GCS_BUCKET_NAME=<bucket> python scripts/migrate_engagement_vocabulary.py            # dry run
     FYP_FORCE_GCS=1 FYP_GCS_BUCKET_NAME=<bucket> python scripts/migrate_engagement_vocabulary.py --apply    # write
     FYP_FORCE_GCS=1 FYP_GCS_BUCKET_NAME=<bucket> python scripts/migrate_engagement_vocabulary.py --apply --append-new-sections
+    FYP_FORCE_GCS=1 FYP_GCS_BUCKET_NAME=<bucket> python scripts/migrate_engagement_vocabulary.py --apply --recount-shares
 
 Run it only after the code that emits the new vocabulary is deployed. An
 apply first snapshots the parquet into the ``archive`` location and writes a
@@ -62,6 +68,9 @@ def main(argv=None) -> int:
                         help="Allow --apply against LOCAL storage (development/testing only).")
     parser.add_argument("--append-new-sections", action="store_true",
                         help="Also append share rows from raw exports that still carry them.")
+    parser.add_argument("--recount-shares", action="store_true",
+                        help="Rebuild every stored TikTok share row from its raw export: one row "
+                             "per send, identical records counted on the method (chat_head ×3).")
     args = parser.parse_args(argv)
 
     is_gcs, where = _storage_mode()
@@ -85,7 +94,8 @@ def main(argv=None) -> int:
     print(f"Loaded {len(df):,} activity rows from {filename}")
     print("activity_type before:", dict(df["activity_type"].value_counts()))
 
-    migrated, report = mig.migrate(df, append_new_sections=args.append_new_sections, log=print)
+    migrated, report = mig.migrate(df, append_new_sections=args.append_new_sections,
+                                    recount_shares=args.recount_shares, log=print)
 
     print("\nactivity_type after: ", report["after"])
     print("fold tokens on play rows after:", report["fold_tokens_after"])

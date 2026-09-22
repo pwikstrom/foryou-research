@@ -1,6 +1,7 @@
 import http.client
 import json
 import os
+import re
 import shutil
 import sys
 import threading
@@ -387,6 +388,28 @@ STANDALONE_ENGAGEMENT_LABELS = {**ENGAGEMENT_LABELS, 'follow': 'Follow'}
 # same item (see ingest.derive_play_duration). Only ENGAGEMENT_TYPES fold:
 # a follow has no item to fold onto.
 ACTIVITY_TYPE_MAP = {t: t for t in ENGAGEMENT_TYPES}
+
+
+# A TikTok share sent to several friends at once is exported as that many
+# byte-identical ShareHistory records (the recipients are not in the export).
+# Ingest keeps one row per send and appends the record count to the method:
+# "chat_head ×3". A single record carries the bare method.
+SHARE_COUNT_SEP = " ×"
+_SHARE_COUNT_RE = re.compile(re.escape(SHARE_COUNT_SEP) + r"\d+$")
+
+
+def share_method_with_count(method, copies: int):
+    """The stored ``extra_data`` of a share row: the method, plus `` ×n`` when n > 1."""
+    if not isinstance(method, str) or copies is None or int(copies) <= 1:
+        return method
+    return f"{method}{SHARE_COUNT_SEP}{int(copies)}"
+
+
+def share_method_base(value):
+    """A share row's method without the `` ×n`` record count (``None`` passes through)."""
+    if not isinstance(value, str):
+        return value
+    return _SHARE_COUNT_RE.sub("", value)
 
 
 def engagement_label(token: str) -> str:

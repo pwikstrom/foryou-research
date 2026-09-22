@@ -82,3 +82,29 @@ def test_a_pair_on_fewer_than_three_shared_seconds_never_merges():
     collection.state = "processed"
     collection.identify_similar_file_content(overlap_threshold=0.2)
     assert collection.data["collection_id"].nunique() == 1
+
+
+def _share(raw_file: str, method: str, added: str) -> dict:
+    return {"raw_file": raw_file, "collection_id": "c", "item_id": "v1", "activity_type": "share",
+            "utc_timestamp": pd.Timestamp(1_700_000_000, unit="s", tz="UTC"), "tz_offset": 10,
+            "extra_data": method, "ts_added_to_dataset": pd.Timestamp(added, tz="UTC")}
+
+
+def test_share_method_is_part_of_the_key_but_the_record_count_is_not():
+    """Two shares of one video in one second by different methods are two
+    shares; a re-donation of the same send (count or no count) is one."""
+    rows = _rows("old.json", "c", tz=10, added="2026-01-01")
+    extra = pd.DataFrame([
+        _share("old.json", "chat_head", "2026-01-01"),
+        _share("old.json", "copy", "2026-01-01"),
+        _share("new.json", "chat_head ×2", "2026-06-01"),
+    ])
+    collection = ForYouCollection(verbose=False)
+    collection.data = pd.concat([rows, extra], ignore_index=True)
+    collection.state = "processed"
+
+    collection.identify_similar_file_content(overlap_threshold=0.2)
+
+    shares = collection.data[collection.data["activity_type"] == "share"]
+    assert sorted(shares["extra_data"]) == ["chat_head ×2", "copy"]
+    assert "_share_key" not in collection.data.columns

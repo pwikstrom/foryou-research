@@ -40,6 +40,25 @@ public version. Entries below describe the Hub as it stands at that release.
   (the browser stripped them), so `share` history will be sparse until new
   donations arrive.
 
+- **A TikTok share sent to several friends counts once, with its fan-out.**
+  TikTok exports one send to several friends as that many identical
+  ShareHistory records (recipients are not in the export). Ingest keeps one
+  `share` row per send and records the number of records on the method:
+  `chat_head ×3` (the fold token becomes `share:chat_head ×3`, still one
+  share). The merged records are listed in the ingestion report as
+  "identical share records merged". Share rows now also key on their method
+  when duplicates are removed, so a chat send and a link copy of one video in
+  the same second are two shares; the `×n` count is left out of that key, so
+  a re-donation still meets its older copy. Stored rows are rebuilt from the
+  raw exports with `scripts/migrate_engagement_vocabulary.py --recount-shares`.
+  The first `--append-new-sections` pass had stored the identical records as
+  separate rows, and the next ingest's dedupe collapsed 828 of them without a
+  count, including 14 shares by another method in the same second.
+
+- **Uploader in the ingestion history.** Each file names the account that
+  uploaded it (and, for an admin upload on a participant's behalf, the
+  account it was linked to) under the filename.
+
 - **Email verification at signup.** A new account is emailed a signed link
   (valid 48 hours) and cannot log in until it is opened; the login page
   offers a resend button, and signing up again with the same address just
@@ -139,6 +158,13 @@ public version. Entries below describe the Hub as it stands at that release.
   logged in for weeks no longer looks idle to the report.
 
 ### Fixed
+
+- **The ingest results no longer blame a new upload for rows removed
+  elsewhere.** The merge removes duplicate events across the whole dataset,
+  so a run's net change can be smaller than its files' rows for two reasons:
+  a re-donation replacing its own older copies, or duplicates already stored
+  in other collections (e.g. left by a data migration). The run now reports
+  the two apart, per collection, and the panel explains each in plain words.
 
 - **Instagram scraped public posts only, and said nothing about it.** Since
   2026-07 the scraper ran fully anonymously, because attaching cookies then

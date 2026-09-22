@@ -1144,7 +1144,12 @@ class StructureSentinel:
 
         raw_rows = int(verdict["raw_stats"].get("raw_rows") or len(df_file))
         file_stats = (getattr(collection, "file_stats_this_run", None) or {}).get(filename) or {}
-        outside = int((file_stats.get("dropped") or {}).get("outside_whitelist") or 0)
+        # Both are by-design, not parse failures: records in sections the
+        # parser never reads, and identical share records merged into one
+        # row per send (TikTok's multi-recipient shares).
+        dropped = file_stats.get("dropped") or {}
+        outside = (int(dropped.get("outside_whitelist") or 0)
+                   + int(dropped.get("share_copies_merged") or 0))
         processed_stats = compute_processed_stats(raw_rows, df_file, outside_whitelist=outside)
         verdict["processed_stats"] = processed_stats
 

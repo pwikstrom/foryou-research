@@ -6,6 +6,8 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
+import pandas as pd
+
 from web_interface.task_status import TaskStatusReporter
 from fyp.ingest.base import BLOCKED_OUTCOME
 from fyp.ingest import LEDGER_SKIP_OUTCOMES
@@ -247,6 +249,48 @@ def _build_per_file_summary(
 
 
 
+def _removed_rows_breakdown(
+    final_df,
+    pre_counts: dict[str, int],
+    pre_cids: dict[str, str],
+    cid_remap: dict[str, str],
+    per_file_summary: list[dict],
+) -> tuple[int, dict[str, int]]:
+    """Split the rows the merge removed from data that was ALREADY stored.
+
+    The merge dedupes the whole dataset, not only the collections this run
+    touched. Rows an existing file lost in a collection that one of this
+    run's files joined were replaced by the newer donation; rows lost
+    anywhere else were duplicates already sitting in the dataset (e.g. left
+    there by a data migration) that this run's dedupe happened to clear.
+
+    Returns ``(replaced_by_this_run, {collection_id: rows_removed})``.
+    """
+    touched = {
+        str(e["canonical_collection_id"]) for e in per_file_summary
+        if e.get("canonical_collection_id")
+        and e.get("outcome") in ("added_as_new", "merged_with_existing")
+    }
+    post_counts = (
+        final_df.groupby("raw_file", observed=True).size().to_dict()
+        if len(final_df) else {}
+    )
+    replaced = 0
+    elsewhere: dict[str, int] = {}
+    for rf, n_before in pre_counts.items():
+        lost = int(n_before) - int(post_counts.get(rf, 0))
+        if lost <= 0:
+            continue
+        cid = pre_cids.get(rf)
+        cid = cid_remap.get(cid, cid) if cid is not None else None
+        if cid is not None and cid in touched:
+            replaced += lost
+        else:
+            key = cid if cid is not None else str(rf)
+            elsewhere[key] = elsewhere.get(key, 0) + lost
+    return replaced, elsewhere
+
+
 def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = None) -> dict | None:
     """Run the full ingestion refresh pipeline as a Cloud Task.
 
@@ -274,6 +318,15 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         set(str(rf) for rf in main_collection.data["raw_file"].dropna().unique().tolist())
         if rows_before > 0 else set()
     )
+    # Per-file row counts and collection of the data already stored, so the
+    # reconciliation can tell rows a new donation replaced from duplicates
+    # the whole-dataset dedupe removed elsewhere (_removed_rows_breakdown).
+    pre_counts: dict[str, int] = {}
+    pre_cids: dict[str, str] = {}
+    if rows_before > 0:
+        _pre = main_collection.data.groupby("raw_file", observed=True)["collection_id"]
+        pre_counts = {str(k): int(v) for k, v in _pre.size().items()}
+        pre_cids = {str(k): str(v) for k, v in _pre.first().items() if pd.notna(v)}
     discarded_before = set(main_collection.discarded_raw_files)
     _t_load = time.perf_counter() - _t_start
     reporter.log(f"Loaded {rows_before:,} existing processed activities ({_t_load:.1f}s)")
@@ -532,6 +585,10 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     )
     rows_added_net = rows_after - rows_before
     rows_superseded = max(contributed_rows - rows_added_net, 0)
+    rows_replaced, rows_removed_elsewhere = _removed_rows_breakdown(
+        main_collection.data, pre_counts, pre_cids,
+        getattr(main_collection, "last_cid_remap", {}) or {}, per_file_summary,
+    )
 
     _t_total = time.perf_counter() - _t_start
     reporter.emit_data({
@@ -540,6 +597,10 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         "rows_added": rows_added_net,
         "rows_contributed_by_new_files": contributed_rows,
         "rows_superseded_in_existing_collections": rows_superseded,
+        "rows_replaced_by_this_run": rows_replaced,
+        "rows_removed_elsewhere": sum(rows_removed_elsewhere.values()),
+        "rows_removed_elsewhere_by_collection": dict(sorted(
+            rows_removed_elsewhere.items(), key=lambda kv: -kv[1])[:20]),
         "files_scanned_this_run": len(per_file_summary),
         "files_added": sum(1 for e in per_file_summary if e.get("outcome") == "added_as_new"),
         "files_merged_with_existing": sum(1 for e in per_file_summary if e.get("outcome") == "merged_with_existing"),

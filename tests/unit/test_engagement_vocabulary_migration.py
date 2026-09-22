@@ -170,3 +170,36 @@ def test_default_loader_falls_back_to_every_tiktok_raw_location(monkeypatch):
     seen.clear()
     monkeypatch.setattr(data_io, "exists", lambda storage_location=None, filename=None, **kw: False)
     assert mig.default_raw_loader("ddp", "gone.json") is None
+
+
+def _raw_a_with_multi_recipient_send() -> dict:
+    raw = _raw_a()
+    send = {"Date": "2026-05-01 10:01:40", "SharedContent": "video",
+            "Link": "https://www.tiktokv.com/share/video/1002/", "Method": "chat_head"}
+    raw["Your Activity"]["Share History"]["ShareHistoryList"] += [dict(send), dict(send), dict(send),
+                                                                  {**send, "Method": "copy"}]
+    return raw
+
+
+def test_recount_rebuilds_stored_shares_one_row_per_send_with_its_count():
+    """2026-09-23: the first append stored identical records as separate rows;
+    the next ingest's dedupe left one bare row per (video, second), losing the
+    count and a same-second share by another method. The recount rebuilds
+    them from the raw export."""
+    load = lambda ds, rf: _raw_a_with_multi_recipient_send() if rf == "a.json" else None
+    appended, _ = mig.migrate(_stored_frame(), load, append_new_sections=True, log=lambda *_: None)
+    # What the ingest dedupe then left behind: one bare row per (video, second).
+    collapsed = appended.drop_duplicates(subset=["collection_id", "item_id", "utc_timestamp", "activity_type"])
+    assert sorted(collapsed.loc[collapsed["activity_type"] == "share", "extra_data"]) in (
+        ["chat_head ×3", "copy_link", "repost"], ["copy", "copy_link", "repost"])
+
+    out, report = mig.migrate(collapsed, load, recount_shares=True, log=lambda *_: None)
+    shares = out[out["activity_type"] == "share"]
+    assert sorted(shares["extra_data"]) == ["chat_head ×3", "copy", "copy_link", "repost"]
+    assert report["append"]["replaced"] == 3 and report["append"]["appended"] == 4
+    play = out[(out["activity_type"] == "play") & (out["item_id"] == "1002")].iloc[0]
+    assert "share:chat_head ×3" in play["extra_data"].split(",")
+
+    again, r2 = mig.migrate(out, load, recount_shares=True, log=lambda *_: None)
+    assert sorted(again.loc[again["activity_type"] == "share", "extra_data"]) == sorted(shares["extra_data"])
+    assert len(again) == len(out)

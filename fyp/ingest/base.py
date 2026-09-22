@@ -34,7 +34,7 @@ from fyp.logging_setup import get_logger
 from fyp.polars_ops import fast_vertical_concat
 from fyp.recode_variables import infer_timezone_offset
 from fyp.types import convert_dtypes_to_pyarrow
-from fyp.utils import ACTIVITY_TYPE_MAP, KNOWN_ACTIVITY_TYPES
+from fyp.utils import ACTIVITY_TYPE_MAP, KNOWN_ACTIVITY_TYPES, share_method_base
 
 logger = get_logger(__name__)
 
@@ -1391,7 +1391,9 @@ class ForYouBaseCollection(ABC):
           4. Sort the dataset by ``ts_added_to_dataset`` ascending and
              ``drop_duplicates(subset=[collection_id, item_id, utc_timestamp,
              activity_type], keep='last')`` so the newest donation's row wins
-             on overlapping events. ``tz_offset`` is deliberately NOT in the
+             on overlapping events. Share rows also key on their method
+             (without the `` ×n`` record count), so two shares of one video in
+             the same second by different methods both survive. ``tz_offset`` is deliberately NOT in the
              key: the same event re-donated with a different supplied zone
              is the same event, and the newest donation's offset should win
              rather than both rows surviving (a re-donation with a corrected
@@ -1527,13 +1529,28 @@ class ForYouBaseCollection(ABC):
 
         # 4. Dedupe within cluster (collection_id is now canonical for clusters).
         # Sort ascending by ts_added_to_dataset so keep='last' picks the newest row.
+        # A share's method is part of its identity: a chat send and a link
+        # copy of one video in the same second are two shares. The " ×n"
+        # record count is not, so a re-donation still meets its older copy.
         rows_before = len(self.data)
+        if "extra_data" in self.data.columns:
+            is_share = (self.data["activity_type"] == "share").fillna(False)
+            share_key = pd.Series("", index=self.data.index, dtype="string[pyarrow]")
+            if is_share.any():
+                share_key[is_share] = (
+                    self.data.loc[is_share, "extra_data"].astype("string")
+                    .map(share_method_base, na_action="ignore").fillna("")
+                )
+        else:
+            share_key = pd.Series("", index=self.data.index, dtype="string[pyarrow]")
         self.data = (
-            self.data.sort_values("ts_added_to_dataset", kind="mergesort")
+            self.data.assign(_share_key=share_key)
+            .sort_values("ts_added_to_dataset", kind="mergesort")
             .drop_duplicates(
-                subset=["collection_id", "item_id", "utc_timestamp", "activity_type"],
+                subset=["collection_id", "item_id", "utc_timestamp", "activity_type", "_share_key"],
                 keep="last",
             )
+            .drop(columns="_share_key")
             .copy()
         )
         if self.verbose and rows_before > len(self.data):
@@ -2267,6 +2284,9 @@ class ForYouCollection(ForYouBaseCollection):
 
         self.state = "processed"
         cid_remap = self.identify_similar_file_content(drop_them=True)
+        # Kept for run_ingest_refresh: an older file whose rows a re-donation
+        # replaced entirely leaves no row to say which collection it joined.
+        self.last_cid_remap = dict(cid_remap or {})
         if cid_remap:
             apply_cid_remap_to_metadata(cid_remap, verbose=self.verbose)
 
