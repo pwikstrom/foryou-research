@@ -32,6 +32,7 @@ from fyp.logging_setup import get_logger
 from fyp.scrape import scrape_contract as sc
 from fyp.scrape import scrape_queues, scrape_versioning, scraper_alerts
 from fyp.scrape.platform_scraper import (
+    SESSION_EXPIRED,
     SLIDESHOW_SECONDS_PER_IMAGE,
     THROTTLE_CATEGORIES,
     ThrottleController,
@@ -1093,6 +1094,11 @@ def download_video_threads(
     # chaining; the items are transient so they stay queued as-is.
     t_storm_state = {"classification": None, "consecutive": 0, "tripped": False}
     t_storm_threshold = _transient_storm_threshold()
+    # The platform logged the scraper's own session out (SESSION_EXPIRED).
+    # The scraper stops its logged-in requests itself and the batch carries on
+    # with what needs no login; this flag stops the run after it, keeps the
+    # batch from charging retry budget, and raises the session alert.
+    session_state = {"expired": False}
     abort_event = threading.Event()
     # Memory safety valve: set once the container's memory cgroup crosses
     # MEMORY_STOP_FRACTION. Workers that have not started downloading yet defer
@@ -1113,6 +1119,12 @@ def download_video_threads(
                                    f"aborting batch; remaining items stay queued.")
             else:
                 breaker_state["consecutive"] = 0
+            if category == SESSION_EXPIRED:
+                # A known cause, not a mystery: kept out of both storm runs
+                # (neither extended nor reset) so the session alert is the one
+                # an operator sees.
+                session_state["expired"] = True
+                return
             if storm_state["tripped"] or t_storm_state["tripped"]:
                 # Frozen once tripped: post-abort "batch_aborted" results are
                 # transient and would otherwise wipe the storm classification.
@@ -1422,7 +1434,21 @@ def download_video_threads(
     # results again with no storm. Best-effort on both sides (never blocks
     # scraping), and skipped in dry runs.
     if not dry_run:
-        if storm_state["tripped"]:
+        if session_state["expired"]:
+            # First: it is the one failure only a person can fix, and a
+            # platform keeps a single alert.
+            scraper_alerts.raise_alert(
+                platform=scraper.platform,
+                kind=scraper_alerts.KIND_SESSION_EXPIRED,
+                category=f"transient:{SESSION_EXPIRED}",
+                message=(
+                    f"{scraper.platform.capitalize()} logged the scraper's session out during "
+                    f"scraping. Log in to {scraper.platform.capitalize()} again in Chrome (as the "
+                    f"research account), then re-run the scraper. Items that need the login "
+                    f"stay queued and were not charged any retry budget."
+                ),
+            )
+        elif storm_state["tripped"]:
             scraper_alerts.raise_alert(
                 platform=scraper.platform,
                 kind=scraper_alerts.KIND_PERMANENT_STORM,
@@ -1486,6 +1512,7 @@ def download_video_threads(
         empty_results.attrs['transient_storm_tripped'] = t_storm_state["tripped"]
         empty_results.attrs['transient_storm_category'] = t_storm_state["classification"]
         empty_results.attrs['memory_stop'] = mem_stop_event.is_set()
+        empty_results.attrs['session_expired'] = session_state["expired"]
         empty_results.attrs['batch_deadline_hit'] = deadline_hit
         empty_results.attrs['media_retry_ids'] = list(media_retry_ids)
         return empty_results, permanent_failed_ids, transient_failed_ids
@@ -1513,6 +1540,7 @@ def download_video_threads(
     results.attrs['transient_storm_tripped'] = t_storm_state["tripped"]
     results.attrs['transient_storm_category'] = t_storm_state["classification"]
     results.attrs['memory_stop'] = mem_stop_event.is_set()
+    results.attrs['session_expired'] = session_state["expired"]
     results.attrs['batch_deadline_hit'] = deadline_hit
     # Ids saved metadata-only (media failed): callers charge the media-retry
     # budget with these — they are also in transient_failed_ids so the queue
@@ -1619,6 +1647,15 @@ def scraper_loop_from_list(
         if results_from_scraper.attrs.get('batch_deadline_hit'):
             logger.warning("  Batch deadline hit — the completed rows are saved; the "
                            "unfinished items stay in the queue for the next run.")
+
+        if results_from_scraper.attrs.get('session_expired'):
+            logger.warning("  The platform logged the scraper's session out — stopping the batch "
+                  "loop. Items that need the login stay in the queue, uncharged; log in "
+                  "again in Chrome, then re-run the scraper.")
+            aborted = True
+            if reporter is not None:
+                reporter.emit_data({"session_expired": True})
+            break
 
         if results_from_scraper.attrs.get('circuit_breaker_tripped'):
             logger.warning("  Rate-limit circuit breaker tripped — stopping the batch loop. "

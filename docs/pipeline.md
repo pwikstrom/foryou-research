@@ -137,6 +137,16 @@ with the session cookies only for a post it hides from logged-out viewers,
 which keeps the account's footprint to the posts that need it and survives
 either path breaking — both have (2026-07: attaching cookies broke every
 extraction; 2026-09: anonymous alone left 65 of 75 queued posts unfetchable).
+The logged-in session is spent sparingly, because Instagram logs it out when
+it is not (2026-09-23, after ~14 gated posts in a minute): logged-in requests
+are spaced `[misc] scraper_instagram_auth_interval` seconds apart across
+threads (default 20), and the media leg downloads from the info dict the
+metadata leg already extracted, so a gated post costs one logged-in call.
+A logged-out session shows up as Instagram's login page where the API's JSON
+should be; the scraper then classifies `session_expired`, makes no further
+logged-in request that run, and the orchestrator stops the run without
+charging any retry budget and raises a scraper alert asking for a fresh
+login in Chrome.
 
 **Permanent vs transient.** Each scraper classifies a failure into its own
 taxonomy, and `classify_error` maps it to `permanent:<reason>` (pruned from

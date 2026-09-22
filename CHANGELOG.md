@@ -166,6 +166,26 @@ public version. Entries below describe the Hub as it stands at that release.
   in other collections (e.g. left by a data migration). The run now reports
   the two apart, per collection, and the panel explains each in plain words.
 
+- **Instagram logged the scraper's session out, and the scraper kept using
+  it.** The first run with the cookie fallback scraped 14 gated posts in
+  about a minute — two logged-in API calls each, two threads, no pacing —
+  and Instagram then logged the session out, answering the logged-in API
+  with its login page. yt-dlp falls back to logged-out extraction only when
+  that redirect arrives as an HTTP error, so it surfaced as "Failed to parse
+  JSON", a retryable `unknown`, and the scraper sent 87 more attempts into
+  the dead session before the transient-storm guard stopped it. Three
+  changes: logged-in requests are now spaced across threads
+  (`[misc] scraper_instagram_auth_interval`, default 20 s); the media leg
+  downloads from the info dict the metadata leg already extracted, so a gated
+  post costs one logged-in call instead of two (both legs now select the same
+  format — reprocessing a default DASH selection in a second yt-dlp instance
+  drew HTTP 403 from the CDN every time); and the login page in place of
+  JSON is a new `session_expired` verdict. It stops every further logged-in
+  request that run, keeps the items queued without charging either retry
+  budget, stops the run, stays out of the storm guards, raises a scraper
+  alert asking for a fresh login in Chrome, and holds the enrichment
+  supervisor off until a run completes without it.
+
 - **Instagram scraped public posts only, and said nothing about it.** Since
   2026-07 the scraper ran fully anonymously, because attaching cookies then
   made yt-dlp take Instagram's authenticated web API, which 404'd on every

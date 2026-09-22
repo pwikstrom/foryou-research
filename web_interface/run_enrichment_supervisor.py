@@ -269,7 +269,7 @@ def _scraper_blocked(platform: str) -> str | None:
     from web_interface.task_status import read_task_status
     status = read_task_status(f"queue_scraper_{platform}") or {}
     data = status.get("data") or {}
-    for flag in ("permanent_storm_tripped", "circuit_breaker_tripped"):
+    for flag in ("permanent_storm_tripped", "circuit_breaker_tripped", "session_expired"):
         if data.get(flag):
             return flag
     return None

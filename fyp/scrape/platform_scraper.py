@@ -31,6 +31,15 @@ from fyp.scrape import scrape_contract as sc
 logger = logging.getLogger(__name__)
 
 
+# Error category for "the platform logged the scraper's OWN session out
+# mid-run" (2026-09-23: Instagram answered the logged-in API with its login
+# page after ~14 authenticated posts). It says nothing about the item: it is
+# transient (the item stays queued), a batch that saw it charges no retry
+# budget, it feeds neither storm guard, and the orchestrator stops the run and
+# raises a scraper alert — only an operator logging in again can clear it.
+SESSION_EXPIRED = "session_expired"
+
+
 def empty_fail(error_type: str = "unknown", error_detail: str = "", *,
                corroborated: bool = False) -> pd.DataFrame:
     """Return an empty DataFrame tagged with error classification metadata.
