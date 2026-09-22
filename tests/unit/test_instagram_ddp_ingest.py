@@ -147,3 +147,78 @@ def test_enough_views_still_load_when_likes_are_present(monkeypatch, tmp_path):
     df = col.load_single_raw("ok.zip")
     assert (df["activity_type"] == "play").sum() == 10
     assert (df["activity_type"] == "fave").sum() == 1
+
+
+# ---------------------------------------------------------------------------
+# Saved posts and comments (added 2026-09). Meta's "Download your information"
+# names saved posts in string_map_data["Saved on"] and gives a comment its
+# text and media owner but no media URL.
+
+
+def _export_zip_with_saves_and_comments(path) -> str:
+    _export_zip(path)
+    saved = {"saved_saved_media": [{
+        "title": "creator",
+        "string_map_data": {"Saved on": {
+            "href": "https://www.instagram.com/reel/SHORT03/", "timestamp": _T0 + 3 * 60 + 40}},
+    }]}
+    post_comments = [{
+        "string_map_data": {
+            "Comment": {"value": "lovely Ã©tÃ©"},
+            "Media Owner": {"value": "creator"},
+            "Time": {"timestamp": _T0 + 5 * 60 + 20},
+        }
+    }]
+    reels_comments = {"comments_reels_comments": [{
+        "string_map_data": {
+            "Comment": {"value": "again"},
+            "Media Owner": {"value": "other_creator"},
+            "Time": {"timestamp": _T0 + 7 * 60 + 20},
+        }
+    }]}
+    with zipfile.ZipFile(path, "a") as zf:
+        zf.writestr("your_instagram_activity/saved/saved_posts.json", json.dumps(saved))
+        zf.writestr("your_instagram_activity/comments/post_comments_1.json", json.dumps(post_comments))
+        zf.writestr("your_instagram_activity/comments/reels_comments.json", json.dumps(reels_comments))
+    return str(path)
+
+
+@pytest.fixture
+def rich_collection(monkeypatch, tmp_path):
+    zip_path = _export_zip_with_saves_and_comments(tmp_path / "export.zip")
+    monkeypatch.setattr(instagram_mod.data_io, "local_copy",
+                        lambda storage_location=None, filename=None: zip_path)
+    monkeypatch.setattr(instagram_mod.data_io, "release_local_copy", lambda p: None)
+    return instagram_mod.InstagramDDPCollection(verbose=False)
+
+
+def test_saved_post_is_a_save_that_folds_onto_its_play(rich_collection):
+    df = rich_collection.load_single_raw("export.zip")
+    df["raw_file"] = "export.zip"
+    out = rich_collection.process_single(df).sort_values("utc_timestamp").reset_index(drop=True)
+
+    saves = out[out["activity_type"] == "save"]
+    assert list(saves["item_id"]) == ["SHORT03"]
+    play = out[(out["activity_type"] == "play") & (out["item_id"] == "SHORT03")].iloc[0]
+    assert play["extra_data"] == "save"
+    assert play["link_method"] == "adjacent"
+
+
+def test_comments_are_standalone_rows_with_text_and_owner(rich_collection):
+    df = rich_collection.load_single_raw("export.zip")
+    df["raw_file"] = "export.zip"
+    out = rich_collection.process_single(df).sort_values("utc_timestamp").reset_index(drop=True)
+
+    comments = out[out["activity_type"] == "comment"].reset_index(drop=True)
+    assert len(comments) == 2
+    assert comments["item_id"].isna().all(), "Instagram names no media for a comment"
+    assert comments["link_method"].isna().all()
+    assert set(comments["extra_data"]) == {"lovely été", "again"}, "mojibake repaired"
+    assert set(comments["seed_author_id"]) == {"creator", "other_creator"}
+    # A comment never seeds an item caption.
+    assert df.loc[df["activity_type"] == "comment", "seed_desc"].isna().all()
+    # ...and never folds onto a play.
+    plays = out[out["activity_type"] == "play"]
+    assert not plays["extra_data"].astype("string").str.contains("comment", na=False).any()
+    # The viability floor still counts viewing rows only.
+    assert (out["activity_type"] == "play").sum() == 12

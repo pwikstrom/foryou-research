@@ -27,12 +27,20 @@ platforms' exports. See DEVELOPING.md for why.
 
 Notable behaviors:
 
-- **Engagement→play linking**: likes/comments/shares are folded into the
+- **One engagement vocabulary across platforms**: every ingester maps its
+  export's sections onto `fave` (a like), `save` (a bookmark), `comment`,
+  `share` (incl. reposts) and `follow` — `fyp.core.utils.KNOWN_ACTIVITY_TYPES`
+  is the registry, each class declares what it emits in
+  `emitted_activity_types`, and the UI labels them Like / Save / Comment /
+  Share / Follow from one map (`ENGAGEMENT_LABELS`).
+- **Engagement→play linking**: likes/saves/comments/shares are folded into the
   matching play row's `extra_data` (adjacency first, nearest-play fallback) —
   this folded token is the only engagement signal that survives into studies.
-  The row says how the link was made (`link_method`: `adjacent`,
-  `nearest_play`, both, or `ffill_180s` on a TikTok comment whose video id
-  the 180 s forward fill supplied), so inferred links can be excluded.
+  A follow names no item, so it never folds; it is counted from its own row
+  on the participant's My Collections page only. The row says how the link
+  was made (`link_method`: `adjacent`, `nearest_play`, both, or `ffill_180s`
+  on a TikTok comment whose video id the 180 s forward fill supplied), so
+  inferred links can be excluded.
 - **Enrichment seed**: donated item metadata (caption, author) is persisted
   per platform in the canonical scrape schema with `scrape_status="donated"`,
   and used at consolidation as a lowest-precedence fallback for items that

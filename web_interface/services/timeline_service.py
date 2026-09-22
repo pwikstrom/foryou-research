@@ -10,7 +10,7 @@ import pandas as pd
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
 from fyp.organize_datasets import COLLECTIONS_LABEL, create_collection_unified_dataset
-from fyp.utils import ACTIVITY_TYPE_MAP, ENGAGEMENT_TYPES
+from fyp.utils import ACTIVITY_TYPE_MAP, ENGAGEMENT_LABELS, ENGAGEMENT_TYPES
 
 from .. import explorer_backend as explorer
 from .study_data import get_study_sidecar
@@ -19,7 +19,7 @@ from .user_variables import load_schema_metadata
 # --- Explorer State ---
 
 
-TIMELINE_SCHEMA_VERSION = 7
+TIMELINE_SCHEMA_VERSION = 8
 # Marker columns that prove a cached timeline parquet was written by the
 # current schema.  Any one missing → cache is stale and gets regenerated.
 # Bump TIMELINE_SCHEMA_VERSION and edit this set whenever the parquet
@@ -29,7 +29,8 @@ _TIMELINE_REQUIRED_COLUMNS: set[str] = {
     'weighted_video_total',         # v2: per-period attention denominator
     'timeline_universe',            # v3: universe = scraped+annotated plays only
     'fave',                         # v4: engagement type breakdown columns
-    'follow',                       # v5: engagement breakdown via activity_type
+    'save',                         # v8: vocabulary = fave/save/comment/share;
+                                    #     'follow' (v5 marker) left the fold set
 }
 
 
@@ -328,9 +329,8 @@ def aggregate_timeline_frame(df: pd.DataFrame, viz_vars, collection_id="") -> pd
 
         # --- Engagement activity breakdown per period ---
         # Parse the folded `extra_data` string on each play/observe row
-        # ("fave", "fave,comment:hello", "follow:account_name") into
-        # activity types and count occurrences per period. "following"
-        # is normalised to "follow"; unknown types are ignored.
+        # ("fave", "fave,comment:hello", "share:copy_link") into activity
+        # types and count occurrences per period; unknown types are ignored.
         if 'extra_data' in temp_df.columns:
             ed_mask = temp_df['extra_data'].notna()
             if ed_mask.any():
@@ -811,6 +811,12 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
         result["extra_data_counts"] = extra_data_counts
     if extra_data_breakdown:
         result["extra_data_breakdown"] = extra_data_breakdown
+    # The engagement series the chart may draw, in canonical order with their
+    # UI labels — the frontend builds its dropdown from this, not from a list
+    # of its own.
+    result["engagement_types"] = [
+        {"key": t, "label": ENGAGEMENT_LABELS[t]} for t in ENGAGEMENT_TYPES
+    ]
 
     # Attach pre-computed analysis data if available, or generate if missing
     analysis_fname = f"timeline_analysis_{collection_id}_{interval}.json"

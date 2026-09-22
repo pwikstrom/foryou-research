@@ -78,7 +78,11 @@ window.timelines = {
         activeFilters: {},
         smoothing: 7,
         showRaw: false,
-        engagementTypes: new Set(['fave', 'share', 'comment', 'follow', 'save']),
+        // Series keys come from the payload's `engagement_types` (the
+        // server's canonical vocabulary + labels); this default is only the
+        // fallback until the first payload arrives.
+        engagementTypes: new Set(['fave', 'save', 'comment', 'share']),
+        engagementTypeDefs: null,
         // Shared across every chart: [lo, hi] on the x-axis while zoomed into
         // a time period, null at the full range.  Survives re-renders.
         timeWindow: null,
@@ -261,16 +265,50 @@ window.timelines = {
         }
     },
 
+    // The engagement series and their labels, as the server declares them
+    // (`engagement_types` on the timeline payload). Colours are keyed by
+    // token here because CSS variables are a client concern.
+    _ENGAGEMENT_COLORS: {
+        fave: '--color-danger', save: '--color-warning',
+        comment: '--color-info', share: '--color-success'
+    },
+
+    _engagementTypeDefs: function () {
+        const fallback = [
+            { key: 'fave',    label: 'Like' },
+            { key: 'save',    label: 'Save' },
+            { key: 'comment', label: 'Comment' },
+            { key: 'share',   label: 'Share' }
+        ];
+        const defs = this.timelineState.engagementTypeDefs || fallback;
+        return defs.map(t => ({
+            key: t.key, label: t.label,
+            color: getCSSVar(this._ENGAGEMENT_COLORS[t.key] || '--color-purple')
+        }));
+    },
+
+    // Called with each timeline payload: adopt the server's series list and
+    // drop any selection for a series that no longer exists.
+    _adoptEngagementTypes: function (data) {
+        const defs = Array.isArray(data && data.engagement_types) ? data.engagement_types : null;
+        if (!defs || !defs.length) return;
+        const changed = JSON.stringify(defs) !== JSON.stringify(this.timelineState.engagementTypeDefs);
+        this.timelineState.engagementTypeDefs = defs;
+        if (changed) {
+            const keys = new Set(defs.map(t => t.key));
+            const wasDefault = this.timelineState.engagementTypes.size === 0;
+            this.timelineState.engagementTypes = new Set(
+                wasDefault ? keys : [...this.timelineState.engagementTypes].filter(k => keys.has(k))
+            );
+            if (this.timelineState.engagementTypes.size === 0) this.timelineState.engagementTypes = new Set(keys);
+            this._renderEngagementDropdown();
+        }
+    },
+
     _renderEngagementDropdown: function () {
         const list = document.getElementById('timelines-engagement-list');
         if (!list) return;
-        const labels = [
-            { key: 'fave',    label: 'Fave' },
-            { key: 'share',   label: 'Share' },
-            { key: 'comment', label: 'Comment' },
-            { key: 'follow',  label: 'Follow' },
-            { key: 'save',    label: 'Save' }
-        ];
+        const labels = this._engagementTypeDefs();
         list.innerHTML = '';
         labels.forEach(t => {
             const row = document.createElement('div');
@@ -566,6 +604,7 @@ window.timelines = {
 
             //console.log("TIMELINE DEBUG: Received Data", data);
             this.timelineData = data;
+            this._adoptEngagementTypes(data);
 
             this.renderTimelineCharts();
 
@@ -1648,13 +1687,7 @@ window.timelines = {
             // Detect engagement data up front so we can split the plot
             // into a stacked timeline + engagement strip layout.
             const selectedTypes = this.timelineState.engagementTypes;
-            const ENGAGEMENT_TYPES = [
-                { key: 'fave',    label: 'Fave',    color: getCSSVar('--color-danger') },
-                { key: 'share',   label: 'Share',   color: getCSSVar('--color-success') },
-                { key: 'comment', label: 'Comment', color: getCSSVar('--color-info') },
-                { key: 'follow',  label: 'Follow',  color: getCSSVar('--color-purple') },
-                { key: 'save',    label: 'Save',    color: getCSSVar('--color-warning') }
-            ].filter(t => selectedTypes.has(t.key));
+            const ENGAGEMENT_TYPES = this._engagementTypeDefs().filter(t => selectedTypes.has(t.key));
             const rawBreakdown = data.extra_data_breakdown || null;
             const slicedBreakdown = {};
             ENGAGEMENT_TYPES.forEach(t => {

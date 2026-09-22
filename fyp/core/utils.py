@@ -354,21 +354,44 @@ def start_monitor(
 
 
 
-# Engagement activity tokens carried inside the folded `extra_data` column.
-# A play row's `extra_data` is a comma-separated list of "<atype>[:context]"
-# tokens (e.g. "fave", "comment:hello", "fave,follow:somebody") recorded
-# when other activities share the same session run as the leading play, or —
-# for engagement that is not adjacent to any play — folded into the
-# nearest-in-time play of the same item (see ingest.derive_play_duration).
-ENGAGEMENT_TYPES = ('fave', 'share', 'comment', 'follow', 'save')
-ACTIVITY_TYPE_MAP = {
-    'fave': 'fave',
-    'share': 'share',
-    'comment': 'comment',
-    'follow': 'follow',
-    'following': 'follow',
-    'save': 'save',
-}
+# The activity-type vocabulary. Every platform ingester maps its export's
+# sections onto these values (and declares which ones it emits in its
+# `emitted_activity_types`); a registry test keeps the two in step. The
+# common terms and what each platform's export calls them:
+#
+#   fave     a like / heart        TikTok ItemFavoriteList, IG liked_posts, YT Liked videos
+#   save     a bookmark            TikTok FavoriteVideoList, IG saved_posts, YT Favorites videos
+#   comment  a comment the donor wrote (text in extra_data)
+#   share    a share or repost     TikTok ShareHistoryList / RepostList (context = method)
+#   follow   the donor followed an account (username in extra_data) — no item,
+#            so it never folds onto a play; counted from standalone rows only
+#
+# Viewing rows (`play`, `observe`, `ad_play`) are what studies are built on.
+# The remaining standalone types are kept for participant-facing stats and
+# never enter a study.
+VIEWING_ACTIVITY_TYPES = ('play', 'observe', 'ad_play')
+ENGAGEMENT_TYPES = ('fave', 'save', 'comment', 'share')
+STANDALONE_ACTIVITY_TYPES = ('follow', 'followed_by', 'search', 'login', 'post')
+KNOWN_ACTIVITY_TYPES = frozenset(VIEWING_ACTIVITY_TYPES + ENGAGEMENT_TYPES + STANDALONE_ACTIVITY_TYPES)
+
+# Human labels for the UI (Explorer facet, Timelines series, My Collections).
+# The stored token stays `fave`; only the label says "Like".
+ENGAGEMENT_LABELS = {'fave': 'Like', 'save': 'Save', 'comment': 'Comment', 'share': 'Share'}
+STANDALONE_ENGAGEMENT_LABELS = {**ENGAGEMENT_LABELS, 'follow': 'Follow'}
+
+# Engagement tokens carried inside the folded `extra_data` column of a play
+# row: a comma-separated list of "<atype>[:context]" tokens (e.g. "fave",
+# "comment:hello", "save,share:copy_link") recorded when other activities
+# share the same session run as the leading play, or — for engagement that
+# is not adjacent to any play — folded into the nearest-in-time play of the
+# same item (see ingest.derive_play_duration). Only ENGAGEMENT_TYPES fold:
+# a follow has no item to fold onto.
+ACTIVITY_TYPE_MAP = {t: t for t in ENGAGEMENT_TYPES}
+
+
+def engagement_label(token: str) -> str:
+    """The UI label for an engagement token (``'fave'`` → ``'Like'``)."""
+    return STANDALONE_ENGAGEMENT_LABELS.get(token, str(token).title())
 
 
 

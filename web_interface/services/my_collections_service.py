@@ -39,7 +39,10 @@ class PendingPreviewError(Exception):
     """
 
 _VIEW_TYPES = ["play", "observe"]
-_LIKE_TYPES = ["fave", "like", "fave_item"]
+# Counted from the standalone engagement rows (not the folded play tokens):
+# a like-list reaches years past the watch history, and a follow has no play
+# to fold onto at all.
+_LIKE_TYPES = ["fave"]
 
 _ACTIVITY_COLUMNS = [
     "collection_id", "activity_type", "item_id", "play_duration", "session_id",
@@ -824,6 +827,9 @@ def _compute_bundle(df: pd.DataFrame, collection_ids: list[str]) -> dict:
     comments = df[df["activity_type"] == "comment"]
     posts = df[df["activity_type"] == "post"]
     searches = df[df["activity_type"] == "search"]
+    saves = df[df["activity_type"] == "save"]
+    shares = df[df["activity_type"] == "share"]
+    follows = df[df["activity_type"] == "follow"]
 
     durations = pd.to_numeric(plays["play_duration"], errors="coerce").dropna() \
         if "play_duration" in plays.columns else pd.Series(dtype=float)
@@ -835,6 +841,9 @@ def _compute_bundle(df: pd.DataFrame, collection_ids: list[str]) -> dict:
         "has_comments": len(comments) > 0,
         "has_posts": len(posts) > 0,
         "has_searches": len(searches) > 0,
+        "has_saves": len(saves) > 0,
+        "has_shares": len(shares) > 0,
+        "has_follows": len(follows) > 0,
         "has_sessions": bool("session_id" in df.columns and df["session_id"].notna().any()),
     }
 
@@ -865,7 +874,9 @@ def _compute_bundle(df: pd.DataFrame, collection_ids: list[str]) -> dict:
         "searches": _search_terms(searches) if capabilities["has_searches"] else None,
         "emoji": _favourite_emoji(comments) if capabilities["has_comments"] else None,
         "stats": _stat_strip(df, plays, likes, comments, posts, durations,
-                             sessions, has_durations, corpus),
+                             sessions, has_durations, corpus,
+                             extra_counts={"n_saves": len(saves), "n_shares": len(shares),
+                                           "n_follows": len(follows)}),
     }
     return bundle
 
@@ -1241,7 +1252,10 @@ def _favourite_emoji(comments: pd.DataFrame) -> dict | None:
 
 
 def _stat_strip(df, plays, likes, comments, posts, durations, sessions,
-                has_durations, corpus) -> dict:
+                has_durations, corpus, extra_counts: dict | None = None) -> dict:
+    """The headline numbers. ``extra_counts`` carries the standalone-row
+    engagement counts (saves / shares / follows) that have no percentile
+    comparison of their own."""
     total_watch_s = float(durations.sum()) if has_durations else None
     watch_pct = None
     if total_watch_s is not None and corpus is not None and "total_watch_time_s" in corpus.columns:
@@ -1259,6 +1273,7 @@ def _stat_strip(df, plays, likes, comments, posts, durations, sessions,
         "n_likes": int(len(likes)),
         "n_comments": int(len(comments)),
         "n_posts": int(len(posts)),
+        **{k: int(v) for k, v in (extra_counts or {}).items()},
         "under_3s": int((durations < 3).sum()) if has_durations else None,
         "over_60s": int((durations >= 60).sum()) if has_durations else None,
         "total_watch_time_s": total_watch_s,

@@ -255,3 +255,123 @@ def test_posted_videos_are_excluded_by_design_not_counted_as_plays(collection, m
 
     assert collection.file_stats_this_run["both.json"]["dropped"]["outside_whitelist"] == 15
     assert (collection.data["activity_type"] == "play").sum() == 20
+
+
+# ---------------------------------------------------------------------------
+# Engagement vocabulary: shares, reposts, saves, follows and observed comment
+# links. Record shapes follow the sentinel baselines learned from real exports
+# (2026-09): ShareHistoryList puts the Link at index 2 after SharedContent,
+# newer CommentsList records name their video in `originalPostUrl`.
+
+
+def _ddp_with_engagement() -> dict:
+    plays = [
+        {"Date": f"2026-05-01 10:{i:02d}:00",
+         "Link": f"https://www.tiktokv.com/share/video/70000000000000000{i:02d}/"}
+        for i in range(12)
+    ]
+    return {
+        "Your Activity": {
+            "Watch History": {"VideoList": plays},
+            "Share History": {"ShareHistoryList": [
+                {"Date": "2026-05-01 10:01:20", "SharedContent": "share_video",
+                 "Link": "https://www.tiktokv.com/share/video/7000000000000000001/",
+                 "Method": "copy_link"},
+                # A LIVE share names no video: kept as a share row without an item.
+                {"Date": "2026-05-01 10:02:10", "SharedContent": "share_live",
+                 "Link": "https://www.tiktok.com/@someone/live", "Method": "whatsapp"},
+            ]},
+            "Reposts": {"RepostList": [
+                {"Date": "2026-05-01 10:03:30",
+                 "Link": "https://www.tiktokv.com/share/video/7000000000000000003/"},
+            ]},
+            "Following": {"Following": [
+                {"Date": "2026-05-01 10:04:30", "UserName": "creator_a"},
+            ]},
+        },
+        "Likes and Favorites": {
+            "Like List": {"ItemFavoriteList": [
+                {"date": "2026-05-01 10:05:30",
+                 "link": "https://www.tiktokv.com/share/video/7000000000000000005/"},
+            ]},
+            "Favorite Videos": {"FavoriteVideoList": [
+                {"Date": "2026-05-01 10:06:30",
+                 "Link": "https://www.tiktokv.com/share/video/7000000000000000006/"},
+            ]},
+            # Not video items: stripped as outside the whitelist.
+            "Favorite Sounds": {"FavoriteSoundList": [
+                {"Date": "2026-05-01 10:07:00", "Link": "https://www.tiktok.com/music/x-1"},
+            ]},
+        },
+        "Comment": {"Comments": {"CommentsList": [
+            # Newer vintage: the video is named, so no forward fill is needed
+            # and no link_method is set.
+            {"date": "2026-05-01 10:08:20", "comment": "seen it", "photo": "N/A",
+             "video": "N/A", "url": "", "originalPostUrl":
+             "https://www.tiktokv.com/share/video/7000000000000000008/", "original post link": ""},
+            # Older vintage: no video anywhere → forward fill.
+            {"date": "2026-05-01 10:09:40", "comment": "old style", "photo": "N/A"},
+        ]}},
+    }
+
+
+def _process(collection, monkeypatch, doc):
+    df = _load(collection, monkeypatch, "donor_e.json", doc)
+    return collection.process_single(df).sort_values("utc_timestamp").reset_index(drop=True)
+
+
+def test_favorite_video_list_is_a_save_and_like_list_a_fave(collection, monkeypatch):
+    out = _process(collection, monkeypatch, _ddp_with_engagement())
+    saves = out[out["activity_type"] == "save"]
+    faves = out[out["activity_type"] == "fave"]
+    assert list(saves["item_id"]) == ["7000000000000000006"]
+    assert list(faves["item_id"]) == ["7000000000000000005"]
+    plays = out[out["activity_type"] == "play"].set_index("item_id")
+    assert plays.loc["7000000000000000006", "extra_data"] == "save"
+    assert plays.loc["7000000000000000005", "extra_data"] == "fave"
+
+
+def test_share_history_link_is_found_by_name_and_keeps_the_method(collection, monkeypatch):
+    out = _process(collection, monkeypatch, _ddp_with_engagement())
+    shares = out[out["activity_type"] == "share"].reset_index(drop=True)
+    assert len(shares) == 3
+    video_share = shares[shares["extra_data"] == "copy_link"].iloc[0]
+    assert video_share["item_id"] == "7000000000000000001"
+    live_share = shares[shares["extra_data"] == "whatsapp"].iloc[0]
+    assert pd.isna(live_share["item_id"]), "a LIVE share names no video"
+    repost = shares[shares["extra_data"] == "repost"].iloc[0]
+    assert repost["item_id"] == "7000000000000000003"
+    plays = out[out["activity_type"] == "play"].set_index("item_id")
+    assert plays.loc["7000000000000000001", "extra_data"] == "share:copy_link"
+    assert plays.loc["7000000000000000003", "extra_data"] == "share:repost"
+
+
+def test_following_becomes_follow_and_never_folds(collection, monkeypatch):
+    out = _process(collection, monkeypatch, _ddp_with_engagement())
+    follows = out[out["activity_type"] == "follow"]
+    assert len(follows) == 1
+    assert follows["item_id"].isna().all()
+    assert follows["extra_data"].iloc[0] == "creator_a"
+    assert "following" not in set(out["activity_type"].dropna())
+    plays = out[out["activity_type"] == "play"]
+    assert not plays["extra_data"].astype("string").str.contains("follow", na=False).any()
+
+
+def test_comment_with_original_post_url_is_observed_not_inferred(collection, monkeypatch):
+    out = _process(collection, monkeypatch, _ddp_with_engagement())
+    comments = out[out["activity_type"] == "comment"].reset_index(drop=True)
+    assert len(comments) == 2
+    observed = comments[comments["extra_data"] == "seen it"].iloc[0]
+    assert observed["item_id"] == "7000000000000000008"
+    assert pd.isna(observed["link_method"])
+    inferred = comments[comments["extra_data"] == "old style"].iloc[0]
+    assert inferred["item_id"] == "7000000000000000009", "the last activity within 180 s"
+    assert inferred["link_method"] == "ffill_180s"
+
+
+def test_non_item_favorites_are_outside_the_whitelist(collection, monkeypatch):
+    df = _load(collection, monkeypatch, "donor_e.json", _ddp_with_engagement())
+    assert "favoritesoundlist" in set(df["activity_type"])
+    assert "favoritesoundlist" not in tiktok_mod.TikTokDDPCollection._ACTIVITY_TYPE_MAP
+    assert "post" not in tiktok_mod.TikTokDDPCollection._ACTIVITY_TYPE_MAP, \
+        "posted videos are relabelled posted_videolist; a 'post' key is unreachable"

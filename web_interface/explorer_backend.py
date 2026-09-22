@@ -10,7 +10,7 @@ import pyarrow.compute as pc
 import fyp.data_io as data_io
 from fyp.fyp_config import fyp_cf
 from fyp.organize_datasets import create_study_recoded_dataset
-from fyp.utils import ENGAGEMENT_TYPES, parse_extra_data_tokens
+from fyp.utils import ENGAGEMENT_LABELS, ENGAGEMENT_TYPES, parse_extra_data_tokens
 
 
 def get_robust_bounds(series):
@@ -227,16 +227,17 @@ def get_metadata(df, column_types, verbose=False):
         }
 
         # Special case: `extra_data` is a folded comma-separated record of
-        # engagement activities (fave / comment / share / follow / save).
-        # Expose it as a list-typed filter whose values are the known
-        # engagement tokens with document-frequency counts.
+        # engagement activities (fave / save / comment / share). Expose it as
+        # a list-typed filter whose values are the known engagement tokens
+        # with document-frequency counts and their UI labels ("Like" for
+        # `fave`) — the stored token stays the filter value.
         if col == 'extra_data':
             counts = {t: 0 for t in ENGAGEMENT_TYPES}
             for cell in df[col].dropna():
                 for t in parse_extra_data_tokens(cell):
                     if t in counts:
                         counts[t] += 1
-            items_list = [{"value": t, "count": counts[t]}
+            items_list = [{"value": t, "label": ENGAGEMENT_LABELS[t], "count": counts[t]}
                           for t in ENGAGEMENT_TYPES if counts[t] > 0]
             base_meta.update({
                 "type": "list",

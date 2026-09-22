@@ -47,7 +47,7 @@ section = "Activity"
 role = "measure"
 scale = "numeric"
 display_name = "Engaged with item"
-description = "1 when this play carries any of the account's own engagement activity (fave/comment/share/save/follow folded into extra_data), else 0. Group mean = the collection's own engagement rate — distinct from the item-popularity *_per_K_play rates. Platform caveat: Instagram/YouTube exports log fewer engagement types than TikTok, so cross-platform levels are not directly comparable."
+description = "1 when this play carries any of the account's own engagement activity (a like, save, comment or share folded into extra_data), else 0. Group mean = the collection's own engagement rate — distinct from the item-popularity *_per_K_play rates. Platform caveat: Instagram/YouTube exports log fewer engagement types than TikTok, so cross-platform levels are not directly comparable."
 
 [[fields]]
 name = "rewatched"

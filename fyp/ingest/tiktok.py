@@ -7,6 +7,7 @@ docs/fyp-import-graph.md.
 """
 
 import os
+import re
 from collections import deque
 from zoneinfo import ZoneInfo
 
@@ -25,6 +26,21 @@ logger = get_logger(__name__)
 
 
 class TikTokDDPCollection(ForYouBaseCollection):
+    """TikTok data-download export (``user_data_tiktok.json``) ingester.
+
+    Watch history becomes ``play``; the Like List becomes ``fave``, the
+    donor's bookmarks (Favorite Videos) ``save``, share history and reposts
+    ``share`` (the share method or ``repost`` in ``extra_data``), comments
+    ``comment`` (text in ``extra_data``), and followed accounts ``follow``
+    (username in ``extra_data``). Every item-bearing engagement row folds
+    onto its play through ``derive_play_duration``; follows carry no item and
+    stay standalone.
+
+    A comment record names its video only in newer exports
+    (``originalPostUrl``); older ones give no video id at all, so the comment
+    borrows the id of the last activity within 180 s and says so in
+    ``link_method`` (``ffill_180s``).
+    """
 
     platform_url_template = "https://www.tiktok.com/@/video/{item_id}"
     source_platform = "tiktok"
@@ -35,14 +51,36 @@ class TikTokDDPCollection(ForYouBaseCollection):
     # note in fyp_config.py before renaming.
     raw_path = "ddp_raw"
 
-    # Lowercased export parent key -> activity_type. This is the whitelist of
+    # Lowercased export list key -> activity_type. This is the whitelist of
     # sections process_single keeps; it also drives the pre-upload review UI
-    # (review_manifest), so the two can never drift apart.
+    # (review_manifest), so the two can never drift apart. Matched on the
+    # list's own key, so the parent section may be renamed between export
+    # vintages ("Activity" → "Your Activity", "Like List" under either
+    # "Likes and Favorites" or "Your Activity") without losing rows.
+    #   ItemFavoriteList  — the Like List (a heart)            → fave
+    #   FavoriteVideoList — the donor's bookmarks               → save
+    #   ShareHistoryList  — {Date, SharedContent, Link, Method} → share
+    #   RepostList        — {Date, Link}, a public re-share     → share
+    #   Following         — {Date, UserName}, no item           → follow
+    # Sections TikTok exports but the Hub does not ingest (favourite sounds /
+    # hashtags / effects / collections, DMs, ads, settings, ...) are absent
+    # here and stripped in the browser before upload.
     _ACTIVITY_TYPE_MAP = {
-        'videolist': 'play', 'commentslist': 'comment', 'post': 'post',
-        'searchlist': 'search', 'fanslist': 'followed_by', 'following': 'following',
-        'itemfavoritelist': 'fave', 'favoritevideolist': 'fave',
+        'videolist': 'play', 'commentslist': 'comment',
+        'searchlist': 'search', 'fanslist': 'followed_by', 'following': 'follow',
+        'itemfavoritelist': 'fave', 'favoritevideolist': 'save',
+        'sharehistorylist': 'share', 'repostlist': 'share',
     }
+    emitted_activity_types = frozenset({
+        'play', 'comment', 'search', 'followed_by', 'follow', 'fave', 'save',
+        'share', 'login',
+    })
+    # Record keys that name the video an activity was about, looked up by
+    # name rather than by position: TikTok puts the link at index 1 for most
+    # sections but at index 2 in ShareHistoryList (after SharedContent), and
+    # newer comment records carry the video under `originalPostUrl`.
+    _LINK_KEYS = ('link', 'originalposturl')
+    _VIDEO_ID_RE = re.compile(r"/video/(\d+)")
     # Sections whose 'VideoList' holds the donor's OWN uploads rather than
     # watch history. TikTok reuses the key for both — Your Activity -> Watch
     # History -> VideoList is what they watched, Post -> Posts -> VideoList is
@@ -57,12 +95,13 @@ class TikTokDDPCollection(ForYouBaseCollection):
     _REVIEW_TITLES = {
         'videolist': 'Videos you watched',
         'commentslist': 'Comments you made',
-        'post': 'Videos you posted',
         'searchlist': 'Your searches',
         'fanslist': 'Accounts that follow you',
         'following': 'Accounts you follow',
         'itemfavoritelist': 'Videos you liked',
-        'favoritevideolist': 'Your favourite videos',
+        'favoritevideolist': 'Videos you saved',
+        'sharehistorylist': 'Videos you shared',
+        'repostlist': 'Videos you reposted',
     }
 
     @classmethod
@@ -120,6 +159,64 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
 
     @classmethod
+    def _walk_sections(cls, donation_dict: dict) -> list[dict]:
+        """Flatten an export into one record per list item, named by section.
+
+        Depth-first over the whole document; every list of dicts becomes
+        records ``{"activity_type": <section name>, "variable_list": [lowercased
+        keys], "value_list": [values]}``. The stack carries the PARENT key
+        alongside each node because the section name alone is ambiguous:
+        TikTok uses the same 'VideoList' key for watch history and for the
+        donor's own uploads (see _POSTED_VIDEO_SECTIONS). Shared with the
+        stored-data migration so both read an export the same way.
+        """
+        donation_items = []
+        stack = deque([(None, None, donation_dict)])
+        while stack:
+            parent, feature, obj = stack.pop()
+            if isinstance(obj, list):
+                activity_type = cls._section_activity_type(parent, feature)
+                for item in obj:
+                    if isinstance(item, dict) and item:
+                        donation_items.append({
+                            "activity_type": activity_type,
+                            "variable_list": [k.lower() for k in item.keys()],
+                            "value_list": list(item.values())
+                        })
+            elif isinstance(obj, dict):
+                for k, v in obj.items():
+                    stack.append((feature, k, v))
+        return donation_items
+
+
+    @classmethod
+    def _unpack_record(cls, variables, values) -> tuple:
+        """Return ``(primary_label, extra_data, link, context)`` for one record.
+
+        ``variables`` are the record's lowercased keys with ``date`` at
+        index 0. ``primary_label`` / ``extra_data`` are the name and value at
+        index 1; ``link`` is the value of the first key in ``_LINK_KEYS``
+        wherever it sits (None when the record names no video); ``context`` is
+        the share ``method`` (None otherwise).
+        """
+        variables = list(variables)
+        values = list(values)
+        by_name = dict(zip(variables, values))
+        primary = variables[1] if len(variables) > 1 else None
+        extra = values[1] if len(values) > 1 else None
+        link = None
+        for key in cls._LINK_KEYS:
+            candidate = by_name.get(key)
+            if isinstance(candidate, str) and cls._VIDEO_ID_RE.search(candidate):
+                link = candidate
+                break
+        context = by_name.get("method")
+        if not isinstance(context, str) or not context.strip():
+            context = None
+        return primary, extra, link, context
+
+
+    @classmethod
     def _section_activity_type(cls, parent: str | None, feature: str | None) -> str:
         """Name the section a list belongs to, disambiguating reused keys.
 
@@ -147,27 +244,7 @@ class TikTokDDPCollection(ForYouBaseCollection):
                 f"the export .zip."
             )
 
-        # find list of dicts. The stack carries the PARENT key alongside each
-        # node because the section name alone is ambiguous: TikTok uses the
-        # same 'VideoList' key for watch history and for the donor's own
-        # uploads (see _POSTED_VIDEO_SECTIONS).
-        donation_items = []
-
-        stack = deque([(None, None, donation_dict)])
-        while stack:
-            parent, feature, obj = stack.pop()
-            if isinstance(obj, list):
-                activity_type = self._section_activity_type(parent, feature)
-                for item in obj:
-                    if isinstance(item, dict) and item:
-                        donation_items.append({
-                            "activity_type": activity_type,
-                            "variable_list": [k.lower() for k in item.keys()],
-                            "value_list": list(item.values())
-                        })
-            elif isinstance(obj, dict):
-                for k, v in obj.items():
-                    stack.append((feature, k, v))
+        donation_items = self._walk_sections(donation_dict)
 
         # initialising the dataframe from the raw data.
         if len(donation_items) == 0:
@@ -257,45 +334,59 @@ class TikTokDDPCollection(ForYouBaseCollection):
             logger.info(f"   [{df['raw_file'].iloc[0]}] Keeping {len(df):,} rows w OK timestamp.")
 
 
-        # get the variable name and the associated value from index 1 and assign them to primary_label and extra_data
-        # primary_label is just a temporary holder in this function
+        # Unpack the record. `primary_label` / `extra_data` are the name and
+        # value at index 1 (the comment text, search term, followed username,
+        # or — for most sections — the video link). The video link is looked
+        # up by NAME as well, because ShareHistoryList puts it at index 2 and
+        # newer comment records carry it under `originalPostUrl`, so a
+        # position-only unpack would lose every share and every observed
+        # comment link. `_link` holds that value; `_context` the extra field a
+        # share carries (Method).
         try:
-             df['primary_label'] = df['variable_list'].str[1]
-             df['extra_data'] = df['value_list'].str[1]
+            unpacked = [
+                self._unpack_record(v, x)
+                for v, x in zip(df['variable_list'], df['value_list'])
+            ]
+            df['primary_label'] = [u[0] for u in unpacked]
+            df['extra_data'] = [u[1] for u in unpacked]
+            df['_link'] = [u[2] for u in unpacked]
+            df['_context'] = [u[3] for u in unpacked]
         except Exception as e:
-             logger.warning(f"Could not extract primary_label/extra_data from variable_list/value_list ({e}); filling with NA.")
-             df['primary_label'] = pd.NA
-             df['extra_data'] = pd.NA
+            logger.warning(f"Could not unpack variable_list/value_list ({e}); filling with NA.")
+            df['primary_label'] = pd.NA
+            df['extra_data'] = pd.NA
+            df['_link'] = pd.NA
+            df['_context'] = pd.NA
 
 
         # -----------------------------------------------------
-        # item_id: 
+        # item_id: the video id inside the link, for any section that has one.
+        # Comments carry no link in older exports (item_id NA, back-filled
+        # below); a share of a LIVE has a non-video link and stays NA too.
+        df["item_id"] = (
+            df["_link"].astype("string").str.extract(self._VIDEO_ID_RE, expand=False)
+            .where(df["activity_type"].notna())
+            .astype("string[pyarrow]")
+        )
 
-        # extract item_id and clean it up (from the video_url)
-        item_ids_from_url = df["extra_data"].astype("string").str.rsplit("/", n=2).str[-2]
-        digits = item_ids_from_url.str.fullmatch(r"\d+")
-        item_ids = item_ids_from_url.where(digits)
-
-        # since items are extracted from the video url, the primary label must be 'link' and
-        # the activity type must not be null (assuming it is play, fave or something like that)
-        mask = (df["primary_label"]=="link") & (df["activity_type"].notna())
-        df["item_id"] = item_ids.where(mask)
-        
-        # nullify extra_data where item_id was extracted to get rid of redundant data - I don't 
-        # need the url any longer
-        df.loc[df["item_id"].notnull(), "extra_data"] = pd.NA
-
-        # convert item_id to pyarrow string
-        df["item_id"] = df["item_id"].astype("string[pyarrow]")
+        # The link was the whole payload for the link-at-index-1 sections;
+        # drop that redundant copy. A comment keeps its text, a share keeps
+        # its method, a follow keeps the username.
+        df.loc[df["primary_label"] == "link", "extra_data"] = pd.NA
+        # A repost record has no method field: say what kind of share it was.
+        is_repost = df["activity_type"] == "repostlist"
+        df.loc[is_repost, "_context"] = "repost"
+        has_context = df["_context"].notna()
+        df.loc[has_context, "extra_data"] = df.loc[has_context, "_context"].astype("string").str.lower()
+        df.drop(columns=["_link", "_context"], inplace=True)
 
 
         # -----------------------------------------------------
-        # activity_type: 
+        # activity_type:
 
         # map activity types (whitelist shared with review_manifest)
         df["activity_type"] = df["activity_type"].map(self._ACTIVITY_TYPE_MAP)
-        reaction_activities = {"comment","fave","share"}
-        
+
         # activity_type is NA for login activities - this fixes that by creating a new activity type
         df.loc[df[df["primary_label"]=="ip"].index,"activity_type"] = "login"
         
@@ -475,6 +566,8 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
     source_platform = "tiktok"
 
     raw_path = "zeeschuimer_raw"
+    # A browser capture sees what the feed served, never a like or a comment.
+    emitted_activity_types = frozenset({"observe"})
 
     @classmethod
     def accepted_upload_suffixes(cls) -> list[str]:

@@ -110,6 +110,55 @@ side this import is eager and its **order is pinned** (tiktok → instagram
 → youtube → yours at the end) so registry order stays byte-identical;
 `tests/unit/test_subpackage_shims.py` guards it.
 
+#### Activity types and engagement
+
+Every row `process_single` returns carries an `activity_type` from the
+shared vocabulary in `fyp/core/utils.py` — never a platform's own word:
+
+| value | meaning | folds onto a play? |
+|---|---|---|
+| `play`, `observe`, `ad_play` | a viewing event (studies are built on these) | — |
+| `fave` | a like / heart | yes |
+| `save` | a bookmark / favourite / collection | yes |
+| `comment` | a comment the donor wrote (text in `extra_data`) | yes, when it names the item |
+| `share` | a share or repost (method or `repost` in `extra_data`) | yes |
+| `follow` | the donor followed an account (username in `extra_data`) | never — no item |
+| `followed_by`, `search`, `login`, `post` | kept for participant-facing stats only | never |
+
+Map your export's sections onto these (TikTok's `ItemFavoriteList` is
+`fave`, its `FavoriteVideoList` is `save`; YouTube's "Liked videos" and
+"Favorites videos" playlists likewise). If a section fits none of them, add
+the value to `fyp/core/utils.py` first — and to `ENGAGEMENT_LABELS` if it
+should fold — so the Explorer facet, Timelines series and My Collections
+counts pick it up from the one place they all read.
+
+Rules the class must follow:
+
+- **Declare what you emit**: set `emitted_activity_types` to the exact set
+  your `process_single` can produce. `tests/unit/test_ingest_activity_vocabulary.py`
+  checks it is within `KNOWN_ACTIVITY_TYPES`; at run time `process()` writes a
+  ledger note on any file whose rows fall outside it, so a drifted export
+  vintage is visible rather than a silent new category.
+- **Folding needs an `item_id`.** `derive_play_duration()` folds an
+  engagement row onto its play only through a shared item id (adjacency
+  first, nearest-play fallback; see [pipeline.md](pipeline.md)). An
+  engagement section whose records name no item (Instagram comments) stays
+  standalone: say so in the class docstring rather than invent an id. If
+  your export names the item only sometimes, take it when present and leave
+  `link_method` for an inference the parser itself made (TikTok's
+  `ffill_180s`).
+- **Every kept section gets a review title.** The pre-upload review
+  (`review_manifest()`) is the donor's consent surface and the browser strips
+  any section it does not list, so a section without a card is a section that
+  never arrives. Name it in the donor's words ("Videos you saved").
+- **Viability counts viewing rows only.** A like-list can reach years past
+  the watch history; never let engagement rows carry a donation over the
+  `min_required_rows_per_raw_file` floor.
+- **Add a fixture per section** to the platform's ingest test, built from a
+  real export's record shape (keys only — the structure-sentinel baselines in
+  `recoded/structure_baselines.json` list every key path seen per platform
+  without any donor values).
+
 ### 5. Activity contract
 
 If the platform's donation export carries activity fields the shared
@@ -165,7 +214,9 @@ Mirror the existing per-platform suites in `tests/unit/`:
   exercising `map_to_canonical`, `classify_error`, and `repair_counts` on
   representative raw rows, including the failure/attrs contract;
 - an ingest test covering `load_single_raw` / `process_single` on a
-  fixture export;
+  fixture export, with one fixture record per section you ingest;
+- `test_ingest_activity_vocabulary.py` picks the class up from the registry
+  and checks `emitted_activity_types` and the review titles — run it;
 - `test_scrape_contract_platforms.py` and
   `test_scraper_process_names.py` pick the new platform up from the
   contract automatically — run them to confirm the wiring;

@@ -34,7 +34,7 @@ from fyp.logging_setup import get_logger
 from fyp.polars_ops import fast_vertical_concat
 from fyp.recode_variables import infer_timezone_offset
 from fyp.types import convert_dtypes_to_pyarrow
-from fyp.utils import ACTIVITY_TYPE_MAP
+from fyp.utils import ACTIVITY_TYPE_MAP, KNOWN_ACTIVITY_TYPES
 
 logger = get_logger(__name__)
 
@@ -591,6 +591,13 @@ class ForYouBaseCollection(ABC):
     source_platform: str | None = None
     raw_path: str | None = None
     ingestion_mode: str = "upload"
+    # The activity_type values this platform's process_single can produce,
+    # all drawn from fyp.core.utils.KNOWN_ACTIVITY_TYPES. A registry test
+    # (tests/unit/test_ingest_activity_vocabulary.py) checks the declaration
+    # against the class's section maps, and process() notes any file whose
+    # rows fall outside it — a drifted export vintage shows up in the ledger
+    # rather than as a silent new category downstream.
+    emitted_activity_types: frozenset[str] = frozenset()
     _registry: list[type] = []
 
     def __init_subclass__(cls, **kwargs):
@@ -1055,7 +1062,33 @@ class ForYouBaseCollection(ABC):
 
     @abstractmethod
     def load_single_raw(self, filename: str) -> pd.DataFrame:
-        """Subclasses must implement this logic."""
+        """Read one raw upload into a frame of candidate activity rows.
+
+        A platform subclass implements this. The base load loop calls it per
+        file (already filtered by ``accepted_upload_suffixes`` and the review
+        step), stamps ``raw_file`` and the manifest tail onto the result, and
+        feeds it to :meth:`process_single`. The frame's layout is the
+        platform's own — TikTok returns one row per exported record with its
+        key/value lists, Instagram and YouTube return the near-final columns —
+        so the contract is only:
+
+        * return an EMPTY frame for a file the Hub should discard as too
+          small (see ``min_required_rows_per_raw_file``; count viewing rows,
+          never engagement, so a like-list cannot carry a donation over the
+          floor);
+        * RAISE for a structural failure (unreadable zip, missing members,
+          invalid JSON) so the file stays pending instead of vanishing;
+        * populate the ``seed_*`` scratch columns (see ``_SEED_COLUMNS``) if
+          the export carries item metadata worth keeping as an enrichment
+          seed;
+        * call :meth:`note_file` for anything a reader should know about
+          how the file was parsed.
+
+        Every export section the parser keeps must also be listed in the
+        class's :meth:`review_manifest` with a participant-facing title — the
+        review is the donor's consent surface, and the browser strips any
+        section it does not list before upload.
+        """
 
 
 
@@ -1230,6 +1263,8 @@ class ForYouBaseCollection(ABC):
 
         self.data = self.data.groupby("raw_file", group_keys=False)[self.data.columns].apply(self.process_single)
 
+        self._note_undeclared_activity_types()
+
         # A platform may record its own reasons inside process_single (the
         # TikTok parser counts records outside its section whitelist); those
         # are subtracted so not_parseable is only the rows it failed to read.
@@ -1262,11 +1297,69 @@ class ForYouBaseCollection(ABC):
 
     @abstractmethod
     def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Subclasses must implement this logic."""
+        """Turn one raw file's frame into activity rows on the shared schema.
+
+        A platform subclass implements this; :meth:`process` calls it once per
+        ``raw_file`` group. The rows it returns must carry:
+
+        * ``utc_timestamp`` — tz-aware UTC; ``tz_offset`` is added by the
+          shared tail (a donor zone from the manifest wins, otherwise it is
+          inferred from the activity rhythm);
+        * ``activity_type`` — a value from
+          ``fyp.core.utils.KNOWN_ACTIVITY_TYPES`` and from this class's
+          ``emitted_activity_types``: viewing rows (``play``, ``observe``,
+          ``ad_play``) are what studies are built on; engagement rows
+          (``fave`` = like, ``save`` = bookmark, ``comment``, ``share``) fold
+          onto a play; standalone rows (``follow``, ``followed_by``,
+          ``search``, ``login``, ``post``) are kept for participant-facing
+          stats only;
+        * ``item_id`` — the platform's video/post id. Required on viewing
+          rows and on any engagement row that should fold onto its play: an
+          engagement row WITHOUT an item id is never folded and only ever
+          counted from its standalone row, so a platform whose export names
+          no media for a section (Instagram comments) should say so in its
+          class docstring rather than invent one;
+        * ``extra_data`` — the row's own payload: comment text, search term,
+          followed username, share method. On play rows it is overwritten by
+          the fold with the ``"<type>[:context]"`` tokens of the engagement
+          that landed on that play;
+        * ``link_method`` — set only when the parser itself inferred an item
+          id (TikTok's ``ffill_180s``); the fold adds its own values.
+
+        Finish with ``self._finalize_activity_frame(df)`` (tz_offset,
+        chronological order) and return ``derive_play_duration(df)``, which
+        derives dwell time and performs the engagement fold. Drop rows the
+        platform cannot read (no timestamp, no item on a viewing row) inside
+        this method; :meth:`process` counts them per file as
+        ``not_parseable``.
+        """
 
 
 
 
+
+
+    def _note_undeclared_activity_types(self) -> None:
+        """Record, per file, any activity_type outside this class's declaration.
+
+        Never drops or raises: the rows are kept exactly as the parser made
+        them. The point is visibility — an export vintage that starts
+        producing a value the class did not declare (or one outside
+        ``KNOWN_ACTIVITY_TYPES`` altogether) lands as a ledger note on the
+        file, instead of as a silent new category in every downstream count.
+        """
+        if not self.emitted_activity_types or "activity_type" not in self.data.columns \
+                or "raw_file" not in self.data.columns or len(self.data) == 0:
+            return
+        allowed = set(self.emitted_activity_types) & KNOWN_ACTIVITY_TYPES
+        undeclared = self.data[~self.data["activity_type"].isin(list(allowed)) & self.data["activity_type"].notna()]
+        if len(undeclared) == 0:
+            return
+        for raw_file, grp in undeclared.groupby("raw_file"):
+            types = ", ".join(sorted(str(t) for t in grp["activity_type"].unique()))
+            self.note_file(str(raw_file), f"{len(grp):,} row(s) carry an undeclared activity type ({types}).")
+            logger.warning(f"[{raw_file}] {len(grp):,} row(s) carry an activity type outside "
+                           f"{type(self).__name__}.emitted_activity_types: {types}")
 
 
     def identify_similar_file_content(

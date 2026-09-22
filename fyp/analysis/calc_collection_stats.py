@@ -102,9 +102,9 @@ def process_single_collection(df_raw: pd.DataFrame) -> dict:
     comments_df = df[df['activity_type'] == 'comment']
     num_comments = len(comments_df)
 
-    # Likes
-    # Mapped from 'ItemFavoriteList' in s.py -> 'fave_item'
-    likes_df = df[df['activity_type'].isin(['like', 'fave_item', 'fave'])]
+    # Likes: `fave` is the like/heart on every platform (TikTok ItemFavoriteList,
+    # Instagram liked posts, YouTube Liked videos). Bookmarks are `save`.
+    likes_df = df[df['activity_type'] == 'fave']
     num_likes = len(likes_df)
 
     # Posts

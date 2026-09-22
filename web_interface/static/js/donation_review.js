@@ -153,11 +153,18 @@
         return { list: [], wrapKey: null, single: false };
     }
 
+    // Mirrors InstagramDDPCollection._extract: url/author/timestamp for a
+    // viewed, liked or saved item (saved posts carry the href inside
+    // string_map_data, e.g. "Saved on"), plus `text` for a comment record,
+    // which names the media owner but no media.
     function igExtract(record) {
-        let url = null, author = null, timestamp = record.timestamp ?? null;
+        let url = null, author = null, text = null, timestamp = record.timestamp ?? null;
         if (record.label_values) {
             for (const lv of record.label_values) {
                 if (lv.label === 'URL' && !url) url = lv.value || lv.href;
+                else if (lv.label === 'Comment' && !text) text = lv.value;
+                else if (lv.label === 'Media Owner' && !author) author = lv.value;
+                else if (lv.label === 'Time' && timestamp == null) timestamp = lv.timestamp ?? lv.value ?? null;
                 else if (lv.title === 'Owner') {
                     for (const outer of lv.dict || []) {
                         for (const inner of outer.dict || []) {
@@ -173,13 +180,17 @@
             const first = (entries.length && isPlainDict(entries[0])) ? entries[0] : {};
             url = first.href || null;
             if (timestamp == null) timestamp = first.timestamp ?? null;
-            if (timestamp == null && isPlainDict(record.string_map_data)) {
-                for (const entry of Object.values(record.string_map_data)) {
-                    if (isPlainDict(entry) && entry.timestamp) { timestamp = entry.timestamp; break; }
+            if (isPlainDict(record.string_map_data)) {
+                for (const [key, entry] of Object.entries(record.string_map_data)) {
+                    if (!isPlainDict(entry)) continue;
+                    if (!url && entry.href) url = entry.href;
+                    if (timestamp == null && entry.timestamp) timestamp = entry.timestamp;
+                    if (key === 'Comment' && !text) text = entry.value ?? null;
+                    else if (key === 'Media Owner' && !author) author = entry.value ?? null;
                 }
             }
         }
-        return { url, author, timestamp };
+        return { url, author, text, timestamp };
     }
 
     // --- CSV: record-range scanner (RFC 4180) -------------------------
@@ -333,11 +344,15 @@
                     sec.payloadRef = payload;
                     sec.wrapKey = wrapKey;
                     sec.single = single;
-                    sec.columns = ['When', 'Post', 'Account'];
+                    // A comment stream has text and no post URL; show the
+                    // donor what they wrote rather than an empty Post column.
+                    const isCommentStream = list.some(rec => isPlainDict(rec) && igExtract(rec).text);
+                    sec.columns = isCommentStream ? ['When', 'Comment', 'Account'] : ['When', 'Post', 'Account'];
                     list.forEach((rec, i) => {
                         if (!isPlainDict(rec)) return;
                         const ex = igExtract(rec);
-                        sec.rows.push([fmtEpoch(ex.timestamp), String(ex.url || ''), String(ex.author || '')]);
+                        const middle = isCommentStream ? (ex.text || '') : (ex.url || '');
+                        sec.rows.push([fmtEpoch(ex.timestamp), String(middle), String(ex.author || '')]);
                         sec.itemIdx.push(i);
                     });
                 }

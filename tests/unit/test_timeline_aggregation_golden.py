@@ -44,7 +44,7 @@ def _frame() -> pd.DataFrame:
         ("2025-01-01", "play",      5.0, 30.0, True,  False, False, 9.0, "z", ["dropped"],         None),   # MA failed → out
         ("2025-01-02", "observe",  np.nan, 20.0, True, False, True, 2.0, "b", ["x", None, "z"],    None),   # weight = duration
         ("2025-01-02", "play",     np.nan, 30.0, True, False, True, 2.0, "a", ["x"],               None),   # no play_dur → out
-        ("2025-01-02", "play",      0.0, 30.0, True,  False, True,  4.0, None, None,               "follow:acct"),
+        ("2025-01-02", "play",      0.0, 30.0, True,  False, True,  4.0, None, None,               "save,share:copy_link"),
         ("2025-01-03", "play",     12.0, 10.0, True,  False, True,  6.0, "c", ["y", "y"],          None),   # capped at duration
         ("2025-01-03", "like",     12.0, 10.0, True,  False, True,  6.0, "c", ["nope"],            None),   # not a play → out
         ("2025-01-03", "play",      7.0, 10.0, False, True,  np.nan, 1.0, "c", ["nope"],           None),   # scrape failed → out
@@ -178,3 +178,17 @@ def test_missing_date_column_returns_none():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_engagement_breakdown_columns_follow_the_vocabulary():
+    """One int column per ENGAGEMENT_TYPES; tokens are counted per occurrence
+    on the kept play rows; a context suffix ("share:copy_link") is ignored."""
+    from fyp.core.utils import ENGAGEMENT_TYPES
+
+    agg = ts.aggregate_timeline_frame(_frame(), VIZ, collection_id="t").set_index("period")
+    assert set(ENGAGEMENT_TYPES) <= set(agg.columns)
+    assert "follow" not in agg.columns, "follows never fold and are not a timeline series"
+    day1, day2 = agg.loc["2025-01-01"], agg.loc["2025-01-02"]
+    assert (day1["fave"], day1["comment"], day1["save"], day1["share"]) == (2, 1, 0, 0)
+    assert (day2["fave"], day2["comment"], day2["save"], day2["share"]) == (0, 0, 1, 1)
+    assert day1["extra_data_count"] == 3 and day2["extra_data_count"] == 2

@@ -50,6 +50,7 @@ class YouTubeDDPCollection(ForYouBaseCollection):
     platform_url_template = "https://www.youtube.com/watch?v={item_id}"
     source_platform = "youtube"
     raw_path = "youtube_raw"
+    emitted_activity_types = frozenset({"play", "ad_play", "comment", "fave", "save"})
 
     _MEMBER_SUFFIX_HTML = "history/watch-history.html"
     _MEMBER_SUFFIX_JSON = "history/watch-history.json"
@@ -130,7 +131,7 @@ class YouTubeDDPCollection(ForYouBaseCollection):
     _REVIEW_CSV_TITLES = {
         "comments/comments.csv": "Comments you made",
         "playlists/Liked videos.csv": "Videos you liked",
-        "playlists/Favorites videos.csv": "Your favourite videos",
+        "playlists/Favorites videos.csv": "Videos you saved",
     }
 
     @classmethod

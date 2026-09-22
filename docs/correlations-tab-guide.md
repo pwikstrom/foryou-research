@@ -94,7 +94,7 @@ organized by what they measure:
   video's length (looping/rewatching). This recovers the signal that
   Completion Rate's cap at 1.0 discards.
 - **Engaged with item** — share of the day's plays carrying the account's *own*
-  engagement (like/comment/share/save/follow recorded in the donation). This is
+  engagement (a like, save, comment or share recorded in the donation). This is
   the collection's behaviour, **not** the item's popularity — do not confuse it
   with the per-1K-plays variables below. Platform caveat: Instagram and YouTube
   exports log fewer engagement types than TikTok, so levels are not comparable

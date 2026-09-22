@@ -159,7 +159,11 @@ over the study period. Controls:
 - **Drag across a chart to zoom into a period** — all charts share one time
   window, so zooming or panning one keeps the rest synchronised. The control
   bar shows the visible period ("Showing …") with a **Reset** button.
-- The **Engagement** dropdown in the control bar toggles engagement series.
+- The **Engagement** dropdown in the control bar toggles the engagement
+  series — Like, Save, Comment and Share, each as a share of the day's plays
+  that carried the account's own engagement with that video. Follows are not
+  a series: a follow names an account, not a video, so it cannot be tied to
+  a play.
 - For categorical variables, filter chips (Rising, Falling, Spikes, Breaks,
   Volatile, Stable) keep only categories whose temporal pattern matches, and
   a "Show Findings" control opens analysis cards listing detected trends,

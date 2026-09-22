@@ -593,6 +593,9 @@
         }
         if (s.n_likes) lines.push(flat ? `<strong>${fmtInt(s.n_likes)}</strong> likes given.` : `You handed out <strong>${fmtInt(s.n_likes)}</strong> likes.`);
         if (s.n_comments) lines.push(flat ? `<strong>${fmtInt(s.n_comments)}</strong> comments made.` : `You made <strong>${fmtInt(s.n_comments)}</strong> comments.`);
+        if (s.n_saves) lines.push(flat ? `<strong>${fmtInt(s.n_saves)}</strong> videos saved.` : `You saved <strong>${fmtInt(s.n_saves)}</strong> videos.`);
+        if (s.n_shares) lines.push(flat ? `<strong>${fmtInt(s.n_shares)}</strong> videos shared.` : `You shared <strong>${fmtInt(s.n_shares)}</strong> videos.`);
+        if (s.n_follows) lines.push(flat ? `<strong>${fmtInt(s.n_follows)}</strong> accounts followed.` : `You followed <strong>${fmtInt(s.n_follows)}</strong> accounts.`);
         if (s.n_posts) lines.push(flat ? `<strong>${fmtInt(s.n_posts)}</strong> videos posted.` : `You posted <strong>${fmtInt(s.n_posts)}</strong> videos of your own.`);
         return lines.map(l => `<p class="text-sm" style="margin: 0 0 6px 0;">${l}</p>`).join('');
     }

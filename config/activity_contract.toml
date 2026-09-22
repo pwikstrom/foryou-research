@@ -41,7 +41,7 @@
 #                 so it is owned for metadata but is not an ingested required column
 
 [meta]
-version = "1"
+version = "2"
 
 # ===========================================================================
 # BASE required-columns (ingested; the REQUIRED_COLUMNS analogue).
@@ -64,7 +64,7 @@ dtype = "string[pyarrow]"
 section = "Activity"
 scale = "text"
 display_name = "Activity type"
-description = "The type of the activity (play, fave, comment, follow, login, ...)."
+description = "The type of the activity. Viewing: play, observe (browser capture), ad_play. Engagement: fave (a like), save (a bookmark), comment, share (incl. reposts). Standalone: follow, followed_by, search, login, post. The vocabulary is fyp.core.utils.KNOWN_ACTIVITY_TYPES; each platform declares what it emits."
 required = true
 
 [[fields]]
@@ -105,7 +105,7 @@ dtype = "string[pyarrow]"
 section = "Activity"
 scale = "text"
 display_name = "Engagement activity"
-description = "Engagement activities (fave/comment/share/follow/save) folded into the leading play row of a session run. Null for most rows. Comments carry no video ID in the platform export: one is linked to the play it followed within 180s, so the video is what was on screen at the time — not necessarily what the comment was posted on. The timestamp on this row is the play's, not the comment's. How each link was made is on the same row's `link_method`."
+description = "On a play row: the account's own engagement with that item, folded in as comma-separated `type[:context]` tokens (fave = like, save = bookmark, comment:text, share:method). On an engagement row: its own payload (comment text, share method, followed username). Follows never fold — they name no item. Null for most rows. Comments carry no video ID in the platform export: one is linked to the play it followed within 180s, so the video is what was on screen at the time — not necessarily what the comment was posted on. The timestamp on this row is the play's, not the comment's. How each link was made is on the same row's `link_method`."
 
 [[fields]]
 name = "link_method"

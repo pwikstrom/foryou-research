@@ -10,7 +10,35 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
+### Changed
+
+- **One engagement vocabulary across platforms.** Donor engagement is now
+  stored as `fave` (a like), `save` (a bookmark), `comment` and `share` on
+  every platform, and labelled Like / Save / Comment / Share everywhere the
+  Hub shows it (Explorer's Engagement activity filter, the Timelines
+  engagement series, My Collections). TikTok bookmarks (`FavoriteVideoList`)
+  used to be stored as `fave`, the same as likes; they are `save` now, and
+  `scripts/migrate_engagement_vocabulary.py` retags the stored data (dry run
+  by default, GCS-only apply, snapshot + report). Follows are stored as
+  `follow` (was `following`) and are no longer a Timelines series or an
+  Explorer facet: a follow names an account, not a video, so it never had a
+  play to attach to and the series was always empty. The vocabulary lives in
+  `fyp.core.utils` (`KNOWN_ACTIVITY_TYPES`, `ENGAGEMENT_LABELS`); each
+  ingester declares what it emits (`emitted_activity_types`) and a registry
+  test holds them to it. Timelines caches regenerate (schema 8).
+
 ### Added
+
+- **More of the export is read.** TikTok share history and reposts become
+  `share` rows (the share method, or `repost`, in `extra_data`); Instagram
+  saved posts become `save` and the donor's own comments `comment` (text in
+  `extra_data`; Instagram names no media for a comment, so these stay
+  standalone rows). A TikTok comment whose record names its video
+  (`originalPostUrl`, newer exports) now gets that observed id instead of the
+  180 s guess. Each new section is a card in the pre-upload review. Stored
+  donations uploaded through the review flow do not contain the new sections
+  (the browser stripped them), so `share` history will be sparse until new
+  donations arrive.
 
 - **Email verification at signup.** A new account is emailed a signed link
   (valid 48 hours) and cannot log in until it is opened; the login page

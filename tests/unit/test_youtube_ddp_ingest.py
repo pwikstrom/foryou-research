@@ -162,3 +162,35 @@ def test_enough_organic_watches_still_load_alongside_ads(collection, monkeypatch
     df = collection.load_single_raw("ok.zip")
     assert int(df["is_ad"].ne(True).sum()) == 10
     assert int(df["is_ad"].eq(True).sum()) == 3
+
+
+# ---------------------------------------------------------------------------
+# The playlist CSVs (added to the fixtures 2026-09; the parser had read them
+# untested). Takeout's headers: "Video ID,Playlist video creation timestamp".
+
+
+def _json_export_with_playlists(path) -> str:
+    _json_export(path)
+    header = "Video ID,Playlist video creation timestamp\n"
+    liked = header + f"{_IDS[1]},2026-05-01T10:01:30.000Z\n"
+    favorites = header + f"{_IDS[2]},2026-05-01T10:02:30.000Z\n" + "not-an-id,2026-05-01T10:02:31.000Z\n"
+    with zipfile.ZipFile(path, "a") as zf:
+        zf.writestr("Takeout/YouTube and YouTube Music/playlists/Liked videos.csv", liked)
+        zf.writestr("Takeout/YouTube and YouTube Music/playlists/Favorites videos.csv", favorites)
+    return str(path)
+
+
+def test_liked_and_favorites_playlists_become_fave_and_save(collection, monkeypatch, tmp_path):
+    _patch(monkeypatch, _json_export_with_playlists(tmp_path / "takeout.zip"))
+
+    df = collection.load_single_raw("takeout.zip")
+    df["raw_file"] = "takeout.zip"
+    out = collection.process_single(df).sort_values("utc_timestamp").reset_index(drop=True)
+
+    assert list(out.loc[out["activity_type"] == "fave", "item_id"]) == [_IDS[1]]
+    assert list(out.loc[out["activity_type"] == "save", "item_id"]) == [_IDS[2]], \
+        "the malformed id row is skipped"
+    plays = out[out["activity_type"] == "play"].set_index("item_id")
+    assert plays.loc[_IDS[1], "extra_data"] == "fave"
+    assert plays.loc[_IDS[2], "extra_data"] == "save"
+    assert plays.loc[_IDS[1], "link_method"] == "adjacent"
