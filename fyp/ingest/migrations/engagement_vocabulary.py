@@ -46,19 +46,25 @@ _NEW_SHARE_SECTIONS = {"sharehistorylist", "repostlist"}
 
 
 def default_raw_loader(data_source: str, raw_file: str):
-    """Read one TikTok raw export from its storage location (None when absent)."""
+    """Read one TikTok raw export (None when absent from every raw location).
+
+    The stored ``data_source`` does not say where the file sits: AIO-fetched
+    exports are persisted with ``data_source="ddp"`` (the AIO class inherits
+    the DDP parser and the stored value followed it), so the lookup tries the
+    location the source names first and then every other TikTok raw folder.
+    """
     import fyp.data_io as data_io
 
-    location = _TIKTOK_RAW_LOCATIONS.get(str(data_source))
-    if location is None:
-        return None
-    try:
-        if not data_io.exists(storage_location=location, filename=raw_file):
+    first = _TIKTOK_RAW_LOCATIONS.get(str(data_source))
+    locations = ([first] if first else []) + [loc for loc in _TIKTOK_RAW_LOCATIONS.values() if loc != first]
+    for location in locations:
+        try:
+            if data_io.exists(storage_location=location, filename=raw_file):
+                return data_io.load_json(storage_location=location, filename=raw_file)
+        except Exception as exc:  # unreadable object: report, never abort the run
+            logger.warning(f"[{raw_file}] raw export unreadable in '{location}': {exc}")
             return None
-        return data_io.load_json(storage_location=location, filename=raw_file)
-    except Exception as exc:  # unreadable object: report, never abort the run
-        logger.warning(f"[{raw_file}] raw export unreadable: {exc}")
-        return None
+    return None
 
 
 def _section_records(donation_dict: dict, sections: set[str]) -> pd.DataFrame:

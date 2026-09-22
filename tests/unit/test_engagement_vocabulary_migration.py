@@ -154,3 +154,19 @@ def test_append_new_sections_adds_shares_once():
 def test_snapshot_name_is_filesystem_safe():
     name = mig.snapshot_name(pd.Timestamp("2026-09-22 03:04:05", tz="UTC"))
     assert name == "collections_recoded.pre_engagement_vocabulary_20260922T030405.parquet"
+
+
+def test_default_loader_falls_back_to_every_tiktok_raw_location(monkeypatch):
+    """AIO-fetched exports are stored with data_source='ddp' but live in aio_raw."""
+    import fyp.data_io as data_io
+
+    seen = []
+    monkeypatch.setattr(data_io, "exists",
+                        lambda storage_location=None, filename=None, **kw: seen.append(storage_location) or storage_location == "aio_raw")
+    monkeypatch.setattr(data_io, "load_json",
+                        lambda storage_location=None, filename=None, **kw: {"from": storage_location})
+    assert mig.default_raw_loader("ddp", "uuid-file") == {"from": "aio_raw"}
+    assert seen == ["ddp_raw", "aio_raw"], "the named source is tried first, then the rest"
+    seen.clear()
+    monkeypatch.setattr(data_io, "exists", lambda storage_location=None, filename=None, **kw: False)
+    assert mig.default_raw_loader("ddp", "gone.json") is None
