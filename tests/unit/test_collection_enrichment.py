@@ -787,7 +787,7 @@ def test_tick_ignores_queues_of_unarmed_platforms(tick):
 def test_tick_storm_blocks_the_platform_plans(tick):
     tick["plans"] = {"c1": {**_entry(), "platform": "tiktok"}}
     tick["scrape_queues"] = {"tiktok": 12}
-    tick["storm"] = "permanent_storm_tripped"
+    tick["storm"] = "permanent_storm"
     tick["run"]()
     assert tick["started"] == []                 # scraper NOT restarted
     ledger = tick["store"][ce.LEDGER_FILENAME]

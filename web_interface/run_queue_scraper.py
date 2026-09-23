@@ -330,9 +330,10 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         reporter.log(
             "Rate-limit circuit breaker tripped — the platform is throttling "
             "this session. Stopping the chain; unfinished items stay in the "
-            "queue. Re-run the scraper later."
+            "queue. A scraper alert was raised on the enrichment page — re-run "
+            "the scraper once the platform has cooled down."
         )
-        reporter.emit_data({"rate_limit_abort": True})
+        reporter.emit_data({"circuit_breaker_tripped": True})
         return _finish("stopped by the rate-limit circuit breaker")
 
     if results_df.attrs.get('permanent_storm_tripped'):
@@ -344,7 +345,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
             f"affected items stay queued. A scraper alert was raised on the "
             f"enrichment page — revise the scraper before re-running."
         )
-        reporter.emit_data({"permanent_storm_abort": True})
+        reporter.emit_data({"permanent_storm_tripped": True})
         return _finish("stopped by a permanent-failure storm")
 
     if results_df.attrs.get('transient_storm_tripped'):
@@ -357,7 +358,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
             f"A scraper alert was raised on the enrichment page — revise the "
             f"scraper (or wait for an upstream fix) before re-running."
         )
-        reporter.emit_data({"transient_storm_abort": True})
+        reporter.emit_data({"transient_storm_tripped": True})
         return _finish("stopped by a transient-failure storm")
 
     if reporter.check_cancelled():

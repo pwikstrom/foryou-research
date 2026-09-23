@@ -159,6 +159,22 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ### Fixed
 
+- **A scraper storm now actually holds the enrichment loop off.** The
+  supervisor was meant to stop restarting a scraper that a permanent storm or
+  the rate-limit circuit breaker had stopped, but it looked for status keys
+  (`permanent_storm_tripped`, `circuit_breaker_tripped`) the workers never
+  wrote — they wrote `permanent_storm_abort` and `rate_limit_abort` — and it
+  read the Cloud Run task-status file, which a local drain (where Instagram
+  and YouTube run) never writes. So no storm ever held it off: it restarted
+  the scraper into the same wall until the no-drain guard parked the plans
+  two runs later. The hold now reads the platform's scraper alert, which both
+  run paths raise and which the operator's dismissal clears, so "clear the
+  alert, then arm again" — the blocked plan's own instruction — now works.
+  A transient storm holds too (it is the bot-wall case, 2026-08-10), and the
+  circuit breaker, whose throttle verdicts include `bot_check`, now raises an
+  alert of its own (`circuit_breaker`). The workers report each abort under
+  the batch's own attribute name (`*_tripped`).
+
 - **The ingest results no longer blame a new upload for rows removed
   elsewhere.** The merge removes duplicate events across the whole dataset,
   so a run's net change can be smaller than its files' rows for two reasons:

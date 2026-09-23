@@ -261,18 +261,31 @@ def _unavailable_here(platform: str) -> str | None:
 
 
 def _scraper_blocked(platform: str) -> str | None:
-    """A storm/circuit-breaker abort the operator has to clear, if any.
+    """The kind of the platform's active scraper alert, if it has one.
 
-    The scraper already raises these; the supervisor must not keep restarting it
-    into a bot wall.
+    A session logout, a permanent or transient storm and the rate-limit
+    circuit breaker each stop the scraper and raise an alert; the supervisor
+    must not keep restarting it into the same wall. The alert — not the
+    worker's task status — is the hold, because only the alert is:
+
+    - written by both run paths. A local drain (Instagram and YouTube only
+      ever run there) reports through stdout into ``process_stats``, never
+      into the task-status file, so a flag read from that file could not hold
+      off the platforms most prone to it.
+    - released by the operator. The blocked plan's journal line says "clear
+      the alert, then arm again"; a flag in the last run's status would
+      survive the dismissal and park the re-armed plan on the next tick. A
+      healthy batch clears it too.
+    - never stale. YouTube's task-status file still carried a July Cloud Run
+      run's rate-limit flag in September.
+
+    Any alert kind holds: every one of them asks a person to look.
     """
-    from web_interface.task_status import read_task_status
-    status = read_task_status(f"queue_scraper_{platform}") or {}
-    data = status.get("data") or {}
-    for flag in ("permanent_storm_tripped", "circuit_breaker_tripped", "session_expired"):
-        if data.get(flag):
-            return flag
-    return None
+    from fyp.scrape import scraper_alerts
+    alert = scraper_alerts.load_alerts().get(platform)
+    if not alert:
+        return None
+    return str((alert.get("kind") if isinstance(alert, dict) else None) or "scraper_alert")
 
 
 def run_enrichment_supervisor(reporter: TaskStatusReporter,

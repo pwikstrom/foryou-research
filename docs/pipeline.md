@@ -152,14 +152,22 @@ login in Chrome.
 taxonomy, and `classify_error` maps it to `permanent:<reason>` (pruned from
 the queue, recorded in the failed-scrapes ledger) or `transient:<reason>`
 (kept for a later run). One broken session can make every item read as
-permanently gone, so three guards sit on top — all of them abort the batch,
-and the storm guards also raise a scraper alert for a human:
+permanently gone, so three guards sit on top — each aborts the batch and
+raises a scraper alert for a human:
 
 | Guard | Trips on | The items |
 |---|---|---|
 | circuit breaker | 15 consecutive throttle verdicts | stay queued |
 | permanent-storm guard | 15 consecutive identical *permanent* verdicts | demoted to transient, stay queued |
 | transient-storm guard | 25 consecutive identical *transient* verdicts | already transient; chaining stops |
+
+A platform keeps one alert (within a batch a logout outranks the storms,
+the storms the breaker). It clears on the next batch that produces results
+with none of these, or when an admin dismisses it on the Scrape page. While it stands the
+enrichment supervisor does not start that platform's scraper: it blocks the
+platform's armed plans instead, and they wait to be armed again. The hold
+reads the alert, not the worker's task status, because a local drain never
+writes that status file and a dismissal never clears it.
 
 **Corroborated verdicts.** Those guards assume a healthy queue produces
 heterogeneous outcomes — which a queue of nothing but retries never does,

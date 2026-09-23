@@ -34,6 +34,11 @@ KIND_TRANSIENT_STORM = "transient_storm"
 # (platform_scraper.SESSION_EXPIRED; 2026-09-23 Instagram). Needs a human to
 # log in again, so it outranks the storm alerts.
 KIND_SESSION_EXPIRED = "session_expired"
+# The rate-limit circuit breaker: a run of consecutive throttle verdicts
+# (rate_limited, bot_check). Raised so the enrichment supervisor holds the
+# scraper off instead of restarting it straight back into the wall — the
+# supervisor holds on any active alert. Ranks below the storms.
+KIND_CIRCUIT_BREAKER = "circuit_breaker"
 
 
 

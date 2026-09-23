@@ -1430,9 +1430,11 @@ def download_video_threads(
 
     # Durable, user-visible alert: a storm means the scraper (or its session)
     # is likely broken — e.g. the platform changed its site/API — and needs a
-    # human look. Raise it on a storm; clear it once a batch produces real
-    # results again with no storm. Best-effort on both sides (never blocks
-    # scraping), and skipped in dry runs.
+    # human look. Raise it on a storm (or a logout, or a tripped circuit
+    # breaker); clear it once a batch produces real results again with none of
+    # them. The enrichment supervisor holds the platform's scraper off while it
+    # stands. Best-effort on both sides (never blocks scraping), and skipped in
+    # dry runs.
     if not dry_run:
         if session_state["expired"]:
             # First: it is the one failure only a person can fix, and a
@@ -1475,6 +1477,19 @@ def download_video_threads(
                     f"broken extractor) and the {scraper.platform} scraper needs "
                     f"attention. Scraping was stopped; the affected items remain queued "
                     f"and will be retried once the scraper is healthy again."
+                ),
+            )
+        elif breaker_state["tripped"]:
+            scraper_alerts.raise_alert(
+                platform=scraper.platform,
+                kind=scraper_alerts.KIND_CIRCUIT_BREAKER,
+                count=breaker_state["consecutive"],
+                message=(
+                    f"{breaker_state['consecutive']} consecutive items were throttled or "
+                    f"met a bot check ({', '.join(sorted(THROTTLE_CATEGORIES))}) — "
+                    f"{scraper.platform.capitalize()} is pushing back on this session or IP. "
+                    f"Scraping was stopped; the items remain queued. Give the platform time "
+                    f"to cool down, then dismiss this alert or re-run the scraper."
                 ),
             )
         elif results:
@@ -1662,7 +1677,7 @@ def scraper_loop_from_list(
                   "Unfinished items stay in the queue; re-run the scraper later.")
             aborted = True
             if reporter is not None:
-                reporter.emit_data({"rate_limit_abort": True})
+                reporter.emit_data({"circuit_breaker_tripped": True})
             break
 
         if results_from_scraper.attrs.get('permanent_storm_tripped'):
@@ -1672,7 +1687,7 @@ def scraper_loop_from_list(
                   f"stay in the queue; re-run the scraper once the session is healthy.")
             aborted = True
             if reporter is not None:
-                reporter.emit_data({"permanent_storm_abort": True})
+                reporter.emit_data({"permanent_storm_tripped": True})
             break
 
         if results_from_scraper.attrs.get('transient_storm_tripped'):
@@ -1683,7 +1698,7 @@ def scraper_loop_from_list(
                   f"stay in the queue for a later retry.")
             aborted = True
             if reporter is not None:
-                reporter.emit_data({"transient_storm_abort": True})
+                reporter.emit_data({"transient_storm_tripped": True})
             break
 
         with open(os.path.join(_cf()['paths']['temp'], "temp_failed_scrapes.json"), "w") as f:

@@ -162,7 +162,8 @@ rate-limit/bot-check outcomes) plus twin **storm guards** — N consecutive
 identical *permanent* classifications (a flagged session mis-reporting live
 items as removed) or identical *transient* ones (a bot wall failing every
 item retryably) abort the batch, stop self-chaining, and raise a persistent
-per-platform scraper alert; the failed-scrapes record stores each item's
+per-platform scraper alert, which holds the enrichment supervisor off that
+platform until it clears; the failed-scrapes record stores each item's
 failure category so storms are diagnosable after the fact. Because those
 guards read a homogeneous run as a broken session, and a queue of nothing but
 retries is homogeneous by construction, a scraper can mark a verdict
