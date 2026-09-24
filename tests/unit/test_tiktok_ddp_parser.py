@@ -369,6 +369,39 @@ def test_comment_with_original_post_url_is_observed_not_inferred(collection, mon
     assert inferred["link_method"] == "ffill_180s"
 
 
+def test_comment_date_with_utc_suffix_is_read(collection, monkeypatch):
+    """Exports uploaded from September 2026 write comment dates as '... UTC'."""
+    doc = _ddp_with_engagement()
+    for rec in doc["Comment"]["Comments"]["CommentsList"]:
+        rec["date"] = rec["date"] + " UTC"
+    out = _process(collection, monkeypatch, doc)
+    comments = out[out["activity_type"] == "comment"].set_index("extra_data")
+    assert len(comments) == 2
+    assert comments.loc["seen it", "item_id"] == "7000000000000000008"
+    assert str(comments.loc["seen it", "utc_timestamp"]) == "2026-05-01 10:08:20+00:00"
+    assert collection.file_stats_this_run.get("donor_e.json", {}).get("dropped", {}).get("not_parseable") is None
+
+
+def test_too_small_export_reports_its_true_record_count(collection, monkeypatch):
+    df = _load(collection, monkeypatch, "small.json", _flat_ddp_document(3, n_plays=5))
+    assert len(df.columns) == 1 and len(df) == 0  # the raw_file column _load adds
+    assert collection.records_read_this_run["small.json"] == 6  # five plays and a login
+
+
+def test_zeeschuimer_counts_pages_outside_the_feed_and_survives_an_empty_file(monkeypatch):
+    zs = tiktok_mod.TikTokZeeschuimerCollection(verbose=False)
+    records = [{"source_platform_url": "https://www.tiktok.com/foryou", "id": "1"},
+               {"source_platform_url": "https://www.tiktok.com/search?q=x", "id": "2"},
+               {"source_platform_url": "https://www.tiktok.com/", "id": "3"}]
+    monkeypatch.setattr(tiktok_mod.data_io, "read_ndjson_file",
+                        lambda storage_location=None, filename=None: records if filename == "c.ndjson" else [])
+    df = zs.load_single_raw("c.ndjson")
+    assert list(df["id"]) == ["1", "3"]
+    assert zs.records_read_this_run["c.ndjson"] == 3
+    assert zs.load_drops_this_run["c.ndjson"] == {"outside_whitelist": 1}
+    assert zs.load_single_raw("empty.ndjson").empty
+
+
 def test_non_item_favorites_are_outside_the_whitelist(collection, monkeypatch):
     df = _load(collection, monkeypatch, "donor_e.json", _ddp_with_engagement())
     assert "favoritesoundlist" in set(df["activity_type"])

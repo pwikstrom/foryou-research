@@ -105,7 +105,7 @@ dtype = "string[pyarrow]"
 section = "Activity"
 scale = "text"
 display_name = "Engagement activity"
-description = "On a play row: the account's own engagement with that item, folded in as comma-separated `type[:context]` tokens (fave = like, save = bookmark, comment:text, share:method). On an engagement row: its own payload (comment text, share method, followed username). Follows never fold — they name no item. Null for most rows. Comments carry no video ID in the platform export: one is linked to the play it followed within 180s, so the video is what was on screen at the time — not necessarily what the comment was posted on. The timestamp on this row is the play's, not the comment's. How each link was made is on the same row's `link_method`."
+description = "On a play row: the account's own engagement with that item, folded in as comma-separated `type[:context]` tokens (fave = like, save = bookmark, comment:text, share:method). On an engagement row: its own payload (comment text, share method, followed username). Follows never fold — they name no item. Null for most rows. TikTok comments in exports before September 2026 carry no video ID: one is borrowed from the most recent row with a video ID in the same burst of activity (no gap over 180s between consecutive rows, so a long burst reaches further back), usually the play on screen at the time — not necessarily what the comment was posted on. Newer exports name the video and need no fill. The timestamp on this row is the play's, not the comment's. How each link was made is on the same row's `link_method`."
 
 [[fields]]
 name = "link_method"
@@ -170,7 +170,7 @@ dtype = "string[pyarrow]"
 section = "backstage"
 scale = "text"
 display_name = "Session id"
-description = "Persistent sitting-level session id (collection_id__N)."
+description = "Persistent sitting-level session id (collection_id__N): a run of the donor's activity with no gap over [sessions] session_gap_s. Every row of the donor's own activity carries one, viewing or not, so count sessions over viewing rows. Null on followed_by rows, which are another account's action."
 derived = true
 
 [[fields]]

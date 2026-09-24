@@ -80,6 +80,13 @@ class TikTokDDPCollection(ForYouBaseCollection):
     # sections but at index 2 in ShareHistoryList (after SharedContent), and
     # newer comment records carry the video under `originalPostUrl`.
     _LINK_KEYS = ('link', 'originalposturl')
+    # Every export date is UTC wall-clock time in this format. Exports
+    # uploaded from September 2026 write the comment section's dates with the
+    # zone spelled out ("2026-08-01 12:00:00 UTC"); the strict format rejected
+    # them, so every comment in those exports — the first to name their
+    # video under `originalPostUrl` — was dropped as not parseable.
+    _DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+    _DATE_ZONE_SUFFIX = ' UTC'
     _VIDEO_ID_RE = re.compile(r"/video/(\d+)")
     # Sections whose 'VideoList' holds the donor's OWN uploads rather than
     # watch history. TikTok reuses the key for both — Your Activity -> Watch
@@ -254,6 +261,14 @@ class TikTokDDPCollection(ForYouBaseCollection):
 
 
     @classmethod
+    def _strip_zone_suffix(cls, value):
+        """An export date with a trailing `` UTC`` removed; anything else unchanged."""
+        if isinstance(value, str) and value.endswith(cls._DATE_ZONE_SUFFIX):
+            return value[:-len(cls._DATE_ZONE_SUFFIX)]
+        return value
+
+
+    @classmethod
     def _section_activity_type(cls, parent: str | None, feature: str | None) -> str:
         """Name the section a list belongs to, disambiguating reused keys.
 
@@ -294,6 +309,9 @@ class TikTokDDPCollection(ForYouBaseCollection):
         n_play_activities = len(df[df['activity_type'] == 'videolist'])
         if n_play_activities <= 10:
             if self.verbose: logger.info(f"Discarding {filename} as it only has {n_play_activities} play activities.")
+            # The file is discarded as too small; the ledger still gets its
+            # true record count rather than the empty frame's zero.
+            self.record_load_count(filename, len(df))
             return pd.DataFrame()
 
         return df
@@ -360,7 +378,8 @@ class TikTokDDPCollection(ForYouBaseCollection):
             return df
 
         # get the date from index zero (I don't need the variable name)
-        df['date'] = pd.to_datetime(df['value_list'].str[0], format='%Y-%m-%d %H:%M:%S', errors='coerce')
+        df['date'] = pd.to_datetime(df['value_list'].str[0].map(self._strip_zone_suffix),
+                                    format=self._DATE_FORMAT, errors='coerce')
 
         # remove rows with invalid dates
         df = df[df['date'].notna()].copy()
@@ -644,14 +663,16 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
         #        data.append(json.loads(line))
             
         data = data_io.read_ndjson_file(storage_location = self.raw_path, filename = filename)
+        if not data:
+            return pd.DataFrame()
+        df = pd.json_normalize(data)
 
-        if data is not None and len(data) > 0:
-            df = pd.json_normalize(data)
-
-            # Only keeping data from accepted tiktok urls
-            if 'source_platform_url' in df.columns:
-                df = df[df['source_platform_url'].isin(self.accepted_tiktok_urls)].copy()
-        
+        # Only keeping data from accepted tiktok urls. Records captured on
+        # other pages (search, profiles) are excluded by design and counted.
+        if 'source_platform_url' in df.columns:
+            keep = df['source_platform_url'].isin(self.accepted_tiktok_urls)
+            self.record_load_count(filename, len(df), {"outside_whitelist": int((~keep).sum())})
+            df = df[keep].copy()
         return df
 
 

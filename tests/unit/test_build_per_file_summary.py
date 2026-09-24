@@ -85,3 +85,22 @@ def test_summary_without_file_stats_still_works():
     )
     assert summary[0]["dropped"] == {}
     assert summary[0]["raw_rows"] == 10
+
+
+
+
+def test_a_redonation_that_supersedes_every_row_is_a_merge():
+    """The older file keeps no rows, yet the new one merged with it."""
+    main = _main_collection({"new.json": "new"})
+    summary = _build_per_file_summary(
+        main,
+        raw_counts={"new.json": {"rows": 10, "platform": "tiktok", "source": "ddp"}},
+        processed_counts={"new.json": {"rows": 10, "platform": "tiktok", "source": "ddp"}},
+        discarded_at_load=set(),
+        existing_raw_files={"old.json", "other.json"},
+        pre_cids={"old.json": "old", "other.json": "other"},
+        cid_remap={"old": "new"},
+    )
+    entry = summary[0]
+    assert entry["outcome"] == "merged_with_existing"
+    assert entry["merged_with_siblings"] == ["old.json"]

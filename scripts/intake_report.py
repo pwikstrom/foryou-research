@@ -712,7 +712,9 @@ def calibrate_one_file(utc: pd.Series, tz_str: str, stored_offsets: list | None 
     zone_offset = float(_zone_offset_hours(pd.Series([median_ts]), zone).iloc[0])
     per_row = _zone_offset_hours(utc, zone).astype(float)
     other_half = float((per_row != zone_offset).mean()) * 100.0
-    diff = inferred - zone_offset
+    # Offsets live on a 24-hour circle: an inferred -10 against a true +10
+    # is four hours off, not twenty.
+    diff = (inferred - zone_offset + 12.0) % 24.0 - 12.0
     return {
         "n_events": len(utc),
         "inferred": inferred,
@@ -1001,10 +1003,10 @@ def overlap_sensitivity(pairs: list[tuple[str, str, float]], ledger_files: dict[
                         tags: dict[str, dict] | None = None) -> dict:
     """Merges at each threshold plus the overlap distribution and the ledger's ground truth.
 
-    ``thresholds`` counts every pair in the table; ``thresholds_within_route``
-    restricts to pairs on the same collection route, which is the only kind
-    production compares (``identify_similar_file_content`` runs per
-    sub-collection).
+    ``thresholds`` counts every pair in the table, which is what production
+    compares (``identify_similar_file_content`` runs once over the whole
+    table, across routes and platforms); ``thresholds_within_route``
+    restricts to pairs on the same collection route, for comparison.
     """
     users = account_per_file(ledger_files, collection_per_file, tags)
     overlaps = sorted(o for _, _, o in pairs)
@@ -1193,7 +1195,7 @@ def render_tables_md(report: dict) -> str:
                               v["n_false_merges_different_accounts"], v["n_cross_platform_pairs"], v["pairs_by_account_relation"]]
                              for t, v in ov["thresholds"].items()]), ""]
         if ov.get("thresholds_within_route"):
-            parts += [f"Within-route pairs only (what production compares): {ov['n_pairs_within_route']:,} pairs", "",
+            parts += [f"Within-route pairs only: {ov['n_pairs_within_route']:,} pairs", "",
                       _md_table(["Threshold", "Pairs above", "On <=2 shared seconds", "Merges", "Files merged",
                                  "Spanning collections", "With a file <30 events", "Different accounts", "Pairs by account relation"],
                                 [[t, v["n_pairs_above_threshold"], v["n_pairs_on_two_shared_seconds_or_fewer"], v["n_merges"],

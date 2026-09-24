@@ -51,7 +51,9 @@ def stores(monkeypatch):
 
 def test_parse_rate_uses_the_ingestible_denominator():
     stats = ss.compute_processed_stats(85_933, _rows(900), outside_whitelist=85_000)
-    assert stats["kept_ratio"] == round(900 / 85_933, 4)
+    # By-design exclusions are not drift: the drift metric uses the same
+    # denominator as the floor.
+    assert stats["kept_ratio"] == round(900 / 933, 4)
     assert stats["ingestible_rows"] == 933
     assert stats["parse_rate"] == round(900 / 933, 4)
     assert ss.evaluate_parse_floor(stats) == []
@@ -109,3 +111,14 @@ def test_an_approval_of_the_floor_finding_sticks(stores):
     verdict = again.check_processed(coll, "loss.json", _rows(50))
 
     assert verdict["status"] == "approved"
+
+
+
+def test_record_ids_used_as_keys_collapse_to_one_path():
+    live = {"TikTok Live": {"Watch Live History": {"WatchLiveMap": {
+        "7543199678871915271": {"WatchTime": "2026-01-01 10:00:00"},
+        "7543199678871915999": {"WatchTime": "2026-01-02 10:00:00"},
+    }}}}
+    paths = ss.key_paths_of(live)
+    assert paths == {"TikTok Live.Watch Live History.WatchLiveMap.<id>.WatchTime|str"}
+    assert ss.key_paths_of({"2026": {"a": 1}}) == {"2026.a|int"}  # short numbers stay

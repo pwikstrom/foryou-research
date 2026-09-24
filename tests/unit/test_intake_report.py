@@ -365,6 +365,16 @@ def test_calibration_reports_the_other_dst_half_and_stored_offsets():
     assert 0 < out["rows_in_other_dst_half_pct"] < 50
 
 
+def test_calibration_difference_wraps_around_the_day(monkeypatch):
+    import fyp.annotation.recode_variables as rv
+
+    monkeypatch.setattr(rv, "infer_timezone_offset", lambda utc: -10.0)
+    utc = pd.to_datetime(["2025-06-15 12:00:00"] * 5, utc=True)
+    out = ir.calibrate_one_file(utc, "Australia/Brisbane")
+    assert out["diff"] == 4.0  # -10 against +10 is four hours off, not twenty
+    assert out["off_gt_1h"] and not out["agree"]
+
+
 def test_union_find_reports_route_and_account_relation():
     pairs = [("ddp1", "cap1", 0.3), ("ddp1", "ddp2", 0.3), ("ddp2", "ddp3", 0.3)]
     routes = {"ddp1": "tiktok_ddp", "ddp2": "tiktok_ddp", "ddp3": "tiktok_ddp", "cap1": "tiktok_zeeschuimer"}

@@ -89,6 +89,8 @@ def _build_per_file_summary(
     load_failed: dict[str, dict] | None = None,
     file_stats: dict[str, dict] | None = None,
     blocked: dict[str, dict] | None = None,
+    pre_cids: dict[str, str] | None = None,
+    cid_remap: dict[str, str] | None = None,
 ) -> list[dict]:
     """For each new raw_file, produce a row describing what happened.
 
@@ -108,11 +110,19 @@ def _build_per_file_summary(
         collection that also contains one or more prior raw_files; the
         canonical collection_id may now point at this file.
       - ``added_as_new``: standalone collection, no overlap with anything.
+
+    A file already stored counts as a sibling even when the merge left it no
+    rows: a re-donation that repeats an older file entirely supersedes every
+    one of its rows (the newest copy wins), so the older file is found
+    through its collection id before the merge (``pre_cids``) and the merge's
+    remap (``cid_remap``) rather than through surviving rows.
     """
     quarantined = quarantined or {}
     load_failed = load_failed or {}
     file_stats = file_stats or {}
     blocked = blocked or {}
+    pre_cids = pre_cids or {}
+    cid_remap = cid_remap or {}
     final_df = main_collection.data
     candidate_files = (set(raw_counts) | discarded_at_load | set(quarantined)
                        | set(load_failed) | set(blocked))
@@ -221,6 +231,12 @@ def _build_per_file_summary(
                 str(s) for s in cluster_df["raw_file"].dropna().unique().tolist()
                 if s != rf
             ]
+            absorbed = [
+                f for f, cid in sorted(pre_cids.items())
+                if f != rf and f in existing_raw_files and f not in sibling_files
+                and cid_remap.get(cid, cid) == canonical_cid
+            ]
+            sibling_files += absorbed
             existing_siblings = [s for s in sibling_files if s in existing_raw_files]
             siblings = sibling_files
             if existing_siblings:
@@ -446,6 +462,8 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
         load_failed=load_failed_files,
         file_stats=file_stats,
         blocked=blocked_files,
+        pre_cids=pre_cids,
+        cid_remap=getattr(main_collection, "last_cid_remap", {}) or {},
     )
 
     # Record the active activity-contract version once per ingest run (idempotent,

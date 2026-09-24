@@ -374,6 +374,11 @@ VIEWING_ACTIVITY_TYPES = ('play', 'observe', 'ad_play')
 ENGAGEMENT_TYPES = ('fave', 'save', 'comment', 'share')
 STANDALONE_ACTIVITY_TYPES = ('follow', 'followed_by', 'search', 'login', 'post')
 KNOWN_ACTIVITY_TYPES = frozenset(VIEWING_ACTIVITY_TYPES + ENGAGEMENT_TYPES + STANDALONE_ACTIVITY_TYPES)
+# Events that happen TO the account rather than BY the donor: another account
+# following them. They are no part of a phone sitting, so session assignment
+# leaves them out (a follower arriving mid-afternoon must not join the
+# donor's lunchtime and evening scrolling into one session).
+RECEIVED_ACTIVITY_TYPES = ('followed_by',)
 
 # Human labels for the UI (Explorer facet, Timelines series, My Collections).
 # The stored token stays `fave`; only the label says "Like".

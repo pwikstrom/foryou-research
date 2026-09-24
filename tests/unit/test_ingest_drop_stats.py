@@ -162,3 +162,34 @@ def test_update_ledger_persists_new_fields():
     # LEDGER_SKIP_OUTCOMES behaviour: the discarded file is skip-listed
     assert "tiny.zip" in col.discarded_raw_files
     assert "new.zip" not in col.discarded_raw_files
+
+
+
+
+
+
+def test_load_counts_come_from_the_parser_when_it_drops_while_loading(dummy_collection, monkeypatch):
+    """A too-small file keeps its true count; load-time exclusions are counted."""
+    import fyp.ingest.base as base_mod
+
+    col = dummy_collection
+    col.raw_path = "probe_raw"
+    frames = {"tiny.json": pd.DataFrame(), "big.json": _raw_frame().iloc[:3].drop(columns=["raw_file"])}
+
+    def load_single_raw(filename):
+        if filename == "tiny.json":
+            col.record_load_count(filename, 7)
+        else:
+            col.record_load_count(filename, 5, {"outside_whitelist": 2})
+        return frames[filename].copy()
+
+    monkeypatch.setattr(col, "load_single_raw", load_single_raw)
+    monkeypatch.setattr(base_mod.data_io, "listdir", lambda location: ["tiny.json", "big.json"])
+    monkeypatch.setattr(base_mod.data_io, "exists", lambda **kw: False)
+    monkeypatch.setattr(base_mod.data_io, "getmtime", lambda **kw: 1_700_000_000)
+
+    col.load_raw()
+
+    assert col.file_stats_this_run["tiny.json"] == {"raw_rows": 7, "dropped": {}}
+    assert col.file_stats_this_run["big.json"] == {"raw_rows": 5, "dropped": {"outside_whitelist": 2}}
+    assert "tiny.json" in col.discarded_raw_files

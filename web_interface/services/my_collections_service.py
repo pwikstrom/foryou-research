@@ -882,6 +882,11 @@ def _compute_bundle(df: pd.DataFrame, collection_ids: list[str]) -> dict:
 
 
 def _session_stats(df: pd.DataFrame) -> dict:
+    # Sessions are counted over viewing rows: every row carries a session id,
+    # so a login or a like from before the watch history forms a session of
+    # its own, and across the TikTok corpus two thirds of all sessions held no
+    # viewing at all, which inflated the count and diluted the binge share.
+    df = df[df["activity_type"].isin(_VIEW_TYPES)]
     grp = df.dropna(subset=["session_id"]).groupby("session_id")["local_timestamp"]
     spans = (grp.max() - grp.min()).dt.total_seconds()
     if spans.empty:

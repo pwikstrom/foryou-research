@@ -34,7 +34,7 @@ from fyp.logging_setup import get_logger
 from fyp.polars_ops import fast_vertical_concat
 from fyp.recode_variables import infer_timezone_offset
 from fyp.types import convert_dtypes_to_pyarrow
-from fyp.utils import ACTIVITY_TYPE_MAP, KNOWN_ACTIVITY_TYPES, share_method_base
+from fyp.utils import ACTIVITY_TYPE_MAP, KNOWN_ACTIVITY_TYPES, RECEIVED_ACTIVITY_TYPES, share_method_base
 
 logger = get_logger(__name__)
 
@@ -365,8 +365,16 @@ def assign_session_ids(df: pd.DataFrame, gap_threshold_s: int | None = None) -> 
 
     A *session* (a "phone sitting") is a maximal run of one collection's
     activities separated by gaps no larger than ``gap_threshold_s``. Every
-    activity row gets the id of the sitting it belongs to, formatted as
-    ``"{collection_id}__{n}"`` so ids are unique across collections.
+    row of the donor's own activity gets the id of the sitting it belongs
+    to, formatted as ``"{collection_id}__{n}"`` so ids are unique across
+    collections. Rows of ``RECEIVED_ACTIVITY_TYPES`` (another account
+    following the donor) are not the donor's activity: they neither open,
+    extend nor join sittings, and their ``session_id`` is null. A replay of
+    the TikTok corpus found them joining 156 otherwise separate sittings.
+
+    Sessions are assigned to every donor row, viewing or not, so a login or
+    a like from before the watch history begins forms a session of its
+    own; counts of sessions belong on viewing rows.
 
     This is deliberately distinct from the transient, per-raw-file 180s grouping
     used inside ``TikTokDDPCollection.process_single`` for comment item_id
@@ -389,8 +397,13 @@ def assign_session_ids(df: pd.DataFrame, gap_threshold_s: int | None = None) -> 
         df["session_id"] = pd.Series(dtype="string[pyarrow]")
         return df
 
-    order = df.sort_values(["collection_id", "utc_timestamp"], kind="mergesort").index
-    ordered = df.loc[order]
+    if "activity_type" in df.columns:
+        received = df["activity_type"].astype("string").isin(RECEIVED_ACTIVITY_TYPES).fillna(False)
+        donor = df[~received.to_numpy()]
+    else:
+        donor = df
+    order = donor.sort_values(["collection_id", "utc_timestamp"], kind="mergesort").index
+    ordered = donor.loc[order]
     gap = ordered.groupby("collection_id")["utc_timestamp"].diff().dt.total_seconds()
     session_break = gap.isna() | (gap > gap_threshold_s)
     session_num = session_break.groupby(ordered["collection_id"]).cumsum().astype("int64")
@@ -433,6 +446,13 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
     only once per item (e.g. Instagram's ``videos_watched``), so a later like
     of that item can be days away from its logged play. Only ``extra_data`` is
     affected — ``play_duration`` stays a strictly adjacency-based measure.
+
+    Engagement from before the frame's first play is left unlinked by the
+    fallback. An export's like and bookmark lists reach years further back
+    than its watch history, so the viewing such an engagement belongs to is
+    not in the data, and its nearest play of the same item is a later
+    re-watch: in a replay of the TikTok corpus, 1,946 of the 2,004 bookmarks
+    whose nearest play lay a day or more away were of this kind.
 
     Every play that received a folded token says how: ``link_method`` is
     ``"adjacent"``, ``"nearest_play"``, or ``"adjacent,nearest_play"`` when
@@ -539,9 +559,12 @@ def derive_play_duration(df: pd.DataFrame, cap_seconds: int = 600) -> pd.DataFra
     # adjacency but whose item was played somewhere in the frame get their
     # token appended to the nearest-in-time play of that item.
     is_engagement = df["activity_type"].isin(list(ACTIVITY_TYPE_MAP.keys()))
-    pending = df.index[is_engagement & df["item_id"].notna() & ~df.index.isin(list(folded_rows))]
+    is_play = df["activity_type"] == "play"
+    first_play_ts = df.loc[is_play.fillna(False), "utc_timestamp"].min() if is_play.any() else None
+    in_window = (df["utc_timestamp"] >= first_play_ts).fillna(False) if first_play_ts is not None \
+        else pd.Series(False, index=df.index)
+    pending = df.index[is_engagement & df["item_id"].notna() & in_window & ~df.index.isin(list(folded_rows))]
     if len(pending) > 0:
-        is_play = df["activity_type"] == "play"
         plays = df.loc[is_play & df["item_id"].notna(), "item_id"]
         play_rows_by_item = {k: list(v) for k, v in plays.groupby(plays).groups.items()}
         for i in pending:
@@ -694,6 +717,10 @@ class ForYouBaseCollection(ABC):
         # report the true count instead of 0. Drop reasons are accumulated by
         # process()/_standardize() via _record_file_drops().
         self.file_stats_this_run: dict[str, dict] = {}
+        # What a parser read from a file before handing back its frame, when
+        # that differs from the frame's length (see record_load_count).
+        self.records_read_this_run: dict[str, int] = {}
+        self.load_drops_this_run: dict[str, dict[str, int]] = {}
 
 
     def clear(self):
@@ -917,6 +944,8 @@ class ForYouBaseCollection(ABC):
         # the ledger entry, so the resolution is recorded per file rather
         # than only logged.
         self.parse_notes_this_run: dict[str, list[str]] = {}
+        self.records_read_this_run = {}
+        self.load_drops_this_run = {}
         self.blocked_this_run = {}
         self.manifest_this_run = {}
 
@@ -989,7 +1018,11 @@ class ForYouBaseCollection(ABC):
                 self.load_failed_this_run[fn] = str(exc)
                 continue
 
-            self.file_stats_this_run[fn] = {"raw_rows": int(len(one_df)), "dropped": {}}
+            records_read = self.records_read_this_run.pop(fn, None)
+            self.file_stats_this_run[fn] = {
+                "raw_rows": int(records_read if records_read is not None else len(one_df)),
+                "dropped": dict(self.load_drops_this_run.pop(fn, {})),
+            }
             parse_notes = self.parse_notes_this_run.pop(fn, None)
             if parse_notes:
                 self.file_stats_this_run[fn]["parse_notes"] = list(parse_notes)
@@ -1106,6 +1139,30 @@ class ForYouBaseCollection(ABC):
             message: One plain-language sentence.
         """
         self.parse_notes_this_run.setdefault(filename, []).append(message)
+
+
+
+
+
+    def record_load_count(self, filename: str, records_read: int,
+                          dropped: dict[str, int] | None = None) -> None:
+        """Record what ``load_single_raw`` read when its frame does not show it.
+
+        A parser that drops records while loading (a browser capture's
+        records from pages outside the feed) or returns an empty frame for a
+        file below its floor would otherwise leave the ledger with the
+        frame's length as the file's row count: zero for a too-small export,
+        and a count that silently omits the load-time exclusions. Called
+        from ``load_single_raw``; the load loop reads it back.
+
+        Args:
+            filename: The raw file being loaded.
+            records_read: Records in the file before any load-time drop.
+            dropped: Load-time drops by reason (e.g. ``outside_whitelist``).
+        """
+        self.records_read_this_run[filename] = int(records_read)
+        if dropped:
+            self.load_drops_this_run[filename] = {k: int(v) for k, v in dropped.items() if int(v) > 0}
 
 
 
@@ -2176,8 +2233,9 @@ class ForYouCollection(ForYouBaseCollection):
         IG/YT rows ingested while ``play_duration`` was TikTok-only carry all-NA
         values, yet the forward-delta derivation needs nothing beyond the
         persisted ``utc_timestamp`` / ``activity_type`` / ``item_id`` per
-        ``raw_file`` (dedup drops whole files, never rows, so per-file sequences
-        are intact). Recomputes only platform groups whose play rows are ALL NA —
+        ``raw_file``. Per-file sequences may have gaps where the merge dedupe
+        kept a newer donation's copy of a row, so a backfilled duration can
+        run to the next surviving row. Recomputes only platform groups whose play rows are ALL NA —
         already-derived platforms (TikTok) are untouched and repeat runs are
         no-ops.
         """

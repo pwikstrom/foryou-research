@@ -166,6 +166,19 @@ def test_fallback_fold_picks_nearest_play():
 
 
 
+def test_fallback_fold_leaves_engagement_from_before_the_watch_history():
+    # A bookmark made a year before the watch history begins: its nearest play
+    # of the item is a later re-watch, not the viewing it belongs to.
+    out = derive_play_duration(_frame(
+        [0, 365 * 86400, 365 * 86400 + 20], ["save", "play", "play"], ["a", "b", "a"],
+    ))
+    assert pd.isna(out.loc[2, "extra_data"])
+    assert pd.isna(out.loc[2, "link_method"])
+    print("PASS: pre-window engagement is not linked to a later re-watch")
+
+
+
+
 def test_fallback_fold_carries_comment_payload():
     out = derive_play_duration(_frame(
         [0, 100, 5000], ["play", "play", "comment"], ["a", "b", "a"],

@@ -108,6 +108,12 @@ MEMBER_SEP = "::"
 # new key path on every upload.
 _DYNAMIC_KEY_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"(?i)^chat history with .+$"), "chat history with *"),
+    # Records keyed by their own id: TikTok's Watch Live History is a map from
+    # live-stream id to record, its Order History one from order id. Left as
+    # is, every new id read as a new key path, so any export with live
+    # history warned, and the ids swamped the baseline (4,098 of 4,383 export
+    # key paths in a replay of the corpus).
+    (re.compile(r"^\d{6,}$"), "<id>"),
 ]
 
 # YouTube watch-history.html structural markers. Deliberately duplicated from
@@ -462,17 +468,22 @@ def compute_processed_stats(raw_rows: int, df_file: pd.DataFrame, outside_whitel
             sections it never ingests), from the file's drop reasons.
 
     Returns:
-        Dict with ``kept_rows``, ``kept_ratio`` (kept over every raw row, the
-        drift metric), ``parse_rate`` (kept over the rows the parser should
-        have read, the floor metric; absent when that denominator is zero),
-        ``null_item_id_frac`` and the ``activity_types`` count map.
+        Dict with ``kept_rows``, ``kept_ratio`` (kept over the rows the
+        parser should have read, the drift metric), ``parse_rate`` (the same
+        ratio, read by the floor; absent when that denominator is zero),
+        ``null_item_id_frac`` and the ``activity_types`` count map. Rows
+        excluded by design are left out of both denominators: a donor who
+        included a section the parser never reads (Off TikTok Activity) has
+        not sent a changed export, and measuring kept over every raw row
+        quarantined such a file as a drift outlier.
     """
     kept = int(len(df_file))
+    ingestible = int(raw_rows) - int(outside_whitelist or 0)
+    denominator = ingestible if ingestible > 0 else int(raw_rows)
     stats: dict = {
         "kept_rows": kept,
-        "kept_ratio": round(kept / raw_rows, 4) if raw_rows > 0 else 0.0,
+        "kept_ratio": round(kept / denominator, 4) if denominator > 0 else 0.0,
     }
-    ingestible = int(raw_rows) - int(outside_whitelist or 0)
     if ingestible > 0:
         stats["ingestible_rows"] = ingestible
         stats["parse_rate"] = round(kept / ingestible, 4)
@@ -1142,8 +1153,11 @@ class StructureSentinel:
             verdict = self.check_raw(collection, filename, df_file)
         baseline = self._baseline_for(collection, verdict.get("variant"))
 
-        raw_rows = int(verdict["raw_stats"].get("raw_rows") or len(df_file))
         file_stats = (getattr(collection, "file_stats_this_run", None) or {}).get(filename) or {}
+        # The load loop's count includes records a parser dropped while
+        # loading (record_load_count), which the outside-whitelist count
+        # below also includes; the frame-based raw_stats count does not.
+        raw_rows = int(file_stats.get("raw_rows") or verdict["raw_stats"].get("raw_rows") or len(df_file))
         # Both are by-design, not parse failures: records in sections the
         # parser never reads, and identical share records merged into one
         # row per send (TikTok's multi-recipient shares).
