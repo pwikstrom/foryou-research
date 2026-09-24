@@ -109,6 +109,28 @@ public version. Entries below describe the Hub as it stands at that release.
   let a five-event browser capture coinciding with one second of a large
   export reach the 20 % threshold.
 
+- **`scripts/replay_ingestion.py`.** Re-ingests every raw TikTok export in a
+  downloaded snapshot, one file at a time in the order the files were
+  donated, into an empty scratch store, and records per file what the ledger
+  cannot for the files that predate it: records read per export section,
+  records outside the whitelist, records the parser could not read (by
+  kind), identical shares merged, too-small files, overlap with what was
+  already stored and the rows older files lost to it, and how every like,
+  bookmark, comment and share was linked to a play (adjacent, nearest play
+  of the same video with the gap between them, or unlinked). Donation order
+  comes from the ledger's upload time, the stamp in a generated name, the
+  AIO donation date, or the file's first appearance in the table, in that
+  order. Checks its own section count against the parser's ledger counts and
+  its link count against the tokens `derive_play_duration` wrote, checks
+  the comment fill against the comments whose export names the video,
+  compares the result with the production table, and with `--order reverse
+  --compare-with` measures whether the table depends on arrival order. The
+  structure sentinel runs as it would have from the first donation, with a
+  simulated operator approving each quarantine; sessions are reported under
+  three definitions of activity; AIO donors' postcodes, reduced at once to a
+  time zone, check the offset inference. Files that repeat an earlier one
+  byte for byte are told apart from re-donations with new content. Refuses
+  to run against GCS.
 - **`scripts/intake_report.py`.** Every figure a methods write-up needs
   about ingestion, computed from a downloaded snapshot of the `recoded`
   storage location and never from the live bucket: intake attrition per
@@ -158,6 +180,77 @@ public version. Entries below describe the Hub as it stands at that release.
   logged in for weeks no longer looks idle to the report.
 
 ### Fixed
+
+- **The nearest-play fallback no longer links engagement from before the
+  watch history.** A TikTok export's like and bookmark lists reach years
+  further back than its watch history, so an engagement older than the
+  file's first play belongs to a viewing that is not in the data, and the
+  windowless fallback linked it to a later re-watch of the same video: in a
+  replay of the corpus, 1,946 of the 2,004 bookmarks whose nearest play lay
+  a day or more away were of this kind (and 923 of 1,092 such likes). Such
+  rows now stay unlinked; adjacency and the Instagram case (a like after the
+  one logged view) are unchanged. Stored rows keep their old tokens until
+  refolded (`scripts/migrate_engagement_vocabulary.py`).
+
+- **My Collections counts viewing sessions.** Every row carries a session
+  id, so a login, a follow or a like from before the watch history formed a
+  session of its own; across the TikTok corpus two thirds of all sessions
+  held no viewing. The participant's session count, longest session and
+  binge share were computed over all of them. They are now computed over
+  viewing rows.
+- **A follower no longer joins a donor's sittings.** Session assignment
+  counted `followed_by` rows, another account following the donor, as
+  activity, so a follow arriving between two sittings less than fifteen
+  minutes from each joined them (156 sittings in the TikTok corpus). Those
+  rows are left out of session assignment and carry no `session_id`
+  (`RECEIVED_ACTIVITY_TYPES` in `fyp.core.utils`). Session ids renumber for
+  the affected collections on the next ingest refresh. The Sessions tab
+  decides staleness from coverage windows and play counts, not session ids,
+  so run a full Sessions refresh once after deploying.
+
+- **The structure sentinel no longer reads record ids as structure.**
+  TikTok's Watch Live History and Order History are maps keyed by the live
+  stream's or the order's id, so every new id was a "previously unseen key
+  path": any export with live history warned, and the ids made up 4,098 of
+  the 4,383 key paths in a replay's export baseline. Keys of six or more
+  digits now collapse to `<id>`, as direct-message partner names already
+  collapsed to `chat history with *`.
+- **The sentinel's kept ratio leaves out records excluded by design.** It
+  measured kept rows over every record, so a donor who included a section
+  the parser never reads (Off TikTok Activity) looked like a drifted export
+  and was quarantined. It now uses the parse-rate denominator (records the
+  parser should have read).
+- **`scripts/intake_report.py`: the time-zone calibration's difference
+  wraps around the day**, so an inferred −10 against a true +10 reads as
+  four hours off, not twenty.
+
+- **A re-donation that repeats an older file entirely is ledgered as a
+  merge.** The newest copy of a row wins the merge dedupe, so an older file
+  that a re-donation repeats keeps no rows, and the per-file summary, which
+  looked for siblings among surviving rows, recorded the new file as
+  `added_as_new` with no siblings. It now also finds stored files whose
+  collection the merge folded into the new file's (`pre_cids` and the
+  merge's `last_cid_remap`). A replay of the TikTok export corpus found 162
+  of 202 merges mislabelled this way.
+- **A too-small TikTok export is ledgered with its true record count.** The
+  parser returned an empty frame for an export with ten or fewer viewing
+  records, so the ledger's `raw_rows` read 0. Parsers now report what they
+  read before a load-time drop (`record_load_count`), and the structure
+  sentinel's parse rate uses that count.
+- **Browser captures: an empty file no longer crashes the loader, and
+  records from pages outside the feed are counted** (`outside_whitelist`)
+  instead of disappearing before the row count was taken.
+
+- **TikTok comments dated "… UTC" were dropped.** Exports uploaded from
+  September 2026 write the comment section's dates with the zone spelled
+  out (`2026-08-01 12:00:00 UTC`). The parser's strict date format rejected
+  them, so every comment in those exports was counted `not_parseable` and
+  lost: 4,428 comments across eight exports, and exactly the ones that name
+  their video (`originalPostUrl`) rather than borrowing one from the
+  forward fill. The suffix is now accepted. Found by
+  `scripts/replay_ingestion.py`. The ledger had counted the loss, but
+  comments are a small share of an export, so each file's parse rate stayed
+  far above the sentinel's 10 % floor and nothing flagged it.
 
 - **A scraper storm now actually holds the enrichment loop off.** The
   supervisor was meant to stop restarting a scraper that a permanent storm or
