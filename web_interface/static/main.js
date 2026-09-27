@@ -123,13 +123,17 @@ function toggleTheme() {
     const current = html.getAttribute('data-theme') || 'dark';
     const next = current === 'dark' ? 'light' : 'dark';
     const before = _snapshotThemeTokens();
+    // A re-render (Plotly.react/newPlot) installs a new layout object, so
+    // comparing against these tells the safety net which figures to skip.
+    const layouts = new Map();
+    document.querySelectorAll('.js-plotly-plot').forEach(gd => layouts.set(gd, gd.layout));
     html.setAttribute('data-theme', next);
     localStorage.setItem('fyp-theme', next);
     updateThemeIcon(next);
     // Each tab re-renders its own charts from its listener (they read the
     // new token values); the safety net then patches whatever is left over.
     window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme: next } }));
-    _rethemePlotlyCharts(before, _snapshotThemeTokens());
+    _rethemePlotlyCharts(before, _snapshotThemeTokens(), layouts);
 }
 
 function updateThemeIcon(theme) {
@@ -145,8 +149,11 @@ function updateThemeIcon(theme) {
 // colour in the figure's layout and traces that still equals an OLD token
 // value is swapped for the NEW one and the figure is redrawn in place, which
 // keeps zoom, selection and event handlers. Figures a tab already re-rendered
-// carry no old values and are left alone.
-function _rethemePlotlyCharts(before, after) {
+// (their layout object is no longer the one in `layouts`) are left alone: an
+// old value can also be a correct new one (light --color-bg-surface and
+// --white are both #ffffff), and swapping it would recolour fresh output —
+// white semantic-map labels turned dark grey on a switch to dark.
+function _rethemePlotlyCharts(before, after, layouts) {
     if (typeof Plotly === 'undefined') return;
     // Old value -> new value. Several tokens share a value in one theme but
     // not the other (--chart-bg and --color-bg-primary are both #1F2228 in
@@ -181,6 +188,7 @@ function _rethemePlotlyCharts(before, after) {
     };
     document.querySelectorAll('.js-plotly-plot').forEach(gd => {
         if (!gd.layout || !gd.data) return;
+        if (layouts && layouts.get(gd) !== gd.layout) return;
         try {
             const a = walk(gd.layout, 0);
             const b = walk(gd.data, 0);
