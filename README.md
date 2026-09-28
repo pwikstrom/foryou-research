@@ -121,9 +121,9 @@ source .venv/bin/activate
 bash scripts/verify.sh
 ```
 
-It runs ruff, the checkout-only unit-test subset, the var-schema hash guard,
-the golden annotation safety net (replays saved Gemini responses — no API
-cost), and an app import smoke test. See
+It runs ruff (lint and format check), the checkout-only unit-test subset
+(including the var-schema hash guard), the golden annotation safety net
+(replays saved Gemini responses — no API cost), and an app import smoke test. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the details and the test markers.
 
 ## Deployment

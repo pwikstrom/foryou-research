@@ -1,0 +1,8 @@
+# Mechanical, behaviour-neutral reformatting commits for 'git blame' to skip.
+# GitHub honours this file automatically; locally run once:
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# ruff format adopted as the project formatter (2026-09-28)
+a5940aa766810e7eb90c351d9573bcc080350aef
+# ruff isort rules applied (2026-09-28)
+f30b4dd66e2c63a5b70431f5691b1745f14b5a33

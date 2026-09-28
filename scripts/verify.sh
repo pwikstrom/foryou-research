@@ -9,7 +9,7 @@
 # the committed fixtures and config.
 #
 # Steps:
-#   1. ruff       — lint (same rule set as pre-commit / CI)
+#   1. ruff       — lint + format check (same bar as pre-commit / CI)
 #   2. pytest     — unit tests, excluding data/GCS-dependent and stale tests
 #                   (includes the import-cycle / var-schema-hash guard, the
 #                   routes.md freshness check and the version-consistency check)
@@ -23,13 +23,11 @@ cd "$(dirname "$0")/.."
 
 step() { printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
 
-step "ruff check (pyflakes bar)"
-# The full pyproject rule set still reports ~850 pre-existing findings (style
-# debt worked down separately — see .pre-commit-config.yaml). The enforced bar
-# here matches pre-commit: pyflakes, minus three codes with known pre-existing
-# hits (F841 unused locals ×12, F601 duplicate dict keys ×2, F403 star import
-# ×1 — as of 2026-07). Tighten as the debt is cleared.
-ruff check --select=F --ignore=F841,F601,F403 .
+step "ruff (lint + format)"
+# Same bar as pre-commit and CI: the enforced rule set is pyproject.toml
+# [tool.ruff.lint] (its comments list the next families to enable).
+ruff check .
+ruff format --check .
 
 step "unit tests (checkout-only subset)"
 python -m pytest -m "not requires_data and not requires_gcs and not slow and not stale"

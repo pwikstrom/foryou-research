@@ -32,9 +32,12 @@
 
 - Use Python **type hints** in function signatures.
 - Docstrings follow the **Google style guide**.
-- Module imports at the **top of the file** — not inside functions.
+- Module imports at the **top of the file**, except where the import-cycle
+  rule (CONTRIBUTING.md, invariant 1) or a heavy optional dependency calls for
+  a function-level import.
 - Use **f-strings** for string formatting.
-- Keep functions separated by **at least 5 blank lines**.
+- Layout is whatever `ruff format` produces (pyproject settings; enforced by
+  pre-commit, `scripts/verify.sh` and CI). Don't hand-format.
 - Comments should **explain the code**. Do not write your own reasoning in the code.
 - Always use **PyArrow dtypes** for DataFrames.
 
@@ -593,8 +596,9 @@ change is:
 ```bash
 source .venv/bin/activate
 bash scripts/verify.sh
-# = ruff (pyflakes bar) + pytest -m "not requires_data and not requires_gcs and not slow and not stale"
-#   + the import-cycle/schema-hash guard + the golden safety net + an app import smoke
+# = ruff check + ruff format --check (pyproject rule set)
+#   + pytest -m "not requires_data and not requires_gcs and not slow and not stale"
+#     (includes the import-cycle/schema-hash guard) + the golden safety net + an app import smoke
 ```
 
 `tests/golden/` is the cost-free annotation regression suite (replays saved raw

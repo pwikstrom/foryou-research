@@ -120,22 +120,28 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
+# The ENFORCED bar: CI, pre-commit and scripts/verify.sh all run plain
+# `ruff check .` and `ruff format --check .` against this configuration.
 select = [
-    "E",    # pycodestyle errors
-    "F",    # pyflakes
-    "I",    # isort (import ordering)
-    "UP",   # pyupgrade
-    "B",    # flake8-bugbear
-    "SIM",  # flake8-simplify
-    "C4",   # flake8-comprehensions
-    "PIE",  # flake8-pie
-    "RUF",  # ruff-specific
+    "F",       # pyflakes
+    "E9",      # syntax / IO errors
+    "E701",    # multiple statements on one line (colon)
+    "E702",    # multiple statements on one line (semicolon)
+    "E703",    # useless trailing semicolon
+    "E722",    # bare except
+    "I",       # isort (import ordering)
+    "TID251",  # banned imports: the flat fyp/<name>.py alias shims (below)
 ]
 ignore = [
-    "E501",   # line too long (handled by formatter if adopted)
-    "B008",   # function call in default arg (common in Flask)
-    "SIM108", # ternary-vs-if (often less readable)
+    # Pre-existing debt, kept visible here rather than suppressed inline.
+    "F841",  # unused local variable (12)
+    "F601",  # repeated dict key literal (2, recode_variables True/1 aliases)
+    "F403",  # star import (1, analysis/donations.py)
 ]
+# Next ratchet (debt measured 2026-09-28; enable a family once it is clean):
+# the rest of E (E712 x29, E721 x9, E741 x6, E731 x2), UP, B, SIM, C4, PIE,
+# RUF (incl. RUF100 unused-noqa, which must wait until the families its noqa
+# comments target are enabled).
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["F401", "F841", "E402"]

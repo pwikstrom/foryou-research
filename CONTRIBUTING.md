@@ -37,11 +37,10 @@ working days for a reply.
 1. Branch off `main`; keep branches short-lived and focused.
 2. Install dev tools (`pip install -r requirements-dev.txt`) and the
    pre-commit hook once: `pre-commit install`.
-   It currently gates only pyflakes-level errors
-   (`ruff --fix --select=F --ignore=F841,F403,F601` — three F codes excluded
-   for pre-existing debt; the same bar as `scripts/verify.sh` and CI) while
-   pre-existing style debt is worked down; the full ruff rule set in
-   `pyproject.toml` is the target bar for new code.
+   It runs `ruff check --fix` and `ruff format` against the rule set in
+   `pyproject.toml` `[tool.ruff.lint]` — the same bar as `scripts/verify.sh`
+   and CI. That rule set is deliberately a subset; its comments list the rule
+   families that are enabled next, as their pre-existing debt is cleared.
 3. Before opening a PR, run the verification gate:
 
    ```bash

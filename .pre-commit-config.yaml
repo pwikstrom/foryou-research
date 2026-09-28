@@ -13,9 +13,8 @@ repos:
     rev: v0.16.3  # keep in step with requirements-dev.txt
     hooks:
       - id: ruff
-        # Narrow gate: block only real bugs (pyflakes + syntax).
-        # Style rules (E, SIM, RUF, etc.) still run via `ruff check .` manually
-        # but are not enforced at commit time while pre-existing debt is worked down.
-        # Same bar as scripts/verify.sh and CI. (The hook already passes
-        # --force-exclude, so pyproject's extend-exclude is honored for staged files.)
-        args: ["--fix", "--select=F", "--ignore=F841,F403,F601"]
+        # Enforced rule set comes from pyproject.toml [tool.ruff.lint] — the
+        # same bar as scripts/verify.sh and CI. (The hook passes
+        # --force-exclude, so pyproject's extend-exclude is honored.)
+        args: ["--fix"]
+      - id: ruff-format

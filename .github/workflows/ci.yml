@@ -48,10 +48,12 @@ jobs:
           local_mode = true
           EOF
 
-      - name: Ruff (pyflakes bar)
-        # Same bar as pre-commit and scripts/verify.sh; the full pyproject rule
-        # set still has pre-existing debt and runs manually.
-        run: ruff check --select=F --ignore=F841,F601,F403 .
+      - name: Ruff (lint + format)
+        # Same bar as pre-commit and scripts/verify.sh: the enforced rule set
+        # is pyproject.toml [tool.ruff.lint].
+        run: |
+          ruff check .
+          ruff format --check .
 
       - name: Unit tests (checkout-only subset)
         run: python -m pytest -m "not requires_data and not requires_gcs and not slow and not stale"
