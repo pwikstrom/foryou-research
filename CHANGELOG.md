@@ -200,6 +200,15 @@ public version. Entries below describe the Hub as it stands at that release.
   study-parameter check for the analysis endpoints. No behaviour change;
   verified by before/after snapshots of the worker wiring and of every
   route's anonymous and missing-/denied-study responses.
+- **A smaller production image.** 103 packages nothing in the app imports
+  (the Jupyter stack, plotting libraries, unused Google and geo clients) left
+  `requirements.txt`, and the base image no longer ships the compilers it
+  builds with: the app image drops from 1.43 GB to 0.79 GB compressed.
+  deno and Node.js are pinned to exact versions, Node from its checksummed
+  release tarball. Notebook tooling is available as the `notebook` extra.
+- **Unused research analyses moved to `fyp/analysis/experimental/`**
+  (niche detection from annotation text, within-session profiling, sequence
+  modelling); dead functions and two unused images were removed.
 - **Documentation reorganised; a decision log.** `docs/decisions/` records,
   with dates and evidence, why the Hub works the way it does; the how-to docs
   keep the rules and link there. Each topic now has one home doc (install,
