@@ -37,7 +37,10 @@ def client(monkeypatch):
         return orig_get_user(uid)
 
     monkeypatch.setattr(security.user_manager, "get_user", _fake_get)
-    monkeypatch.setattr(routes, "study_access_error", lambda study: None)
+    # The explorer routes check study access through routes._access.
+    from web_interface.routes import _access
+
+    monkeypatch.setattr(_access, "study_access_error", lambda study: None)
 
     app.testing = True
     app.config["WTF_CSRF_ENABLED"] = False

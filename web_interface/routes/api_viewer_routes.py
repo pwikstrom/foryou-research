@@ -25,7 +25,7 @@ from ..data_service import (
 )
 from ..permissions import permission_required, user_has_permission
 from ..security import user_manager
-from ._access import study_access_error
+from ._access import require_accessible_study, study_access_error
 
 viewer_bp = Blueprint("viewer_bp", __name__)
 
@@ -109,10 +109,7 @@ def api_viewer_ids():
     data = request.json or {}
     study = data.get("study")
 
-    if not study:
-        return jsonify({"error": "No study specified"}), 400
-
-    denied = study_access_error(study)
+    denied = require_accessible_study(study, "No study specified")
     if denied is not None:
         return denied
 

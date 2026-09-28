@@ -36,7 +36,7 @@ from ..security import user_manager
 from ..services import system_health
 from ..services.study_data import resolve_compose
 from ..services.user_variables import compose_effective_variables
-from ._access import study_access_error
+from ._access import require_accessible_study, study_access_error
 
 explorer_bp = Blueprint("explorer_bp", __name__)
 
@@ -454,10 +454,7 @@ def api_explorer_metadata_base():
     access).
     """
     study = request.args.get("study")
-    if not study:
-        return jsonify({"error": "No study specified"}), 400
-
-    denied = study_access_error(study)
+    denied = require_accessible_study(study, "No study specified")
     if denied is not None:
         return denied
 
@@ -629,10 +626,7 @@ def api_explorer_metadata_overlay():
     access).
     """
     study = request.args.get("study")
-    if not study:
-        return jsonify({"error": "No study specified"}), 400
-
-    denied = study_access_error(study)
+    denied = require_accessible_study(study, "No study specified")
     if denied is not None:
         return denied
 
@@ -678,10 +672,7 @@ def api_explorer_metadata_overlay():
 def api_explorer_metadata():
 
     study = request.args.get("study")
-    if not study:
-        return jsonify({"error": "No study specified"}), 400
-
-    denied = study_access_error(study)
+    denied = require_accessible_study(study, "No study specified")
     if denied is not None:
         return denied
 
@@ -1105,10 +1096,7 @@ def api_explorer_filter():
     data = request.json or {}
     study = data.get("study")
 
-    if not study:
-        return jsonify({"error": "No study specified"}), 400
-
-    denied = study_access_error(study)
+    denied = require_accessible_study(study, "No study specified")
     if denied is not None:
         return denied
 

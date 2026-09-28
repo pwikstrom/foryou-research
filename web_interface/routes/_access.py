@@ -39,6 +39,17 @@ def study_access_error(study: str):
     return jsonify({"error": "Access denied to this study"}), 403
 
 
+def require_accessible_study(study: str | None, missing_message: str):
+    """Validate a request's study parameter: 400 if absent, 403 if not accessible.
+
+    Returns the error response tuple, or None when the study may be served.
+    ``missing_message`` keeps each endpoint's established 400 text.
+    """
+    if not study:
+        return jsonify({"error": missing_message}), 400
+    return study_access_error(study)
+
+
 def collection_access_error(collection_id: str):
     """Return a 403 response tuple unless ``collection_id`` belongs to at
     least one study the current user can access, else None."""

@@ -15,6 +15,7 @@ from fyp.core.logging_setup import get_logger
 from ..data_service import get_pca_df
 from ..permissions import permission_required
 from ..services import correlations_service
+from ._access import require_accessible_study
 from ._access import study_access_error as _study_access_error
 
 logger = get_logger(__name__)
@@ -27,10 +28,7 @@ correlations_bp = Blueprint("correlations_bp", __name__)
 def api_pca_metadata():
     data = request.json or {}
     study = data.get("study")
-    if not study:
-        return jsonify({"error": "No study"}), 400
-
-    denied = _study_access_error(study)
+    denied = require_accessible_study(study, "No study")
     if denied is not None:
         return denied
 
@@ -81,10 +79,7 @@ def api_pca_correlation_matrix():
     data = request.json or {}
     study = data.get("study")
 
-    if not study:
-        return jsonify({"error": "No study"}), 400
-
-    denied = _study_access_error(study)
+    denied = require_accessible_study(study, "No study")
     if denied is not None:
         return denied
 
@@ -112,10 +107,7 @@ def api_correlations_group_stats():
     """
     data = request.json or {}
     study = data.get("study")
-    if not study:
-        return jsonify({"error": "No study"}), 400
-
-    denied = _study_access_error(study)
+    denied = require_accessible_study(study, "No study")
     if denied is not None:
         return denied
 
@@ -143,10 +135,7 @@ def api_correlations_interpret():
     """
     data = request.json or {}
     study = data.get("study")
-    if not study:
-        return jsonify({"error": "No study"}), 400
-
-    denied = _study_access_error(study)
+    denied = require_accessible_study(study, "No study")
     if denied is not None:
         return denied
 
@@ -166,10 +155,7 @@ def api_correlations_status():
     Informational only (drives a banner); the tab keeps rendering regardless.
     """
     study = (request.args.get("study") or "").strip()
-    if not study:
-        return jsonify({"error": "No study"}), 400
-
-    denied = _study_access_error(study)
+    denied = require_accessible_study(study, "No study")
     if denied is not None:
         return denied
 
