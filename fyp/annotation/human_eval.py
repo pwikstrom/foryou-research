@@ -1,6 +1,6 @@
 """Human input for annotation A/B test runs (coding tasks + ICR metrics).
 
-Extends the :mod:`fyp.ab_eval` harness with run-scoped *human tasks*: an admin
+Extends the :mod:`fyp.annotation.ab_eval` harness with run-scoped *human tasks*: an admin
 picks a finished run, a subset of its compared variables and a set of coders;
 each coder then watches the run's videos FULLY BLIND (machine values are never
 sent to the coder endpoints) and fills in values for the selected variables.

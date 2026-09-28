@@ -1,3 +1,10 @@
+"""Recode raw annotation and scrape variables per the variable schema.
+
+Holds the recode function registry (numeric, tokenised, list and long-string
+recoders plus missing-data policies), column renaming, variable-role lookups,
+and the schema hash that invalidates recoded datasets when the schema changes.
+"""
+
 import difflib
 import hashlib
 import json
@@ -73,14 +80,11 @@ WEEKDAY_MAPPER = {
 
 def rename_columns(some_events):
     """
-    This function is indempotent
+    This function is idempotent.
     """
     some_eventsC = some_events.copy()
 
     fixer_upper = [
-        # ("B_local_","local_"),
-        # ("B_source_tz_name",tz_name"),
-        # ("D_local_","local_"),
         (".", "_"),
         ("data_", ""),
         ("source_url_", "source_"),
@@ -112,7 +116,7 @@ def rename_columns(some_events):
 def infer_timezone_offset(timestamps: pd.Series) -> float:
     """
     Infers timezone offset by finding the 4-hour window with minimum activity.
-    Assumes this quietest window centers around 04:00 local time.
+    Assumes this quietest window centers around 03:00 local time.
 
     Args:
         timestamps: Series of UTC timestamps
@@ -137,24 +141,11 @@ def infer_timezone_offset(timestamps: pd.Series) -> float:
     # Calculate rolling sum
     rolling_sum = hourly_counts_ext.rolling(window=4).sum()
 
-    # We strip the first 3 (NaNs/partial from standard rolling if not min_periods=0)
-    # but we used concat so we have valid range.
-    # The result has length 24 + 3 = 27.
-    # Indices 0,1,2 are NaNs (window size 4).
-    # Valid indices start at 3.
-    # Index 3 corresponds to window [0,1,2,3] of extended array = [0,1,2,3] of original.
-    # Index 26 corresponds to window [23,0,1,2].
-
-    # Extract only the 24 valid windows representing starts 0..23 (wrapped)
-    # Window ending at i (where i >= 3) corresponds to hours ...?
-    # Let's map rolling_sum index to "Center Hour".
-    # We want indices 3 to 26 inclusive (24 values).
+    # The result has length 24 + 3 = 27. Indices 0-2 are NaN (window size 4);
+    # index 3 covers hours [0,1,2,3] and index 26 covers [23,0,1,2].
+    # Keep the 24 valid windows (indices 3..26), one per start hour 0..23.
     valid_sums = rolling_sum.iloc[3:].reset_index(drop=True)
-    # valid_sums now has indices 0 to 23.
-    # Index k in valid_sums came from rolling_sum index k+3.
-    # rolling_sum index k+3 sums extended array [k, k+1, k+2, k+3].
-    # Which corresponds to hours [k%24, (k+1)%24, (k+2)%24, (k+3)%24].
-    # Center is roughly k + 1.5.
+    # Index k of valid_sums sums hours [k, k+1, k+2, k+3] (mod 24).
 
     min_val = valid_sums.min()
     min_indices = valid_sums[valid_sums == min_val].index.tolist()
@@ -170,28 +161,24 @@ def infer_timezone_offset(timestamps: pd.Series) -> float:
     if avg_idx < 0:
         avg_idx += 24
 
-    # avg_idx represents the "Start Hour" of the window (k).
-    # Center of window is k + 2.0 (Midpoint of 4 discrete hour buckets [k, k+3]).
-    # e.g. Window [2,3,4,5] -> Center is 4.0.
-    # We assume this center is 03:00 Local (Shifted -1 from original 04:00).
+    # avg_idx is the start hour k of the window. Its center is taken as k + 2.0
+    # (e.g. window [2,3,4,5] -> center 4.0), and assumed to be 03:00 local.
 
     center_utc = avg_idx + 2.0
     if center_utc >= 24:
         center_utc -= 24
 
-    # Offset = Local - UTC = 3.0 - Center (Shifted -1 from 4.0)
+    # Offset = Local - UTC = 3.0 - Center
     offset = 3.0 - center_utc
 
-    # Normalize to -9 to 15 (User specified range to handle date line wrap)
-    # "Add 24 hours to timezones calculated to UTC-11" -> Map -11 to +13.
-    # Standard range [-9, 15] covers West Coast US (-8) to NZ (+12/13).
+    # Normalize to [-9, 15] to handle the date-line wrap (e.g. -11 maps to +13).
+    # The range covers West Coast US (-8) to NZ (+12/13).
     while offset < -9:
         offset += 24
     while offset > 15:
         offset -= 24
 
-    return round(offset)  # Round to nearest hour for simplicity (or keeping half hours?)
-    # User said rough guess.
+    return round(offset)  # nearest hour: the inference is only a rough guess
 
 
 SEMANTIC_COLUMNS = (
@@ -216,7 +203,7 @@ VAR_SCHEMA_HASH_VERSION = "v3"
 #   skip       — hidden from analysis and recoding
 VAR_SCHEMA_ROLES = ("grouping", "comparison", "measure", "descriptor", "skip")
 
-# Pre-2026-08 role vocabulary. Contract TOMLs are rewritten, but legacy
+# Legacy role vocabulary. Contract TOMLs are rewritten, but legacy
 # registry field_metadata snapshots keep the old strings on disk forever;
 # load_var_schema() normalizes every role through this map so downstream
 # matchers only ever see the new values.
@@ -409,7 +396,7 @@ def parse_accepted_labels(value):
       3. legacy bareword form ``[a, b, c]`` — comma-split, stripped
 
     No eval.  Used only by Gemini annotation pre-flight checks
-    (see :func:`fyp.machine_annotation`); never feeds the recode pipeline.
+    (see :func:`fyp.annotation.machine_annotation`); never feeds the recode pipeline.
     """
     if value is None:
         return []
@@ -704,7 +691,7 @@ def recode_tokenise(
     A token starting with ``#`` is cleaned and kept when it survives the same
     filter the rest of the pipeline uses — longer than one character and not
     matched by the admin-editable irrelevant-words stoplist (squeeze + prefix
-    wildcards, see ``fyp.irrelevant_words``), or a single emoji. Returns a
+    wildcards, see ``fyp.annotation.irrelevant_words``), or a single emoji. Returns a
     one-key ``{"hashtags": [...]}`` dict so the recode unpacker fans it out into
     the ``<field>_hashtags`` column. ``desc`` is the only field tokenised; the
     raw caption itself is kept separately as ``desc_raw``.
@@ -855,7 +842,6 @@ def recode_stringified_list(a_string_representing_a_list, recoding_policy) -> li
     no_data_fallback = _unable_to_detect()
 
     ignore_strings = recoding_policy.get("ignore_strings", [])
-    # splitter = recoding_policy.get("splitter", None)
     mapper = recoding_policy.get("mapper", {})
 
     mini_mapper = {1: "yes", 0: "no", True: "yes", False: "no"}
@@ -901,38 +887,23 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
     if isinstance(x, pd.Series):
         # 1. Check direct scalar matches and NaNs
         # Note: x == NOT_CODED works for scalars.
-        # If x has mixed types (lists), equality comparison might be tricky but usually handles it (False for list!=scalar).
-        # But to be safe and avoid "ambiguous truth value" errors for [NOT_CODED] == NOT_CODED comparisons:
-        # We handle lists separately.
+        # Lists are handled separately: on an object column holding lists or arrays,
+        # `x == NOT_CODED` can raise an "ambiguous truth value" ValueError, and the
+        # alternatives (map(type), astype(str)) are slow.
 
         mask_basic = x.isna()
-
-        # Safe scalar comparison for "== NOT_CODED"
-        # If x is object, it might contain lists. x == scalar might trigger elementwise check if x was an array,
-        # but x is a Series. Series == scalar is fine.
-        # But if an element of Series is a list/array, `element == scalar` might return an array (if numpy) or False (if list).
-        # If it returns an array, Series.eq converts it to boolean? No, it raises ValueError if valid boolean result is ambiguous.
-        # So we must NOT use `x == NOT_CODED` blindly on object columns that might contain arrays.
-
-        # Strategy:
-        # Use simple map(type) check to isolate lists? No, map is slow.
-        # Use `x.astype(str) == str(NOT_CODED)`? Slow string conversion.
 
         # Only do strict checks if object.
         if x.dtype == object:
             mask_scalar = x.isin([_not_coded()])
 
-            # Now list check:
-            # We need to ensure we can use .str.
-
+            # List check via the .str accessor, which works on mixed object
+            # series but raises AttributeError when no element is str/list-like.
             try:
-                # This works if at least some strings/lists or object dtype allows it?
-                # Actually, .str accessor on object series works if it contains mixed types.
-                # But if all are ints, it fails.
                 mask_list = (x.str.len() == 1) & (x.str[0] == _not_coded())
                 mask_list = mask_list.fillna(False)
             except AttributeError:
-                # No str accessor means no lists/strings usually?
+                # No str accessor: the column holds no strings or lists.
                 mask_list = False
 
             mask = mask_basic | mask_scalar | mask_list
@@ -953,33 +924,22 @@ def implement_missing_data_policy(x, missing_data_policy, the_median=0):
         elif missing_data_policy == "median":
             result[mask] = the_median
         elif missing_data_policy == "keep":
-            # if isna -> [NOT_CODED], else keep x (which is what?)
-            # The original logic: if isna(x) -> [NOT_CODED].
-            # If x was NOT_CODED (str), it returns x (NOT_CODED).
-
-            # Implementation: Replace NA with [NOT_CODED]. leave "not coded" alone.
+            # Replace NA with [NOT_CODED]; values that are already NOT_CODED are
+            # left as they are (mirrors the scalar branch below).
             mask_na = x.isna()
             result.loc[mask_na] = pd.Series(
                 [[_not_coded()] for _ in range(mask_na.sum())], index=result.index[mask_na]
             )
 
         elif missing_data_policy == "zero":
-            # Check type of first non-missing element to decide 0 vs "no"?
-            # Or pass a hint. The original code checks x itself.
-            # "numeric" string check is weird in original? `isinstance(gg,"numeric")` is probably wrong (string "numeric")?
-            # actually `isinstance(gg,"numeric")` checks if class is string "numeric" which is false.
-            # It likely meant `isinstance(gg, (int, float))`.
-
-            # Let's assume numeric -> 0, else "no".
-            # We can check dtype of series.
+            # Numeric series get 0, anything else "no" (the scalar branch below
+            # decides per value instead).
             if pd.api.types.is_numeric_dtype(x):
                 val = 0
             else:
                 val = "no"
 
-            # If input was list, return [val]
-            # This complex conditional typing is hard to vectorize perfectly without context.
-            # For now, simplistic approach:
+            # Unlike the scalar branch, list-valued inputs are not wrapped as [val].
             result[mask] = val
 
         return result
@@ -1151,7 +1111,7 @@ def recode_events_df(
         some_events_df=cool_events, verbose=verbose
     )
 
-    # this will be overwritten in at a later stage - I just want to turn it into a string for now
+    # Format session_id as a string label here; a later stage overwrites it.
     try:
         if "session_id" in cool_events.columns:
             cool_events["session_id"] = cool_events["session_id"].map(
@@ -1209,8 +1169,6 @@ def recode_events_df(
     for i, c in enumerate(cool_columns):
         preamble = f"    {(i + 1):02}/{len(cool_columns):02}. {c}{' ' * (40 - len(c))}"
         preamble2 = f"    {' ' * 6} {c}{' ' * (40 - len(c))}"
-        # if verbose:
-        #    print(preamble, end="", flush=True)
 
         # if this is in the var_schema...
         if c in var_schema.index:
@@ -1226,7 +1184,7 @@ def recode_events_df(
                 # ------------------------------------------------------
                 # 1.'raw' means that the variable is going to be transformed into a set of new variables
                 # and if there is a variable in the schema with the same name as this variable but with the
-                # extension "_raw" it means that I want to keep the original variable (it is copied here).
+                # extension "_raw", the original variable is kept (it is copied here).
                 # If such a variable name isn't in the schema, then the original variable will be dropped.
                 # ------------------------------------------------------
                 if (
@@ -1298,7 +1256,7 @@ def recode_events_df(
 
                 cool_events[c] = implement_missing_data_policy(
                     cool_events[c],
-                    "drop",  # this_var_schema.get("missing_data_policy","No policy"),
+                    "drop",  # fixed policy; the schema's missing_data_policy is not consulted here
                     None,
                 )
 
@@ -1331,7 +1289,7 @@ def recode_events_df(
                             )
 
                 # ------------------------------------------------------
-                # 4&half. for numeric variables, I only accept numeric values
+                # 4&half. numeric variables accept only numeric values
                 # ------------------------------------------------------
                 if this_var_schema["scale"] in ["numeric"]:
                     cool_events[c] = cool_events[c].astype("double[pyarrow]")
@@ -1340,7 +1298,7 @@ def recode_events_df(
                         cool_events[c] = cool_events[c].astype("int64[pyarrow]")
 
                 # ------------------------------------------------------
-                # 6. for dict variables, I unpack the dicts into new separate columns
+                # 6. dict variables are unpacked into new separate columns
                 # ------------------------------------------------------
                 # Check if first valid element is dict
                 first_val = None

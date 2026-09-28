@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Instagram scraper using yt-dlp as backend.
 
@@ -11,20 +10,19 @@ Cloud Run's datacenter IPs in practice; the local install drains this queue.
 Extraction runs **anonymously first, then with the session cookies** for a
 post Instagram hides from logged-out viewers ("This content isn't available to
 everyone: It can't be seen by certain audiences", or yt-dlp's "Instagram sent
-an empty media response"). History: in 2026-07 Instagram's authenticated web
-API (``api/v1/media/{pk}/info/``) 404'd for web sessions, and yt-dlp takes that
-path whenever cookies are attached — so every cookie-bearing extraction failed
-and scraping went fully anonymous. By 2026-09 (yt-dlp 2026.8.19) that path
-works again, and anonymous extraction had left 65 of 75 queued posts failing
-every run: measured 2026-09-21, 13/13 sampled posts failed anonymously and
-13/13 extracted with the cookies. Anonymous-first keeps the logged-in account's
-footprint to the posts that need it, and survives either path breaking again.
+an empty media response"). Neither path alone is reliable: yt-dlp routes every
+cookie-bearing extraction through Instagram's authenticated web API
+(``api/v1/media/{pk}/info/``), which has at times 404'd for web sessions, while
+anonymous extraction fails for many posts (in one sample, 13/13 failed
+anonymously and 13/13 extracted with the cookies, with yt-dlp 2026.8.19).
+Anonymous-first keeps the logged-in account's footprint to the posts that need
+it, and survives either path breaking.
 Follow-gated content ("only available for registered users who follow this
 account") stays permanently ``private``; the donated enrichment seed still
 surfaces its caption/author.
 
 The logged-in session is spent sparingly, because Instagram logs it out when
-it is not (2026-09-23: after ~14 gated posts in ~60 s). Every logged-in request
+it is not (observed after ~14 gated posts in ~60 s). Every logged-in request
 is spaced ``[misc] scraper_instagram_auth_interval`` seconds apart across
 threads (default 20); the media leg downloads from the info dict the metadata
 leg already extracted, so a gated post costs one logged-in call, not two; and
@@ -38,9 +36,9 @@ image URLs come from its thumbnails (single post) or its playlist entries'
 thumbnails (carousel). The images download as ``{item_id}_{NN:02}.jpeg`` and
 the orchestrator assembles a silent ``{item_id}.mp4`` slideshow — the same
 division of labor as TikTok's photo posts (see
-:class:`fyp.scrape.platform_scraper.BaseScraper`). Phase-2 candidates:
-muxing the post's music (slideshows are silent for now) and video segments
-inside mixed carousels (currently skipped).
+:class:`fyp.scrape.platform_scraper.BaseScraper`). Not yet supported: the
+post's music (slideshows are silent) and video segments inside mixed carousels
+(skipped).
 """
 
 import logging
@@ -90,7 +88,7 @@ logger = logging.getLogger(__name__)
 # Instagram's catch-all "Requested content is not available, rate-limit reached
 # or login required" conflates removed, throttled, and logged-out — it is kept
 # retryable (rate_limited) so genuinely throttled items stay queued; permanently
-# removed items behind it will keep retrying (accepted for now).
+# removed items behind it keep retrying (an accepted trade-off).
 # "carousel" is produced only by the image-post path (a partial image-download
 # failure), never parsed from an exception, so it cannot reach the
 # _extract_metadata/_download_media retry loops.
@@ -101,16 +99,16 @@ _PERMANENT = {"removed", "private", "no_video", "geo_blocked"}
 # One format for both legs, so the info dict the metadata leg returns can be
 # downloaded as-is (see _download_media). Processed with yt-dlp's default
 # selection (DASH video+audio), an info dict carries that selection's residue,
-# and a second YoutubeDL instance re-processing it for this format got HTTP 403
-# from the CDN every time (measured 2026-09-23); with one format it downloads.
+# and a second YoutubeDL instance re-processing it for this format gets HTTP 403
+# from the CDN every time; with one format it downloads.
 _FORMAT = "best[ext=mp4]/best"
 
-# The logged-in session. On 2026-09-23 Instagram logged it out after ~14
-# authenticated posts in ~60 s — two logged-in API calls each, two threads, no
-# pacing — and the scraper then sent 87 more attempts into the dead session.
-# Logged-in requests are now spaced across threads, and once the session is
-# seen logged out no further logged-in request is made in this process (one
-# process is one scraper run).
+# The logged-in session. Unpaced use (two threads, two logged-in API calls per
+# post) gets it logged out after ~14 authenticated posts in ~60 s, and a scraper
+# that does not notice keeps sending attempts into the dead session. Logged-in
+# requests are therefore spaced across threads, and once the session is seen
+# logged out no further logged-in request is made in this process (one process
+# is one scraper run).
 _AUTH_LOCK = threading.Lock()
 _auth_next_at = [0.0]
 _SESSION_DEAD = threading.Event()
@@ -139,8 +137,8 @@ def _session_logged_out(detail: str | None) -> bool:
     Instagram answers a logged-out session's API call with a 200 redirect to
     ``/accounts/login/``. yt-dlp falls back to logged-out extraction only when
     that redirect arrives as an HTTP error, so this one surfaces as "Failed to
-    parse JSON" — a retryable ``unknown`` until 2026-09-23, retried three times
-    per post.
+    parse JSON", which would otherwise classify as a retryable ``unknown`` and
+    be retried three times per post.
     """
     return "failed to parse json" in (detail or "").lower()
 
@@ -229,8 +227,8 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
 
     # Instagram's own ruling for a post it shows only to logged-in viewers
     # ("This content isn't available to everyone: It can't be seen by certain
-    # audiences"). It fell through to "unknown" until 2026-09-21; as a login
-    # wall it now triggers the retry with the session cookies.
+    # audiences"). Classified as a login wall so it triggers the retry with the
+    # session cookies rather than churning as "unknown".
     if (
         "isn't available to everyone" in msg_lower
         or "certain audiences" in msg_lower
@@ -317,7 +315,7 @@ def _login_gated(category: str, detail: str) -> bool:
 
     "Instagram sent an empty media response" classifies ``rate_limited`` — with
     the cookies attached it means throttling — but anonymously yt-dlp itself
-    says the post may need a login, and on 2026-09-21 every sampled one did.
+    says the post may need a login, and in practice such posts do.
     """
     return category == "login_required" or "empty media response" in (detail or "").lower()
 
@@ -419,8 +417,8 @@ def _extract_metadata_as(url: str, item_id: str, cookies: dict, verbose: bool = 
 def _probe_duration(path: str) -> float | None:
     """Read a media file's duration in seconds via ffprobe. Never raises.
 
-    Backfills the ``duration`` yt-dlp's anonymous Instagram extraction stopped
-    returning (2026-07). ffprobe ships with the ffmpeg dependency already
+    Backfills the ``duration`` that yt-dlp's anonymous Instagram extraction does
+    not return. ffprobe ships with the ffmpeg dependency already
     required for slideshow/DASH work; its absence degrades to ``None``.
     """
     import subprocess
@@ -461,8 +459,8 @@ def _download_media(
 
     The first attempt downloads from ``info`` — the dict the metadata leg
     already extracted — so it makes no Instagram request at all: a gated post
-    costs one logged-in API call, not two (2026-09-23: the re-extraction
-    doubled the logged-in traffic that got the session logged out). Only a
+    costs one logged-in API call, not two (a re-extraction doubles the
+    logged-in traffic, which is what gets the session logged out). Only a
     retry re-extracts the post from ``url``, paced like any logged-in request.
 
     Args:
@@ -690,8 +688,8 @@ def _parse_page_counts(html_text: str, item_id: str) -> dict | None:
 # supplementation for the rest of a batch after repeated rate-limit/challenge
 # responses (so a flagged account is not hammered).
 #
-# NOTE (2026-07): Instagram's web-API change broke this endpoint for web
-# sessions — it currently serves the SPA HTML shell, so supplementation
+# NOTE: Instagram's web-API change broke this endpoint for web sessions — it
+# currently serves the SPA HTML shell, so supplementation
 # degrades gracefully to None (play_count stays NA). The machinery is kept in
 # case the endpoint returns; disable outright with [misc]
 # ig_fetch_view_counts = false to save one dead request per reel.
@@ -908,7 +906,7 @@ def _image_urls_from_info(info: dict) -> list[str]:
     dict without formats whose thumbnails are the image renditions; a carousel
     is a playlist whose image entries have no formats. Video media (formats or
     a duration) yields nothing — video segments in mixed carousels are skipped
-    (phase 2) and a plain video post returns ``[]``.
+    (not yet supported) and a plain video post returns ``[]``.
     """
     if info.get("_type") == "playlist":
         urls = []
@@ -1060,8 +1058,8 @@ class InstagramScraper(BaseScraper):
                 verbose=verbose,
             )
         if info.get("_type") == "playlist":
-            # A carousel with no image segments (all-video) — nothing phase 1
-            # can fetch. Single posts drop through to the video path, whose
+            # A carousel with no image segments (all-video) — nothing the image
+            # path can fetch. Single posts drop through to the video path, whose
             # download phase classifies its own failure.
             return _empty_fail("no_video", "carousel has no image segments to fetch")
 

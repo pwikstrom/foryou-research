@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
-"""
-Script Name:
-Description:
-Author: Patrik
-Date:
+"""Scraping orchestration.
+
+Downloads video media and metadata through the per-platform scrapers, guards
+batches against permanent and transient failure storms, builds image-slideshow
+videos, and consolidates scrape batches and failed-scrape records.
 """
 
 import json
@@ -98,9 +97,9 @@ def _permanent_storm_threshold() -> int:
 
 # Consecutive same-category *transient* failures that mark the batch outcome as
 # suspect (a "transient storm"). The permanent-storm guard's blind spot: a
-# platform-side breakage classified on the retryable side (2026-08-10: TikTok
-# deployed a new bot-challenge wall that made yt-dlp fail every item with
-# "No video formats found!" → "unknown", a retryable category) neither trips the
+# platform-side breakage classified on the retryable side (e.g. a new TikTok
+# bot-challenge wall that makes yt-dlp fail every item with "No video formats
+# found!" → "unknown", a retryable category) neither trips the
 # rate-limit circuit breaker nor the permanent-storm guard, so the worker churns
 # the whole queue at 0% yield, burning 3 yt-dlp attempts per item and
 # self-chaining until the queue stops pruning. A long homogeneous run of one
@@ -110,7 +109,7 @@ def _permanent_storm_threshold() -> int:
 # blips) are more plausible in a healthy session, and any success resets the
 # count. Overridable via ``[misc] scraper_transient_storm_threshold``.
 # Ceiling on one batch's wall clock. On Cloud Run the Cloud Tasks request
-# deadline (1800 s — web_interface.run_queue_scraper._DISPATCH_DEADLINE) is the
+# deadline (1800 s, from web_interface.worker_registry) is the
 # hard limit. A local drain has no such limit: the per-wave estimate governs,
 # bounded by ``[misc] scraper_local_batch_deadline_seconds`` (default 4 h).
 def _batch_deadline_cap() -> int:
@@ -206,8 +205,8 @@ def _patch_moviepy_audio_reader_del() -> None:
     ``AudioFileClip`` on a file ffmpeg cannot parse raises inside
     ``__init__`` before ``self.proc`` is assigned; the interpreter then runs
     ``__del__`` → ``close()`` → ``if self.proc`` and prints an
-    ``AttributeError`` traceback that Cloud Logging files as ERROR-severity
-    (seen 2026-09-15). The audio failure itself is already handled (silent
+    ``AttributeError`` traceback that Cloud Logging files as ERROR-severity.
+    The audio failure itself is already handled (silent
     slideshow); the class attribute only makes the destructor quiet.
     """
     try:
@@ -1104,7 +1103,7 @@ def download_video_threads(
     mem_stop_event = threading.Event()
     inter_delay = scraper.inter_request_delay()
     # Network outage gate: a failed item first asks whether the MACHINE is
-    # offline (a laptop's Wi-Fi drop, 2026-09-27). If so the worker waits it
+    # offline (e.g. a laptop's Wi-Fi drop). If so the worker waits it
     # out and re-runs the item, and the outage never reaches the breaker, the
     # storm guards or the alert file — it is not the platform's fault.
     offline_gate = connectivity.ConnectivityGate(
@@ -1331,10 +1330,10 @@ def download_video_threads(
         # the entire batch indefinitely.  Stuck items are recorded as failures.
         # Waves are counted at the throttle CEILING, not the pool size: the
         # pool is oversized on purpose and the semaphore is what bounds real
-        # concurrency (YouTube: 2-4). Counting the pool made the estimate 3-6x
-        # optimistic, and the old fixed 1800 s clamp then made a 1020-item
-        # YouTube batch unfinishable by construction (2026-09-18: 341 items
-        # cut off at the deadline). The clamp now applies only on Cloud Run.
+        # concurrency (YouTube: 2-4). Counting the pool makes the estimate 3-6x
+        # optimistic, and a fixed 1800 s clamp makes a large local batch
+        # unfinishable by construction (a 1020-item YouTube batch had 341
+        # items cut off at the deadline). The clamp applies only on Cloud Run.
         _per_item_ceiling = 120
         _waves = max(1, (len(interesting_videos) + throttle_max - 1) // throttle_max)
         batch_deadline = min(int(_waves * _per_item_ceiling * 1.5 + 60), _batch_deadline_cap())
@@ -1389,11 +1388,11 @@ def download_video_threads(
             )
             # Stop the queue, keep the work. Un-started workers now return a
             # 'batch_aborted' placeholder at once (transient, stays queued);
-            # the few in-flight downloads finish and their rows are KEPT. The
-            # old handler wrote every unfinished item off as 'timeout' and then
-            # blocked on the executor's exit anyway — on 2026-09-18 that ran
-            # the remaining 341 downloads for 11 more minutes, discarded every
-            # one of them, and pushed the already-throttled session into a storm.
+            # the few in-flight downloads finish and their rows are KEPT. Writing
+            # every unfinished item off as 'timeout' while still blocking on the
+            # executor's exit would run the remaining downloads anyway (341 of
+            # them for 11 more minutes in one case), discard every one, and push
+            # an already-throttled session into a storm.
             abort_event.set()
             deadline_hit = True
             try:
@@ -1466,9 +1465,9 @@ def download_video_threads(
             elif media_error is not None:
                 # Whatever the category. A permanent verdict on the media leg
                 # is not trusted on its own: a throttled session's bare "Video
-                # unavailable" reads exactly like a removal, and on 2026-09-18
-                # that wrote 187 live videos as scrape-ok rows with no media
-                # and pruned 181 of them for good. The row is saved, the id
+                # unavailable" reads exactly like a removal; trusting it once
+                # wrote 187 live videos as scrape-ok rows with no media and
+                # pruned 181 of them for good. The row is saved, the id
                 # stays queued, and the caller's media-retry budget
                 # (scrape_queues.charge_media_retry) bounds the retries.
                 media_retry_ids.append(interesting_videos[idx])
@@ -1512,9 +1511,9 @@ def download_video_threads(
 
     if storm_state["tripped"]:
         # Both populations the guard protects: failed fetches (demoted) and
-        # metadata-only rows whose MEDIA leg gave the storm verdict — the
-        # latter is what tripped the guard on 2026-09-18, and the old line
-        # reported "0 demoted" because they are results, not failures.
+        # metadata-only rows whose MEDIA leg gave the storm verdict. The latter
+        # can be what trips the guard, and they are results, not failures, so
+        # counting only demotions would report "0 demoted".
         logger.warning(
             f"  Permanent-storm guard: {storm_demoted} "
             f"'{storm_state['classification']}' failures demoted to transient "
@@ -1608,12 +1607,12 @@ def download_video_threads(
             f"{len(transient_failed_ids)} transient (will retry)"
         )
 
-    # The failed record is written BEFORE the empty-results return below. A
-    # batch where every item failed permanently used to return first and record
-    # nothing: consolidation never marked those videos scrape_fail, the
-    # enrichment planner's scrapeable mask kept them, and on 2026-09-08 one dead
-    # video was re-cut into a one-item slice every 25 seconds until the
-    # supervisor's no-drain guard parked every armed plan.
+    # The failed record is written BEFORE the empty-results return below.
+    # Otherwise a batch where every item failed permanently records nothing:
+    # consolidation never marks those videos scrape_fail, the enrichment
+    # planner's scrapeable mask keeps them, and a single dead video is re-cut
+    # into a one-item slice every 25 seconds until the supervisor's no-drain
+    # guard parks every armed plan.
     if not dry_run and len(failed_items) > 0:
         data_io.save_json(
             data=failed_items,

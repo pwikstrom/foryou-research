@@ -6,7 +6,7 @@ videos via real Gemini calls, refines each arm's raw responses through the
 production recode pipeline **in memory**, and stores per-arm results plus a
 field-type-aware comparison report — all in an isolated storage location.
 
-Productionizes the original A/B spike seams: the per-video
+Builds on three seams of the original A/B prototype: the per-video
 annotate-without-persist call (``annotate_one``), the in-memory refine
 (``refine_from_flat_dicts``), and the scale-aware comparison
 (``compare_arms``), extended to thread an explicit contract through
@@ -43,7 +43,7 @@ import fyp.core.data_io as data_io
 from fyp.annotation import annotation_contract as ac
 from fyp.annotation import annotation_schema as sch
 
-# NOTE: fyp.machine_annotation, fyp.recode_variables and google.genai are
+# NOTE: fyp.annotation.machine_annotation, fyp.annotation.recode_variables and google.genai are
 # imported lazily inside the functions that need them — they are heavy imports
 # the candidate/eval-set CRUD endpoints should not pay for.
 from fyp.core.runtime import cf as _cf
@@ -86,7 +86,7 @@ _NORM_SENTINELS = {
 _DASH_FOLD = str.maketrans({"\u2013": "-", "\u2014": "-", "\u2212": "-"})  # en dash, em dash, minus
 
 # Scales as declared by the four TOML contracts / the synthesized var_schema.
-# (The pre-2026-07 ten-scale vocabulary — ratio/interval/ordinal/dichotomous/
+# (The legacy ten-scale vocabulary — ratio/interval/ordinal/dichotomous/
 # factor/collection — is gone; 'factor' is a ROLE now, not a scale.)
 _NUMERIC_SCALES = {"numeric"}
 _ENUM_SCALES = {"categorical"}
@@ -248,7 +248,7 @@ def delete_candidate(name: str) -> bool:
 # ---------------------------------------------------------------------------
 # Eval sets (named curated item-id lists + platform/downloaded resolution +
 # sampling). The store is ``{"active": <name>, "sets": {<name>: {...}}}``; the
-# pre-2026-07 single-set file is migrated into it on first read.
+# legacy single-set file is migrated into it on first read.
 # ---------------------------------------------------------------------------
 
 
@@ -696,8 +696,8 @@ def annotate_one(
 class SyncThreadedRunner:
     """Synchronous arm runner: ThreadPoolExecutor over :func:`annotate_one`.
 
-    The only runner today. A future ``BatchApiRunner`` (Gemini batch API, ~50%
-    cheaper, async) can implement the same ``run()`` signature and slot into
+    The Gemini runner (non-Gemini backends use :class:`BackendSequentialRunner`).
+    A ``BatchApiRunner`` (Gemini batch API, ~50% cheaper, async) could implement the same ``run()`` signature and slot into
     :func:`run_arm` without touching the worker.
     """
 
@@ -947,7 +947,7 @@ def run_arm(
 
 
 # ---------------------------------------------------------------------------
-# In-memory refine + comparison (ported from the original A/B spike).
+# In-memory refine + comparison (ported from the original A/B prototype).
 # ---------------------------------------------------------------------------
 
 
@@ -1397,7 +1397,7 @@ def distribution_tables(frames: dict[str, pd.DataFrame], column: str, top: int =
 def build_adjudication(frames: dict[str, pd.DataFrame], columns: list[str]) -> list[dict]:
     """Per-(item, column) rows where the arms' values differ.
 
-    N-arm generalization of the spike's disagreement table: one row per
+    N-arm generalization of the prototype's disagreement table: one row per
     ``(item_id, column)`` whose *canonicalized* values are not all equal (so a
     row does not appear merely because one arm wrote a hyphen where another wrote
     an en dash, or left the cell blank), carrying each arm's value as displayed.

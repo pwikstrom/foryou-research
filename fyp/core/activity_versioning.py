@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 """Activity-contract versioning: identity, registry, and per-row provenance.
 
-The ingestion analogue of :mod:`fyp.scrape_versioning`. Every ingested activity
+The ingestion analogue of :mod:`fyp.scrape.scrape_versioning`. Every ingested activity
 row is stamped with a deterministic ``activity_contract_version`` derived from the
 activity-contract field set. A registry (``activity_versions.json``) snapshots the
 full field digest behind each version so the precise schema that validated any
@@ -25,14 +24,14 @@ from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
-# NOTE: fyp.data_io is imported LAZILY inside functions — a module-level import
+# NOTE: fyp.core.data_io is imported LAZILY inside functions — a module-level import
 # creates an import cycle via fyp_config (importing this module first leaves it
 # partially initialized while fyp_config's load_var_schema overlay calls into
-# it, silently losing legacy metadata). See fyp.annotation_versioning.
+# it, silently losing legacy metadata). See fyp.annotation.annotation_versioning.
 
 
 def _data_io():
-    """Lazy fyp.data_io accessor (breaks the fyp_config import cycle)."""
+    """Lazy fyp.core.data_io accessor (breaks the fyp_config import cycle)."""
     import fyp.core.data_io as data_io
 
     return data_io
@@ -59,7 +58,7 @@ def build_activity_version_descriptor(contract: dict, label: str | None = None) 
     """Build a self-describing version descriptor and its deterministic id.
 
     The identity is the same ``contract_field_digest`` that feeds
-    :func:`fyp.recode_variables.compute_var_schema_hash`, plus the platform set,
+    :func:`fyp.annotation.recode_variables.compute_var_schema_hash`, plus the platform set,
     so the activity version and the study-cache key move together on a contract
     change (no skew).
 
@@ -151,7 +150,7 @@ def _promote_into(registry: dict, version: str) -> dict:
     registry = _copy.deepcopy(registry)
     if version not in registry.get("versions", {}):
         raise KeyError(f"unknown activity_contract_version: {version}")
-    registry.pop("active", None)  # pre-2026-07 key name
+    registry.pop("active", None)  # legacy key name
     registry["preferred"] = version
     return registry
 
@@ -166,8 +165,8 @@ def load_registry() -> dict:
         storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
     )
     if isinstance(registry, dict) and "versions" in registry:
-        # The promoted pointer was called "active" before the 2026-07
-        # terminology change (active now means "used for new rows").
+        # The promoted pointer was called "active" in legacy registries
+        # (active now means "used for new rows").
         if "preferred" not in registry and "active" in registry:
             registry["preferred"] = registry.pop("active")
         return registry

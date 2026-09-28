@@ -1,3 +1,11 @@
+"""Configuration loading for the Hub.
+
+Reads ``config/config.toml`` (plus local overrides and ``.env``), resolves
+storage paths, connects to GCS when configured, and synthesizes the variable
+schema from the contracts. The resulting singleton dict is built lazily on first
+access of ``fyp_cf`` (or :func:`get_config`).
+"""
+
 import http.client
 import os
 import sys
@@ -15,13 +23,10 @@ from google.cloud import storage as gcs_storage
 # append) and the PROJECT_ROOT / PYTHON_EXEC constants live in
 # fyp.core.paths; importing it preserves the historical import-time side
 # effects. The redundant-alias form re-exports every name so external code
-# keeps importing them from fyp.fyp_config.
+# keeps importing them from fyp.core.fyp_config.
 from fyp.core.paths import PROJECT_ROOT as PROJECT_ROOT
 from fyp.core.paths import PYTHON_EXEC as PYTHON_EXEC
 from fyp.core.paths import abs_project_root_path as abs_project_root_path
-
-# import fyp
-
 
 # Fallback for [site].repo_url when neither config.toml nor FYP_REPO_URL
 # supplies one (e.g. a stripped-down config): the canonical public repository
@@ -125,7 +130,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 # Former flat [machine] keys that belong to the Gemini backend — the canonical
-# home is now [machine.gemini] (config schema 2026-07). Includes retired knobs
+# home is now [machine.gemini] (the nested per-backend schema). Includes retired knobs
 # (use_structured_output, prompt, ...) so any old config hoists completely.
 _LEGACY_GEMINI_KEYS = (
     "key",
@@ -183,7 +188,7 @@ def _normalize_machine_config(cf: dict) -> None:
             nested = machine.setdefault(backend_id, {}).setdefault("variants", {})
             nested.setdefault(name, block)
 
-    # The short-lived model-keyed [machine.pricing] table (2026-07) moved to a
+    # The legacy model-keyed [machine.pricing] table has moved to a
     # per-block `pricing` inline table; a leftover copy is dropped, not read.
     if machine.pop("pricing", None) is not None:
         print(
@@ -222,7 +227,7 @@ def _localize_default_path(configured: str, home_subdir: str) -> str:
 def initialize(verbose: bool = False, abs_project_root_path: str = None) -> dict:
 
     # ------------------------------------------------------------------
-    # Locate the project root - I don't know what other people do - this works for me
+    # Locate the project root
     # ------------------------------------------------------------------
     env_config_path = os.environ.get("FYP_CONFIG_PATH")
     if abs_project_root_path is None and env_config_path:
@@ -239,7 +244,7 @@ def initialize(verbose: bool = False, abs_project_root_path: str = None) -> dict
         env_config_path = None
 
     if abs_project_root_path is None:
-        # I put an empty __proj__.py file in the root folder of the project structure
+        # The project root is marked by an empty __proj__.py file; walk up from the cwd to find it
         cwd = Path(os.getcwd())
         candidates = [cwd] + list(cwd.parents)
         for p in candidates:
@@ -366,8 +371,8 @@ def initialize(verbose: bool = False, abs_project_root_path: str = None) -> dict
     )
 
     # Resolve relative paths against the project root for consistent file access.
-    # I'm creating the paths as if they are local - if everything is GCS, these will just be
-    # used as a template for the gcs paths
+    # The paths are built as local paths; when storage is on GCS they serve only as
+    # templates for the GCS paths.
     cf["paths"]["local_data"] = os.path.abspath(
         os.path.join(cf["paths"]["project_root"], cf["paths"]["local_data"])
     )
@@ -383,8 +388,8 @@ def initialize(verbose: bool = False, abs_project_root_path: str = None) -> dict
     # NOTE — raw-folder naming is inconsistent for historical reasons; do not
     # "fix" it casually. The three TikTok sources below are keyed by SOURCE
     # (activity_data/ddp, /aio, /zeeschuimer) because TikTok was the only
-    # platform when they were named (Nov 2025) and "ddp" alone meant "TikTok
-    # data-download export". Instagram and YouTube (July 2026) are not listed
+    # platform when they were named and "ddp" alone meant "TikTok
+    # data-download export". Instagram and YouTube (added later) are not listed
     # here at all: their ingestion classes self-register by the
     # activity_data/{source_platform}/{raw_path} convention
     # (ForYouBaseCollection._register_class_raw_location), which yields the
@@ -440,7 +445,7 @@ def initialize(verbose: bool = False, abs_project_root_path: str = None) -> dict
     # ------------------------------------------------------------------
     # prepare data storage for initialisation - either gcs or local
     # ------------------------------------------------------------------
-    # This is not set by the config so I'm setting it to None
+    # Not set by the config; populated when the GCS connection is made.
     cf["data_io"]["bucket"] = None
 
     # If running on Cloud Run, force all storage to GCS. FYP_FORCE_GCS allows a
@@ -578,7 +583,7 @@ def _var_schema_source_fingerprint(cf, presentation: dict | None = None) -> str 
     and the version registries. Most contract TOMLs are baked into the deploy,
     but the **annotation** contract can also be uploaded to data storage at
     runtime (``users/annotation_contract.toml`` — see
-    ``fyp.annotation_contract.refresh_runtime_contract``), so its mtime is folded
+    ``fyp.annotation.annotation_contract.refresh_runtime_contract``), so its mtime is folded
     in here too. The presentation store and version registries also change at
     runtime (registrations, the versions-in-data snapshot, admin edits).
     ``reload_var_schema_if_changed`` compares this at every Cloud Task entry so
@@ -1091,7 +1096,7 @@ def reload_var_schema_if_changed(cf=None, verbose: bool = False) -> bool:
 
 # The heavy init (config load, GCS connect, var_schema synthesis) is lazy: it
 # runs on first access of ``fyp_cf`` — served by the module ``__getattr__``
-# below (PEP 562) — instead of at module import. ``from fyp.fyp_config import
+# below (PEP 562) — instead of at module import. ``from fyp.core.fyp_config import
 # fyp_cf`` therefore still triggers init at the consumer's import time and
 # always binds the same singleton dict.
 _fyp_cf: dict | None = None

@@ -444,8 +444,8 @@ def _fetch_part_bytes(filename: str) -> bytes | bytearray:
 
 
 # Below this share of a part's rows, a ranged read is cheaper than caching the
-# part whole, and the cache is skipped for that part on that call. Measured
-# 2026-09-03: a one-collection sessions refresh wanted 3,299 vectors — ~0.5% of
+# part whole, and the cache is skipped for that part on that call. Measured: a
+# one-collection sessions refresh wanted 3,299 vectors — ~0.5% of
 # each of 34 parts — and the cache pulled 1.4 GB in 21 s to serve ~10 MB; the
 # link's actual segmentation took 2 s. A full-rebuild link 0 sits at ~1.3%
 # (10k vectors over ~40 parts) and stays on the cache path, so the 7-minute
@@ -475,7 +475,7 @@ def _cached_part_path(model: str, part: dict, store_fp: str, dim: int) -> str:
     Why a whole-part cache exists next to the ranged reads: a sessions link
     asks for 3-15% of the corpus rows scattered over every part, and at that
     density the coalesced ranges cover nearly the whole 1.9 GB store — ~30 s
-    per link however small the batch (measured 2026-09-02). A task-runner
+    per link however small the batch (measured). A task-runner
     instance serves many links in a row, so paying that once per instance
     and memory-mapping thereafter takes the phase to ~0 for every later link.
 

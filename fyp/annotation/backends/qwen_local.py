@@ -1,7 +1,6 @@
 """Local Qwen3-Omni annotation backend (Apple Silicon / MLX).
 
-Productizes a validated local pilot (2026-07-17,
-20/20 valid vs Gemini, ~30 s/video, 23 GB peak on an M2 Max):
+Productizes a validated local pilot (20/20 valid vs Gemini, ~30 s/video, 23 GB peak on an M2 Max):
 
 * mlx-vlm's native video path is broken for this model family, so each video
   is represented as N evenly-spaced ffmpeg frames (mid-segment) passed as an

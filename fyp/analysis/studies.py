@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
-"""
-Script Name:
-Description:
-Author: Patrik
-Date:
+"""Study definitions: loading, saving and access defaults.
+
+Study defs live in ``studies.json``; this module loads them into the config,
+persists them, names the system-managed participant studies, and holds the
+one-time ``USER_ACCESS`` migration.
 """
 
 import fyp.core.data_io as data_io
@@ -130,9 +129,9 @@ def save_study_defs():
 
 
 def migrate_user_access_defaults(grant_roles: list[str]) -> int:
-    """One-time backfill for the empty-means-none USER_ACCESS flip (S4).
+    """One-time backfill for the empty-means-none ``USER_ACCESS`` rule.
 
-    Before S4, a study with a missing/empty ``USER_ACCESS`` list was visible
+    Under the earlier rule, a study with a missing/empty ``USER_ACCESS`` list was visible
     to every logged-in user on the analysis tabs. Access is now deny-by-
     default, so every study that relied on the old default gets an explicit
     grant of ``grant_roles`` (the caller passes the role names that existed

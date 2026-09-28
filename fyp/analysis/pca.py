@@ -1,3 +1,10 @@
+"""Group-level PCA and categorical-diversity analysis for studies.
+
+Turns categorical annotation variables into per-group count frames, derives
+components, entropy and dominance from them, and computes scaled PCA scores
+over a study's factors and features.
+"""
+
 import datetime as _dt
 import time as _time
 from collections.abc import Sequence
@@ -42,8 +49,8 @@ VIDEOS_WATCHED_COL = "videos_watched"
 # full-distribution statistics (entropy, top1, PC interpretation) come from
 # long-format/sparse computations instead of the dense frame. A free-text-ish
 # categorical (main_activity, ~98k distinct values) made the dense crosstab
-# 13,840 x 91,799 x 8 B = 10.2 GB — doubled by the astype(float) — which
-# OOM-killed the 32 GB task runner on 2026-08-08/09.
+# 13,840 x 91,799 x 8 B = 10.2 GB — doubled by the astype(float) — which is
+# enough to OOM-kill a 32 GB task runner.
 DENSE_CATEGORY_LIMIT = 1000
 
 # Degenerate backstop for the high-cardinality path: when NO category clears
@@ -161,7 +168,6 @@ def pairwise_matrix_for_categorical_groups(
     counts_df,
     metric: Metric = "jensen-shannon",
     mode: Mode = "similarity",
-    # labels: Optional[List[str]] = None,
     smoothing: float = 1e-9,
     weighting: Weighting = "none",
     gamma: float | None = None,
@@ -547,14 +553,12 @@ def transform_category_column_to_counts_df(
                 return s_list
 
         target_length = min_length
-        # original_max_length = max([len(s) for s in s_list])
         new_list = [s[:target_length] for s in s_list]
 
         while len(set(new_list)) != len(new_list):
             target_length += 5
             new_list = [s[:target_length] for s in s_list]
 
-        # new_max_length = max([len(s) for s in new_list])
         return new_list
 
     # 1. Subset & Explode
@@ -1219,7 +1223,7 @@ def calculate_scaled_pca_scores(
             f"    [PCA] Dropping features and grouping factors with more than 10% missing values -> {len(columns_to_be_dropped)} columns dropped. Shape: {study_recoded_dataset.shape}"
         )
 
-    # I need to do this again in case some factors or features were dropped in the previous step
+    # Re-derive factors and features: some may have been dropped in the previous step.
     fyp_factors, fyp_features = get_factors_and_features_from_var_schema(
         some_events_df=study_recoded_dataset, verbose=verbose
     )
@@ -1474,9 +1478,6 @@ def calculate_scaled_pca_scores(
         .reset_index()
         .copy()
     )
-
-    # TODO: avoid making direct references to column names
-    # events_pca_scores_scaled[local_month"] = events_pca_scores_scaled[local_date"].map(lambda x:x.month)
 
     if verbose:
         logger.info(f"    [PCA] Shape of scaled PCA scores table: {events_pca_scores_scaled.shape}")

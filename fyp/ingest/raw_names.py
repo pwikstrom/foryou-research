@@ -310,8 +310,8 @@ def display_id_owner(display_id, tags: dict, *, exclude=None) -> str | None:
 
 def duplicate_display_ids(tags: dict) -> dict[str, list[str]]:
     """``{label: [collection ids]}`` for every name more than one collection
-    answers to. Empty while the invariant holds — writes have enforced it
-    since 2026-09-09, so anything here predates the guard.
+    answers to. Empty while the invariant holds — writes enforce it, so
+    anything here predates the guard.
     """
     by_key: dict[str, list[str]] = {}
     labels: dict[str, str] = {}

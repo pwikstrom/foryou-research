@@ -3,7 +3,7 @@ structured-output flattener, and prompt renderer — all derived from one
 declarative source, ``config/annotation_contract.toml`` (Workstream E).
 
 A single ordered description of the Gemini output contract lives in the TOML
-(loaded via ``fyp.annotation_contract``); ``FIELD_SPECS`` is built from it. From
+(loaded via ``fyp.annotation.annotation_contract``); ``FIELD_SPECS`` is built from it. From
 ``FIELD_SPECS`` this module derives:
 
   * ``build_response_schema()`` — a ``google.genai`` ``Schema`` that constrains
@@ -23,7 +23,7 @@ import google.genai.types as gt
 from fyp.annotation import annotation_contract as _ac
 
 # The declarative contract is now loaded LAZILY and can change at runtime (an
-# admin can upload a new one — see fyp.annotation_contract). ``_specs`` memoizes
+# admin can upload a new one — see fyp.annotation.annotation_contract). ``_specs`` memoizes
 # the (contract, FIELD_SPECS) pair keyed by the contract's content etag, so the
 # prompt / response schema / flattener rebuild automatically when — and only
 # when — the effective contract changes. No import-time freeze.
@@ -183,7 +183,7 @@ def build_prompt(contract: dict | None = None) -> str:
 
     Pure deterministic templating (no LLM): a global header, then one bullet per
     field (enums auto-rendered from the contract), then a global footer. A
-    contract that declares ``[[section]]`` entries (the pre-2026-07 shape) keeps
+    contract that declares ``[[section]]`` entries (the legacy shape) keeps
     the historical sectioned rendering — numbered section titles + intros with
     indented bullets — byte-identical, so stored candidates and registered
     annotation versions keep their prompt hashes. Determinism keeps the

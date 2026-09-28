@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
-"""
-Script Name:
-Description:
-Author: Patrik
-Date:
+"""Platform-independent ingestion of donated activity data.
+
+Defines the collection base class that turns raw donation files into activity
+rows (timezone inference, session ids, play durations, engagement tokens), the
+concrete multi-platform collection, and the ingestion ledger and approval flow.
 """
 
 import copy
@@ -649,7 +648,7 @@ class ForYouBaseCollection(ABC):
         """Register this class's raw-upload storage location by convention.
 
         Resolves ``activity_data/{source_platform}/{raw_path}`` and registers it
-        through :func:`fyp.data_io.register_location`, so adding a platform needs
+        through :func:`fyp.core.data_io.register_location`, so adding a platform needs
         no static ``fyp_config`` edit. Runs at class definition (import time) so
         the location exists in every process before any request touches it —
         upload routes must not depend on a collection having been instantiated
@@ -705,7 +704,7 @@ class ForYouBaseCollection(ABC):
         # Donor timezone for the file currently being loaded (from the manifest);
         # set per-file in load_raw so load_single_raw can honour it.
         self._current_file_tz = None
-        # Structure-drift detector for this run (fyp.structure_sentinel.
+        # Structure-drift detector for this run (fyp.core.structure_sentinel.
         # StructureSentinel), injected by run_ingest_refresh. When None, no
         # structure checks run and load_raw behaves exactly as before.
         self.sentinel = None
@@ -746,7 +745,7 @@ class ForYouBaseCollection(ABC):
         new_processed_data = data_io.load_parquet(
             storage_location=self.processed_storage_location,
             filename=processed_fn,
-            verbose=False,  # self.verbose
+            verbose=False,
         )
 
         if len(self.data) > 0:
@@ -762,7 +761,7 @@ class ForYouBaseCollection(ABC):
                 )
             # Vertical concat via polars: parallel, avoids pandas' O(n) copy
             # on accumulating appends. Matters at events-scale (tens of millions
-            # of rows). See fyp/polars_ops.py.
+            # of rows). See fyp/core/polars_ops.py.
             self.data = fast_vertical_concat([self.data, new_processed_data])
         else:
             if self.verbose:
@@ -813,7 +812,7 @@ class ForYouBaseCollection(ABC):
             data=self.discarded_raw_files,
             storage_location=self.processed_storage_location,
             filename=self.discarded_collections_filename,
-            verbose=False,  # self.verbose
+            verbose=False,
         )
 
     @staticmethod
@@ -979,12 +978,11 @@ class ForYouBaseCollection(ABC):
 
         # Tripwire. A manifest entry is an upload waiting for THIS run; when
         # its stored name is in the skip set the loop below never opens it,
-        # and the old cleanup then pruned the entry as "processed" — the
-        # 2026-09-06 incident, when a participant's user_data_tiktok_2.json
-        # matched an old test collection's raw file and vanished without a
-        # trace. Stored names are generated and unique now, so a hit can only
-        # mean a bug or a hand-placed file: report it loudly and leave the
-        # entry pending for a human.
+        # and pruning it as "processed" would lose the upload without a trace
+        # (a donor's upload whose name collided with an old test collection's
+        # raw file was once lost that way). Stored names are generated and
+        # unique, so a hit can only mean a bug or a hand-placed file: report it
+        # loudly and leave the entry pending for a human.
         skip_set = set(skip_these_raw_files) | set(self.discarded_raw_files)
         held = set(held_for_review or ())
         for fn in manifest:
@@ -1058,9 +1056,10 @@ class ForYouBaseCollection(ABC):
                 if self.verbose:
                     logger.info(f"Loaded file: {fn}. Number of rows: {len(one_df):,}")
 
-            # I will keep data from this file if there are at least 10 activities. (just an arbitrary number)
+            # Skip files with fewer than min_required_rows_per_raw_file activities
+            # (an arbitrary floor, 10 by default).
             if len(one_df) >= self.min_required_rows_per_raw_file:
-                # Structure-drift check (Phase A): a quarantined verdict
+                # Structure-drift check (sentinel Phase A): a quarantined verdict
                 # withholds the file's rows from this run; the file is reviewed
                 # in the Data Management UI. A sentinel failure must never
                 # block ingestion, so it degrades to ingest-with-warning.
@@ -1099,7 +1098,7 @@ class ForYouBaseCollection(ABC):
 
         if len(many_dfs) > 1:
             # Vertical concat via polars — fast multi-frame stack of per-file
-            # raw DataFrames. See fyp/polars_ops.py.
+            # raw DataFrames. See fyp/core/polars_ops.py.
             self.data = fast_vertical_concat(many_dfs)
             self.state = "raw"
 
@@ -1218,7 +1217,7 @@ class ForYouBaseCollection(ABC):
         """Zip-member suffixes the ingester needs from an uploaded donation zip.
 
         Matched with the same path-suffix semantics as
-        :func:`fyp.utils.read_zip_members`. The web upload UI uses this list to
+        :func:`fyp.core.utils.read_zip_members`. The web upload UI uses this list to
         slim large donation zips client-side before upload, keeping only the
         listed members. Empty for platforms whose uploads are consumed whole.
 
@@ -1259,7 +1258,7 @@ class ForYouBaseCollection(ABC):
             filename: The raw file's name within ``self.raw_path``.
 
         Returns:
-            A fingerprint dict (see :mod:`fyp.structure_sentinel`).
+            A fingerprint dict (see :mod:`fyp.core.structure_sentinel`).
         """
         lowered = filename.lower()
         if lowered.endswith(".json"):
@@ -1652,15 +1651,16 @@ class ForYouBaseCollection(ABC):
         iso["day"] = iso["day"].map(WEEKDAY_MAPPER)
         iso["year_week"] = iso["year"].astype(str) + "-" + iso["week"].astype(str)
 
-        # these dtype fixes feel stupid, but I cannot seem to get around it any other way
+        # Assign as plain lists, then convert explicitly, so these columns end up
+        # pyarrow-backed rather than object dtype.
         df["local_weekday"] = iso["day"].to_list()
         df["local_weekday"] = df["local_weekday"].convert_dtypes(dtype_backend="pyarrow")
         df["local_week"] = iso["year_week"].to_list()
         df["local_week"] = df["local_week"].convert_dtypes(dtype_backend="pyarrow")
 
         local_hour = ts.dt.hour.astype("uint8[pyarrow]")
-        # The activity contract declares local_hour; until 2026-09-25 it was
-        # computed here only to derive the day segment and never stored.
+        # The activity contract declares local_hour, so it is stored as well as
+        # used to derive the day segment.
         df["local_hour"] = local_hour
 
         df["local_day_segment"] = local_hour.map(_day_segment_from_hour).convert_dtypes(
@@ -1936,8 +1936,8 @@ class ForYouCollection(ForYouBaseCollection):
         (opened it and ingested, deduped or discarded it — quarantined and
         unreadable files stay pending) or when the raw object is gone. Never
         by matching names against the whole dataset: that is how a pending
-        upload whose name collided with an old raw file was pruned as
-        "processed" without being read (2026-09-06). Entries the tripwire
+        upload whose name collided with an old raw file would be pruned as
+        "processed" without being read. Entries the tripwire
         blocked are always kept.
         """
         MANIFEST_FILENAME = "ingestion_manifest.json"
@@ -1996,13 +1996,12 @@ class ForYouCollection(ForYouBaseCollection):
         The ledger is edited from two places at once: an ingest run holds it
         in memory for a minute and writes it at the end, and the hub's
         review buttons (approve / reject / unskip) edit it on click. A plain
-        overwrite let whichever wrote last win — on 2026-09-07 two approvals
-        landed while a run was saving, the run's stale copy put the
-        ``quarantined_structure`` entries straight back, and both files sat
-        invisible (verdict approved, ledger quarantined, upload pending) for
-        the rest of the day.
+        overwrite lets whichever writes last win: approvals that land while a
+        run is saving are undone by the run's stale copy, which puts the
+        ``quarantined_structure`` entries straight back and leaves the files
+        invisible (verdict approved, ledger quarantined, upload pending).
 
-        Now the stored ledger is re-read and only what changed since this
+        So the stored ledger is re-read and only what changed since this
         process loaded it is applied: entries added or rewritten here win,
         entries removed here are removed, everything else keeps whatever
         storage holds now. One more rule for the run side: a quarantine this
@@ -2310,7 +2309,7 @@ class ForYouCollection(ForYouBaseCollection):
 
         # Vertical concat via polars — stacks all processed sub-collections
         # into the top-level collection in a single parallel pass.
-        # See fyp/polars_ops.py.
+        # See fyp/core/polars_ops.py.
         if len(self.data) > 0:
             self.data = fast_vertical_concat(
                 [self.data] + [collection.data for collection in processed_collections]

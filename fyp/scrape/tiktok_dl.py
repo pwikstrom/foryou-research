@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
 """
 TikTok downloader using yt-dlp as backend.
 
-Returns the same single-row DataFrame as the retired PykTok-fork backend (mypyktok)
-that generate_data_row() produces so downstream code is unchanged.
+Returns the same single-row DataFrame shape as the retired PykTok-fork backend,
+so downstream code is unchanged.
 """
 
 from datetime import datetime, timezone
@@ -136,9 +135,9 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
 
     # yt-dlp raises this when the post's page parses but exposes no playable
     # media — in practice a removed video or a photo post whose slideshow path
-    # was missed. It never recovers on retry, so treating it as transient left
-    # items stuck in the queue forever (2026-09-01: five such items stalled
-    # the enrichment supervisor's whole scrape queue).
+    # was missed. It never recovers on retry, so treating it as transient leaves
+    # items stuck in the queue forever (a handful of such items can stall the
+    # enrichment supervisor's whole scrape queue).
     if "no video formats found" in msg_lower:
         return "extraction", msg
 
@@ -163,18 +162,18 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
     return "unknown", msg
 
 
-# ThrottleController now lives in fyp.platform_scraper (platform-agnostic);
+# ThrottleController now lives in fyp.scrape.platform_scraper (platform-agnostic);
 # re-exported via the top-of-file import for back-compat with existing imports.
 
 
 # -------------------------------------------------------------------------
-# Cookie handling — generic per-platform plumbing lives in fyp.scraper_cookies;
+# Cookie handling — generic per-platform plumbing lives in fyp.scrape.scraper_cookies;
 # these thin wrappers keep the module-internal call sites unchanged.
 # -------------------------------------------------------------------------
 
 
 def _cookie_opts() -> dict:
-    """Return yt-dlp cookie options for TikTok (see :mod:`fyp.scraper_cookies`)."""
+    """Return yt-dlp cookie options for TikTok (see :mod:`fyp.scrape.scraper_cookies`)."""
     return scraper_cookies.cookie_opts("tiktok")
 
 
@@ -236,7 +235,7 @@ _DEFAULTS = {
 
 
 def _info_to_row(info: dict) -> pd.DataFrame:
-    """Convert yt-dlp info_dict to a single-row DataFrame matching the mypyktok schema."""
+    """Convert yt-dlp info_dict to a single-row DataFrame matching the legacy PykTok-fork schema."""
 
     try:
         # The epoch is parsed as UTC and then made naive, matching the
@@ -297,7 +296,7 @@ def _info_to_row(info: dict) -> pd.DataFrame:
         "last_modified": datetime.now(),
     }
 
-    # Build types dict (same logic as mypyktok.generate_data_row)
+    # Build types dict (same column typing as the legacy PykTok-fork backend)
     pyk_data_types = {}
     for key, default in _DEFAULTS.items():
         if key not in ("createTime", "last_modified"):
@@ -517,7 +516,7 @@ def _download_images(
 
 
 # -------------------------------------------------------------------------
-# Main entry point — matches mypyktok.save_tiktok() interface
+# Main entry point — keeps the legacy PykTok-fork save_tiktok() interface
 # -------------------------------------------------------------------------
 
 
@@ -555,7 +554,7 @@ def save_tiktok(
 ) -> pd.DataFrame:
     """Download a TikTok video's metadata and media using yt-dlp.
 
-    Returns a single-row DataFrame matching the mypyktok schema,
+    Returns a single-row DataFrame matching the legacy PykTok-fork schema,
     or an empty DataFrame on failure. Failed DataFrames carry
     ``attrs['error_type']`` and ``attrs['error_detail']`` for
     downstream retry/queue decisions.
@@ -884,7 +883,7 @@ class TikTokScraper(BaseScraper):
     """TikTok platform scraper (yt-dlp primary, legacy pyktok fallback).
 
     Wraps the module's existing download/extraction helpers behind the
-    :class:`~fyp.platform_scraper.BaseScraper` contract: :meth:`fetch` selects the
+    :class:`~fyp.scrape.platform_scraper.BaseScraper` contract: :meth:`fetch` selects the
     backend and returns the raw single-row frame; :meth:`map_to_canonical`
     renames it to the canonical schema; :meth:`classify_error` and
     :meth:`repair_counts` cover TikTok's error categories and 32-bit count wrap.

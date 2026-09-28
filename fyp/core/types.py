@@ -1,3 +1,10 @@
+"""Dtype helpers for pandas / pyarrow round-trips.
+
+Converts frames to pyarrow-backed dtypes, flattens complex (nested) values,
+downgrades large Arrow types, and scrubs lone surrogates from strings so the
+data survives a parquet write.
+"""
+
 import json
 
 import pandas as pd

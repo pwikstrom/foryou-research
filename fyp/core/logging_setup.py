@@ -6,7 +6,7 @@ by `web_interface/process_manager.py` and shown as UI log lines, so all
 diagnostic output must go to stdout with a plain "%(message)s" format —
 byte-identical to what `print()` produced before the logging migration.
 
-This module must stay import-free of `fyp.fyp_config` (and anything else with
+This module must stay import-free of `fyp.core.fyp_config` (and anything else with
 import side effects) so any module can import it without triggering config
 initialization.
 """

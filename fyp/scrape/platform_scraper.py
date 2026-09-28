@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 
 
 # Error category for "the platform logged the scraper's OWN session out
-# mid-run" (2026-09-23: Instagram answered the logged-in API with its login
-# page after ~14 authenticated posts). It says nothing about the item: it is
+# mid-run" (e.g. Instagram answering the logged-in API with its login page
+# after ~14 authenticated posts). It says nothing about the item: it is
 # transient (the item stays queued), a batch that saw it charges no retry
 # budget, it feeds neither storm guard, and the orchestrator stops the run and
 # raises a scraper alert — only an operator logging in again can clear it.
@@ -169,8 +169,8 @@ class BaseScraper(ABC):
             in practice, so its queue is drained by a local install on a
             residential IP: on Cloud Run the queue worker refuses to run and
             the enrichment supervisor leaves the queue alone. Instagram and
-            YouTube (operator experience, 2026-09): both wall off Cloud Run's
-            IPs whatever the cookies or PO tokens.
+            YouTube (operator experience): both wall off Cloud Run's IPs
+            whatever the cookies or PO tokens.
         base_columns: ``{column: pyarrow_dtype}`` for the canonical base fields.
         platform_columns: ``{column: pyarrow_dtype}`` for this platform's fields.
     """
@@ -245,7 +245,7 @@ class BaseScraper(ABC):
         verdict prunes the id with its metadata row standing, instead of
         queueing a media retry. Without this, a queue that retries have
         distilled down to dead items trips the guard on every run and never
-        drains (2026-09-21, YouTube). Never set it on a verdict that rests on
+        drains (seen on YouTube). Never set it on a verdict that rests on
         the message alone.
         """
 

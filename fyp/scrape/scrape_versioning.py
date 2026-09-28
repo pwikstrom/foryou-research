@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 """Scrape-contract versioning: identity, registry, and per-row provenance.
 
-The scraper's analogue of :mod:`fyp.annotation_versioning`. Every scraped row is
+The scraper's analogue of :mod:`fyp.annotation.annotation_versioning`. Every scraped row is
 stamped with a deterministic ``scrape_contract_version`` derived from the inputs
 that define the canonical scrape schema — the contract field set, the platforms
 it covers, and the default platform. A registry (``scrape_versions.json``)
@@ -34,14 +33,14 @@ from fyp.scrape import scrape_contract as sc
 
 logger = get_logger(__name__)
 
-# NOTE: fyp.data_io is imported LAZILY inside functions — a module-level import
+# NOTE: fyp.core.data_io is imported LAZILY inside functions — a module-level import
 # creates an import cycle via fyp_config (importing this module first leaves it
 # partially initialized while fyp_config's load_var_schema overlay calls into
-# it, silently losing legacy metadata). See fyp.annotation_versioning.
+# it, silently losing legacy metadata). See fyp.annotation.annotation_versioning.
 
 
 def _data_io():
-    """Lazy fyp.data_io accessor (breaks the fyp_config import cycle)."""
+    """Lazy fyp.core.data_io accessor (breaks the fyp_config import cycle)."""
     import fyp.core.data_io as data_io
 
     return data_io
@@ -68,7 +67,7 @@ def build_scrape_version_descriptor(contract: dict, label: str | None = None) ->
     """Build a self-describing version descriptor and its deterministic id.
 
     The identity is the same ``contract_field_digest`` that feeds
-    :func:`fyp.recode_variables.compute_var_schema_hash`, plus the platform set,
+    :func:`fyp.annotation.recode_variables.compute_var_schema_hash`, plus the platform set,
     so the scrape version and the study-cache key move together when the contract
     changes (no skew).
 
@@ -166,7 +165,7 @@ def _promote_into(registry: dict, version: str) -> dict:
     registry = _copy.deepcopy(registry)
     if version not in registry.get("versions", {}):
         raise KeyError(f"unknown scrape_contract_version: {version}")
-    registry.pop("active", None)  # pre-2026-07 key name
+    registry.pop("active", None)  # legacy key name
     registry["preferred"] = version
     return registry
 
@@ -181,8 +180,8 @@ def load_registry() -> dict:
         storage_location=REGISTRY_LOCATION, filename=REGISTRY_FILENAME
     )
     if isinstance(registry, dict) and "versions" in registry:
-        # The promoted pointer was called "active" before the 2026-07
-        # terminology change (active now means "used for new rows").
+        # The promoted pointer was called "active" in legacy registries
+        # (active now means "used for new rows").
         if "preferred" not in registry and "active" in registry:
             registry["preferred"] = registry.pop("active")
         return registry

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 YouTube scraper using yt-dlp as backend.
 
@@ -80,9 +79,9 @@ _PERMANENT = {"removed", "private", "age_restricted", "members_only", "geo_block
 
 # Permanent verdicts that stand even when YouTube still has the video's record
 # (channel, views, duration): the player refuses it HERE, on grounds that name
-# the video itself — a region whitelist or a rights holder's claim. No
-# throttled session has ever produced these; it answers a bare "Video
-# unavailable" (2026-09-18). Anything else with the record intact goes down
+# the video itself — a region whitelist or a rights holder's claim. A
+# throttled session has not been seen to produce these; it answers a bare
+# "Video unavailable". Anything else with the record intact goes down
 # the ordinary media leg, whose verdict is distrusted and budgeted.
 _UNPLAYABLE_WITH_RECORD = {"geo_blocked", "blocked"}
 
@@ -102,8 +101,8 @@ _JS_RUNTIMES = {"deno": {"path": None}, "node": {"path": None}}
 # unavailable" — the very text a throttled session returns — whereas the tv
 # client states the reason: "removed by the uploader", "The uploader has not
 # made this video available in your country", "It was blocked due to the
-# claimed content by …". Measured 2026-09-21: ~1 s more per item, and a
-# playable video resolves the same formats. The media leg keeps the defaults.
+# claimed content by …". Measured cost: ~1 s more per item, and a playable
+# video resolves the same formats. The media leg keeps the defaults.
 _METADATA_PLAYER_CLIENTS = ["default", "tv"]
 
 # The bgutil PO-token provider's script directory (Dockerfile.base builds it
@@ -229,8 +228,8 @@ def _classify_message(msg: str) -> tuple[str, str]:
     # "This content isn't available, try again later" without the rate-limit
     # sentence is YouTube's soft-block/removal phrasing — kept as removed.
     # "This video is unavailable" is the phrasing for an id YouTube has no
-    # record of; it matched none of these until 2026-09-21 and churned as
-    # "unknown" for days (every one of the nine seen was gone for good). The
+    # record of; unmatched, it churns as "unknown" indefinitely (every one of
+    # the nine observed was gone for good). The
     # tv client words takedowns as "It was removed following a copyright
     # removal request by <claimant>".
     if any(
@@ -396,8 +395,8 @@ def _has_no_record(info: dict) -> bool:
     For a live video the player refuses here (geo- or copyright-blocked) the
     info dict still carries the channel, view count and duration. For one that
     no longer exists it carries none of them — only a synthesised title
-    ("youtube video #<id>") — and until 2026-09-21 that shell was saved as a
-    scraped row: no author, -1 plays, created 2000-01-01.
+    ("youtube video #<id>"). Such a shell must not be saved as a scraped row:
+    it would have no author, -1 plays, and a created date of 2000-01-01.
     """
     return all(info.get(k) is None for k in ("channel_id", "uploader_id", "view_count", "duration"))
 
@@ -662,9 +661,9 @@ class YouTubeScraper(BaseScraper):
 
     # Pacing. Every request rides ONE signed-in session (locally: the user's
     # own Chrome cookies on a residential IP), and YouTube throttles that
-    # session, not the individual videos — on 2026-09-18 it soft-blocked after
-    # ~700 media pulls in 34 min at 2-4 concurrent with a 1.5 s delay, and
-    # answered a bare "Video unavailable" for every stream after that. These
+    # session, not the individual videos — it has soft-blocked after ~700
+    # media pulls in 34 min at 2-4 concurrent with a 1.5 s delay, answering a
+    # bare "Video unavailable" for every stream after that. These
     # defaults keep a drain to roughly a dozen pulls a minute; override under
     # ``[misc]`` with scraper_youtube_max_concurrency /
     # scraper_youtube_inter_request_delay / scraper_youtube_max_batch_size.

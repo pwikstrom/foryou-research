@@ -1,10 +1,9 @@
-#!/usr/bin/env python3
 """Gemini Batch API path for annotation (async, ~50% cheaper).
 
 A separate submit -> poll path from the synchronous queue annotator. It reuses
 the existing response schema, prompt, and — crucially — the marker-driven
 refinement pipeline: batch output is written into ``machine_annotations_raw`` in
-the EXACT shape :func:`fyp.machine_annotation.call_machine` produces (``item_id``,
+the EXACT shape :func:`fyp.annotation.machine_annotation.call_machine` produces (``item_id``,
 ``structured=True``, ``annotation_version``, ``usage``, ``finish_reason``,
 ``response``), so ``refine_one_raw_annotation_batch`` handles it unchanged.
 
@@ -48,7 +47,7 @@ def _machine_annotations_label() -> str:
 # folder is read exactly once by download_and_ingest() when the job finishes
 # (in-flight jobs live only inside one worker run; Gemini batch jobs expire
 # within 24 h). Nothing here deletes them — the production bucket carries a
-# GCS lifecycle rule (set 2026-09-16) that deletes objects under both
+# GCS lifecycle rule that deletes objects under both
 # prefixes after 30 days. A new deployment must set that rule itself.
 BATCH_INPUT_PREFIX = "machine_annotations_batch_input"
 BATCH_OUTPUT_PREFIX = "machine_annotations_batch_output"
@@ -88,7 +87,7 @@ def build_request_dict(
     the prompt as system instruction, and a structured-output generation config.
     Uses the documented Vertex camelCase keys (``generationConfig``,
     ``responseSchema``, ``systemInstruction``, ``mediaResolution``) — confirm
-    against a live spike before bulk use.
+    with a small live batch before bulk use.
 
     Args:
         video_id: The item id (the ``<id>.mp4`` in GCS).
@@ -343,13 +342,13 @@ def build_and_upload_jsonl(video_ids: list, ts_label: str) -> tuple[str, list]:
     # Batch needs the genai PROTO schema (type:"STRING"/"OBJECT", propertyOrdering),
     # NOT the OpenAPI dict (type:"string") that get_annotation_json_schema emits:
     # the interactive endpoint tolerates the OpenAPI form, but the batch endpoint's
-    # raw-JSON proto parser rejects it (confirmed by the live spike).
+    # raw-JSON proto parser rejects it (confirmed against the live endpoint).
     schema_json = build_response_schema().model_dump(mode="json", by_alias=True, exclude_none=True)
     # Vertex's batch endpoint mis-converts 2-value string enums (e.g. ["Yes","No"])
     # into a boolean enum and then rejects its own output. Drop the enum constraint
     # on such fields for the BATCH request only — the prompt still asks for the value
-    # and the recode pipeline tolerates free strings. (Live-spike-confirmed Vertex
-    # quirk; the synchronous structured path keeps the enums.)
+    # and the recode pipeline tolerates free strings. (A Vertex quirk confirmed
+    # against the live endpoint; the synchronous structured path keeps the enums.)
     for _prop in schema_json.get("properties", {}).values():
         if (
             isinstance(_prop, dict)

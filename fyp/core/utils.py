@@ -1,3 +1,10 @@
+"""Small shared utilities used across the Hub.
+
+Connectivity probing, list chunking, fuzzy name matching, URL cleaning, a
+background progress monitor, engagement-token labels, mojibake repair and
+zip-member reading.
+"""
+
 import http.client
 import json
 import os

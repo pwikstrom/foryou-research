@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Thin helpers that use polars for expensive pandas operations at scale.
 
 The project is pandas-first (see DEVELOPING.md), but a handful of hot paths —
@@ -9,7 +8,7 @@ those operations with polars while keeping pandas DataFrames at the boundary,
 so callers don't have to care which engine is used.
 
 Because the codebase already stores everything as pyarrow-backed dtypes
-(`fyp/types.py`), the pandas<->polars round-trip goes through Arrow and is
+(`fyp/core/types.py`), the pandas<->polars round-trip goes through Arrow and is
 effectively zero-copy for most column types.
 
 Robustness notes

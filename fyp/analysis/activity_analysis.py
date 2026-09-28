@@ -1,3 +1,5 @@
+"""Activity-peak detection over hourly activity counts."""
+
 import pandas as pd
 
 from fyp.core.logging_setup import get_logger
@@ -38,13 +40,12 @@ def analyze_activity_peak(df: pd.DataFrame, period_hours: int = 1) -> dict:
             if isinstance(df_proc.index, pd.DatetimeIndex):
                 df_proc["hour"] = df_proc.index.hour
             else:
-                # If we can't find hour, we might be passed a pre-aggregated DF by hour?
-                # If rows are just hours 0-23?
+                # No hour information: a (date, hour) MultiIndex is handled below.
                 pass
 
-    # Simplified logic: If index is DatetimeIndex, we can do rolling.
-    # If it is already aggregated by hour (0-23) and we just want to find peak of the profile?
-    # But for 'consistency', we need multiple data points per hour (e.g. across days).
+    # Consistency stats need several data points per hour (one per day), so the
+    # supported inputs are raw hourly counts over time (DatetimeIndex) or a
+    # (date, hour) MultiIndex that can be turned into one.
 
     # If input is raw hourly counts over time (DatetimeIndex):
     if isinstance(df_proc.index, pd.DatetimeIndex):
@@ -61,12 +62,10 @@ def analyze_activity_peak(df: pd.DataFrame, period_hours: int = 1) -> dict:
         hourly_stats = df_proc.groupby("hour")["event_count"].agg(["mean", "std"])
 
     elif "hour" in df_proc.columns and not isinstance(df_proc.index, pd.DatetimeIndex):
-        # We assume it's MultiIndex (date, hour) flattened?
-        # Or if passed raw 0-23 profile?
-        # The previous implementation assumed MultiIndex (date, hour).
-        # Let's support the one I wrote for `calc_collection_stats` which passes:
-        # result of `df.set_index('local_date').resample('h').size()` -> DatetimeIndex.
-        # So the above block covers it.
+        # An 'hour' column without a DatetimeIndex (e.g. an already-aggregated
+        # 0-23 profile) has no per-day spread; it falls through to the
+        # ValueError below. calc_collection_stats passes an hourly resample
+        # (DatetimeIndex), which the branch above handles.
         pass
     else:
         # Fallback for MultiIndex

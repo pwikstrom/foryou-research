@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shared Google GenAI client construction for every Gemini consumer.
 
 Gemini is reachable two ways, chosen by config:
@@ -66,7 +65,7 @@ def gemini_mode() -> tuple[str | None, str]:
             if not _FALLBACK_WARNED:
                 logger.warning(
                     "Vertex AI is enabled ([machine.gemini].vertexai = true) but no "
-                    "[machine].project is set, so Vertex cannot be used. "
+                    "[machine.gemini].project is set, so Vertex cannot be used. "
                     "Falling back to the plain Gemini API with GEMINI_API_KEY. "
                     "Set vertexai = false in config/config.local.toml to make "
                     "this permanent, or set a project to use Vertex."

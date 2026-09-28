@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Per-platform scrape queue files.
 
 Each platform has its own queue — ``to_scrape_<platform>.json`` in the
@@ -21,14 +20,14 @@ QUEUE_LOCATION = "cache"
 
 
 def _data_io():
-    """Lazy fyp.data_io accessor (avoids the fyp_config import cycle)."""
+    """Lazy fyp.core.data_io accessor (avoids the fyp_config import cycle)."""
     import fyp.core.data_io as data_io
 
     return data_io
 
 
 def _contract():
-    """Lazy fyp.scrape_contract accessor."""
+    """Lazy fyp.scrape.scrape_contract accessor."""
     from fyp.scrape import scrape_contract as sc
 
     return sc
@@ -274,10 +273,10 @@ def clear_zero_progress(platform: str, resolved_ids) -> None:
     """Drop the retry strikes of the items that left the queue this batch.
 
     Only the resolved items' strikes go. Wiping the whole sidecar on any
-    progress let a queue that trickled forward carry a never-succeeding tail
-    indefinitely: on 2026-09-21 Instagram drained 10 of 75 items in a run
-    while 65 gated posts, failing every attempt, had their strikes reset to
-    zero by those 10 successes. Another item's success says nothing in an
+    progress would let a queue that trickles forward carry a never-succeeding
+    tail indefinitely (e.g. an Instagram run draining 10 of 75 items while 65
+    gated posts, failing every attempt, have their strikes reset to zero by
+    those 10 successes). Another item's success says nothing in an
     item's favour. An item that still carries a strike has not succeeded
     since it was charged — anything that does succeed is pruned, and cleared,
     here first — so keeping its strike cannot burn a fetchable item.
@@ -308,10 +307,9 @@ def clear_zero_progress(platform: str, resolved_ids) -> None:
 # Media-retry budget. An item whose metadata scraped fine but whose media
 # download failed keeps its (metadata-only) row AND stays queued for a media
 # retry — whatever the failure category. A permanent verdict on the media leg
-# is not trusted on its own: on 2026-09-18 a rate-limited YouTube session
-# answered a bare "Video unavailable" for 187 videos that were all alive, and
-# treating that as permanent wrote them as scrape-ok rows with no media and
-# pruned them for good. The budget bounds the retries instead: after
+# is not trusted on its own: a rate-limited YouTube session has answered a bare
+# "Video unavailable" for 187 videos that were all alive, and treating that as
+# permanent wrote them as scrape-ok rows with no media and pruned them for good. The budget bounds the retries instead: after
 # MAX_MEDIA_RETRY_STRIKES healthy runs (no storm / breaker abort) in which the
 # media still failed, the item is pruned and its metadata-only row stands.
 MAX_MEDIA_RETRY_STRIKES = 3

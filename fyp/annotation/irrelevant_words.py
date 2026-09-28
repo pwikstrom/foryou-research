@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Admin-editable hashtag stoplist (the former config.toml ``IRRELEVANT_WORDS``).
 
 The stoplist filters junk tokens out of hashtag extraction
@@ -49,7 +48,7 @@ class IrrelevantWordsConflict(Exception):
 
 
 def _data_io():
-    """Lazy fyp.data_io accessor (avoids the fyp_config import cycle)."""
+    """Lazy fyp.core.data_io accessor (avoids the fyp_config import cycle)."""
     import fyp.core.data_io as data_io
 
     return data_io

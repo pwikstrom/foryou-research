@@ -1,3 +1,9 @@
+"""Trend, anomaly, break and volatility analysis for timeline payloads.
+
+Pure functions over the output of ``get_timeline_data()``: each category of
+each categorical variable is scored and ranked by interestingness.
+"""
+
 import json
 import math
 from typing import Any

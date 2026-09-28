@@ -94,11 +94,11 @@ class TikTokDDPCollection(ForYouBaseCollection):
     # sections but at index 2 in ShareHistoryList (after SharedContent), and
     # newer comment records carry the video under `originalPostUrl`.
     _LINK_KEYS = ("link", "originalposturl")
-    # Every export date is UTC wall-clock time in this format. Exports
-    # uploaded from September 2026 write the comment section's dates with the
-    # zone spelled out ("2026-08-01 12:00:00 UTC"); the strict format rejected
-    # them, so every comment in those exports — the first to name their
-    # video under `originalPostUrl` — was dropped as not parseable.
+    # Every export date is UTC wall-clock time in this format. Newer exports
+    # write the comment section's dates with the zone spelled out
+    # ("2026-08-01 12:00:00 UTC"); the strict format alone would reject them,
+    # dropping every comment in those exports (the ones that name their video
+    # under `originalPostUrl`) as not parseable, so the suffix is stripped first.
     _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
     _DATE_ZONE_SUFFIX = " UTC"
     _VIDEO_ID_RE = re.compile(r"/video/(\d+)")
@@ -383,12 +383,13 @@ class TikTokDDPCollection(ForYouBaseCollection):
             return df
 
         # -----------------------------------------------------
-        # unpack the variable/value list. The two lists variable & value list contain a label (e.g. 'link')
-        # and the value (e.g. 'https://www.tiktok.com/...') at the corresponding indeces. At index 0 is always the date
-        # and I'm only unpacking index 1 in addition of date even though there may be additional data in the lists.
+        # Unpack the variable/value lists. variable_list holds labels (e.g. 'link') and
+        # value_list the values (e.g. 'https://www.tiktok.com/...') at the corresponding
+        # indices. Index 0 is always the date; only index 1 is unpacked in addition to the
+        # date, even though the lists may carry more.
 
-        # if 'date' is not the first element in the variable_list, something is wrong with this activity
-        # so I keep activities/rows that have at least two elements in the variable_list and the first element is 'date'
+        # A row whose variable_list does not start with 'date' is malformed, so keep only
+        # rows with at least two elements whose first element is 'date'.
         mask_date = df["variable_list"].map(
             lambda x: isinstance(x, list) and len(x) > 1 and x[0] == "date"
         )
@@ -401,7 +402,7 @@ class TikTokDDPCollection(ForYouBaseCollection):
         if len(df) == 0:
             return df
 
-        # get the date from index zero (I don't need the variable name)
+        # The date is the value at index zero (the variable name is not needed).
         df["date"] = pd.to_datetime(
             df["value_list"].str[0].map(self._strip_zone_suffix),
             format=self._DATE_FORMAT,
@@ -501,21 +502,16 @@ class TikTokDDPCollection(ForYouBaseCollection):
         # (the manifest `tz`) is authoritative; without one the offset is inferred
         # from the activity rhythm, which assumes an 'actual' TikTok user using
         # TikTok like a normal TikTok user does — an artificially produced export
-        # will mislead it. Until 2026-09 this parser called the inference directly
-        # and silently ignored a supplied zone on the platform with the most
-        # donations. The tail also sorts chronologically and resets the index.
+        # will mislead it. Calling the inference directly here would silently
+        # ignore a supplied zone. The tail also sorts chronologically and resets
+        # the index.
         df = self._finalize_activity_frame(df)
 
         # -----------------------------------------------------
-        # It seems like the data donation packages keep play logs for a certain time back
-        # in time, but they keep other engagement stats for longer. It is difficult to handle
-        # engagement stats without connection to a play activity, so I remove all activities before
-        # the first play activity. It feels a bit brutal to throw away data, but I'm not sure what else to do.
-        # if (df["activity_type"] == "play").any():
-        #    first_play_idx = df[df["activity_type"] == "play"].index[0]
-        #    df = df.loc[first_play_idx:].copy()
-
-        # print(len(df))
+        # Donation packages retain play logs for a shorter window than other engagement
+        # records, so the earliest engagement rows may precede any play. They are kept
+        # here; consumers that need play context (e.g. calc_collection_stats) trim to the
+        # first viewing event themselves.
 
         # ----------------------------------------------------------------------------------------------
         # Associate comments without an item_id to the item_id of the preceding activity within
@@ -532,8 +528,8 @@ class TikTokDDPCollection(ForYouBaseCollection):
         df["delta"] = df["utc_timestamp"] - df["utc_timestamp"].shift(1)
         df["delta"] = df["delta"].dt.total_seconds()
 
-        # 2. use the time delta to establish bursts of activities very close together, which I
-        # assume belong to the same brief engagement (e.g. watching a video and commenting on
+        # 2. use the time delta to establish bursts of activities very close together, which are
+        # assumed to belong to the same brief engagement (e.g. watching a video and commenting on
         # it). The 180s limit is a reasonable max time to spend on one video and engage with it.
         df["_assoc_break"] = (df["delta"].isna()) | (df["delta"] > 180)
         df["_assoc_session"] = df["_assoc_break"].astype(bool).cumsum()
@@ -660,11 +656,6 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
         ]
 
     def load_single_raw(self, filename: str) -> pd.DataFrame:
-        # data = []
-        # with open(filename, 'r') as file:
-        #    for line in file:
-        #        data.append(json.loads(line))
-
         data = data_io.read_ndjson_file(storage_location=self.raw_path, filename=filename)
         if not data:
             return pd.DataFrame()
@@ -679,8 +670,8 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
         return df
 
     def process_single(self, df: pd.DataFrame) -> pd.DataFrame:
-        # zeeschuimer data is really basic - well, there is a lot of useful data in the ndjson, but to generate
-        # an activity collection, which is the purpose here, I am only using the item_id and the timestamp
+        # The zeeschuimer ndjson carries much more, but building an activity collection
+        # needs only the item_id and the timestamp (plus the URL-derived timezone).
 
         df = df.copy()
 
@@ -692,7 +683,7 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
         df = pd.merge(left=df, right=source_details, left_index=True, right_index=True)
 
         # -----------------------------------------------------
-        # I call all activities from zeeschuimer 'observe' to distinguish it from 'play'
+        # All zeeschuimer activities are 'observe', to distinguish them from DDP 'play' rows
         df["activity_type"] = "observe"
 
         # -----------------------------------------------------
@@ -741,7 +732,7 @@ class TikTokZeeschuimerCollection(ForYouBaseCollection):
                 offset_parts.append(part)
             df["tz_offset"] = pd.concat(offset_parts).sort_index()
 
-        # I'm keeping this information in the extra_data column. It's a string so it works fine
+        # The timezone name is kept in the (string) extra_data column.
         df.rename(columns={"source_url.tz_name": "extra_data"}, inplace=True)
 
         return df

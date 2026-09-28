@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
-"""
-Script Name:
-Description:
-Author: Patrik
-Date:
+"""Machine annotation of scraped videos with Gemini.
+
+Calls the model (structured, schema-constrained output), flattens and refines
+the raw responses into per-item annotation rows, and consolidates the refined
+batches into the versioned machine-annotations dataset.
 """
 
 import collections
@@ -27,8 +26,6 @@ import fyp.core.gemini_client as gemini_client
 import fyp.core.media_paths as media_paths
 import fyp.core.utils as fyp_utils
 import fyp.scrape.scrape_queues as scrape_queues
-
-# from fyp.organize_datasets import select_videos_from_study_dataset
 from fyp.annotation.annotation_schema import (
     build_response_schema,
     flatten_structured,
@@ -75,7 +72,7 @@ def invalidate_caches():
     ``[machine]`` values (the cached ``GenerateContentConfig`` bakes in
     temperature / max_output_tokens / media_resolution / thinking_budget, and
     the client bakes in the credential mode). The version descriptor cache in
-    :mod:`fyp.annotation_versioning` self-invalidates via its config signature.
+    :mod:`fyp.annotation.annotation_versioning` self-invalidates via its config signature.
     """
     _gcf()["structured_generation_config"] = None
     _gcf()["client"] = None
@@ -163,10 +160,10 @@ def build_structured_generation_config(gen_overrides: dict | None = None):
     """Build the structured-output generation config (cached when unmodified).
 
     Reuses the existing prompt as the system instruction and attaches the
-    response schema from :mod:`fyp.annotation_schema`, so decoding is constrained
+    response schema from :mod:`fyp.annotation.annotation_schema`, so decoding is constrained
     to valid, conforming JSON. Repetition penalties are intentionally omitted —
     constrained decoding plus a thinking model does not loop the way free-text
-    generation can (validated by the Phase 2 A/B evaluation).
+    generation can (validated by an A/B evaluation against free-text output).
 
     Args:
         gen_overrides: Optional overrides for ``temperature`` /
@@ -505,8 +502,8 @@ def call_machine_threads(
     def worker(idx_video):
         idx, video = idx_video
 
-        # Maybe Gemini doesn't like to get to many request at once.
-        # Sleeping for a bit with the first ones solves the problem.
+        # Stagger the first wave of requests: a burst of simultaneous calls to
+        # the Gemini API tends to fail, and a short randomized sleep avoids it.
         # (Local backends are sequential — no stagger needed.)
         if _is_gemini_api and idx < max_workers:
             time.sleep(3 + random() * max_workers / 2)
@@ -682,15 +679,11 @@ def call_machine_threads(
 
 
 # *********************************************************************************************************
-# *********************************************************************************************************
-# *********************************************************************************************************
-# I'm not using structured outputs because I understand that the machine is calling all the required bits
-# and pieces in the request at the same time if I'd do that. I want it to think about it sequentially. So
-# as a result it happens that the json like output structure is wrong and introduces labels and keys that
-# I don't want. This funciton is trying to figure out which columns are rare and try to merge them back
-# into the dominant columns.
-# *********************************************************************************************************
-# *********************************************************************************************************
+# Rare-column consolidation. Free-text (non-structured) responses, such as legacy
+# raw batches written before structured output became the live path, can drift
+# from the expected JSON shape and introduce stray keys. This pass merges
+# sparsely populated stray columns back into the dominant column they were
+# meant for; on schema-constrained structured output it normally finds nothing.
 # *********************************************************************************************************
 
 
@@ -795,8 +788,8 @@ def consolidate_rare_columns_from_gemini_output(
 # *********************************************************************************************************
 # *********************************************************************************************************
 # *********************************************************************************************************
-# functions in this section flatten and transform raw output jsons into a nice dataframe
-# the main function is at the bootm of the section
+# Functions in this section flatten and transform raw output JSON into a dataframe.
+# The main entry point is at the bottom of the section.
 # *********************************************************************************************************
 # *********************************************************************************************************
 # *********************************************************************************************************
@@ -872,12 +865,8 @@ def flatten_one_machine_response(some_response, verbose=False, notebook_mode=Fal
                 flat_response["transcript"] = " | ".join(text_list)
             except Exception:
                 return None
-            # elif isinstance(flat_response['transcript'], str):
-            #    aa = re.sub(r"\{.*?\|", ' | ', flat_response['transcript'].replace("'text':"," | "))
-            #    flat_response['transcript'] = aa.replace("'},  | "," |").replace(" '"," ")[3:-3].strip()
         else:
             return None
-            # flat_response['transcript'] = ""
 
     # #######################
     # objects
@@ -904,13 +893,12 @@ def flatten_one_machine_response(some_response, verbose=False, notebook_mode=Fal
                     flat_response[res_key] = " | ".join(res_list)
                 except Exception:
                     return None
-            else:  # elif not isinstance(flat_response[res_key], str):
+            else:
                 return None
-                # flat_response[res_key] = ""
 
     # #######################
-    # sometimes audio summary hasn't been converted to json
-    # not sure why this happens, this is trying to do something about that
+    # audio_summary sometimes arrives as a JSON string rather than an object;
+    # parse it before unpacking its fields
     if "audio_summary" in flat_response.keys():
         if isinstance(flat_response["audio_summary"], str):
             flat_response["audio_summary"] = re.sub(
@@ -977,7 +965,7 @@ def flatten_one_machine_response(some_response, verbose=False, notebook_mode=Fal
                 flat_response[k] = flat_response[k][:-3]
 
     # #######################
-    # get rid of pesky lists that are still lingering - just pick the first element. This is a bit of a hack, but it works.
+    # Any remaining list values are collapsed to their first element.
     for k in flat_response:
         if isinstance(flat_response[k], list):
             if verbose:
@@ -1249,8 +1237,9 @@ def _check_repetitive_patterns(
 
 
 def _remove_repetitions(some_string):
-    """
-    I only use this for the transcriptions which often tend to be a bit repetitive
+    """Collapse runs of a repeated phrase to its first occurrence.
+
+    Used for transcripts, which are prone to repetitive generation.
     """
 
     new_string = deepcopy(some_string.replace("-", " "))
@@ -1263,11 +1252,10 @@ def _remove_repetitions(some_string):
         # sort the results with longest repeated pattern first
         most_repeated = sorted(res[1], key=lambda x: len(x[0]), reverse=True)
 
-        # iterate over the patterns. Keep the first occurrence in the string and
-        # and remove all other ones. Sometimes this screws things up but it works
-        # ok most of the time
+        # Iterate over the patterns, keeping the first occurrence in the string
+        # and removing all others. This heuristic occasionally mangles text that
+        # legitimately repeats a phrase.
         for i, mr in enumerate(most_repeated):
-            # print(mr)
             the_phrase = " ".join(mr[0])
 
             # register the position of the first occurrence of the pattern
@@ -1492,7 +1480,7 @@ def clean_up_machine_annotations(some_events, verbose=False):
             # find how many labels needed to cross target
             # we keep labels where cumsum < target, plus the one that crosses it
             cutoff_idx = cum_counts.searchsorted(target)
-            # ensure at least 3 if possible?
+            # keep at least 3 labels
             num_keep = max(3, cutoff_idx + 1)
             # clamp to length
             num_keep = min(num_keep, len(counts))
@@ -1611,7 +1599,6 @@ def refine_one_raw_annotation_batch(
     # implement the rules from the variable scheme - recoding lists, strings and other complex data
     # ---------------------------------------------------------------
     # (and a simple renaming of columns to make them easier to identify and read)
-    # outputs_from_machine_df = rename_columns(outputs_from_machine_df.rename(columns={c:"G_"+c if not c=="item_id" and not c.startswith("G_") else c for c in outputs_from_machine_df.columns})).copy()
     outputs_from_machine_df = rename_columns(outputs_from_machine_df).copy()
     outputs_from_machine_df = recode_events_df(
         study_dataset=outputs_from_machine_df, drop_single_value_cols=False, verbose=verbose
@@ -1633,7 +1620,6 @@ def refine_one_raw_annotation_batch(
     outputs_from_machine_df["annotated_fail"] = (
         outputs_from_machine_df["type_of_story"].isna().astype("bool[pyarrow]")
     )
-    # outputs_from_machine_df.loc[outputs_from_machine_df[outputs_from_machine_df.annotated_fail].index,[c for c in outputs_from_machine_df.columns if c.startswith("G_")]] = pd.NA
 
     # ---------------------------------------------------------------
     # Stamp each row with its annotation_version. recode_events_df drops this
@@ -2022,10 +2008,10 @@ def consolidate_and_save_refined_annotations(
     current_preferred = annotation_versioning.get_preferred_version()
     if incremental and not force_consolidation and not dry_run:
         # Say why the fold is not even attempted — a silent full rebuild here
-        # read as a bug on 2026-09-03, when the first annotation batch after
-        # Phase 1 met a ledger written before the ledger recorded a preferred
-        # version (None ≠ the promoted one). That is the one-time bootstrap:
-        # this full rebuild records the version, and the next batch folds.
+        # reads as a bug. A ledger written before the ledger recorded a
+        # preferred version (None ≠ the promoted one) triggers a one-time
+        # bootstrap: this full rebuild records the version, and the next
+        # batch folds.
         if not latest_filename_list:
             logger.info(
                 "[CONSOLIDATE] annotation full rebuild: the ledger has no file list yet "

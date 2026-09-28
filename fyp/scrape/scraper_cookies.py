@@ -1,6 +1,6 @@
 """Per-platform cookie plumbing for the platform scrapers.
 
-Generalizes the cookie handling that previously lived in :mod:`fyp.tiktok_dl`:
+Generalizes the cookie handling that previously lived in :mod:`fyp.scrape.tiktok_dl`:
 each platform keeps a Netscape-format cookie file at
 ``gs://<bucket>/secrets/{platform}_cookies.txt`` (Cloud Run, cached in ``/tmp``
 for six hours) or reads cookies straight from the local Chrome profile (dev).

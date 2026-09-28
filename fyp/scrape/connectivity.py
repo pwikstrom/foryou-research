@@ -1,13 +1,11 @@
 """Is this machine online? A probe and a batch-wide gate for the scrapers.
 
 Instagram and YouTube are drained from a residential IP — the local install,
-i.e. a laptop — and a laptop's network drops. On 2026-09-27 it dropped three
-times during one YouTube drain. The first two outages (~1 min each) passed; the
-third (~6 min) produced 25 consecutive ``transient:network`` results, and the
-transient-storm guard read that as a broken platform: it stopped the run after
-6 of 20 batches and tried to raise a scraper alert — which, had the bucket
-been reachable at that moment, would have held YouTube enrichment plans until
-someone dismissed it.
+i.e. a laptop — and a laptop's network drops. Without a gate, a ~6 min outage
+during a YouTube drain produces a run of consecutive ``transient:network``
+results (25 in one observed case), which the transient-storm guard reads as a
+broken platform: it stops the run and raises a scraper alert, which holds that
+platform's enrichment plans until someone dismisses it.
 
 An outage is the machine's problem, not the platform's or the items'. So a
 failed item first asks :class:`ConnectivityGate` whether the machine is still
@@ -19,8 +17,8 @@ outlasts the wait gives up cleanly: the batch aborts with the items queued and
 uncharged, and no alert is raised.
 
 The probe opens a TCP connection to port 443 — DNS resolution plus a
-handshake, which is exactly what failed on 2026-09-27 (``[Errno 8] nodename
-nor servname provided``) — on the platform's own host and the configured
+handshake, which is exactly what fails during such an outage (``[Errno 8]
+nodename nor servname provided``) — on the platform's own host and the configured
 ``[misc] connectivity_probe_host``. Reaching any one of them means online: a
 platform host that answers proves the scraper's failure was not the network.
 """

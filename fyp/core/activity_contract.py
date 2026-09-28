@@ -9,10 +9,10 @@ It is to ingestion what ``config/scrape_contract.toml`` is to the scraper and
   * :mod:`fyp.ingest` reads its required columns + PyArrow dtypes (the hardcoded
     ``REQUIRED_COLUMNS`` / ``additional_columns`` analogue) and the required-core
     field set that drives the per-row hard-drop integrity gate;
-  * :func:`fyp.fyp_config._apply_contract_activity_metadata` overlays
+  * :func:`fyp.core.fyp_config._apply_contract_activity_metadata` overlays
     role / scale / display_name / description / section onto the matching
     ``var_schema`` rows (and injects any missing activity columns);
-  * :func:`fyp.recode_variables.compute_var_schema_hash` folds a digest of the
+  * :func:`fyp.annotation.recode_variables.compute_var_schema_hash` folds a digest of the
     field set in, so a contract edit invalidates cached study parquets.
 
 Field scopes: ``base`` (every platform emits it) vs ``platform`` (a single
@@ -151,7 +151,7 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
 def contract_field_digest(contract: dict) -> dict:
     """Return a compact, order-independent view of the field set for hashing.
 
-    Folded into :func:`fyp.recode_variables.compute_var_schema_hash` so a change
+    Folded into :func:`fyp.annotation.recode_variables.compute_var_schema_hash` so a change
     to a stored dtype, a scope/platform reassignment, or the required/derived
     flags invalidates cached study parquets (mirroring the scrape contract).
     """
@@ -173,7 +173,7 @@ def contract_field_digest(contract: dict) -> dict:
 def validate_contract(contract: dict) -> list[str]:
     """Validate the activity contract; return a list of error strings (empty = valid).
 
-    Mirrors :func:`fyp.scrape_contract.validate_contract`.
+    Mirrors :func:`fyp.scrape.scrape_contract.validate_contract`.
 
     Args:
         contract: the parsed contract dict.

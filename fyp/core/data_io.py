@@ -1,7 +1,7 @@
-"""
-Script Name: data_io.py
-Description: Centralized I/O operations for dataframes.
-Author: Patrik
+"""Centralized storage I/O for the Hub's dataframes and JSON files.
+
+Resolves named storage locations to GCS or local paths and provides the
+load/save/list/exists helpers every other module goes through.
 """
 
 import datetime as _dt
@@ -25,12 +25,12 @@ from fyp.core.types import convert_dtypes_to_pyarrow
 
 logger = get_logger(__name__)
 
-# NOTE: fyp.fyp_config is accessed LAZILY — a module-level `from fyp.fyp_config
+# NOTE: fyp.core.fyp_config is accessed LAZILY — a module-level `from fyp.core.fyp_config
 # import fyp_cf` makes this module part of an import cycle: any entry module
 # that imports data_io first leaves it partially initialized while fyp_config's
 # module-level load_var_schema runs, so the contract overlays' registry reads
-# hit half-defined functions and silently lost legacy metadata (per-instance
-# schema-hash drift, pinned 2026-07-02). Keep config access function-level.
+# hit half-defined functions and silently lose legacy metadata (per-instance
+# schema-hash drift). Keep config access function-level.
 
 
 def _io_log(op: str, loc: str, filename: str, mode: str, bytes_: int, t_ms: float) -> None:
@@ -69,9 +69,6 @@ def _resolve_paths(storage_location: str = "cache", filename: str = ""):
         raise ValueError("Filename cannot be empty")
 
     # 1. Validate Location
-    # print(60*"==")
-    # print(storage_location)
-    # print(60*"==")
     if storage_location not in _cf()["paths"]:
         valid_locs = ", ".join(list(_cf()["paths"].keys()))
         raise ValueError(f"Invalid storage location: '{storage_location}'. Use: {valid_locs}")
@@ -245,8 +242,6 @@ def exists(storage_location: str = "cache", filename: str = "", verbose: bool = 
         raise ValueError("Storage location cannot be empty")
 
     primary, secondary, mode, blob_name = _resolve_paths(storage_location, filename)
-    # if verbose:
-    #    print(f"    [DATA_IO] exists: Checking {primary}")
 
     if mode == "gcs":
         bucket = _get_bucket()
@@ -484,8 +479,6 @@ def listdir(
                 if not prefix.endswith("/"):
                     prefix += "/"
 
-                # if verbose: print(f"    [DATA_IO] Listing GCS blobs with prefix: {prefix}")
-
                 iterator = bucket.list_blobs(prefix=prefix, delimiter="/")
                 for page in iterator.pages:
                     for blob in page:
@@ -508,19 +501,14 @@ def listdir(
             else:
                 raise ValueError("GCS bucket not initialized for listdir")
 
-            # if verbose: print(f"    [DATA_IO] Listed {len(files)} files in GCS storage '{storage_location}'")
-
         except Exception:
-            # if verbose: print("    [DATA_IO] WARN: GCS enabled but bucket missing/error for listdir.")
-            files = []  # Or raise? Old code just warned and returned empty or had logic flow issues.
+            files = []  # a failed GCS listing degrades to an empty list
 
     else:
         # Local Mode
         if storage_location not in _cf()["paths"]:
             raise ValueError(f"Invalid storage location: '{storage_location}'.")
         local_dir = _cf()["paths"][storage_location]
-
-        # if verbose: print(f"    [DATA_IO] Listing files in local storage: {local_dir}")
 
         if not os.path.isdir(local_dir):
             os.makedirs(local_dir, exist_ok=True)
@@ -530,8 +518,6 @@ def listdir(
 
         if return_absolute_path:
             files = [os.path.join(local_dir, f) for f in files]
-
-        # if verbose: print(f"    [DATA_IO] Listed {len(files)} files in local storage '{storage_location}'")
 
     _io_log(
         op="listdir",
@@ -764,8 +750,6 @@ def read_ndjson_file(storage_location: str = "cache", filename: str = "", verbos
                 if blob.exists():
                     with blob.open("r") as file:
                         for line in file:
-                            # line = '{"label":"' + _cf()["misc"]["label"] + '",' + line[1:]
-                            # line = '{"log_script":"' + root + '",' + line[1:]
                             data.append(json.loads(line))
                     return data
                 else:
@@ -778,12 +762,10 @@ def read_ndjson_file(storage_location: str = "cache", filename: str = "", verbos
             # Local Primary
             with open(primary, encoding="utf-8") as file:
                 for line in file:
-                    # line = '{"label":"' + _cf()["misc"]["label"] + '",' + line[1:]
-                    # line = '{"log_script":"' + root + '",' + line[1:]
                     data.append(json.loads(line))
             return data
 
-    # If we are here, things haven't gone very well have they
+    # Nothing could be loaded.
     return None
 
 
@@ -877,7 +859,7 @@ def load_json(storage_location: str = "cache", filename: str = "", verbose: bool
             )
             return None
 
-    # If we are here, things haven't gone very well have they
+    # Nothing could be loaded.
     return None
 
 
@@ -1480,7 +1462,6 @@ def _download_blob_bytes(bucket, blob_name: str) -> bytearray | bytes:
 def load_parquet(
     storage_location: str = "cache",
     filename: str = "",  # if filename == '*' -> load all parquet files in storage_location
-    # columns=None,
     filters=None,
     verbose=False,
 ):
@@ -1490,7 +1471,6 @@ def load_parquet(
     """
 
     columns = None
-    # filters=None
 
     if filename == "":
         raise ValueError("Filename cannot be empty")
@@ -1500,8 +1480,6 @@ def load_parquet(
 
     def _renamed(s):
         fixer_upper = [
-            # ("B_local_","local_"),
-            # ("D_local_","local_"),
             (".", "_"),
             ("data_", ""),
             ("source_url_", "source_"),
@@ -1536,11 +1514,9 @@ def load_parquet(
                 parquet_schema = pq.read_schema(f)
             existing_cols = parquet_schema.names
 
-            # iterate over the parquet columns and check if they included in the requested columns list
-            # OR if a renamed version of the parquet columns are included in the requested columns list
-            # I have to do it this way since at some stage in the processing, I'm changing renaming the columns
-            # Yes - it's a bit confusing.
-            # TODO: this code is outdated and should be updated
+            # Keep a parquet column if it, or its renamed form (see _renamed), is
+            # among the requested columns: later pipeline stages rename columns,
+            # so callers may ask for either spelling.
             confirmed_columns = []
             for ec in existing_cols:
                 if ec in columns or _renamed(ec) in columns:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bring the stored activity data onto the 2026-09 engagement vocabulary (one-off).
+"""Bring the stored activity data onto the current engagement vocabulary (one-off).
 
 What it does to ``recoded/collections_recoded.parquet`` — see
 ``fyp/ingest/migrations/engagement_vocabulary.py`` for the mechanics:
@@ -12,7 +12,7 @@ What it does to ``recoded/collections_recoded.parquet`` — see
   files that still contain ``ShareHistoryList`` / ``RepostList`` (only
   exports that bypassed the review strip — a second pass, once the retag has
   been verified);
-* with ``--recount-shares`` (2026-09-23), every stored TikTok ``share`` row
+* with ``--recount-shares``, every stored TikTok ``share`` row
   is rebuilt from its raw export: one row per send, with the number of
   byte-identical records (a video sent to several friends at once) kept on
   the method as ``chat_head ×3``. The first append stored those records as

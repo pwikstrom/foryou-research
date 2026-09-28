@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shared helpers for contract version registries' field-metadata snapshots.
 
 All three version registries (annotation ``av_``, scrape ``sv_``, activity

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Admin-editable presentation store for the variable schema.
 
 The final piece of the var_schema.csv retirement: the four ``web_*_prio``
@@ -28,7 +27,7 @@ import hashlib
 import json
 from pathlib import Path
 
-# Cycle-safe: fyp.scrape_contract imports only stdlib (never fyp_config/data_io).
+# Cycle-safe: fyp.scrape.scrape_contract imports only stdlib (never fyp_config/data_io).
 from fyp.core.logging_setup import get_logger
 from fyp.scrape.scrape_contract import RETIRED_TO_GENERIC
 
@@ -52,7 +51,7 @@ class PresentationConflict(Exception):
 
 
 def _data_io():
-    """Lazy fyp.data_io accessor (avoids the fyp_config import cycle)."""
+    """Lazy fyp.core.data_io accessor (avoids the fyp_config import cycle)."""
     import fyp.core.data_io as data_io
 
     return data_io

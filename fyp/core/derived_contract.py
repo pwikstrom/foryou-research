@@ -2,7 +2,7 @@
 (``config/derived_contract.toml``).
 
 The derived contract owns the var_schema metadata for the enrichment columns
-COMPUTED AT MERGE TIME in :func:`fyp.organize_datasets.new_merge`
+COMPUTED AT MERGE TIME in :func:`fyp.analysis.organize_datasets.new_merge`
 (``days_since_created`` / ``completion_rate`` / ``scraped_fail``) and the
 embeddings-derived niche columns (``niche`` / ``niche_name``). It is metadata-only
 — unlike the scrape/activity contracts it drives no ingestion or computation; the
@@ -91,7 +91,7 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
 def contract_field_digest(contract: dict) -> dict:
     """Return a compact, order-independent view of the field set for hashing.
 
-    Folded into :func:`fyp.recode_variables.compute_var_schema_hash` so a derived
+    Folded into :func:`fyp.annotation.recode_variables.compute_var_schema_hash` so a derived
     contract edit invalidates cached study parquets.
     """
     return {

@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
-"""
-Script Name:
-Description:
-Author: Patrik
-Date:
+"""Data donations fetched from the AIO data-donation stack (AWS).
+
+Reads participant and donation metadata from DynamoDB, downloads donation files
+from S3, and builds the per-collection metadata (with demographic columns kept
+separate from the activity data).
 """
 
 import datetime as _dt
@@ -202,7 +201,6 @@ def get_recent_data_donations_from_aio_aws(
     storage_location: str = "aio_raw",
     table_name: str | None = None,
     bucket: str | None = None,
-    # campaign_name: str = "qut",
     use_local_time: bool = False,
 ) -> None:
     """
@@ -302,8 +300,7 @@ def get_recent_data_donations_from_aio_aws(
         # Read the content
         with open(val_path, encoding="utf-8") as f:
             try:
-                # Assuming they are JSONs as per previous scripts?
-                # ingest script treats them as JSONs
+                # Donation files are JSON (the ingest path reads them as JSON).
                 data = json.load(f)
 
                 # Use data_io to save (handles GCS upload + Local secondary)

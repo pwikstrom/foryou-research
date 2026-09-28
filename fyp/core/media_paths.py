@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Platform-aware media object paths.
 
 Multi-platform media layout: new downloads are written under a per-platform

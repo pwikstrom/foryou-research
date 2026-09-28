@@ -3,7 +3,7 @@ contract (``config/annotation_contract.toml``).
 
 The contract is the single source from which the machine-annotation pipeline
 generates the Gemini prompt, the structured-output ``response_schema``, and the
-flattener field specs (see ``fyp.annotation_schema``). This module parses the
+flattener field specs (see ``fyp.annotation.annotation_schema``). This module parses the
 TOML, validates it, and turns each field into the
 ``(gemini_field, json_schema_node, flatten_rule)`` tuple the rest of the
 pipeline consumes.
@@ -32,9 +32,9 @@ from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
-# NOTE: fyp.data_io is imported LAZILY inside functions (see _data_io()). A
+# NOTE: fyp.core.data_io is imported LAZILY inside functions (see _data_io()). A
 # module-level import creates the same fyp_config import cycle documented in
-# fyp/annotation_versioning.py — fyp_config's load-time overlays call
+# fyp/annotation/annotation_versioning.py — fyp_config's load-time overlays call
 # load_contract(), so this module must not pull in data_io/fyp_config at import.
 
 # A ``[fields.keys]`` sub-key declared as a bounded integer: ``"int(0,100): desc"``
@@ -68,12 +68,13 @@ BACKUP_PREFIX = "annotation_contract_backup_"
 # Process-local snapshot of the effective contract. NEVER polled per call — it is
 # refreshed only at explicit points (process boot, load_var_schema, Cloud Task
 # entry via reload_var_schema_if_changed, and the upload/revert endpoints), which
-# pins a whole annotation batch to one contract. See the plan's consistency rule.
+# pins a whole annotation batch to one contract: a contract swapped mid-batch
+# must not split the batch across two contracts.
 _SNAPSHOT: dict = {"loaded": False}
 
 
 def _data_io():
-    """Lazy fyp.data_io accessor (breaks the fyp_config import cycle)."""
+    """Lazy fyp.core.data_io accessor (breaks the fyp_config import cycle)."""
     import fyp.core.data_io as data_io
 
     return data_io

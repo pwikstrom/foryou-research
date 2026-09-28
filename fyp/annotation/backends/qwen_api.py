@@ -1,6 +1,6 @@
 """Hosted Qwen omni annotation backend (Alibaba Model Studio / DashScope).
 
-Productizes a validated API pilot (2026-07-21, 20/20 valid;
+Productizes a validated API pilot (20/20 valid;
 enum agreement 0.83 vs the Gemini reference — above both local backends):
 
 * The whole mp4 is passed base64 as a ``video_url`` data URL to DashScope's
@@ -13,8 +13,8 @@ enum agreement 0.83 vs the Gemini reference — above both local backends):
   embedded in the prompt (DashScope's json_object mode takes no schema). The
   models habitually append a stray closing code fence, which is stripped before
   the ``structured`` flatten path parses the object.
-* Account-level rate limits (2026-07: 60 RPM / 100k tokens-per-minute for the
-  omni models) — not thread count — bound throughput, so ``max_workers`` stays
+* Account-level rate limits (at the time of the pilot, 60 RPM / 100k
+  tokens-per-minute for the omni models) — not thread count — bound throughput, so ``max_workers`` stays
   small and 429s are retried with backoff inside ``annotate_one``.
 
 Config lives in ``[machine.qwen_api]``; the API key comes from the

@@ -28,10 +28,10 @@ ALERTS_FILENAME = "scraper_alerts.json"
 # Alert kinds — the schema leaves room for future systematic failure modes.
 KIND_PERMANENT_STORM = "permanent_storm"
 # A run of consecutive identical *transient* verdicts (e.g. a new bot wall
-# breaking the extractor for every item — 2026-08-10 TikTok incident).
+# breaking the extractor for every item).
 KIND_TRANSIENT_STORM = "transient_storm"
 # The platform logged the scraper's own login session out mid-run
-# (platform_scraper.SESSION_EXPIRED; 2026-09-23 Instagram). Needs a human to
+# (platform_scraper.SESSION_EXPIRED; seen on Instagram). Needs a human to
 # log in again, so it outranks the storm alerts.
 KIND_SESSION_EXPIRED = "session_expired"
 # The rate-limit circuit breaker: a run of consecutive throttle verdicts

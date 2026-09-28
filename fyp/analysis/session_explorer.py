@@ -60,8 +60,8 @@ logger = get_logger(__name__)
 # Segmentation parameters. CUT/MEM/MIN_VIDEOS come from the embedding-entropy
 # study (specification-curve validated; `mem` controls drift tolerance).
 #
-# MIN_MINUTES and MAX_SKIP were retuned 2026-08-10 against the production
-# corpus and are NOT the study's values (the study used 3.0 minutes and no
+# MIN_MINUTES and MAX_SKIP are tuned against the production corpus and are
+# NOT the study's values (the study used 3.0 minutes and no
 # skip tolerance):
 #   * MAX_SKIP: with no tolerance, a single off-theme video ended a run and
 #     then seeded the next one, so 99.4% of candidate runs ended under
@@ -78,8 +78,8 @@ MAX_SKIP = 2
 
 # Off-theme plays with dwell under this many seconds are "flicks" — rejected
 # feed noise, not a departure from the theme — and do not spend the MAX_SKIP
-# budget (added 2026-08-11; 0 restores the pure-count rule). Validated on the
-# production corpus's AIO-00060 session: the count-only rule severed a 4-video
+# budget (0 restores the pure-count rule). Validated on the production
+# corpus's AIO-00060 session: the count-only rule severed a 4-video
 # exercise cluster from the 14-video binge it visibly belonged to, because the
 # 3 interleaved off-theme videos (total dwell 3 s) exhausted the budget.
 FLICK_SECONDS = 3.0
@@ -144,7 +144,7 @@ _SEARCH_TEXT_CAP = 8_000
 
 # Parallel segmentation. The per-session work (segment_session /
 # episode_record / session_record) is pure Python and was measured at ~38 of
-# a 40-minute full rebuild on one core of an 8-CPU runner (2026-09-01). It is
+# a 40-minute full rebuild on one core of an 8-CPU runner. It is
 # embarrassingly parallel per session, so a batch is cut into
 # (collection, session-chunk) work units of roughly SESSION_CHUNK_PLAYS plays
 # — never splitting a session — and run on a forked process pool. Chunks
@@ -342,9 +342,9 @@ def _segment_units(
             )
     # The in-process path runs under the same one-thread BLAS as the pool
     # children: the episode geometry takes the max of a float32 U @ U.T, and
-    # multi-threaded kernels sum in a different order — on prod (2026-09-02)
-    # that flipped one episode's 4-decimal `diameter` between a workers=1 and
-    # a pooled build. Same kernel everywhere → bit-identical rows.
+    # multi-threaded kernels sum in a different order, which is enough to flip
+    # an episode's 4-decimal `diameter` between a workers=1 and a pooled build.
+    # Same kernel everywhere → bit-identical rows.
     pending = [i for i in range(len(units)) if i not in results]
     if pending:
         try:
@@ -985,11 +985,11 @@ def discover_covered_collections(
 
     This tracks the **activity** side only, because the activity file is all
     it can see: ``collections_recoded.parquet`` is written by ingest and
-    carries no enrichment columns. Until 2026-08-16 this function also tried
-    to count plays of annotated videos, probing for an ``annotated_ok``
-    column that file has never had — so the count was silently 0 on every
-    install and new annotations could not mark anything stale. Enrichment
-    staleness is now a pair of global fingerprints instead
+    carries no enrichment columns. Counting plays of annotated videos here
+    (probing for an ``annotated_ok`` column that file does not have) would
+    silently yield 0 on every install, so new annotations could never mark
+    anything stale. Enrichment staleness is a pair of global fingerprints
+    instead
     (:func:`annotation_corpus_fingerprint`,
     :func:`embedding_store.store_fingerprint`); do not reintroduce a
     per-collection enrichment count here without joining a file that
@@ -1090,7 +1090,7 @@ def annotation_corpus_fingerprint() -> str:
 # moved; these helpers work out WHERE, so a routine append (a batch of newly
 # annotated videos, embedded and folded in) re-segments only the collections
 # that contain the touched videos instead of every covered collection.
-# Measured 2026-09-03: 50 annotations → 46 new vectors → 99 collections
+# Measured without scoping: 50 annotations → 46 new vectors → 99 collections
 # rebuilt, ~8 min, of which 15 collections actually held one of the videos.
 #
 # A change is LOCAL when: the embedding shards were only appended to (every
@@ -1375,18 +1375,19 @@ def compute_refresh_plan(
     plays-artifact schema, or missing artifacts/meta (including a meta from
     before the per-collection block existed — the migration path).
 
-    **Enrichment invalidators** (2026-08-16). A changed embedding-store or
+    **Enrichment invalidators**. A changed embedding-store or
     annotation-corpus fingerprint also escalates to full. The per-collection
     fingerprint cannot see either: it is computed from the activity file,
-    which carries no enrichment columns at all. It used to carry an
-    ``n_annotated`` term that was structurally always 0 for exactly that
-    reason, so every ``stale_only`` run returned "noop" no matter how many
-    annotations landed (prod, 2026-08-15/16: two chains, 6,000 newly
-    annotated items, 5,891 new vectors, nothing rebuilt). These two scalars
+    which carries no enrichment columns at all. An ``n_annotated`` term there
+    is structurally always 0 for exactly that reason, so every ``stale_only``
+    run would return "noop" no matter how many annotations landed (6,000 newly
+    annotated items and 5,891 new vectors once rebuilt nothing). These two scalars
     are the coarse but honest substitute — they cost one stat call each, and
     being wrong in the cheap direction (an unnecessary full rebuild) is the
-    point. The trade is deliberate: any enrichment change rebuilds every
-    covered collection, not just the ones it touched.
+    point. Without an ``enrichment_scope`` proving the change local (see
+    :func:`enrichment_change_scope`), the trade is deliberate: any enrichment
+    change rebuilds every covered collection, not just the ones it touched.
+    With one, only the touched collections join the refresh set.
 
     This supersedes the previous decision to tolerate corpus-mean drift. That
     reasoning — the mean over the full store is statistically stable across
@@ -1413,6 +1414,9 @@ def compute_refresh_plan(
             would replace real episodes with none.
         annotations_fp: The run's annotation-corpus fingerprint, with the
             same empty-means-unknown contract.
+        enrichment_scope: Optional result of :func:`enrichment_change_scope`;
+            when it marks the change local, only the affected collections are
+            refreshed for an enrichment move.
 
     Returns:
         ``{"mode": "full"|"merge"|"noop", "reason": str,
@@ -1521,7 +1525,7 @@ def segment_session(
     members, and still count in ``n_skipped`` when the run resumes.
     ``flick_seconds = 0`` disables the rule (every off-theme play counts).
 
-    ``max_skip = 0`` restores the pre-2026-08-10 behaviour, where one off-theme
+    ``max_skip = 0`` restores the original no-tolerance behaviour, where one off-theme
     video ended the run AND became the first member of the next one. That
     second effect was the damaging one: the theme then had to re-accumulate
     from an anchor that was not the theme, which is why long on-theme stretches
@@ -2633,7 +2637,7 @@ def publish_artifacts(
       trailing chain rebuilds a progress file covering only its remaining
       chunks and then agrees with its own truncated shard set. Row counts are
       self-consistent in that case and wave it through — a half-corpus artifact
-      silently replacing a complete one (observed in prod 2026-08-09).
+      silently replacing a complete one (observed in production).
       Coverage cannot be reset that way.
     * **Shard-set completeness** — every chunk 0..n_chunks-1 must be present.
     * **Row counts** (``expected``) — catches a shard that failed to write.
@@ -2786,7 +2790,7 @@ def merge_publish_artifacts(
     existing rows minus every refreshed/dropped collection) + the run's shard
     rows. Streaming end to end — peak memory is one record batch. The write
     itself stages to a tempfile and lands in one move
-    (:func:`fyp.data_io.write_parquet_stream`), and the publish order keeps
+    (:func:`fyp.core.data_io.write_parquet_stream`), and the publish order keeps
     ``sessions_index.parquet`` last, so the read side's freshness gate holds.
 
     Guard differences from the full publish: coverage/row-count totals are

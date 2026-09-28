@@ -1,6 +1,6 @@
-"""Bring stored activity rows onto the 2026-09 engagement vocabulary.
+"""Bring stored activity rows onto the current engagement vocabulary.
 
-Until then TikTok bookmarks (``FavoriteVideoList``) were stored as ``fave``,
+Previously TikTok bookmarks (``FavoriteVideoList``) were stored as ``fave``,
 indistinguishable from likes, and followed accounts as ``following``. The
 vocabulary is now ``fave`` / ``save`` / ``comment`` / ``share`` (+ ``follow``
 standalone) — see ``fyp.core.utils``. This module rewrites the persisted
@@ -193,7 +193,7 @@ def append_tiktok_shares(
     ``replace_existing`` rebuilds a file's share rows from its raw export
     instead of only adding missing ones: the stored rows are dropped and every
     send is appended again, one row per send with its record count
-    (``chat_head ×3``). That is the recount of 2026-09-23 — the first append
+    (``chat_head ×3``). The recount is needed because an earlier append
     stored identical records as separate rows, which the next ingest's dedupe
     collapsed, losing the count and the mixed-method shares in one second.
     A file whose raw export is missing or has no share records keeps its rows.

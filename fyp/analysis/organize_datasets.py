@@ -1,3 +1,10 @@
+"""Build the per-study and per-collection datasets.
+
+Loads collections, samples events per study definition, consolidates the
+enrichment data (scrapes, annotations, niche map), merges it onto the events,
+and writes the recoded study datasets with their refresh sidecars.
+"""
+
 import datetime as _dt
 import hashlib
 import json
@@ -106,7 +113,7 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-# Embeddings-derived niche map (see fyp.video_map). The niche columns are
+# Embeddings-derived niche map (see fyp.analysis.video_map). The niche columns are
 # joined into each study's recoded dataset on item_id so they surface as
 # ordinary analysis variables; the map is rebuilt out-of-band, so its
 # fingerprint guards study-cache freshness.
@@ -425,14 +432,14 @@ def plan_refresh(study_name: str, verbose: bool = False) -> dict:
 
     Compares current input fingerprints against the sidecar and returns a plan:
 
-    - `action`: "short_circuit" | "enrichment_patch" | "video_set_delta" | "full_rebuild"
+    - `action`: "short_circuit" | "enrichment_patch" | "full_rebuild"
     - `reasons`: list[str] — human-readable explanation for logging
     - `changed`: dict[str, bool] — which fingerprint categories drifted
     - `old_sidecar`, `current_fps`: raw inputs so callers can reuse them
 
-    In Phase 2 only "short_circuit" vs "full_rebuild" are emitted; the patch
-    actions will be decided by this function in Phase 3/4 once the patch paths
-    land. Callers should treat unknown actions as "full_rebuild" for safety.
+    Any change on the activity side (collections, study config, var schema)
+    yields "full_rebuild"; there is no incremental video-set path. Callers
+    should treat unknown actions as "full_rebuild" for safety.
     """
 
     reasons: list[str] = []
@@ -542,7 +549,7 @@ def plan_refresh(study_name: str, verbose: bool = False) -> dict:
         else:
             return {"action": "enrichment_patch", "reasons": reasons, "changed": changed, **bundle}
 
-    # Phase 4 will add the video-set delta patch here. For now, anything else => full rebuild.
+    # Anything else (an activity-side change) needs a full rebuild.
     return {"action": "full_rebuild", "reasons": reasons, "changed": changed, **bundle}
 
 
@@ -665,7 +672,7 @@ class enrichment_preload:
     ``scrapes_recoded.parquet`` (327 MB) and ``machine_annotations_recoded
     .parquet`` (479 MB) from storage and keeps the study's rows. Refreshing
     five studies in one process therefore downloaded the same two blobs five
-    times — 3.5 GB, 54 s of a 179 s run (prod, 2026-09-03). Inside this
+    times — measured at 3.5 GB and 54 s of a 179 s run. Inside this
     context the first study to need a blob loads it and parks the full frame
     here; later studies filter the parked copy. Nothing is loaded up front, so
     a study that short-circuits costs nothing, and the enrichment-patch path
@@ -883,8 +890,9 @@ def simple_sample_collection_events(
     rng = np.random.RandomState(42)
     the_df = all_collections_df
 
-    # the grouping variables are defined in the study config with the prefixes used in the final version of the dataset
-    # At this stage - the columns haven't been given these prefixes yet, so I need to drop them.
+    # The grouping variables are defined in the study config with the prefixes used in the
+    # final dataset; the columns have not been given those prefixes yet at this stage, so the
+    # prefixes are dropped when matching.
 
     grouping_factors = get_grouping_factors_from_var_schema(some_events_df=the_df, verbose=False)
 

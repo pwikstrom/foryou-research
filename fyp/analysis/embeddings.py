@@ -18,7 +18,7 @@ Design notes:
       the full store, and makes the backfill restartable.
     * Each vector is stored as float16 raw bytes in a binary column
       (``dim * 2`` bytes/row) — about half the size of float32 lists and a
-      clean round-trip through :mod:`fyp.data_io`.
+      clean round-trip through :mod:`fyp.core.data_io`.
     * The store is **model-scoped**: every row carries the ``model`` and
       ``dim`` that produced it, and all readers filter to one model. Switching
       the embedding backend therefore re-embeds the corpus under the new model
@@ -159,9 +159,8 @@ def build_document(row: pd.Series) -> str:
 def build_document_v2(row: pd.Series) -> str:
     """EXPERIMENTAL document variant ("docv2") — not used by the live pipeline.
 
-    Differences from :func:`build_document` (2026-08-11, prompted by binge
-    boundaries disagreeing with human perceptual grouping on session
-    AIO-00060):
+    Differences from :func:`build_document` (motivated by binge boundaries
+    disagreeing with human perceptual grouping on session AIO-00060):
 
     * Adds ``Symbols/brands`` (flags and brands carry scene/topic context the
       story often omits), ``People`` (dominant on-screen gender/ethnicity —

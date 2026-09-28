@@ -19,8 +19,8 @@ the admin UI:
   an explicit :func:`promote_version` call, so in-flight analyses do not shift
   underfoot.
 
-Historical note: the registry key was called ``active`` until 2026-07, when the
-UI settled on active = "used for new annotations". :func:`load_registry`
+Historical note: the registry key was originally called ``active``; it was
+renamed when the UI settled on active = "used for new annotations". :func:`load_registry`
 migrates the old key on read, so pre-existing registries keep working.
 """
 
@@ -37,7 +37,7 @@ from fyp.core.runtime import cf as _cf
 
 logger = get_logger(__name__)
 
-# NOTE: fyp.data_io / fyp.fyp_config are imported LAZILY inside functions.
+# NOTE: fyp.core.data_io / fyp.core.fyp_config are imported LAZILY inside functions.
 # A module-level import here creates an import cycle: importing this module
 # first (as the web app's import graph does) triggers fyp_config's module-level
 # load_var_schema while THIS module is still partially initialized, so the
@@ -47,7 +47,7 @@ logger = get_logger(__name__)
 
 
 def _data_io():
-    """Lazy fyp.data_io accessor (breaks the fyp_config import cycle)."""
+    """Lazy fyp.core.data_io accessor (breaks the fyp_config import cycle)."""
     import fyp.core.data_io as data_io
 
     return data_io
@@ -378,7 +378,7 @@ def _promote_into(registry: dict, version: str) -> dict:
     registry = _copy.deepcopy(registry)
     if version not in registry.get("versions", {}):
         raise KeyError(f"unknown annotation_version: {version}")
-    registry.pop("active", None)  # drop the pre-2026-07 key name if present
+    registry.pop("active", None)  # drop the legacy key name if present
     registry["preferred"] = version
     return registry
 
@@ -386,7 +386,7 @@ def _promote_into(registry: dict, version: str) -> dict:
 def load_registry() -> dict:
     """Load the version registry from storage, or an empty one if absent.
 
-    Registries written before the 2026-07 terminology change store the promoted
+    Registries written before the active/preferred terminology change store the promoted
     version under ``active``; it is migrated to ``preferred`` on read (the file
     itself is rewritten on the next save).
     """

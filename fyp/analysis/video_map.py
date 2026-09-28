@@ -1,6 +1,6 @@
 """Cluster the video embedding store into niches and build a 2D semantic map.
 
-Consumes the dense embeddings written by :mod:`fyp.embeddings` and produces:
+Consumes the dense embeddings written by :mod:`fyp.analysis.embeddings` and produces:
 
     * ``recoded/video_map.parquet`` — one row per embedded video with its niche
       id, its typicality and niche-isolation percentiles, and (for a sampled
@@ -396,8 +396,8 @@ def _warm_start_centroids(
     """Initial centroids for the clustering, taken from the previous build.
 
     A fresh k-means++ run redraws every niche boundary even when the corpus
-    barely moved: on 2026-09-03 an append of 97 vectors to 619,845 re-clustered
-    into a partition where only 90 of 150 niches overlapped their predecessor
+    barely moved: in one measured case an append of 97 vectors to 619,845
+    re-clustered into a partition where only 90 of 150 niches overlapped their predecessor
     enough to keep their name, so 60 were re-named through Gemini (244 s) for
     no real change. Starting the fit from the previous partition — each old
     niche's members averaged in the CURRENT reduced space, since PCA is refit

@@ -356,7 +356,7 @@ def fingerprint_zip(local_path: str, member_suffixes: list[str]) -> dict:
     Args:
         local_path: Local filesystem path to the zip (see ``data_io.local_copy``).
         member_suffixes: Member-name suffixes to look for, matched with the
-            same semantics as :func:`fyp.utils.read_zip_members`.
+            same semantics as :func:`fyp.core.utils.read_zip_members`.
 
     Returns:
         ``{"kind": "zip", "member_paths": [...], "key_paths": [...], "stats": {...}}``.
@@ -918,8 +918,7 @@ def apply_review(verdict: dict, prior: dict | None) -> dict:
     learns its shape into the baseline, but one file cannot move a mature
     baseline's core-path support below the threshold (20 accepted files with
     a path make it 20/21 = 95% core), so the very same finding quarantined
-    the file again on the next run — three times on 2026-09-07 — and the
-    approval was a no-op. The operator's decision has to win: when the file's
+    the file again on the next run, and the approval would be a no-op. The operator's decision has to win: when the file's
     stored verdict carries an approval and every quarantine finding this run
     raised is of a kind that approval already covered, the verdict becomes
     ``approved`` and the file ingests. A quarantine finding of a NEW kind

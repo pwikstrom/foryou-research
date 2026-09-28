@@ -12,7 +12,7 @@ augmented model beats the baseline under **per-participant** cross-validation
 across train/test and massively inflate the apparent skill.
 
 Pure functions operating on the per-window frame produced by
-``fyp.sequence_analysis``; no I/O.
+``fyp.analysis.sequence_analysis``; no I/O.
 """
 
 import numpy as np
@@ -40,7 +40,7 @@ def build_model_table(
     window's value.
 
     Args:
-        windows: Per-window frame from :func:`fyp.sequence_analysis.build_windows`.
+        windows: Per-window frame from :func:`fyp.analysis.sequence_analysis.build_windows`.
         target_mean_col: The ``mn::<target>`` column to model.
         horizon: Windows ahead for the response.
 

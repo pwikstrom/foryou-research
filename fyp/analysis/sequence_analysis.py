@@ -7,7 +7,7 @@ feature: content category, demographic representation (gender/ethnicity/age),
 provenance (AI-generated/ad/trend), or virality/recency (engagement counts).
 
 This module is the exploratory (Stage A) core: pure dataframe-in / artifact-out
-functions with no I/O and no Flask coupling, mirroring ``fyp/timeline_analysis.py``.
+functions with no I/O and no Flask coupling, mirroring ``fyp/analysis/timeline_analysis.py``.
 The background worker (``web_interface/run_sequence_refresh.py``) loads study data,
 calls into here, and persists the results.
 

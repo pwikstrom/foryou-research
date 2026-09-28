@@ -10,7 +10,7 @@ field instead.
 The :func:`mem_probe` context manager wraps one phase of a worker and emits a
 single ``[<TAG>][MEM]`` log line on exit, in the same format the merge hot
 path established (``[RECODE][MEM]`` / ``[ENRICH PATCH][MEM]`` in
-``fyp.organize_datasets``) — so every worker's memory telemetry greps the
+``fyp.analysis.organize_datasets``) — so every worker's memory telemetry greps the
 same way.
 """
 

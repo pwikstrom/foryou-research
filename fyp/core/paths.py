@@ -3,11 +3,11 @@
 Extracted from ``fyp_config`` in the subpackage restructure so the path layer
 is stdlib-only and importable without any config machinery. Importing this
 module preserves the historical import-time side effects of ``import
-fyp.fyp_config``: the project root is discovered (``FYP_CONFIG_PATH`` env
+fyp.core.fyp_config``: the project root is discovered (``FYP_CONFIG_PATH`` env
 override, else a ``__proj__.py`` walk from the current working directory) and
 appended to ``sys.path``.
 
-All names are re-exported by ``fyp.fyp_config``. The web app's worker script
+All names are re-exported by ``fyp.core.fyp_config``. The web app's worker script
 paths are not here: the library does not know the app's file layout; they live
 in ``web_interface/worker_registry.py``.
 """

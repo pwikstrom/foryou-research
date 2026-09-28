@@ -5,14 +5,14 @@ The contract is the single source for the canonical, cross-platform scrape
 schema. It is to the scraper what ``config/annotation_contract.toml`` is to the
 Gemini annotator. From it:
 
-  * the scraper base class (:mod:`fyp.platform_scraper`) reads its base
+  * the scraper base class (:mod:`fyp.scrape.platform_scraper`) reads its base
     (``scope="base"``) and per-platform (``scope="platform"``) field sets and
     PyArrow dtypes — the ``REQUIRED_COLUMNS`` / ``additional_columns`` analogue
     from :mod:`fyp.ingest`;
-  * :func:`fyp.fyp_config._apply_contract_scrape_metadata` overlays
+  * :func:`fyp.core.fyp_config._apply_contract_scrape_metadata` overlays
     role / scale / display_name / description / section onto the matching
     ``var_schema`` rows (and injects any missing scrape columns);
-  * :func:`fyp.recode_variables.compute_var_schema_hash` folds a digest of the
+  * :func:`fyp.annotation.recode_variables.compute_var_schema_hash` folds a digest of the
     field set in, so a contract edit invalidates cached study parquets.
 
 The per-field surface mirrors the annotation contract's where it overlaps
@@ -244,7 +244,7 @@ def contract_column_metadata(contract: dict) -> dict[str, dict]:
 def contract_field_digest(contract: dict) -> dict:
     """Return a compact, order-independent view of the field set for hashing.
 
-    Folded into :func:`fyp.recode_variables.compute_var_schema_hash` so a change
+    Folded into :func:`fyp.annotation.recode_variables.compute_var_schema_hash` so a change
     to a stored dtype, a scope/platform reassignment, or a per-K mapping
     invalidates cached study parquets (mirroring the annotation contract's
     ``gm_digest`` fold).
@@ -270,7 +270,7 @@ def validate_contract(contract: dict) -> list[str]:
 
     Lets a frequent editor catch mistakes before they reach the scraper or the
     var_schema overlay. Mirrors the protective role of
-    :func:`fyp.annotation_contract.validate_contract`.
+    :func:`fyp.annotation.annotation_contract.validate_contract`.
 
     Args:
         contract: the parsed contract dict.
