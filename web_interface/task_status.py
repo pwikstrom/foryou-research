@@ -20,6 +20,7 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 
 import fyp.core.data_io as data_io
+from fyp.core.runtime import is_cloud_run as is_cloud_run  # noqa: E402
 from web_interface import run_logs
 
 STATUS_PREFIX = "task_status"
@@ -423,8 +424,9 @@ def read_task_status(name: str) -> dict | None:
     """Read a task's GCS status file. Returns None if not found."""
     filename = f"{STATUS_PREFIX}/{name}.json"
     try:
-        if data_io.exists(storage_location="cache", filename=filename):
-            return data_io.load_json(storage_location="cache", filename=filename)
+        # load_json answers None for an absent file: one storage round-trip
+        # per poll, not an exists() probe plus a read.
+        return data_io.load_json(storage_location="cache", filename=filename)
     except Exception as e:
         print(f"[task_status] Failed to read status for {name}: {e}")
     return None
@@ -511,4 +513,3 @@ def stamp_task_status(
 
 
 # Re-exported: process_manager and the routes import it from here.
-from fyp.core.runtime import is_cloud_run as is_cloud_run  # noqa: E402

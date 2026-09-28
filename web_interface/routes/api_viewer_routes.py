@@ -301,12 +301,8 @@ def api_get_tags():
     username = current_user.username
     filename = f"{username}.json"
 
-    if data_io.exists(storage_location="users", filename=filename):
-        user_data = data_io.load_json(storage_location="users", filename=filename) or {}
-        tags = user_data.get("annotations", {})
-        return jsonify(tags)
-    else:
-        return jsonify({})
+    user_data = data_io.load_json(storage_location="users", filename=filename) or {}
+    return jsonify(user_data.get("annotations", {}))
 
 
 @viewer_bp.route("/api/video_analysis/tags/save", methods=["POST"])
@@ -332,10 +328,9 @@ def api_save_tags():
 
     filename = f"{username}.json"
 
-    # Load existing
-    user_file_data = {}
-    if data_io.exists(storage_location="users", filename=filename):
-        user_file_data = data_io.load_json(storage_location="users", filename=filename) or {}
+    # Read-modify-write: load_json_optional raises on a failed read instead of
+    # answering None, so a transient storage error can't save a blank file.
+    user_file_data = data_io.load_json_optional(storage_location="users", filename=filename) or {}
 
     # Get Annotations Section
     user_data = user_file_data.get("annotations", {})
@@ -453,12 +448,8 @@ def api_get_votes():
     username = current_user.username
     filename = f"{username}.json"
 
-    if data_io.exists(storage_location="users", filename=filename):
-        user_data = data_io.load_json(storage_location="users", filename=filename) or {}
-        votes = user_data.get("votes", [])
-        return jsonify(votes)
-    else:
-        return jsonify([])
+    user_data = data_io.load_json(storage_location="users", filename=filename) or {}
+    return jsonify(user_data.get("votes", []))
 
 
 @viewer_bp.route("/api/video_analysis/vote", methods=["POST"])
@@ -475,9 +466,9 @@ def api_save_vote():
     print(f"[VOTES] Saving vote for {username} on item {item_id}")
     filename = f"{username}.json"
 
-    user_file_data = {}
-    if data_io.exists(storage_location="users", filename=filename):
-        user_file_data = data_io.load_json(storage_location="users", filename=filename) or {}
+    # Read-modify-write: load_json_optional raises on a failed read instead of
+    # answering None, so a transient storage error can't save a blank file.
+    user_file_data = data_io.load_json_optional(storage_location="users", filename=filename) or {}
 
     votes = user_file_data.get("votes", [])
     if item_id not in votes:

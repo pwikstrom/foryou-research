@@ -42,11 +42,10 @@ def get_timeline_covered_vars(collection_id, interval="day"):
     """
     fname = f"timeline_{collection_id}_{interval}.aggvars.json"
     try:
-        if data_io.exists(storage_location="cache", filename=fname):
-            payload = data_io.load_json(storage_location="cache", filename=fname)
-            vars_list = payload.get("vars")
-            if isinstance(vars_list, list):
-                return set(str(v) for v in vars_list)
+        payload = data_io.load_json(storage_location="cache", filename=fname) or {}
+        vars_list = payload.get("vars")
+        if isinstance(vars_list, list):
+            return set(str(v) for v in vars_list)
     except Exception:
         pass
     return None

@@ -125,10 +125,9 @@ def load_interpretations(study: str) -> dict:
     study = resolve_artifact_study(study)
     try:
         inter_path = f"{study}_comp_interpretations.json"
-        if data_io.exists(storage_location="cache", filename=inter_path):
-            loaded = data_io.load_json(storage_location="cache", filename=inter_path, verbose=False)
-            if loaded:
-                return loaded
+        loaded = data_io.load_json(storage_location="cache", filename=inter_path, verbose=False)
+        if loaded:
+            return loaded
     except Exception as e:
         logger.warning(f"Error loading interpretations for {study}: {e}")
     return {}
@@ -433,10 +432,9 @@ def load_group_stats(study: str) -> dict | None:
     study = resolve_artifact_study(study)
     try:
         filename = f"{study}_corr_stats.json"
-        if data_io.exists(storage_location="cache", filename=filename):
-            payload = data_io.load_json(storage_location="cache", filename=filename, verbose=False)
-            if isinstance(payload, dict):
-                return payload
+        payload = data_io.load_json(storage_location="cache", filename=filename, verbose=False)
+        if isinstance(payload, dict):
+            return payload
     except Exception as e:
         logger.warning(f"Error loading group stats for {study}: {e}")
     return None

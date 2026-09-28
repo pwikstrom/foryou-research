@@ -107,13 +107,14 @@ def invalidate_user_json_cache(username: str | None = None) -> None:
 
 def _read_user_json_uncached(username: str) -> dict | None:
     """Load one user's JSON file (exact-case, then lowercase fallback)."""
+    # load_json answers None only for an absent file (an empty one is {}),
+    # so no separate exists() round-trip is needed.
     filename = f"{username}.json"
-    if data_io.exists(storage_location="users", filename=filename):
-        return data_io.load_json(storage_location="users", filename=filename) or None
+    data = data_io.load_json(storage_location="users", filename=filename)
+    if data is not None:
+        return data or None
     filename_lower = f"{username.lower()}.json"
-    if filename_lower != filename and data_io.exists(
-        storage_location="users", filename=filename_lower
-    ):
+    if filename_lower != filename:
         return data_io.load_json(storage_location="users", filename=filename_lower) or None
     return None
 
@@ -1326,12 +1327,7 @@ def get_collection_tags(force_reload: bool = False) -> dict:
         or (now - _collection_tags_cache_time > _COLLECTION_TAGS_TTL)
     ):
         fn = f"{COLLECTIONS_LABEL}_tags.json"
-        if data_io.exists(storage_location="recoded", filename=fn):
-            _collection_tags_cache = (
-                data_io.load_json(storage_location="recoded", filename=fn) or {}
-            )
-        else:
-            _collection_tags_cache = {}
+        _collection_tags_cache = data_io.load_json(storage_location="recoded", filename=fn) or {}
         _collection_tags_cache_time = now
     return _collection_tags_cache
 

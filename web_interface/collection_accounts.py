@@ -82,9 +82,7 @@ def _load_tags_fresh() -> dict:
     read-modify-write on it would resurrect entries another process changed.
     """
     fn = _tags_filename()
-    if data_io.exists(storage_location="recoded", filename=fn):
-        return data_io.load_json(storage_location="recoded", filename=fn, verbose=False) or {}
-    return {}
+    return data_io.load_json(storage_location="recoded", filename=fn, verbose=False) or {}
 
 
 def _save_tags(tags: dict) -> None:
