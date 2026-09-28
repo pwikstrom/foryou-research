@@ -10,56 +10,6 @@ public version. Entries below describe the Hub as it stands at that release.
 
 ## [Unreleased]
 
-### Changed
-
-- **Internal: one import path per module, one lint bar, content-hashed
-  assets.** First-party code now imports every `fyp` module by its canonical
-  subpackage path (`fyp.core.data_io`, not `fyp.data_io`); the flat
-  `fyp/<name>.py` alias shims stay for outside callers, and ruff's banned-api
-  rule rejects them inside the repository. `pyproject.toml` is the single
-  enforced ruff rule set for CI, pre-commit and `scripts/verify.sh`, which also
-  check `ruff format`; the tree was formatted and import-sorted once
-  (listed in `.git-blame-ignore-revs`). Templates reference scripts and
-  stylesheets through `asset_url()`, which versions each URL by the file's
-  content hash, replacing hand-bumped `?v=N` suffixes. The unit gate now also
-  checks that `docs/routes.md` matches the URL map and that the release
-  version agrees across its five files. No behaviour change.
-- **Internal: single sources of truth for workers, accessors and route
-  checks.** Every background worker is declared once in
-  `web_interface/worker_registry.py` (script, entry point, Cloud Tasks
-  deadline, retry safety, launch surfaces); the nine tables that used to repeat
-  those facts, and every chained link's deadline, derive from it, and the
-  `fyp` library no longer holds the web app's worker script paths. Shared
-  helpers replace copied code: `fyp.core.runtime` (config, labels, Cloud Run
-  detection, graceful stop), `VIDEO_VIEW_TYPES` for the play/observe pair,
-  the scrapers' download-and-store steps, the stub-login test client, and one
-  study-parameter check for the analysis endpoints. No behaviour change;
-  verified by before/after snapshots of the worker wiring and of every
-  route's anonymous and missing-/denied-study responses.
-- **Faster status polling and user lookups.** Hot request paths read their
-  JSON in one storage round-trip instead of an existence probe plus a read
-  (a task-status read on GCS: ~129 ms → ~62 ms).
-- **Internal: tests that could not fail now can.** 34 checks in the ab_eval
-  and var-schema tests only printed their result; eleven test files ran no
-  test under pytest; one golden test was missing from the safety-net runner.
-  All now run and pass, guarded by a runner-coverage test. Fourteen scratch
-  scripts named like tests are deleted.
-
-- **One engagement vocabulary across platforms.** Donor engagement is now
-  stored as `fave` (a like), `save` (a bookmark), `comment` and `share` on
-  every platform, and labelled Like / Save / Comment / Share everywhere the
-  Hub shows it (Explorer's Engagement activity filter, the Timelines
-  engagement series, My Collections). TikTok bookmarks (`FavoriteVideoList`)
-  used to be stored as `fave`, the same as likes; they are `save` now, and
-  `scripts/migrate_engagement_vocabulary.py` retags the stored data (dry run
-  by default, GCS-only apply, snapshot + report). Follows are stored as
-  `follow` (was `following`) and are no longer a Timelines series or an
-  Explorer facet: a follow names an account, not a video, so it never had a
-  play to attach to and the series was always empty. The vocabulary lives in
-  `fyp.core.utils` (`KNOWN_ACTIVITY_TYPES`, `ENGAGEMENT_LABELS`); each
-  ingester declares what it emits (`emitted_activity_types`) and a registry
-  test holds them to it. Timelines caches regenerate (schema 8).
-
 ### Added
 
 - **More of the export is read.** TikTok share history and reposts become
@@ -211,6 +161,117 @@ public version. Entries below describe the Hub as it stands at that release.
   last-active time, their login time if they logged in inside the window,
   and the count and span of their logged actions. A person who stays
   logged in for weeks no longer looks idle to the report.
+
+- **Theme toggle and presentation mode.** The dark-theme setting is a
+  sun/moon button beside the username, and every chart — including Semantic
+  Space and the Data Pipeline charts — re-themes when it is pressed. A chevron
+  at the right of the tab menu hides the header and menu for presenting,
+  leaving a thin strip that slides them back on hover; Esc restores them.
+- **Semantic map dots scale with the zoom**, and a **Dot size** slider beside
+  the Niche labels checkbox sets their size at every zoom level.
+- **A notice when the semantic map cannot draw its dots.** Without WebGL
+  (graphics acceleration off, a blocked GPU driver, a VM without a GPU) the
+  map used to show the niche labels over an empty plot with no explanation;
+  it now says why and which browser setting to change.
+
+### Changed
+
+- **Internal: one import path per module, one lint bar, content-hashed
+  assets.** First-party code now imports every `fyp` module by its canonical
+  subpackage path (`fyp.core.data_io`, not `fyp.data_io`); the flat
+  `fyp/<name>.py` alias shims stay for outside callers, and ruff's banned-api
+  rule rejects them inside the repository. `pyproject.toml` is the single
+  enforced ruff rule set for CI, pre-commit and `scripts/verify.sh`, which also
+  check `ruff format`; the tree was formatted and import-sorted once
+  (listed in `.git-blame-ignore-revs`). Templates reference scripts and
+  stylesheets through `asset_url()`, which versions each URL by the file's
+  content hash, replacing hand-bumped `?v=N` suffixes. The unit gate now also
+  checks that `docs/routes.md` matches the URL map and that the release
+  version agrees across its five files. No behaviour change.
+- **Internal: single sources of truth for workers, accessors and route
+  checks.** Every background worker is declared once in
+  `web_interface/worker_registry.py` (script, entry point, Cloud Tasks
+  deadline, retry safety, launch surfaces); the nine tables that used to repeat
+  those facts, and every chained link's deadline, derive from it, and the
+  `fyp` library no longer holds the web app's worker script paths. Shared
+  helpers replace copied code: `fyp.core.runtime` (config, labels, Cloud Run
+  detection, graceful stop), `VIDEO_VIEW_TYPES` for the play/observe pair,
+  the scrapers' download-and-store steps, the stub-login test client, and one
+  study-parameter check for the analysis endpoints. No behaviour change;
+  verified by before/after snapshots of the worker wiring and of every
+  route's anonymous and missing-/denied-study responses.
+- **Faster status polling and user lookups.** Hot request paths read their
+  JSON in one storage round-trip instead of an existence probe plus a read
+  (a task-status read on GCS: ~129 ms → ~62 ms).
+- **Internal: tests that could not fail now can.** 34 checks in the ab_eval
+  and var-schema tests only printed their result; eleven test files ran no
+  test under pytest; one golden test was missing from the safety-net runner.
+  All now run and pass, guarded by a runner-coverage test. Fourteen scratch
+  scripts named like tests are deleted.
+
+- **One engagement vocabulary across platforms.** Donor engagement is now
+  stored as `fave` (a like), `save` (a bookmark), `comment` and `share` on
+  every platform, and labelled Like / Save / Comment / Share everywhere the
+  Hub shows it (Explorer's Engagement activity filter, the Timelines
+  engagement series, My Collections). TikTok bookmarks (`FavoriteVideoList`)
+  used to be stored as `fave`, the same as likes; they are `save` now, and
+  `scripts/migrate_engagement_vocabulary.py` retags the stored data (dry run
+  by default, GCS-only apply, snapshot + report). Follows are stored as
+  `follow` (was `following`) and are no longer a Timelines series or an
+  Explorer facet: a follow names an account, not a video, so it never had a
+  play to attach to and the series was always empty. The vocabulary lives in
+  `fyp.core.utils` (`KNOWN_ACTIVITY_TYPES`, `ENGAGEMENT_LABELS`); each
+  ingester declares what it emits (`emitted_activity_types`) and a registry
+  test holds them to it. Timelines caches regenerate (schema 8).
+
+- **The setup wizard asks about storage first, and per surface.** Google
+  Cloud Storage was one yes/no that flipped all three `use_gcs_for_*` flags
+  together, asked after the local paths. It is now the first question, with
+  data, media and cache chosen separately, and the local data and media
+  directories are only asked for when something still lands on the disk — a
+  fully bucket-backed install is never asked for a path it would not use, and
+  its generated overlay overrides no local path. Re-running the wizard over a
+  hand-edited mixed overlay now offers each surface's recorded value back
+  instead of flattening the mix. Non-interactively, `--gcs-bucket` still means
+  all three; the new `--gcs-for data,media,cache` narrows it to a subset.
+- **The wizard no longer offers to install what is already installed.** The
+  "create the virtualenv and install the dependencies now?" question is
+  skipped when the wizard is already running inside a virtualenv that has the
+  dependencies — the state `docs/installation.md` leaves you in. The
+  environment checks report a `dependencies` row so the state is visible
+  either way.
+
+- **Semantic Space legend and labels.** Double-click a category swatch to
+  show only that category, and double-click it again to bring the rest back,
+  as in a Plotly legend. Niche labels on the map are stacked onto several
+  lines (a three-word name takes three lines, a four-word name two), so they
+  cover less of the map sideways. The AI-annotated `advertising` variable is
+  now labelled **Is it advertising?** (was "Advertising - Gemini"), and the
+  filter panels' expand/collapse carets are larger.
+
+- **The Sessions list only shows the study's own sessions.** A day-sampled
+  study keeps some of a collection's days inside its window; sessions on the
+  dropped days used to be listed anyway, and every video in them showed
+  "Media not available in this study". Sampling is now the third scoping
+  axis, beside the collection set and the date window. Admins get an **All
+  sessions (admin)** toggle that lists the whole index with rows outside the
+  study marked, and can play any downloaded video regardless of the study.
+  The player slot now says whether a video is outside the study or simply
+  has no downloaded media.
+
+- **Compact, two-level filter panels in Explore and Video Analysis.** Each
+  variable inside a filter section is now its own collapsible sub-section,
+  remembered across visits. A sub-section whose filter is active turns blue
+  and shows a badge: the number of ticked values for a checkbox list, or the
+  bound range for a slider (`≥ 0.25`, `1–40`). The section header above it
+  shows how many of its variables filter. Type is smaller and regular-weight
+  throughout, with tighter spacing, so more of a study's filters fit on
+  screen. Reset in Explore now also snaps range sliders back to their full
+  extent.
+
+- **Both Docker images build in Cloud Build.** `cloudbuild-base.yaml` and
+  `cloudbuild-app.yaml` take the image paths as substitutions, so neither
+  build needs local Docker.
 
 ### Fixed
 
@@ -517,55 +578,6 @@ public version. Entries below describe the Hub as it stands at that release.
   `items_tried` field say how many were tried. The scraper's own error
   classification is untouched — the queue's retry behaviour is the same.
 
-### Changed
-
-- **The setup wizard asks about storage first, and per surface.** Google
-  Cloud Storage was one yes/no that flipped all three `use_gcs_for_*` flags
-  together, asked after the local paths. It is now the first question, with
-  data, media and cache chosen separately, and the local data and media
-  directories are only asked for when something still lands on the disk — a
-  fully bucket-backed install is never asked for a path it would not use, and
-  its generated overlay overrides no local path. Re-running the wizard over a
-  hand-edited mixed overlay now offers each surface's recorded value back
-  instead of flattening the mix. Non-interactively, `--gcs-bucket` still means
-  all three; the new `--gcs-for data,media,cache` narrows it to a subset.
-- **The wizard no longer offers to install what is already installed.** The
-  "create the virtualenv and install the dependencies now?" question is
-  skipped when the wizard is already running inside a virtualenv that has the
-  dependencies — the state `docs/installation.md` leaves you in. The
-  environment checks report a `dependencies` row so the state is visible
-  either way.
-
-- **Semantic Space legend and labels.** Double-click a category swatch to
-  show only that category, and double-click it again to bring the rest back,
-  as in a Plotly legend. Niche labels on the map are stacked onto several
-  lines (a three-word name takes three lines, a four-word name two), so they
-  cover less of the map sideways. The AI-annotated `advertising` variable is
-  now labelled **Is it advertising?** (was "Advertising - Gemini"), and the
-  filter panels' expand/collapse carets are larger.
-
-- **The Sessions list only shows the study's own sessions.** A day-sampled
-  study keeps some of a collection's days inside its window; sessions on the
-  dropped days used to be listed anyway, and every video in them showed
-  "Media not available in this study". Sampling is now the third scoping
-  axis, beside the collection set and the date window. Admins get an **All
-  sessions (admin)** toggle that lists the whole index with rows outside the
-  study marked, and can play any downloaded video regardless of the study.
-  The player slot now says whether a video is outside the study or simply
-  has no downloaded media.
-
-- **Compact, two-level filter panels in Explore and Video Analysis.** Each
-  variable inside a filter section is now its own collapsible sub-section,
-  remembered across visits. A sub-section whose filter is active turns blue
-  and shows a badge: the number of ticked values for a checkbox list, or the
-  bound range for a slider (`≥ 0.25`, `1–40`). The section header above it
-  shows how many of its variables filter. Type is smaller and regular-weight
-  throughout, with tighter spacing, so more of a study's filters fit on
-  screen. Reset in Explore now also snaps range sliders back to their full
-  extent.
-
-### Fixed
-
 - **Duplicate display IDs you could not find.** The *duplicate* pill and the
   `duplicate` search word were computed from the Edit Collections listing,
   which is the metadata table, while the ops report's check reads the tags
@@ -576,6 +588,9 @@ public version. Entries below describe the Hub as it stands at that release.
   tooltip names the twin that has no row; the report marks the no-data side
   of each pair and lists unowned, dataless entries under a new **Leftover
   collection entries** check, with the delete-by-id route to clear them.
+
+- **Semantic-map labels stay white after switching to the dark theme.** The
+  theme safety net no longer remaps figures their tab has just re-rendered.
 
 ## [0.3.0] — 2026-09-10
 
@@ -1187,6 +1202,7 @@ integration, and a `scripts/verify.sh` gate combining lint, unit tests, the
 import-cycle and schema-hash guards, the golden suite, and an app import smoke
 test.
 
+[Unreleased]: https://github.com/pwikstrom/foryou-research/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.3.0
 [0.2.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.2.0
 [0.1.0]: https://github.com/pwikstrom/foryou-research/releases/tag/v0.1.0
