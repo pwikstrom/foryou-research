@@ -20,6 +20,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
+from web_interface import worker_registry
 from web_interface.task_status import TaskStatusReporter
 
 # Upper safety cap on a single Cloud Task batch. Steady-state scrape memory is
@@ -33,7 +34,6 @@ from web_interface.task_status import TaskStatusReporter
 # secondary blast-radius bound — larger batches just recycle the container less
 # often; the remainder of the queue drains by self-chaining to the next batch.
 MAX_BATCH_SIZE = 1000
-_DISPATCH_DEADLINE = 1800
 
 
 def _journal_scrape_finished(
@@ -443,7 +443,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
     return {
         "chain": True,
         "next_task_args": next_task_args,
-        "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
+        "dispatch_deadline_seconds": worker_registry.deadline_for(f"queue_scraper_{platform}"),
     }
 
 

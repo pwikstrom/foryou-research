@@ -111,12 +111,7 @@ def dispatch_deadline_for(name: str, task_args: dict | None = None) -> int | Non
     Returns:
         Deadline in seconds, or None to accept the Cloud Tasks default.
     """
-    spec = worker_registry.WORKERS.get(name)
-    if spec is not None:
-        return spec.deadline
-    if name.startswith("queue_scraper_"):
-        return CLOUD_TASKS_MAX_DISPATCH_DEADLINE
-    return None
+    return worker_registry.deadline_for(name)
 
 
 # --- Global State ---

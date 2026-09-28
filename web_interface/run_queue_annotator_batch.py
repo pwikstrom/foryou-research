@@ -47,6 +47,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
+from web_interface import worker_registry
 from web_interface.mail_utils import send_batch_annotation_email_async
 from web_interface.task_status import TaskStatusReporter
 
@@ -520,7 +521,7 @@ def _run_phase(reporter, task_args, batch, data_io):
     return {
         "chain": True,
         "next_task_args": next_args,
-        "dispatch_deadline_seconds": 1800,
+        "dispatch_deadline_seconds": worker_registry.deadline_for("queue_annotator_batch"),
         "next_dispatch_delay_seconds": _POLL_DELAY_S,
         "chain_log_message": chain_msg,
     }

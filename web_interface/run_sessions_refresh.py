@@ -52,6 +52,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
+from web_interface import worker_registry
 from web_interface.task_status import TaskStatusReporter
 
 # Collections per chain link when the caller pins ``batch_size``. The binding
@@ -70,7 +71,6 @@ COLLECTIONS_PER_BATCH = 8
 # bigger link costs wall time only in proportion to its plays.
 PLAYS_PER_BATCH = 250_000
 MAX_COLLECTIONS_PER_BATCH = 32
-_DISPATCH_DEADLINE = 1800
 MAX_CHAIN_RESTARTS = 2
 
 # Segmentation override keys accepted from the UI / CLI and carried verbatim
@@ -649,7 +649,7 @@ def run_sessions_refresh(
                 annotations_fp,
                 annotations_max_ts,
             ),
-            "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
+            "dispatch_deadline_seconds": worker_registry.deadline_for("sessions_refresh"),
         }
     else:
         params = json.loads(task_args["params_json"])
@@ -684,7 +684,7 @@ def run_sessions_refresh(
                 return {
                     "chain": True,
                     "next_task_args": _restart_args(),
-                    "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
+                    "dispatch_deadline_seconds": worker_registry.deadline_for("sessions_refresh"),
                 }
         else:
             corpus_mean, n_vectors = None, 0
@@ -805,7 +805,7 @@ def run_sessions_refresh(
                 annotations_fp,
                 annotations_max_ts,
             ),
-            "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
+            "dispatch_deadline_seconds": worker_registry.deadline_for("sessions_refresh"),
         }
 
     # ---- Final link: publish ----

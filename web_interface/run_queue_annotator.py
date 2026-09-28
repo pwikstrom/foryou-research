@@ -17,6 +17,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
+from web_interface import worker_registry
 from web_interface.task_status import TaskStatusReporter
 
 # Safety validation: reject batch sizes that risk timing out.
@@ -43,11 +44,6 @@ def _estimate_seconds(batch_size: int) -> float:
     if backend_id != "gemini":
         return batch_size * _LOCAL_SECONDS_PER_VIDEO * _SAFETY_MARGIN + _LOCAL_MODEL_LOAD_SECONDS
     return batch_size * _SECONDS_PER_VIDEO / _WORKERS * _SAFETY_MARGIN
-
-
-def _dispatch_deadline_for(batch_size: int) -> int:
-    """Return the Cloud Tasks dispatch_deadline in seconds."""
-    return 3600 if batch_size > 1000 else 1800
 
 
 def _journal_annotate_finished(
@@ -260,7 +256,7 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
     return {
         "chain": True,
         "next_task_args": next_task_args,
-        "dispatch_deadline_seconds": _dispatch_deadline_for(batch_size),
+        "dispatch_deadline_seconds": worker_registry.deadline_for("queue_annotator"),
     }
 
 

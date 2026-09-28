@@ -24,13 +24,11 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
+from web_interface import worker_registry
 from web_interface.task_status import TaskStatusReporter
 
 # How many collections to process per Cloud Task before chaining.
 COLLECTIONS_PER_BATCH = 30
-
-# Cloud Tasks dispatch_deadline — conservative; each batch finishes in ~5 min.
-_DISPATCH_DEADLINE = 1800
 
 
 def _warm_worker_imports() -> None:
@@ -727,7 +725,7 @@ def run_timelines_refresh(
     return {
         "chain": True,
         "next_task_args": next_task_args,
-        "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
+        "dispatch_deadline_seconds": worker_registry.deadline_for("timelines_refresh"),
     }
 
 

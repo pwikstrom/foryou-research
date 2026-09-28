@@ -5,12 +5,12 @@ never gets to respond, so the task is re-dispatched from scratch up to
 max-attempts and the run "starts over and over" even though each attempt
 would eventually succeed.
 
-A self-chaining worker's own ``_DISPATCH_DEADLINE`` governs only the links it
-dispatches *itself* — the INITIAL dispatch comes from whoever launched it.
-sessions_refresh shipped with the worker constant but no start_process entry and
-looped on its first prod run (2026-08-09); timelines_refresh and
-embeddings_refresh had the same latent gap. This test pins the two sides
-together.
+A self-chaining worker sets the deadline of the links it dispatches *itself*;
+the INITIAL dispatch comes from whoever launched it. sessions_refresh once had a
+worker-side deadline but no start_process entry and looped on its first prod
+run (2026-08-09); timelines_refresh and embeddings_refresh had the same latent
+gap. Both sides now read ``worker_registry.deadline_for``, and the tests below
+pin that.
 
 ``start_process`` is not the only launcher. The consolidate pipeline dispatches
 its steps directly — spine advance, recode's fan-out to the leaves, and
@@ -30,20 +30,9 @@ from pathlib import Path
 
 import pytest
 
-from web_interface import process_manager
+from web_interface import process_manager, worker_registry
 
 WORKER_DIR = Path(process_manager.__file__).parent
-_DEADLINE_RE = re.compile(r"^_DISPATCH_DEADLINE\s*=\s*(\d+)", re.MULTILINE)
-
-
-def _workers_declaring_a_deadline() -> dict[str, int]:
-    """Map process name -> the _DISPATCH_DEADLINE its worker module declares."""
-    found: dict[str, int] = {}
-    for path in sorted(WORKER_DIR.glob("run_*.py")):
-        match = _DEADLINE_RE.search(path.read_text())
-        if match:
-            found[path.stem[len("run_") :]] = int(match.group(1))
-    return found
 
 
 @pytest.fixture
@@ -108,25 +97,34 @@ def test_run_log_is_opened_before_the_task_is_created(monkeypatch):
 
 
 def test_every_worker_deadline_is_honoured_on_initial_dispatch(dispatched):
-    """A worker that declares _DISPATCH_DEADLINE must get >= it when started."""
-    declared = _workers_declaring_a_deadline()
-    assert declared, "no workers declare _DISPATCH_DEADLINE — regex broken?"
-
-    missing = []
-    for name, want in declared.items():
-        # queue_scraper is a template; the real names are per-platform.
-        probe = "queue_scraper_tiktok" if name == "queue_scraper" else name
-        if probe not in process_manager.CLOUD_TASK_ELIGIBLE:
+    """start_process passes each worker the deadline its registry entry declares."""
+    wrong = []
+    for name, spec in worker_registry.WORKERS.items():
+        if spec.deadline is None or not spec.tracked:
             continue
         dispatched.clear()
-        process_manager.start_process(probe, None, task_args={})
-        assert dispatched, f"{probe}: start_process did not dispatch"
-        got = dispatched[0]["deadline"]
-        if got is None or got < want:
-            missing.append(f"{probe}: worker declares {want}s, start_process passes {got}")
-    assert not missing, (
-        "these workers would be re-dispatched from scratch every 600s:\n  " + "\n  ".join(missing)
-    )
+        process_manager.start_process(name, None, task_args={})
+        assert dispatched, f"{name}: start_process did not dispatch"
+        if dispatched[0]["deadline"] != spec.deadline:
+            wrong.append(
+                f"{name}: registry {spec.deadline}s, start_process passes "
+                f"{dispatched[0]['deadline']}"
+            )
+    assert not wrong, "\n  ".join(["wrong initial deadlines:", *wrong])
+
+
+def test_chained_links_take_their_deadline_from_the_registry():
+    """No worker hard-codes the deadline of the next link it dispatches."""
+    offenders = []
+    for path in sorted(WORKER_DIR.glob("run_*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Dict):
+                continue
+            for key, value in zip(node.keys, node.values, strict=True):
+                if isinstance(key, ast.Constant) and key.value == "dispatch_deadline_seconds":
+                    if "worker_registry.deadline_for" not in ast.unparse(value):
+                        offenders.append(f"{path.name}:{node.lineno}: {ast.unparse(value)}")
+    assert not offenders, "use worker_registry.deadline_for(name):\n  " + "\n  ".join(offenders)
 
 
 @pytest.mark.parametrize(
@@ -267,19 +265,6 @@ def test_dispatch_site_clamps_an_overlong_deadline(monkeypatch):
         f"3600s reached Cloud Tasks as {getattr(sent, 'seconds', None)}; "
         f"must clamp to {_CLOUD_TASKS_MAX}"
     )
-
-
-def test_worker_declared_deadlines_are_in_the_shared_table():
-    """dispatch_deadline_for is the single source of truth for every launcher."""
-    missing = []
-    for name, want in _workers_declaring_a_deadline().items():
-        probe = "queue_scraper_tiktok" if name == "queue_scraper" else name
-        if probe not in process_manager.CLOUD_TASK_ELIGIBLE:
-            continue
-        got = process_manager.dispatch_deadline_for(probe, {})
-        if got is None or got < want:
-            missing.append(f"{probe}: worker declares {want}s, table gives {got}")
-    assert not missing, "\n  ".join(["deadline table is out of sync:"] + missing)
 
 
 def _dispatch_call_sites() -> list[str]:

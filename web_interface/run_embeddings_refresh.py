@@ -20,13 +20,13 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
+from web_interface import worker_registry
 from web_interface.task_status import TaskStatusReporter
 
 # Items embedded per Cloud Task invocation. ~112 videos/s with 8 workers, so
 # 20k ≈ 3 min of embedding plus shard I/O — comfortably inside the 3600s
 # Cloud Tasks timeout.
 DEFAULT_BATCH_SIZE = 20000
-_DISPATCH_DEADLINE = 1800
 
 # Single-flight lease: one shared CAS-guarded file names the live run and the
 # links it has executed. Guards the three dispatch paths that bypass
@@ -224,7 +224,7 @@ def run_embeddings_refresh(
     return {
         "chain": True,
         "next_task_args": next_task_args,
-        "dispatch_deadline_seconds": _DISPATCH_DEADLINE,
+        "dispatch_deadline_seconds": worker_registry.deadline_for("embeddings_refresh"),
     }
 
 

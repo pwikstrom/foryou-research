@@ -82,10 +82,10 @@ def _w(name: str, **kwargs) -> WorkerSpec:
 
 # Deadlines: corpus-scale sweeps run well past Cloud Tasks' 600s default.
 # pca_refresh regenerates every study's recoded frame + the group-stats sweep
-# (~26 min at 12 studies); recode_refresh_studies is ~7 min. sessions_refresh /
-# timelines_refresh / embeddings_refresh self-chain, and their own
-# _DISPATCH_DEADLINE governs only the links they dispatch themselves; a batch
-# link can exceed even 1800s (44 min observed 2026-08-12), so sessions_refresh's
+# (~26 min at 12 studies); recode_refresh_studies is ~7 min. The self-chaining
+# workers (scrapers, annotators, sessions / timelines / embeddings refresh) pass
+# the same deadline to each next link via deadline_for(); a batch link can
+# exceed even 1800s (44 min observed 2026-08-12), so sessions_refresh's
 # initial link is setup-only and its links claim their successor via CAS before
 # chaining (run_sessions_refresh._claim_chain_dispatch). video_map_refresh and
 # meta_refresh_groups were the last refresh-graph steps on the default, found
@@ -199,6 +199,20 @@ WORKERS: dict[str, WorkerSpec] = {
 _TASK_ALIASES: dict[str, str] = {"queue_scraper": "web_interface.run_queue_scraper"}
 
 SCRAPER_PROCESS_NAMES: list[str] = [n for n in WORKERS if n.startswith("queue_scraper_")]
+
+
+def deadline_for(name: str) -> int | None:
+    """Cloud Tasks dispatch deadline for task ``name`` (None: the 600s default).
+
+    The one source for every dispatch: the initial one (start_process, the
+    refresh pipeline) and each self-chaining worker's next link.
+    """
+    spec = WORKERS.get(name)
+    if spec is not None:
+        return spec.deadline
+    if name.startswith("queue_scraper_"):
+        return CLOUD_TASKS_MAX_DISPATCH_DEADLINE
+    return None
 
 
 def worker_script(name: str) -> Path:
