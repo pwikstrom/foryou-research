@@ -6,13 +6,13 @@ from flask import jsonify, request
 from flask_login import login_required
 from werkzeug.utils import secure_filename
 
-import fyp.data_io as data_io
-from fyp.fyp_config import (
+import fyp.core.data_io as data_io
+from fyp.core.fyp_config import (
     fyp_cf,
     load_var_schema,
 )
-import fyp.annotation_versioning as annotation_versioning
-from fyp.machine_annotation import rebuild_preferred_annotations_from_archive
+import fyp.annotation.annotation_versioning as annotation_versioning
+from fyp.annotation.machine_annotation import rebuild_preferred_annotations_from_archive
 
 from ... import activity_log
 from ...data_service import (
@@ -218,7 +218,7 @@ def candidate_version_descriptor(cand_contract: dict, target_backend: str | None
     Returns:
         ``(descriptor, selection, target_model)``.
     """
-    from fyp import annotation_schema as sch
+    from fyp.annotation import annotation_schema as sch
     from fyp.annotation.backends import active_backend_name, get_backend
 
     selection = target_backend or active_backend_name()
@@ -270,7 +270,7 @@ def _annotation_contract_impact(cand_contract: dict, target_backend: str | None 
             against it — mirroring ``active_version_descriptor``'s branching,
             including the byte-identical legacy path for plain ``gemini``.
     """
-    from fyp import annotation_contract as ac
+    from fyp.annotation import annotation_contract as ac
     from fyp.annotation.backends import active_backend_name
 
     active_selection = active_backend_name()
@@ -363,7 +363,7 @@ def _backend_target_info(target: str | None) -> dict:
 def get_annotation_contract():
     """Return the effective-contract status for the admin card."""
     try:
-        from fyp import annotation_contract as ac
+        from fyp.annotation import annotation_contract as ac
 
         status = ac.contract_status()
         return jsonify({
@@ -384,7 +384,7 @@ def download_annotation_contract():
     """Download the effective contract (runtime file if present, else baked)."""
     try:
         from flask import Response
-        from fyp import annotation_contract as ac
+        from fyp.annotation import annotation_contract as ac
 
         text = ac.effective_contract_text()
         return Response(
@@ -410,7 +410,7 @@ def get_annotation_contract_parsed():
     texts (``config/annotation_contract_help.toml``).
     """
     try:
-        from fyp import annotation_contract as ac
+        from fyp.annotation import annotation_contract as ac
 
         text = ac.effective_contract_text()
         contract, errors = ac.parse_and_validate(text)
@@ -418,7 +418,7 @@ def get_annotation_contract_parsed():
             return jsonify({"error": "effective contract does not parse", "errors": errors}), 500
         status = ac.contract_status()
         try:
-            from fyp.recode_variables import VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
+            from fyp.annotation.recode_variables import VAR_SCHEMA_ROLES, VAR_SCHEMA_SCALES
             roles, scales = list(VAR_SCHEMA_ROLES), list(VAR_SCHEMA_SCALES)
         except Exception:
             roles, scales = [], []
@@ -448,8 +448,8 @@ def rendered_annotation_contract():
     annotation actually runs).
     """
     try:
-        from fyp import annotation_contract as ac
-        from fyp import annotation_schema as sch
+        from fyp.annotation import annotation_contract as ac
+        from fyp.annotation import annotation_schema as sch
 
         text = ac.effective_contract_text()
         contract, errors = ac.parse_and_validate(text)
@@ -482,8 +482,8 @@ def preview_annotation_contract():
     Never touches the live snapshot (explicit-contract rendering seam).
     """
     try:
-        from fyp import annotation_contract as ac
-        from fyp import annotation_schema as sch
+        from fyp.annotation import annotation_contract as ac
+        from fyp.annotation import annotation_schema as sch
 
         body = request.get_json(silent=True) or {}
         cand = body.get('contract')
@@ -522,7 +522,7 @@ def upload_annotation_contract():
     if not _var_schema_admin_enabled():
         return jsonify({"error": "schema admin disabled"}), 503
     try:
-        from fyp import annotation_contract as ac
+        from fyp.annotation import annotation_contract as ac
 
         json_body = request.get_json(silent=True) or {}
 
@@ -698,7 +698,7 @@ def revert_annotation_contract():
     if not _var_schema_admin_enabled():
         return jsonify({"error": "schema admin disabled"}), 503
     try:
-        from fyp import annotation_contract as ac
+        from fyp.annotation import annotation_contract as ac
 
         if not data_io.exists(storage_location=ac.RUNTIME_LOCATION, filename=ac.RUNTIME_FILENAME):
             return jsonify({"ok": True, "source": "baked", "note": "Already on the baked contract."})

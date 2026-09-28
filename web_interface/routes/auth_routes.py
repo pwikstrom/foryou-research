@@ -7,9 +7,9 @@ from email_validator import EmailNotValidError, validate_email
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 import web_interface.auth as auth
-from fyp.fyp_config import fyp_cf
+from fyp.core.fyp_config import fyp_cf
 
 from ..admin_settings import (
     DEFAULTS as ADMIN_SETTINGS_DEFAULTS,
@@ -593,7 +593,7 @@ def api_admin_users():
 
         result = {"status": "success", "message": msg, "unlinked_collections": unlinked}
         if cascade and unlinked:
-            from fyp.fyp_config import COLLECTION_DELETE_SCRIPT
+            from fyp.core.fyp_config import COLLECTION_DELETE_SCRIPT
             from ..process_manager import start_process
             ok, pmsg = start_process(
                 "collection_delete",
@@ -856,7 +856,7 @@ def api_admin_settings():
                        "to": data["annotation_backend"],
                        "annotation_version": None}
         try:
-            from fyp import annotation_versioning
+            from fyp.annotation import annotation_versioning
 
             minted = annotation_versioning.ensure_active_version_registered()
             switch_info["annotation_version"] = minted
@@ -889,7 +889,7 @@ def api_irrelevant_words():
     entries. Edits apply when hashtags are next extracted (scrape/annotation);
     already-stored hashtags are unchanged.
     """
-    from fyp import irrelevant_words as iw
+    from fyp.annotation import irrelevant_words as iw
 
     if request.method == 'GET':
         words = iw.load_words()
@@ -947,7 +947,7 @@ def api_irrelevant_words_apply():
     run a forced full reconsolidation afterward. Refuses (409) while a scraper/annotator/
     consolidation is running, since it rewrites the same scrape parquets.
     """
-    from fyp.fyp_config import RETOKENISE_HASHTAGS_SCRIPT
+    from fyp.core.fyp_config import RETOKENISE_HASHTAGS_SCRIPT
 
     from ..process_manager import start_process
     from .management_routes import _is_worker_running, _workers_blocking_consolidate

@@ -28,7 +28,7 @@ import requests
 
 from fyp.annotation import machine_annotation
 from fyp.core import data_io
-from fyp.fyp_config import get_config
+from fyp.core.fyp_config import get_config
 from fyp.scrape import scrape_contract as sc
 from fyp.scrape.platform_scraper import THROTTLE_CATEGORIES, cleanup_temp_files, get_scraper
 

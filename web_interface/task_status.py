@@ -20,7 +20,7 @@ import time
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from web_interface import run_logs
 
 STATUS_PREFIX = "task_status"

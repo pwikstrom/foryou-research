@@ -10,7 +10,7 @@ from flask_login import current_user, login_required
 import web_interface.auth as auth
 from fyp.core import logging_setup
 from web_interface import activity_log, run_logs, task_failures
-from fyp.fyp_config import (
+from fyp.core.fyp_config import (
     CONSOLIDATE_ENRICHMENT_SCRIPT,
     EMBEDDINGS_REFRESH_SCRIPT,
     META_REFRESH_GROUPS_SCRIPT,
@@ -365,7 +365,7 @@ def _read_all_task_statuses() -> dict[str, dict]:
         # Lazy config import, matching data_io's own idiom. NOTE: the scan
         # this replaced read ``data_io.fyp_cf`` — an attribute that does not
         # exist — so its blanket except made it silently return nothing.
-        from fyp.fyp_config import fyp_cf
+        from fyp.core.fyp_config import fyp_cf
 
         bucket = fyp_cf['data_io'].get('bucket')
         gcs_prefix = fyp_cf['gcs_paths'].get('cache', '')
@@ -981,7 +981,7 @@ def _run_task_with_stats(name: str, task_args: dict, retry_count: int = 0) -> bo
         # silently producing stale recodes and stale sidecar hashes after
         # an admin edit on the web service.
         try:
-            from fyp.fyp_config import reload_var_schema_if_changed
+            from fyp.core.fyp_config import reload_var_schema_if_changed
             reload_var_schema_if_changed()
         except Exception as e:
             print(f"[task {name}] reload_var_schema_if_changed failed: {e}")

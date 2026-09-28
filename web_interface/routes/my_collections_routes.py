@@ -21,7 +21,7 @@ def _pending_owner_error(raw_path: str, filename: str):
     """403 unless the manifest entry for this pending upload belongs to the
     current user (admins and Edit Collections holders pass — same policy as
     ``owned_collection_access_error``). Returns (error_response, entry)."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     from ..services.my_collections_service import MANIFEST_FILENAME, donation_upload_sources
 
     if raw_path not in {s["raw_path"] for s in donation_upload_sources()}:
@@ -78,8 +78,8 @@ def api_my_upload():
     name and the collection id are generated (``fyp.ingest.raw_names``), the
     original name becomes the display label and is kept as provenance.
     """
-    import fyp.data_io as data_io
-    from fyp.fyp_config import fyp_cf
+    import fyp.core.data_io as data_io
+    from fyp.core.fyp_config import fyp_cf
     from fyp.ingest import parse_donor_timezone
     from fyp.ingest.raw_names import (
         allocate_upload_identity,
@@ -255,8 +255,8 @@ def api_my_withdraw(collection_id):
     The request must repeat the collection id (typed by the participant in the
     confirmation modal) — a server-side second factor against a stray click.
     """
-    import fyp.data_io as data_io
-    from fyp.fyp_config import COLLECTION_DELETE_SCRIPT
+    import fyp.core.data_io as data_io
+    from fyp.core.fyp_config import COLLECTION_DELETE_SCRIPT
     from .. import activity_log
     from ..mail_utils import is_email, send_withdrawal_email_async
     from ..process_manager import start_process
@@ -365,7 +365,7 @@ def api_my_restore(collection_id):
 def api_my_process():
     """Run the ingest worker over all pending uploads (corpus-wide, same
     process the Data Management page starts). 409 = already running."""
-    from fyp.fyp_config import INGEST_REFRESH_SCRIPT
+    from fyp.core.fyp_config import INGEST_REFRESH_SCRIPT
     from .. import activity_log
     from ..process_manager import start_process
 

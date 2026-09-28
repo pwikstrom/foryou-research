@@ -20,7 +20,7 @@ from ...services.worker_status import (
 
 
 
-import fyp.annotation_versioning as annotation_versioning
+import fyp.annotation.annotation_versioning as annotation_versioning
 
 from ._blueprint import management_bp
 from .contracts import (
@@ -42,7 +42,7 @@ DEFAULT_CANDIDATE = "default"
 
 def _default_candidate_payload():
     """Return ``{name, text, contract, builtin}`` for the baked contract."""
-    from fyp import annotation_contract as ac
+    from fyp.annotation import annotation_contract as ac
 
     text = ac._read_baked_text()
     cand, errors = ac.parse_and_validate(text)
@@ -77,8 +77,8 @@ def list_ab_candidates():
     rows so every contract in play is visible in one place.
     """
     try:
-        from fyp import ab_eval
-        from fyp import annotation_contract as ac
+        from fyp.annotation import ab_eval
+        from fyp.annotation import annotation_contract as ac
 
         candidates = []
         for meta in ab_eval.list_candidates():
@@ -135,8 +135,8 @@ def save_ab_candidate():
     is validated and stamped with its etag + predicted ``av_`` version.
     """
     try:
-        from fyp import ab_eval
-        from fyp import annotation_contract as ac
+        from fyp.annotation import ab_eval
+        from fyp.annotation import annotation_contract as ac
 
         body = request.get_json(silent=True) or {}
         name = str(body.get('name') or "").strip()
@@ -186,7 +186,7 @@ def get_ab_candidate(name):
     stored candidate shadows it (pre-reservation back-compat).
     """
     try:
-        from fyp import ab_eval
+        from fyp.annotation import ab_eval
 
         try:
             return jsonify(ab_eval.load_candidate(name))
@@ -208,7 +208,7 @@ def get_ab_candidate(name):
 def delete_ab_candidate(name):
     """Delete a candidate contract."""
     try:
-        from fyp import ab_eval
+        from fyp.annotation import ab_eval
 
         removed = ab_eval.delete_candidate(name)
         if removed:
@@ -238,8 +238,8 @@ def activate_ab_candidate(name):
     """
     try:
         from flask_login import current_user
-        from fyp import ab_eval
-        from fyp import annotation_contract as ac
+        from fyp.annotation import ab_eval
+        from fyp.annotation import annotation_contract as ac
         from fyp.annotation.backends import variants
 
         from ...permissions import user_has_permission
@@ -293,7 +293,7 @@ def activate_ab_candidate(name):
 def list_ab_eval_sets():
     """Return every named evaluation set plus the active one."""
     try:
-        from fyp import ab_eval
+        from fyp.annotation import ab_eval
 
         return jsonify(ab_eval.list_eval_sets())
     except Exception as e:
@@ -308,7 +308,7 @@ def list_ab_eval_sets():
 def create_ab_eval_set():
     """Create a new (optionally cloned) evaluation set. Body: ``{name, copy_from?}``."""
     try:
-        from fyp import ab_eval
+        from fyp.annotation import ab_eval
 
         body = request.get_json(silent=True) or {}
         name = str(body.get('name') or "").strip()
@@ -334,7 +334,7 @@ def create_ab_eval_set():
 def rename_ab_eval_set(name):
     """Rename an evaluation set. Body: ``{new_name}``."""
     try:
-        from fyp import ab_eval
+        from fyp.annotation import ab_eval
 
         body = request.get_json(silent=True) or {}
         new_name = str(body.get('new_name') or "").strip()
@@ -361,7 +361,7 @@ def rename_ab_eval_set(name):
 def activate_ab_eval_set(name):
     """Make ``name`` the active evaluation set (the one a run uses)."""
     try:
-        from fyp import ab_eval
+        from fyp.annotation import ab_eval
 
         try:
             ab_eval.set_active_eval_set(name)
@@ -385,7 +385,7 @@ def activate_ab_eval_set(name):
 def delete_ab_eval_set(name):
     """Delete an evaluation set (never the last remaining one)."""
     try:
-        from fyp import ab_eval
+        from fyp.annotation import ab_eval
 
         try:
             result = ab_eval.delete_eval_set(name)
@@ -408,7 +408,7 @@ def delete_ab_eval_set(name):
 def get_ab_eval_set():
     """Return one eval set (``?name=`` or the active one) with per-item flags."""
     try:
-        from fyp import ab_eval
+        from fyp.annotation import ab_eval
 
         stored = ab_eval.load_eval_set(request.args.get('name') or None)
         return jsonify({
@@ -428,7 +428,7 @@ def get_ab_eval_set():
 def save_ab_eval_set():
     """Persist one eval set's items. Body: ``{item_ids, name?, note?}``. Capped."""
     try:
-        from fyp import ab_eval
+        from fyp.annotation import ab_eval
 
         body = request.get_json(silent=True) or {}
         item_ids = body.get('item_ids')
@@ -462,7 +462,7 @@ def sample_ab_eval_set():
     then saves the set explicitly.
     """
     try:
-        from fyp import ab_eval
+        from fyp.annotation import ab_eval
 
         body = request.get_json(silent=True) or {}
         try:
@@ -491,7 +491,7 @@ def estimate_ab_eval():
     ``{candidate_names, include_live}``.
     """
     try:
-        from fyp import ab_eval
+        from fyp.annotation import ab_eval
 
         body = request.get_json(silent=True) or {}
         if body.get('n_arms') is not None:
@@ -571,7 +571,7 @@ def _clean_arms_spec(raw) -> tuple[list | None, str | None]:
     Returns:
         ``(cleaned, error)`` — the cleaned list or a user-facing error string.
     """
-    from fyp import ab_eval
+    from fyp.annotation import ab_eval
     from fyp.annotation.backends import variants
 
     known_backends = variants.selection_ids()
@@ -624,8 +624,8 @@ def start_ab_eval_run():
     contract text at start.
     """
     try:
-        from fyp import ab_eval
-        from fyp.fyp_config import AB_EVAL_SCRIPT
+        from fyp.annotation import ab_eval
+        from fyp.core.fyp_config import AB_EVAL_SCRIPT
 
         # Explicit gate on top of start_process's own check: one A/B run at a
         # time (a second concurrent run would double the annotation spend and
@@ -698,7 +698,7 @@ def start_ab_eval_run():
 def list_ab_eval_runs():
     """Return the runs index (newest first)."""
     try:
-        from fyp import ab_eval
+        from fyp.annotation import ab_eval
 
         return jsonify({"runs": ab_eval.load_runs_index()})
     except Exception as e:
@@ -713,7 +713,7 @@ def list_ab_eval_runs():
 def get_ab_eval_run(run_id):
     """Return one run's manifest + comparison report + human-input block."""
     try:
-        from fyp import ab_eval, human_eval
+        from fyp.annotation import ab_eval, human_eval
 
         run = ab_eval.load_run(run_id)
         if not run.get("manifest"):
@@ -739,7 +739,7 @@ def get_ab_eval_run_rows(run_id):
     coding task, served as rows so human input renders like any other arm.
     """
     try:
-        from fyp import ab_eval, human_eval
+        from fyp.annotation import ab_eval, human_eval
 
         arm = str(request.args.get('arm') or "").strip()
         if not arm:
@@ -768,7 +768,7 @@ def get_ab_eval_run_rows(run_id):
 def delete_ab_eval_run(run_id):
     """Delete a run's artifacts."""
     try:
-        from fyp import ab_eval
+        from fyp.annotation import ab_eval
 
         removed = ab_eval.delete_run(run_id)
         if removed:

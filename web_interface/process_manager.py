@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import fyp
-import fyp.data_io as data_io
-from fyp.fyp_config import PROJECT_ROOT, PYTHON_EXEC, active_config_path
+import fyp.core.data_io as data_io
+from fyp.core.fyp_config import PROJECT_ROOT, PYTHON_EXEC, active_config_path
 from web_interface import run_logs, task_failures
 from web_interface.task_status import (
     force_clear_status,
@@ -75,7 +75,7 @@ def worker_env() -> dict[str, str]:
 
 def scrape_platforms() -> list[str]:
     """Platforms registered in the scrape contract (each gets its own worker)."""
-    import fyp.scrape_queues as scrape_queues
+    import fyp.scrape.scrape_queues as scrape_queues
     return scrape_queues.registered_platforms()
 
 
@@ -464,7 +464,7 @@ def local_pipeline_script_map() -> dict:
     the local run aborts with "Unknown step". Exposed at module level so the
     invariant is unit-testable against the registry.
     """
-    from fyp.fyp_config import (
+    from fyp.core.fyp_config import (
         EMBEDDINGS_REFRESH_SCRIPT,
         META_REFRESH_GROUPS_SCRIPT,
         PCA_REFRESH_SCRIPT,

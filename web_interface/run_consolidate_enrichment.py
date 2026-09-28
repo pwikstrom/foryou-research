@@ -27,8 +27,8 @@ def _shadow_check_age_days() -> float | None:
     makes the check run rather than silently skipping it.
     """
     try:
-        import fyp.data_io as data_io
-        from fyp.organize_datasets import _SHADOW_CHECK_FILENAME
+        import fyp.core.data_io as data_io
+        from fyp.analysis.organize_datasets import _SHADOW_CHECK_FILENAME
         if not data_io.exists(storage_location="recoded", filename=_SHADOW_CHECK_FILENAME):
             return None
         payload = data_io.load_json(storage_location="recoded",
@@ -58,7 +58,7 @@ def _run_shadow_verification(reporter: TaskStatusReporter) -> None:
     nothing to add. Without the guard a single re-delivery costs another full
     corpus rebuild (2026-09-02: five attempts, 66 minutes of runner).
     """
-    from fyp.organize_datasets import (
+    from fyp.analysis.organize_datasets import (
         consolidate_enrichment_data,
         verify_consolidation_equivalence,
     )
@@ -204,8 +204,8 @@ def run_consolidate_enrichment(reporter: TaskStatusReporter, task_args: dict | N
     downstream refresh. The chain carries ``pipeline_remaining`` and stage
     metadata so the task runner can advance the pipeline one step at a time.
     """
-    import fyp.data_io as data_io
-    from fyp.organize_datasets import (
+    import fyp.core.data_io as data_io
+    from fyp.analysis.organize_datasets import (
         MACHINE_ANNOTATIONS_LABEL,
         SCRAPES_LABEL,
         consolidate_enrichment_data,

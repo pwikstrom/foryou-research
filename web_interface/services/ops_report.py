@@ -140,7 +140,7 @@ def _active_users(users, action_times, now, since, tz):
 def collect_status(hours_back: int = 24) -> dict:
     """Gather every check into a status document. Never raises: a source that
     cannot be read becomes a red check naming the failure instead."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     now = _now()
     tz = _local_tz()
@@ -766,8 +766,8 @@ def _structure_review_check(queue: dict) -> tuple[str, str, list[str]]:
 
 def _dataset_collection_ids() -> set:
     """Collection ids with a metadata row — what Edit Collections lists."""
-    import fyp.data_io as data_io
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    import fyp.core.data_io as data_io
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
     meta_fn = f"{COLLECTIONS_LABEL}_metadata.parquet"
     if not data_io.exists(storage_location="recoded", filename=meta_fn):
         return set()
@@ -780,7 +780,7 @@ def _dataset_collection_ids() -> set:
 
 
 def _withdrawn_collection_ids() -> set:
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     if not data_io.exists(storage_location="recoded", filename="withdrawals.json"):
         return set()
     return {str(k) for k in (data_io.load_json(
@@ -839,8 +839,8 @@ def _stale_study_refresh_keys(stats_doc: dict, study_defs: dict | None = None) -
         The ``study_refresh__<name>`` keys with no matching definition.
     """
     if study_defs is None:
-        from fyp.fyp_config import fyp_cf
-        from fyp.studies import init_study_defs
+        from fyp.core.fyp_config import fyp_cf
+        from fyp.analysis.studies import init_study_defs
         init_study_defs()
         study_defs = fyp_cf.get("study_defs") or {}
     prefix = "study_refresh__"
@@ -1520,7 +1520,7 @@ def generate_ops_report(reporter=None, hours_back: int = 24,
 
     Returns a summary dict (also merged into process_stats via the caller's
     reporter.emit_data)."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     def progress(pct, msg):
         if reporter is not None:

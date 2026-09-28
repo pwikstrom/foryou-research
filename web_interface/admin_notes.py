@@ -17,8 +17,8 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
+import fyp.core.data_io as data_io
+from fyp.core.fyp_config import fyp_cf
 
 logger = logging.getLogger(__name__)
 

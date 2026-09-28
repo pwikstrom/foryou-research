@@ -1043,6 +1043,6 @@ def _journal_finished_run(record: dict) -> None:
                        studies=len(impact.get("affected_study_names") or []),
                        started_ts=record.get("started_ts"))
     except Exception as exc:
-        from fyp.logging_setup import get_logger
+        from fyp.core.logging_setup import get_logger
         get_logger(__name__).warning(
             f"refresh_pipeline: could not journal the finished run: {exc}")

@@ -6,8 +6,8 @@ import threading
 
 from cachetools import LRUCache
 
-import fyp.data_io as data_io
-from fyp.pca import calculate_scaled_pca_scores
+import fyp.core.data_io as data_io
+from fyp.analysis.pca import calculate_scaled_pca_scores
 
 
 # --- Explorer State ---

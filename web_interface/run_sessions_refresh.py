@@ -234,7 +234,7 @@ def _foreign_run_active(max_age_seconds: float = 5400) -> bool:
     A finished chain deletes its progress file; an abandoned one goes stale
     and stops blocking.
     """
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     from fyp.analysis import session_explorer
 
     now = time.time()
@@ -270,7 +270,7 @@ def _claim_chain_dispatch(run_id: str, chunk: int) -> bool:
     Returns:
         True when this execution won the claim.
     """
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     from fyp.analysis import session_explorer
 
     claimed = {"won": False}
@@ -313,9 +313,9 @@ def run_sessions_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
     """
     import pandas as pd
 
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     from fyp.analysis import embedding_store, embeddings, session_explorer
-    from fyp.memory import mem_probe
+    from fyp.core.memory import mem_probe
 
     task_args = task_args or {}
     chunk = int(task_args.get("chunk_index", 0))

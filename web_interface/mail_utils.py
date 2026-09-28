@@ -21,7 +21,7 @@ def is_email(value: str) -> bool:
 
 def _site() -> dict:
     """Return the [site] config section (instance branding), never raising."""
-    from fyp.fyp_config import get_config
+    from fyp.core.fyp_config import get_config
     try:
         return get_config().get("site", {}) or {}
     except Exception:

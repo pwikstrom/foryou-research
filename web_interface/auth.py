@@ -13,7 +13,7 @@ from functools import wraps
 from flask import abort, current_app
 from flask_login import AnonymousUserMixin, UserMixin, current_user
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 
 logger = logging.getLogger(__name__)
 

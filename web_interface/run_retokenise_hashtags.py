@@ -25,10 +25,10 @@ def run_retokenise_hashtags(
 
     Returns None (no downstream chain).
     """
-    import fyp.data_io as data_io
-    from fyp import types
-    from fyp.organize_datasets import SCRAPES_LABEL
-    from fyp.recode_variables import recode_tokenise
+    import fyp.core.data_io as data_io
+    from fyp.core import types
+    from fyp.analysis.organize_datasets import SCRAPES_LABEL
+    from fyp.annotation.recode_variables import recode_tokenise
 
     task_args = task_args or {}
     _t_start = time.perf_counter()

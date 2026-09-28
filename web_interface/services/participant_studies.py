@@ -23,10 +23,10 @@ Every entry point is defensive — a failure here must never fail the caller.
 
 import threading
 
-import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
-from fyp.logging_setup import get_logger
-from fyp.studies import (
+import fyp.core.data_io as data_io
+from fyp.core.fyp_config import fyp_cf
+from fyp.core.logging_setup import get_logger
+from fyp.analysis.studies import (
     STUDY_ARTIFACT_SUFFIXES,
     SYSTEM_PARTICIPANT,
     init_study_defs,

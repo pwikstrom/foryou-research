@@ -18,7 +18,11 @@ generated data, not documentation; produce a current one with
 | `fyp/annotation/` | inert | `machine_annotation`, `machine_annotation_batch`, `annotation_contract`, `annotation_schema`, `annotation_versioning`, `ab_eval`, `human_eval`, `recode_variables`, `var_presentation`, `irrelevant_words` |
 | `fyp/analysis/` | inert | `pca`, `stats`, `embeddings`, `video_map`, `niche_detection`, `session_profile`, `sequence_analysis`, `sequence_model`, `timeline_analysis`, `activity_analysis`, `calc_collection_stats`, `studies`, `organize_datasets`, `donations` |
 
-Every old path (`fyp/<module>.py`) remains forever as a back-compat shim.
+Every old path (`fyp/<module>.py`) remains as a back-compat shim for code
+outside this repository. First-party code imports only the canonical paths:
+ruff's banned-api rule (`TID251`, listed in `pyproject.toml`) rejects the flat
+ones, and `tests/unit/test_subpackage_shims.py` keeps the shims themselves
+working.
 
 **Modules added after the restructure** (born inside a subpackage, no shim needed):
 `fyp/core/memory.py` (RSS/peak probes), `fyp/scrape/scraper_alerts.py`,

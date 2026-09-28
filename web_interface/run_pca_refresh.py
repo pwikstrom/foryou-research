@@ -12,11 +12,11 @@ from web_interface.task_status import TaskStatusReporter
 
 def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None) -> None:
     """Refresh PCA / Correlations data for studies."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
     from fyp.analysis.stats import compute_group_stats_artifact
-    from fyp.fyp_config import fyp_cf
-    from fyp.pca import calculate_scaled_pca_scores
-    from fyp.studies import init_study_defs
+    from fyp.core.fyp_config import fyp_cf
+    from fyp.analysis.pca import calculate_scaled_pca_scores
+    from fyp.analysis.studies import init_study_defs
 
     task_args = task_args or {}
     reporter.log("Starting PCA / Correlations Refresh...")
@@ -37,7 +37,7 @@ def run_pca_refresh(reporter: TaskStatusReporter, task_args: dict | None = None)
     # (their owner's collections changed, or a consolidation impact named
     # them) — a full sweep must stay O(regular studies), not O(participants).
     # Composed ("Everyone & Me") defs store no artifacts and never run here.
-    from fyp.studies import is_composed_study, is_system_study
+    from fyp.analysis.studies import is_composed_study, is_system_study
     _skipped_system = sorted(
         k for k, v in studies.items()
         if is_composed_study(v) or (is_system_study(v) and not target_studies_str)

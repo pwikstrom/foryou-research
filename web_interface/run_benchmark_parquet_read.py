@@ -30,7 +30,7 @@ from web_interface.task_status import TaskStatusReporter
 
 def _default_targets():
     """Resolve the real recoded filenames (label values come from config)."""
-    from fyp.organize_datasets import (
+    from fyp.analysis.organize_datasets import (
         COLLECTIONS_LABEL,
         MACHINE_ANNOTATIONS_LABEL,
         SCRAPES_LABEL,
@@ -49,7 +49,7 @@ def _bench_one(storage_location: str, filename: str, reporter: TaskStatusReporte
     import pandas as pd
     import pyarrow.parquet as pq
 
-    from fyp.data_io import _get_bucket, _resolve_paths
+    from fyp.core.data_io import _get_bucket, _resolve_paths
 
     gcs_uri, _, mode, blob_name = _resolve_paths(storage_location, filename)
     if mode != 'gcs':

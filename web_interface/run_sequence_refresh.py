@@ -22,9 +22,10 @@ def run_sequence_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
         task_args: Optional dict. Recognised keys: ``studies`` (comma-separated
             study names to target), ``window_n``, ``session_gap_s``.
     """
-    from fyp import data_io, sequence_analysis
-    from fyp.fyp_config import fyp_cf
-    from fyp.studies import init_study_defs
+    from fyp.core import data_io
+    from fyp.analysis import sequence_analysis
+    from fyp.core.fyp_config import fyp_cf
+    from fyp.analysis.studies import init_study_defs
 
     task_args = task_args or {}
     reporter.log("Starting Sequence Analysis Refresh...")
@@ -46,7 +47,7 @@ def run_sequence_refresh(reporter: TaskStatusReporter, task_args: dict | None = 
     # (their owner's collections changed, or a consolidation impact named
     # them) — a full sweep must stay O(regular studies), not O(participants).
     # Composed ("Everyone & Me") defs store no artifacts and never run here.
-    from fyp.studies import is_composed_study, is_system_study
+    from fyp.analysis.studies import is_composed_study, is_system_study
     _skipped_system = sorted(
         k for k, v in studies.items()
         if is_composed_study(v) or (is_system_study(v) and not target_studies_str)

@@ -205,9 +205,9 @@ def _discover_collections(reporter: TaskStatusReporter,
     Returns:
         (sorted_collection_ids, {collection_id: first_event_date_str})
     """
-    import fyp.data_io as data_io
-    from fyp.organize_datasets import COLLECTIONS_LABEL
-    from fyp.timeline_analysis import MIN_ACTIVE_DAYS_FOR_TIMELINE
+    import fyp.core.data_io as data_io
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.timeline_analysis import MIN_ACTIVE_DAYS_FOR_TIMELINE
 
     all_collections: set[str] = set()
     collection_first_event: dict[str, str] = {}
@@ -325,8 +325,8 @@ def _preload_and_slice(reporter: TaskStatusReporter,
     Returns:
         {collection_id: DataFrame_slice_or_None}
     """
-    import fyp.data_io as data_io
-    from fyp.organize_datasets import (
+    import fyp.core.data_io as data_io
+    from fyp.analysis.organize_datasets import (
         COLLECTIONS_LABEL,
         MACHINE_ANNOTATIONS_LABEL,
         SCRAPES_LABEL,
@@ -574,7 +574,7 @@ def run_timelines_refresh(reporter: TaskStatusReporter,
         dict with chain=True and next_task_args if more collections remain,
         or None when done.
     """
-    from fyp.studies import init_study_defs
+    from fyp.analysis.studies import init_study_defs
 
     task_args = task_args or {}
     chunk_index: int = int(task_args.get("chunk_index", 0))

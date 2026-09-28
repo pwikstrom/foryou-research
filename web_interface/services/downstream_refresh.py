@@ -16,7 +16,7 @@ and stamps ``__meta__.last_full_refresh``.
 
 from datetime import UTC, datetime
 
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

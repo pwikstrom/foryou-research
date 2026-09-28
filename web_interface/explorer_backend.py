@@ -7,10 +7,10 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
-import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
-from fyp.organize_datasets import create_study_recoded_dataset
-from fyp.utils import ENGAGEMENT_LABELS, ENGAGEMENT_TYPES, parse_extra_data_tokens
+import fyp.core.data_io as data_io
+from fyp.core.fyp_config import fyp_cf
+from fyp.analysis.organize_datasets import create_study_recoded_dataset
+from fyp.core.utils import ENGAGEMENT_LABELS, ENGAGEMENT_TYPES, parse_extra_data_tokens
 
 
 def get_robust_bounds(series):
@@ -789,7 +789,7 @@ def load_data(study: str, verbose: bool = False):
     # Composed (Everyone & Me) studies have no recoded parquet and must never
     # reach the cold-build path below — their frame is assembled upstream in
     # services.study_data from the base + overlay parquets.
-    from fyp.studies import is_composed_study
+    from fyp.analysis.studies import is_composed_study
     if is_composed_study((fyp_cf.get("study_defs", {}) or {}).get(study)):
         if verbose:
             print(f"    Study '{study}' is composed; load its sources instead.")

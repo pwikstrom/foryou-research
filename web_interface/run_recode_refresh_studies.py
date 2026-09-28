@@ -13,10 +13,10 @@ from web_interface.task_status import TaskStatusReporter
 
 def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | None = None) -> None:
     """Refresh recoded datasets and stats for studies."""
-    import fyp.data_io as data_io
-    from fyp.fyp_config import fyp_cf
-    from fyp.organize_datasets import create_study_recoded_dataset, enrichment_preload
-    from fyp.studies import init_study_defs, save_study_defs
+    import fyp.core.data_io as data_io
+    from fyp.core.fyp_config import fyp_cf
+    from fyp.analysis.organize_datasets import create_study_recoded_dataset, enrichment_preload
+    from fyp.analysis.studies import init_study_defs, save_study_defs
     from web_interface.services.methods_note import write_methods_note
     from web_interface.services.stats_service import compute_study_dataset_stats
 
@@ -42,7 +42,7 @@ def run_recode_refresh_studies(reporter: TaskStatusReporter, task_args: dict | N
     # (their owner's collections changed, or a consolidation impact named
     # them) — a full sweep must stay O(regular studies), not O(participants).
     # Composed ("Everyone & Me") defs store no artifacts and never run here.
-    from fyp.studies import is_composed_study, is_system_study
+    from fyp.analysis.studies import is_composed_study, is_system_study
     _skipped_system = sorted(
         k for k, v in studies.items()
         if is_composed_study(v) or (is_system_study(v) and not target_studies_str)

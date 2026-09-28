@@ -38,10 +38,10 @@ import pandas as pd
 from flask import Blueprint, jsonify, request
 from flask_login import current_user
 
-import fyp.data_io as data_io
-import fyp.embeddings as embeddings
+import fyp.core.data_io as data_io
+import fyp.analysis.embeddings as embeddings
 from fyp.analysis import embedding_store, session_explorer
-from fyp.fyp_config import fyp_cf
+from fyp.core.fyp_config import fyp_cf
 from web_interface.data_service import (
     get_study_collections,
     get_study_date_window,
@@ -1534,7 +1534,7 @@ def _session_plays(collection_id: str, session_row: pd.Series) -> pd.DataFrame:
     Returns:
         The session's plays, time-sorted, with ``_ts`` parsed.
     """
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
     sid = str(session_row["session_id"])
     df = None

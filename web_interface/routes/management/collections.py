@@ -5,8 +5,8 @@ import pandas as pd
 from flask import jsonify, request
 from flask_login import login_required
 
-import fyp.data_io as data_io
-from fyp.fyp_config import (
+import fyp.core.data_io as data_io
+from fyp.core.fyp_config import (
     fyp_cf,
 )
 from fyp.ingest import registered_raw_locations
@@ -16,10 +16,10 @@ from fyp.ingest.raw_names import (
     entry_display_id,
     normalize_display_id,
 )
-from fyp.organize_datasets import (
+from fyp.analysis.organize_datasets import (
     COLLECTIONS_LABEL,
 )
-from fyp.studies import init_study_defs
+from fyp.analysis.studies import init_study_defs
 
 from ... import activity_log
 from ...collection_accounts import collection_counts_by_user
@@ -169,7 +169,7 @@ def delete_collection():
     if not collection_ids:
         return jsonify({"error": "Missing collection_id"}), 400
 
-    from fyp.fyp_config import COLLECTION_DELETE_SCRIPT
+    from fyp.core.fyp_config import COLLECTION_DELETE_SCRIPT
 
     success, msg = start_process(
         "collection_delete",
@@ -606,7 +606,7 @@ def _tick_now(cid: str) -> dict:
     The same mechanics as the tick endpoint below; shared here so Arm and
     "Run a cycle now" start the loop the same way.
     """
-    from fyp.fyp_config import ENRICHMENT_SUPERVISOR_SCRIPT
+    from fyp.core.fyp_config import ENRICHMENT_SUPERVISOR_SCRIPT
     from ...services import collection_enrichment as ce
     from ...task_status import is_cloud_run
 
@@ -806,7 +806,7 @@ def tick_collection_enrichment(collection_id):
     explicit click is the authorization), so a plan can be tested end to end
     before automatic ticks are enabled.
     """
-    from fyp.fyp_config import ENRICHMENT_SUPERVISOR_SCRIPT
+    from fyp.core.fyp_config import ENRICHMENT_SUPERVISOR_SCRIPT
     from ...services import collection_enrichment as ce
     from ...task_status import is_cloud_run
 

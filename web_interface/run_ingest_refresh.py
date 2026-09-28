@@ -11,7 +11,7 @@ import pandas as pd
 from web_interface.task_status import TaskStatusReporter
 from fyp.ingest.base import BLOCKED_OUTCOME
 from fyp.ingest import LEDGER_SKIP_OUTCOMES
-from fyp.structure_sentinel import StructureSentinel, findings_digest
+from fyp.core.structure_sentinel import StructureSentinel, findings_digest
 from fyp.analysis.sequence_analysis import VIEWING_ACTIVITY_TYPES
 
 
@@ -30,8 +30,8 @@ def _dataset_collection_ids() -> set[str]:
     Read from the small per-collection parquet so the participant-account
     link is only ever made for donations that actually became collections.
     """
-    import fyp.data_io as data_io
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    import fyp.core.data_io as data_io
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
     fn = f"{COLLECTIONS_LABEL}_metadata.parquet"
     if not data_io.exists(storage_location="recoded", filename=fn):
@@ -468,7 +468,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
 
     # Record the active activity-contract version once per ingest run (idempotent,
     # non-raising) so the registry captures the schema that stamped these rows.
-    from fyp import activity_versioning
+    from fyp.core import activity_versioning
     activity_versioning.ensure_active_version_registered()
 
     reporter.update_progress(75, "Adding local time features...")
@@ -511,7 +511,7 @@ def run_ingest_refresh(reporter: TaskStatusReporter, task_args: dict | None = No
     # placeholder) and fill the profile. A failure here must not fail the
     # ingest — the link can be made later from Edit Collections.
     try:
-        from fyp.donations import load_aio_participant_metadata
+        from fyp.analysis.donations import load_aio_participant_metadata
         from web_interface.collection_accounts import link_aio_collections, summarize_report
 
         aio_participants = load_aio_participant_metadata()

@@ -26,7 +26,7 @@ def _refresh_targets(affected_studies: list[str], study_defs: dict) -> list[str]
     Returns:
         The subset of ``affected_studies`` worth dispatching, in input order.
     """
-    from fyp.studies import is_composed_study
+    from fyp.analysis.studies import is_composed_study
 
     return [
         name for name in affected_studies
@@ -53,10 +53,10 @@ def run_collection_delete(reporter: TaskStatusReporter, task_args: dict | None =
     After the delete itself, dispatches a study_refresh Cloud Task for each
     affected study so their cached files get rebuilt without the deleted rows.
     """
-    import fyp.data_io as data_io
-    from fyp.fyp_config import fyp_cf
-    from fyp.organize_datasets import COLLECTIONS_LABEL
-    from fyp.studies import init_study_defs, save_study_defs
+    import fyp.core.data_io as data_io
+    from fyp.core.fyp_config import fyp_cf
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.studies import init_study_defs, save_study_defs
     from web_interface.data_service import (
         invalidate_collection_tags_cache,
         study_cache,

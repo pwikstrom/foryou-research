@@ -165,7 +165,7 @@ def test_read_all_task_statuses_single_listing(monkeypatch):
     # Setting a real attribute shadows the module __getattr__ that lazily
     # serves fyp_cf; monkeypatch removes it again afterwards.
     monkeypatch.setattr(
-        fyp.fyp_config,
+        fyp.core.fyp_config,
         "fyp_cf",
         {"data_io": {"bucket": bucket}, "gcs_paths": {"cache": "cache"}},
         raising=False,

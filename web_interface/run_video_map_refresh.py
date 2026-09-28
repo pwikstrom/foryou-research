@@ -36,7 +36,7 @@ def run_video_map_refresh(reporter: TaskStatusReporter, task_args: dict | None =
     Returns:
         None. Dispatch of the dependent steps is the pipeline's business.
     """
-    from fyp.video_map import (
+    from fyp.analysis.video_map import (
         DEFAULT_MAP_SAMPLE,
         DEFAULT_N_NICHES,
         DEFAULT_PCA_DIM,

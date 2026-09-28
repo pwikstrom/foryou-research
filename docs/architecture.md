@@ -254,16 +254,15 @@ rebuild only when `requirements.txt` changes) and `Dockerfile` (app code,
 `fyp/` is organized into five subpackages — `core/` (config, I/O, types,
 paths, logging), `ingest/`, `scrape/`, `annotation/`, `analysis/` — mapped
 in detail in [fyp-import-graph.md](fyp-import-graph.md). The old flat paths
-(`fyp/data_io.py`, `fyp/pca.py`, ...) remain permanently importable as alias
-shims (same module objects), so both spellings work; new code should prefer
-the subpackage paths. One hard rule: **code that can run on a worker thread
-pool must import the canonical `fyp.<subpackage>.<module>` path, never a
-flat shim, in any lazy (function-level) import** — two threads resolving
-cold shims concurrently can receive a partially-initialized module (CPython's
-per-module-lock deadlock breaker), which silently dropped collections from
-prod timelines batches. Module-level shim imports are fine (they resolve
-once, single-threaded); `tests/unit/test_pool_import_race.py` sweeps every
-pool body for violations.
+(`fyp/data_io.py`, `fyp/pca.py`, ...) remain importable as alias shims (same
+module objects) for code outside this repository. **Code in this repository
+imports only the canonical `fyp.<subpackage>.<module>` paths**, enforced by
+ruff's banned-api rule (`TID251` in `pyproject.toml`). The reason is
+concrete: two threads resolving cold shims concurrently can receive a
+partially-initialized module (CPython's per-module-lock deadlock breaker),
+which silently dropped collections from prod timelines batches.
+`tests/unit/test_pool_import_race.py` sweeps every thread-pool body as a
+second guard.
 
 ## Where to start reading
 

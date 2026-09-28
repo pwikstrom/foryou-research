@@ -7,11 +7,11 @@ import pandas as pd
 from flask import jsonify, request
 from flask_login import current_user, login_required
 
-import fyp.data_io as data_io
-import fyp.scrape_queues as scrape_queues
+import fyp.core.data_io as data_io
+import fyp.scrape.scrape_queues as scrape_queues
 from fyp.scrape import scraper_alerts
-from fyp.platform_scraper import get_scraper
-from fyp.organize_datasets import (
+from fyp.scrape.platform_scraper import get_scraper
+from fyp.analysis.organize_datasets import (
     COLLECTIONS_LABEL,
     create_study_recoded_dataset,
 )
@@ -208,7 +208,7 @@ def _annotation_cost_estimate(n_items: int) -> dict | None:
     (e.g. local backends) — the UI then shows the item count only.
     """
     from fyp.annotation.backends import variants
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
     from web_interface.admin_settings import get_annotation_backend
 
     try:
@@ -560,7 +560,7 @@ def get_annotation_backends():
         model the selection would annotate with.
     """
     from fyp.annotation.backends import active_backend_name, get_backend, variants
-    from fyp.fyp_config import get_config
+    from fyp.core.fyp_config import get_config
 
     active = active_backend_name()
     out = []
@@ -614,7 +614,7 @@ def get_embedding_backends():
     {ok, reason, checks}}]}``.
     """
     from fyp.analysis.embedding_backends import BACKEND_IDS, active_backend_name, get_backend
-    from fyp.fyp_config import get_config
+    from fyp.core.fyp_config import get_config
 
     active = active_backend_name()
     out = []
@@ -746,7 +746,7 @@ def queue_voted_videos():
         # 2. Map periods to item_ids 
         import pandas as pd
 
-        from fyp.organize_datasets import create_collection_unified_dataset
+        from fyp.analysis.organize_datasets import create_collection_unified_dataset
         target_item_ids = set()
         
         for coll_id, periods in all_votes.items():
@@ -1166,7 +1166,7 @@ def calculate_to_annotate():
         return jsonify({"error": "No study name provided"}), 400
 
     try:
-        from fyp.fyp_config import fyp_cf
+        from fyp.core.fyp_config import fyp_cf
 
         # Check for cached recoded dataset first. Every selection mode operates
         # within the target study; the re-annotation modes (version/timeframe)
@@ -1270,7 +1270,7 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
     (the archive/status carry none), which is safe because these items passed
     the cap when first queued.
     """
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     version = None
     ts_from = None
@@ -1390,7 +1390,7 @@ def _calculate_to_annotate_reannotation(data, selection_mode, df_study, df_statu
 @permission_required('tab.data_management.refresh')
 @login_required
 def api_consolidate_enrichment():
-    from fyp.fyp_config import CONSOLIDATE_ENRICHMENT_SCRIPT
+    from fyp.core.fyp_config import CONSOLIDATE_ENRICHMENT_SCRIPT
 
     if _is_worker_running("consolidate_enrichment"):
         return jsonify({"status": "error", "message": "Consolidation already running"}), 409

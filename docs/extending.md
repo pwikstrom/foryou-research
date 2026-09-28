@@ -11,9 +11,9 @@ The contract files that drive the schemas are documented in
 
 One rule applies everywhere: cite and import the canonical subpackage paths
 (`fyp/scrape/platform_scraper.py`, `fyp/annotation/backends/`, ...), never
-the old flat `fyp/<name>.py` alias shims — required in thread-pool bodies,
-preferred everywhere else (see the shim-poisoning note in
-[architecture.md](architecture.md) §"Package layout").
+the old flat `fyp/<name>.py` alias shims. The shims exist for code outside
+this repository; ruff rejects them here (see [architecture.md](architecture.md)
+§"Package layout").
 
 ## Adding a new platform
 

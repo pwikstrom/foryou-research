@@ -58,7 +58,7 @@ def _claim_link(run_id: str, chunk: int) -> bool:
     Returns:
         True when this execution won the claim.
     """
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     claimed = {"won": False}
 
@@ -92,7 +92,7 @@ def _release_lease(run_id: str) -> None:
     A run that dies without releasing goes stale after ``_LEASE_STALE_S``
     and stops blocking on its own.
     """
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     def _mutate(lease):
         if isinstance(lease, dict) and lease.get("run_id") == run_id:
@@ -122,7 +122,7 @@ def run_embeddings_refresh(reporter: TaskStatusReporter, task_args: dict | None 
         Dict with ``chain=True`` and ``next_task_args`` if more batches remain,
         else ``None``.
     """
-    from fyp.embeddings import active_embedding_backend, embed_pending
+    from fyp.analysis.embeddings import active_embedding_backend, embed_pending
 
     task_args = task_args or {}
     batch_size = int(task_args.get("batch_size") or DEFAULT_BATCH_SIZE)

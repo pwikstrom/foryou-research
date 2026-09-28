@@ -6,12 +6,12 @@ import os
 from flask import jsonify, request
 from flask_login import login_required
 
-import fyp.data_io as data_io
-from fyp.fyp_config import (
+import fyp.core.data_io as data_io
+from fyp.core.fyp_config import (
     fyp_cf,
 )
 from fyp.ingest import get_main_collection, parse_donor_timezone
-from fyp.organize_datasets import (
+from fyp.analysis.organize_datasets import (
     COLLECTIONS_LABEL,
 )
 
@@ -105,7 +105,7 @@ def get_ingestion_sources():
 @login_required
 def fetch_aio_data():
     """Trigger download of recent AIO donations and metadata from AWS."""
-    from fyp.fyp_config import AIO_FETCH_SCRIPT
+    from fyp.core.fyp_config import AIO_FETCH_SCRIPT
 
     if not _aws_credentials_available():
         return jsonify({
@@ -332,7 +332,7 @@ def upload_ingestion_file():
 @login_required
 def refresh_collection_metadata():
     """Regenerate _metadata.parquet from scratch using all events."""
-    from fyp.fyp_config import COLLECTION_METADATA_REFRESH_SCRIPT
+    from fyp.core.fyp_config import COLLECTION_METADATA_REFRESH_SCRIPT
 
     success, msg = start_process(
         "collection_metadata_refresh",
@@ -349,7 +349,7 @@ def refresh_collection_metadata():
 @permission_required('tab.data_management.ingestion')
 @login_required
 def refresh_ingestion_collection():
-    from fyp.fyp_config import INGEST_REFRESH_SCRIPT
+    from fyp.core.fyp_config import INGEST_REFRESH_SCRIPT
 
     success, msg = start_process("ingest_refresh", INGEST_REFRESH_SCRIPT,
                                  started_by=_actor())
@@ -437,7 +437,7 @@ def unskip_ingestion_ledger_entry():
 @login_required
 def structure_warnings():
     """List structure-drift verdicts awaiting review (quarantined + warned files)."""
-    from fyp import structure_sentinel
+    from fyp.core import structure_sentinel
 
     try:
         queue = structure_sentinel.review_queue()
@@ -461,7 +461,7 @@ def structure_approve():
     """Approve a quarantined file: fold its structure into the learned baseline
     and drop its ledger entry so the next ingestion run ingests it.
     """
-    from fyp import structure_sentinel
+    from fyp.core import structure_sentinel
 
     payload = request.get_json(silent=True) or {}
     filename = (payload.get("filename") or "").strip()
@@ -505,7 +505,7 @@ def structure_approve():
 @login_required
 def structure_reject():
     """Reject a quarantined file: mark it manually excluded so it never ingests."""
-    from fyp import structure_sentinel
+    from fyp.core import structure_sentinel
 
     payload = request.get_json(silent=True) or {}
     filename = (payload.get("filename") or "").strip()
@@ -692,7 +692,7 @@ def _prepopulate_annotations(manifest: dict, tags: list[str], user_id: str | Non
 def get_ingestion_metadata():
     """Return existing collection IDs and all unique tags for the upload modal."""
 
-    from fyp.organize_datasets import COLLECTIONS_LABEL
+    from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
     collection_ids: list[str] = []
     all_tags: set[str] = set()

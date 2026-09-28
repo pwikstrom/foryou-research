@@ -82,8 +82,8 @@ foryou-research/
 │   ├── activity_contract.toml   # Declarative source for the platform-agnostic activity schema (ingest required columns + required-core hard-drop set + derived local_*/session fields)
 │   └── derived_contract.toml    # Declarative source for merge-derived columns (days_since_created/completion_rate/scraped_fail, niche/niche_name + the embedding-geometry measures typicality_pct/niche_isolation_pct, desc_hashtags/desc_raw, status flags)
 ├── fyp/                         # Core Python package — five subpackages (see docs/fyp-import-graph.md).
-│   │                            #   The old flat paths (fyp/data_io.py, fyp/pca.py, ...) remain importable
-│   │                            #   forever as alias shims (same module objects); prefer subpackage paths in new code.
+│   │                            #   The old flat paths (fyp/data_io.py, fyp/pca.py, ...) remain importable as alias
+│   │                            #   shims for external callers; code here must use subpackage paths (ruff TID251).
 │   ├── __init__.py              # Import-free: docstring + __version__ only (never import submodules here)
 │   ├── core/
 │   │   ├── fyp_config.py        # Config loader; lazy get_config() + PEP 562 `fyp_cf`; root via __proj__.py sentinel or FYP_CONFIG_PATH

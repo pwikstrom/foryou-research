@@ -38,8 +38,8 @@ def run_ab_eval(reporter: TaskStatusReporter, task_args: dict | None = None) -> 
 
     Returns None (no chain).
     """
-    from fyp import ab_eval
-    from fyp import annotation_contract as ac
+    from fyp.annotation import ab_eval
+    from fyp.annotation import annotation_contract as ac
 
     task_args = task_args or {}
     _t_start = time.perf_counter()

@@ -144,7 +144,7 @@ def configured_origin():
         unset, unparseable, or missing a scheme or host.
     """
     try:
-        from fyp.fyp_config import get_config
+        from fyp.core.fyp_config import get_config
 
         app_url = str((get_config().get("site", {}) or {}).get("app_url", "") or "").strip()
     except Exception:
@@ -306,7 +306,7 @@ GRANT_ID = "DP240102939"
 def _site_config():
     """``[site]`` as a mapping, or {} when config cannot be read."""
     try:
-        from fyp.fyp_config import get_config
+        from fyp.core.fyp_config import get_config
 
         return get_config().get("site", {}) or {}
     except Exception:

@@ -40,7 +40,7 @@ import math
 import time
 from datetime import datetime, timezone
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from web_interface.services import collection_enrichment as ce
 from web_interface.services import enrichment_journal as journal
 from web_interface.task_status import TaskStatusReporter
@@ -224,7 +224,7 @@ def _annotator_process() -> str:
 # start_process dispatches a Cloud Task and ignores the path; locally it spawns
 # the script, so both modes need an entry here.
 def _script_for(name: str):
-    from fyp.fyp_config import (
+    from fyp.core.fyp_config import (
         CONSOLIDATE_ENRICHMENT_SCRIPT, QUEUE_ANNOTATOR_BATCH_SCRIPT,
         QUEUE_ANNOTATOR_SCRIPT, QUEUE_SCRAPER_SCRIPT,
     )

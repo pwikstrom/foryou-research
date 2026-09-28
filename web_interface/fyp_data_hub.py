@@ -165,7 +165,7 @@ def _register_web_ui(app):
         processor reaches nested includes without threading the value through
         every render_template call.
         """
-        import fyp.scrape_queues as scrape_queues
+        import fyp.scrape.scrape_queues as scrape_queues
         try:
             return {"scrape_platforms": scrape_queues.registered_platforms()}
         except Exception:
@@ -187,7 +187,7 @@ def _register_web_ui(app):
         a fork can repoint it, and an empty value hides them. repo_issues_url
         is derived so templates don't each rebuild it.
         """
-        from fyp.fyp_config import get_config
+        from fyp.core.fyp_config import get_config
         try:
             site = get_config().get("site", {}) or {}
             contact_email = str(site.get("contact_email", "") or "").strip()
@@ -243,7 +243,7 @@ def _register_web_ui(app):
         if not current_user.is_authenticated:
             return render_template('public/landing.html', active_page='landing')
 
-        from fyp.fyp_config import get_config
+        from fyp.core.fyp_config import get_config
         from fyp.ingest import platform_url_templates
 
         from .permissions import get_user_permissions, visible_pipeline_steps
@@ -346,7 +346,7 @@ def _migrate_study_access_defaults():
     from .permissions import PERMISSION_MIGRATION_SKIP_ROLES
 
     try:
-        from fyp.studies import migrate_user_access_defaults
+        from fyp.analysis.studies import migrate_user_access_defaults
 
         grant_roles = [
             name for name in role_manager.get_roles()

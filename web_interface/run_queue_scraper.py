@@ -73,8 +73,8 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
         dict with ``chain=True`` and ``next_task_args`` if another batch
         should be dispatched, or ``None`` when the work is done.
     """
-    import fyp.scrape_queues as scrape_queues
-    from fyp.platform_scraper import get_scraper
+    import fyp.scrape.scrape_queues as scrape_queues
+    from fyp.scrape.platform_scraper import get_scraper
     from fyp.scrape import download_video_threads, record_failed_scrapes
 
     if not task_args:
@@ -416,7 +416,7 @@ def run_queue_scraper(reporter: TaskStatusReporter, task_args: dict | None = Non
 if __name__ == "__main__":
     import argparse
 
-    import fyp.scrape_queues as scrape_queues
+    import fyp.scrape.scrape_queues as scrape_queues
     from fyp.scrape import queue_scraper_loop
     from web_interface.drain_lease import DrainLease
     from web_interface.task_status import LocalStatusReporter

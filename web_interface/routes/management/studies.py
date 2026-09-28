@@ -6,12 +6,12 @@ import pandas as pd
 from flask import jsonify, request
 from flask_login import current_user, login_required
 
-import fyp.data_io as data_io
-from fyp.fyp_config import (
+import fyp.core.data_io as data_io
+from fyp.core.fyp_config import (
     fyp_cf,
 )
-import fyp.annotation_versioning as annotation_versioning
-from fyp.studies import (
+import fyp.annotation.annotation_versioning as annotation_versioning
+from fyp.analysis.studies import (
     STUDY_ARTIFACT_SUFFIXES,
     SYSTEM_STUDY_NAME_PREFIX,
     init_study_defs,
@@ -438,7 +438,7 @@ def save_study():
             # follow-on sessions refresh here. Failure only logs — the study
             # refresh itself already succeeded.
             try:
-                from fyp.fyp_config import SESSIONS_REFRESH_SCRIPT
+                from fyp.core.fyp_config import SESSIONS_REFRESH_SCRIPT
                 ok, start_msg = start_process(
                     "sessions_refresh", SESSIONS_REFRESH_SCRIPT,
                     task_args={"stale_only": True, "skip_if_busy": True},

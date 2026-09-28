@@ -28,10 +28,10 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     """
     import pandas as pd
 
-    import fyp.data_io as data_io
-    from fyp.fyp_config import fyp_cf
-    from fyp.pca import calculate_scaled_pca_scores
-    from fyp.studies import init_study_defs, save_study_defs
+    import fyp.core.data_io as data_io
+    from fyp.core.fyp_config import fyp_cf
+    from fyp.analysis.pca import calculate_scaled_pca_scores
+    from fyp.analysis.studies import init_study_defs, save_study_defs
     from web_interface import explorer_backend as explorer
     from web_interface.data_service import (
         load_schema_metadata,
@@ -82,7 +82,7 @@ def run_study_refresh(reporter: TaskStatusReporter, task_args: dict | None = Non
     # Just Me dataset. Building artifacts under the composed name would both
     # waste a default-study-sized rebuild per participant and shadow the
     # live composition with a stale copy.
-    from fyp.studies import is_composed_study
+    from fyp.analysis.studies import is_composed_study
     if is_composed_study(study_config):
         reporter.log(f"'{study_name}' is a composed study — nothing to build. Skipping.")
         return

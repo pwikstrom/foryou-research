@@ -4,8 +4,8 @@ import pandas as pd
 from flask import Blueprint, jsonify, request
 from flask_login import current_user
 
-import fyp.data_io as data_io
-from fyp.organize_datasets import COLLECTIONS_LABEL
+import fyp.core.data_io as data_io
+from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
 from ..data_service import (
     compose_effective_variables,

@@ -19,9 +19,9 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
             those studies (mirrors ``run_pca_refresh`` /
             ``run_recode_refresh_studies``). Defaults to every study.
     """
-    import fyp.data_io as data_io
-    from fyp.fyp_config import fyp_cf
-    from fyp.studies import init_study_defs
+    import fyp.core.data_io as data_io
+    from fyp.core.fyp_config import fyp_cf
+    from fyp.analysis.studies import init_study_defs
     from web_interface.data_service import load_schema_metadata
     from web_interface.explorer_backend import (
         get_current_stats,
@@ -49,7 +49,7 @@ def run_meta_refresh_groups(reporter: TaskStatusReporter, task_args: dict | None
     # (their owner's collections changed, or a consolidation impact named
     # them) — a full sweep must stay O(regular studies), not O(participants).
     # Composed ("Everyone & Me") defs store no artifacts and never run here.
-    from fyp.studies import is_composed_study, is_system_study
+    from fyp.analysis.studies import is_composed_study, is_system_study
     _skipped_system = sorted(
         k for k, v in studies.items()
         if is_composed_study(v) or (is_system_study(v) and not target_studies_str)

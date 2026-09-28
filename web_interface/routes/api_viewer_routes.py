@@ -7,10 +7,10 @@ import pandas as pd
 from flask import Blueprint, Response, jsonify, request, send_file, stream_with_context
 from flask_login import current_user, login_required
 
-import fyp.data_io as data_io
-import fyp.media_paths as media_paths
+import fyp.core.data_io as data_io
+import fyp.core.media_paths as media_paths
 from fyp.annotation import human_eval
-from fyp.fyp_config import fyp_cf
+from fyp.core.fyp_config import fyp_cf
 from fyp.ingest import platform_url_templates
 
 from .. import explorer_backend as explorer

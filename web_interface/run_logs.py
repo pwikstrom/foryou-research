@@ -38,8 +38,8 @@ import uuid
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-import fyp.data_io as data_io
-from fyp.logging_setup import get_logger
+import fyp.core.data_io as data_io
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -102,7 +102,7 @@ _guard = threading.local()
 
 def _cf() -> dict:
     """Lazy fyp_config accessor (keeps importing this module config-free)."""
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     return fyp_cf
 

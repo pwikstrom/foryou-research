@@ -15,10 +15,10 @@ import pyarrow as pa
 import pyarrow.compute as pa_compute
 from cachetools import LRUCache
 
-import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
-from fyp.organize_datasets import COLLECTIONS_LABEL
-from fyp.studies import init_study_defs, is_composed_study, participant_me_name
+import fyp.core.data_io as data_io
+from fyp.core.fyp_config import fyp_cf
+from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+from fyp.analysis.studies import init_study_defs, is_composed_study, participant_me_name
 
 from .. import explorer_backend as explorer
 
@@ -1230,7 +1230,7 @@ def _annotation_model_labels() -> dict:
     generic "Machine Annotated" label. Never raises.
     """
     try:
-        from fyp import annotation_versioning
+        from fyp.annotation import annotation_versioning
         versions = annotation_versioning.load_registry().get("versions", {})
     except Exception:
         return {}

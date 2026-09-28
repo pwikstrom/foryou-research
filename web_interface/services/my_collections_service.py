@@ -18,8 +18,8 @@ import time
 
 import pandas as pd
 
-import fyp.data_io as data_io
-from fyp.organize_datasets import COLLECTIONS_LABEL
+import fyp.core.data_io as data_io
+from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
 from ..collection_accounts import collections_for_user
 from . import collection_coverage

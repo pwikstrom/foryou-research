@@ -21,8 +21,8 @@ non-raising by design: bookkeeping must never turn a task failure into a crash.
 import uuid
 from datetime import UTC, datetime, timedelta
 
-import fyp.data_io as data_io
-from fyp.logging_setup import get_logger
+import fyp.core.data_io as data_io
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

@@ -141,6 +141,59 @@ ignore = [
 "tests/**/*.py" = ["F401", "F841", "E402"]
 "web_interface/run_*.py" = ["E402"]  # path-setup before imports is intentional
 "fyp/*/__init__.py" = ["F401"]  # subpackage __init__s re-export the old module surface
+# The shims themselves, and the tests that exercise them on purpose.
+"fyp/*.py" = ["TID251"]
+"tests/unit/test_subpackage_shims.py" = ["TID251"]
+"tests/unit/test_timelines_import_race.py" = ["TID251"]
+"tests/unit/test_import_cycle_hash.py" = ["TID251"]
+
+# Flat alias shims (fyp/<name>.py) stay importable for code outside this repo;
+# first-party code must use the canonical subpackage path. See CONTRIBUTING.md.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"fyp.ab_eval".msg = "flat alias shim; import fyp.annotation.ab_eval"
+"fyp.activity_analysis".msg = "flat alias shim; import fyp.analysis.activity_analysis"
+"fyp.activity_contract".msg = "flat alias shim; import fyp.core.activity_contract"
+"fyp.activity_versioning".msg = "flat alias shim; import fyp.core.activity_versioning"
+"fyp.annotation_contract".msg = "flat alias shim; import fyp.annotation.annotation_contract"
+"fyp.annotation_schema".msg = "flat alias shim; import fyp.annotation.annotation_schema"
+"fyp.annotation_versioning".msg = "flat alias shim; import fyp.annotation.annotation_versioning"
+"fyp.calc_collection_stats".msg = "flat alias shim; import fyp.analysis.calc_collection_stats"
+"fyp.data_io".msg = "flat alias shim; import fyp.core.data_io"
+"fyp.derived_contract".msg = "flat alias shim; import fyp.core.derived_contract"
+"fyp.donations".msg = "flat alias shim; import fyp.analysis.donations"
+"fyp.embeddings".msg = "flat alias shim; import fyp.analysis.embeddings"
+"fyp.fyp_config".msg = "flat alias shim; import fyp.core.fyp_config"
+"fyp.human_eval".msg = "flat alias shim; import fyp.annotation.human_eval"
+"fyp.instagram_dl".msg = "flat alias shim; import fyp.scrape.instagram_dl"
+"fyp.irrelevant_words".msg = "flat alias shim; import fyp.annotation.irrelevant_words"
+"fyp.logging_setup".msg = "flat alias shim; import fyp.core.logging_setup"
+"fyp.machine_annotation".msg = "flat alias shim; import fyp.annotation.machine_annotation"
+"fyp.machine_annotation_batch".msg = "flat alias shim; import fyp.annotation.machine_annotation_batch"
+"fyp.media_paths".msg = "flat alias shim; import fyp.core.media_paths"
+"fyp.niche_detection".msg = "flat alias shim; import fyp.analysis.niche_detection"
+"fyp.organize_datasets".msg = "flat alias shim; import fyp.analysis.organize_datasets"
+"fyp.pca".msg = "flat alias shim; import fyp.analysis.pca"
+"fyp.platform_scraper".msg = "flat alias shim; import fyp.scrape.platform_scraper"
+"fyp.polars_ops".msg = "flat alias shim; import fyp.core.polars_ops"
+"fyp.recode_variables".msg = "flat alias shim; import fyp.annotation.recode_variables"
+"fyp.registry_metadata".msg = "flat alias shim; import fyp.core.registry_metadata"
+"fyp.scrape_contract".msg = "flat alias shim; import fyp.scrape.scrape_contract"
+"fyp.scrape_queues".msg = "flat alias shim; import fyp.scrape.scrape_queues"
+"fyp.scrape_versioning".msg = "flat alias shim; import fyp.scrape.scrape_versioning"
+"fyp.scraper_cookies".msg = "flat alias shim; import fyp.scrape.scraper_cookies"
+"fyp.sequence_analysis".msg = "flat alias shim; import fyp.analysis.sequence_analysis"
+"fyp.sequence_model".msg = "flat alias shim; import fyp.analysis.sequence_model"
+"fyp.session_profile".msg = "flat alias shim; import fyp.analysis.session_profile"
+"fyp.stats".msg = "flat alias shim; import fyp.analysis.stats"
+"fyp.structure_sentinel".msg = "flat alias shim; import fyp.core.structure_sentinel"
+"fyp.studies".msg = "flat alias shim; import fyp.analysis.studies"
+"fyp.tiktok_dl".msg = "flat alias shim; import fyp.scrape.tiktok_dl"
+"fyp.timeline_analysis".msg = "flat alias shim; import fyp.analysis.timeline_analysis"
+"fyp.types".msg = "flat alias shim; import fyp.core.types"
+"fyp.utils".msg = "flat alias shim; import fyp.core.utils"
+"fyp.var_presentation".msg = "flat alias shim; import fyp.annotation.var_presentation"
+"fyp.video_map".msg = "flat alias shim; import fyp.analysis.video_map"
+"fyp.youtube_dl".msg = "flat alias shim; import fyp.scrape.youtube_dl"
 
 [tool.ruff.lint.isort]
 known-first-party = ["fyp", "web_interface"]

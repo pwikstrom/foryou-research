@@ -86,7 +86,7 @@ The authoritative style rules live in `DEVELOPING.md` §"Coding Style". Highligh
   raw paths — so code works unchanged against local disk and GCS.
 - Cite and import modules by their canonical subpackage path
   (`fyp.scrape.platform_scraper`, not the flat back-compat shim
-  `fyp.platform_scraper`).
+  `fyp.platform_scraper`). Ruff enforces this for imports (see invariant 6).
 
 ## Invariants you must not break
 
@@ -115,13 +115,15 @@ These are load-bearing conventions; each has a guard, but know them up front:
 5. **Cross-service stats.** Both Cloud Run services share
    `process_stats.json` on GCS — always call `load_process_stats()` before
    reading or writing so you don't clobber the other service's data.
-6. **No flat shims inside thread pools.** Every flat `fyp/<name>.py` module
-   is a back-compat alias for its subpackage home. Code that runs inside a
-   thread-pool worker body must import the canonical
-   `fyp.<subpackage>.<module>` path — two cold shims imported concurrently
-   in one worker can deadlock CPython's per-module import lock. Guard:
-   `tests/unit/test_pool_import_race.py`. The module-placement rules behind
-   the layout are in [docs/fyp-import-graph.md](docs/fyp-import-graph.md).
+6. **No flat shims in first-party code.** Every flat `fyp/<name>.py` module
+   is a back-compat alias for its subpackage home, kept for code outside this
+   repository. Code in this repository imports the canonical
+   `fyp.<subpackage>.<module>` path; ruff's banned-api rule (`TID251`, listed
+   in `pyproject.toml`) rejects the flat ones. The hazard is concrete: a lazy
+   import through a cold shim on a thread-pool worker can receive a
+   partially-initialized module. `tests/unit/test_pool_import_race.py` sweeps
+   every pool body as a second guard. The module-placement rules behind the
+   layout are in [docs/fyp-import-graph.md](docs/fyp-import-graph.md).
 
 ## Adding a platform
 

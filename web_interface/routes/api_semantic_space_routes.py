@@ -11,9 +11,9 @@ import pandas as pd
 from flask import Blueprint, jsonify, request
 from flask_login import current_user
 
-import fyp.data_io as data_io
-import fyp.embeddings as embeddings
-import fyp.video_map as video_map
+import fyp.core.data_io as data_io
+import fyp.analysis.embeddings as embeddings
+import fyp.analysis.video_map as video_map
 import web_interface.semantic_trajectory as semantic_trajectory
 from web_interface.data_service import (
     get_accessible_studies,

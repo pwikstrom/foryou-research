@@ -15,10 +15,10 @@ import pandas as pd
 from scipy import stats as scipy_stats
 from statsmodels.stats.multitest import multipletests
 
-import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
-from fyp.logging_setup import get_logger
-from fyp.recode_variables import (
+import fyp.core.data_io as data_io
+from fyp.core.fyp_config import fyp_cf
+from fyp.core.logging_setup import get_logger
+from fyp.annotation.recode_variables import (
     get_factors_and_features_from_var_schema,
     get_grouping_factors_from_var_schema,
     get_vars_by_role,

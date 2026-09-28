@@ -81,8 +81,8 @@ def run_queue_annotator(reporter: TaskStatusReporter, task_args: dict | None = N
         dict with ``chain=True`` and ``next_task_args`` if another batch
         should be dispatched, or ``None`` when the work is done.
     """
-    import fyp.data_io as data_io
-    from fyp.machine_annotation import annotate_from_video_id_list
+    import fyp.core.data_io as data_io
+    from fyp.annotation.machine_annotation import annotate_from_video_id_list
 
     if not task_args:
         task_args = {}
@@ -255,7 +255,7 @@ if __name__ == "__main__":
     import atexit
     import concurrent.futures.thread as _ft
 
-    from fyp.machine_annotation import queue_annotation_loop
+    from fyp.annotation.machine_annotation import queue_annotation_loop
     from web_interface.task_status import LocalStatusReporter
 
     # When a Gemini worker hangs, call_machine_threads() marks it DNF and

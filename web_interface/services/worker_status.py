@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 from flask_login import current_user
 
-from fyp.platform_scraper import get_scraper
+from fyp.scrape.platform_scraper import get_scraper
 
 from ..process_manager import SCRAPER_PROCESS_NAMES, process_stats, processes
 from ..task_status import is_cloud_run, read_task_status

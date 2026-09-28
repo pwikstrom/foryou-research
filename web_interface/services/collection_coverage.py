@@ -17,7 +17,7 @@ import time
 import pandas as pd
 
 from fyp.core import data_io
-from fyp.organize_datasets import COLLECTIONS_LABEL
+from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
 RECODED_FILENAME = f"{COLLECTIONS_LABEL}_recoded.parquet"
 

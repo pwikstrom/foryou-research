@@ -17,8 +17,8 @@ report.
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
-import fyp.ab_eval as ab_eval
-import fyp.human_eval as human_eval
+import fyp.annotation.ab_eval as ab_eval
+import fyp.annotation.human_eval as human_eval
 
 from .. import activity_log, mail_utils
 from ..permissions import permission_required

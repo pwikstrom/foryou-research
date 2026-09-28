@@ -5,11 +5,11 @@ import pandas as pd
 from flask import jsonify, request
 from flask_login import login_required
 
-from fyp.fyp_config import (
+from fyp.core.fyp_config import (
     fyp_cf,
     load_var_schema,
 )
-from fyp.recode_variables import (
+from fyp.annotation.recode_variables import (
     SEMANTIC_COLUMNS,
     VAR_SCHEMA_ROLES,
     VAR_SCHEMA_SCALES,
@@ -77,31 +77,31 @@ def _ownership_sets() -> dict:
         "annotation_legacy", "scrape_legacy", "activity_legacy",
     )}
     try:
-        from fyp import annotation_contract as ac
+        from fyp.annotation import annotation_contract as ac
 
         sets["annotation"] = set(ac.contract_column_metadata(ac.load_contract()).keys())
     except Exception:
         pass
     try:
-        from fyp import scrape_contract as sc
+        from fyp.scrape import scrape_contract as sc
 
         sets["scrape"] = set(sc.contract_column_metadata(sc.load_contract()).keys())
     except Exception:
         pass
     try:
-        from fyp import activity_contract as acy
+        from fyp.core import activity_contract as acy
 
         sets["activity"] = set(acy.contract_column_metadata(acy.load_contract()).keys())
     except Exception:
         pass
     try:
-        from fyp import derived_contract as dc
+        from fyp.core import derived_contract as dc
 
         sets["derived"] = set(dc.contract_column_metadata(dc.load_contract()).keys())
     except Exception:
         pass
     try:
-        from fyp import annotation_versioning as av
+        from fyp.annotation import annotation_versioning as av
 
         sets["annotation_legacy"] = (
             set(av.union_field_metadata().keys()) - sets["annotation"]
@@ -109,13 +109,13 @@ def _ownership_sets() -> dict:
     except Exception:
         pass
     try:
-        from fyp import scrape_versioning as sv
+        from fyp.scrape import scrape_versioning as sv
 
         sets["scrape_legacy"] = set(sv.union_field_metadata().keys()) - sets["scrape"]
     except Exception:
         pass
     try:
-        from fyp import activity_versioning as av_act
+        from fyp.core import activity_versioning as av_act
 
         sets["activity_legacy"] = (
             set(av_act.union_field_metadata().keys()) - sets["activity"]
@@ -212,8 +212,8 @@ def get_schema():
     post-save refresh omit the flag — they only need in-memory state.
     """
     try:
-        from fyp import var_presentation as vp
-        from fyp import annotation_contract as ac
+        from fyp.annotation import var_presentation as vp
+        from fyp.annotation import annotation_contract as ac
 
         if request.args.get("force_reload") in ("1", "true", "yes"):
             global fyp_cf
@@ -297,7 +297,7 @@ def save_presentation_endpoint():
     if not _var_schema_admin_enabled():
         return jsonify({"error": "schema admin disabled"}), 503
     try:
-        from fyp import var_presentation as vp
+        from fyp.annotation import var_presentation as vp
 
         body = request.get_json(force=True, silent=False) or {}
         surfaces = body.get("surfaces")

@@ -26,10 +26,10 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp import __version__ as _fyp_version
-from fyp import annotation_versioning
-from fyp.logging_setup import get_logger
+from fyp.annotation import annotation_versioning
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 

@@ -7,10 +7,10 @@ import json
 import numpy as np
 import pandas as pd
 
-import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
-from fyp.organize_datasets import COLLECTIONS_LABEL, create_collection_unified_dataset
-from fyp.utils import ACTIVITY_TYPE_MAP, ENGAGEMENT_LABELS, ENGAGEMENT_TYPES
+import fyp.core.data_io as data_io
+from fyp.core.fyp_config import fyp_cf
+from fyp.analysis.organize_datasets import COLLECTIONS_LABEL, create_collection_unified_dataset
+from fyp.core.utils import ACTIVITY_TYPE_MAP, ENGAGEMENT_LABELS, ENGAGEMENT_TYPES
 
 from .. import explorer_backend as explorer
 from .study_data import get_study_sidecar
@@ -833,7 +833,7 @@ def get_timeline_data(collection_id, interval='day', skip_cache_check: bool = Fa
                 result["analysis"] = analysis
         else:
             # Analysis is missing, generate it on the fly
-            from fyp.timeline_analysis import MIN_ACTIVE_DAYS_FOR_TIMELINE, analyse_timeline
+            from fyp.analysis.timeline_analysis import MIN_ACTIVE_DAYS_FOR_TIMELINE, analyse_timeline
 
             # Try to fetch first_activity_date and active_days from
             # {COLLECTIONS_LABEL}_metadata.parquet. Collections with

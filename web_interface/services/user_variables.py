@@ -5,8 +5,8 @@ Pure moves from web_interface/data_service.py (Phase 7c)."""
 
 import pandas as pd
 
-import fyp.data_io as data_io
-from fyp.fyp_config import fyp_cf
+import fyp.core.data_io as data_io
+from fyp.core.fyp_config import fyp_cf
 
 from .study_data import SECTION_ORDER, _CAT_SCALES
 
@@ -27,7 +27,7 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
             with ``has_pca`` and ``has_timelines`` booleans so the UI can
             gate the Correlations and Timelines tabs per study.
     """
-    from fyp.studies import (
+    from fyp.analysis.studies import (
         init_study_defs,
         is_composed_study,
         is_system_study,
@@ -79,8 +79,8 @@ def get_accessible_studies(username: str, role: str, is_admin: bool,
     timeline_capable_cids: set[str] = set()
     if include_stats:
         try:
-            from fyp.organize_datasets import COLLECTIONS_LABEL
-            from fyp.timeline_analysis import MIN_ACTIVE_DAYS_FOR_TIMELINE
+            from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
+            from fyp.analysis.timeline_analysis import MIN_ACTIVE_DAYS_FOR_TIMELINE
             meta_df = data_io.load_parquet_selective(
                 storage_location="recoded",
                 filename=f"{COLLECTIONS_LABEL}_metadata.parquet",

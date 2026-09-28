@@ -13,8 +13,8 @@ from datetime import date, datetime, time, timedelta
 import numpy as np
 import pandas as pd
 
-import fyp.data_io as data_io
-from fyp.organize_datasets import (
+import fyp.core.data_io as data_io
+from fyp.analysis.organize_datasets import (
     COLLECTIONS_LABEL,
     SAMPLE_NO_CAP,
     create_study_recoded_dataset,
@@ -42,7 +42,7 @@ def get_study_activity_cap() -> int:
     """
 
     try:
-        from fyp.fyp_config import fyp_cf
+        from fyp.core.fyp_config import fyp_cf
         return int(fyp_cf.get("studies", {}).get("max_activities", LARGE_STUDY_THRESHOLD))
     except Exception:
         return LARGE_STUDY_THRESHOLD

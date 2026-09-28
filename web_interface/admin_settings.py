@@ -8,7 +8,7 @@ open: keys may be added over time without migrations.
 import threading
 import time
 
-import fyp.data_io as data_io
+import fyp.core.data_io as data_io
 from fyp.analysis.embedding_backends.settings import (
     EMBEDDING_BACKEND_KEY,
     get_embedding_backend as get_embedding_backend,  # re-export (read side lives in fyp)
@@ -207,7 +207,7 @@ def get_session_floors() -> dict:
         ``{"sessions_min_plays": int, "sessions_min_minutes": float,
         "sessions_min_coverage_pct": float}``.
     """
-    from fyp.fyp_config import fyp_cf
+    from fyp.core.fyp_config import fyp_cf
 
     stored = load_admin_settings()
     cfg = fyp_cf.get("sessions", {})
@@ -363,8 +363,8 @@ def study_names() -> list[str]:
     Returns ``[]`` rather than raising if the definitions cannot be loaded.
     """
     try:
-        from fyp.fyp_config import fyp_cf
-        from fyp.studies import init_study_defs, is_system_study
+        from fyp.core.fyp_config import fyp_cf
+        from fyp.analysis.studies import init_study_defs, is_system_study
 
         init_study_defs()
         # System-managed participant studies are excluded: pointing the

@@ -10,7 +10,7 @@ thin auth + request-parsing layer.
 
 from flask import Blueprint, jsonify, request
 
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 from ..data_service import get_pca_df
 from ..permissions import permission_required

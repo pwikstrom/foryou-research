@@ -22,7 +22,7 @@ import socket
 import threading
 from datetime import UTC, datetime
 
-from fyp.logging_setup import get_logger
+from fyp.core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -33,7 +33,7 @@ HEARTBEAT_INTERVAL_S = 30
 
 def _data_io():
     """Lazy fyp.data_io accessor (keeps import light for worker __main__)."""
-    import fyp.data_io as data_io
+    import fyp.core.data_io as data_io
 
     return data_io
 
@@ -87,7 +87,7 @@ def read_drain_lease(platform: str) -> dict | None:
 
 def active_drain_leases() -> dict[str, dict]:
     """Return ``{platform: lease}`` for every registered platform with a fresh lease."""
-    import fyp.scrape_queues as scrape_queues
+    import fyp.scrape.scrape_queues as scrape_queues
 
     leases = {}
     for platform in scrape_queues.registered_platforms():

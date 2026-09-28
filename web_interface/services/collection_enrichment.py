@@ -63,8 +63,8 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
-import fyp.data_io as data_io
-from fyp.organize_datasets import COLLECTIONS_LABEL
+import fyp.core.data_io as data_io
+from fyp.analysis.organize_datasets import COLLECTIONS_LABEL
 
 logger = logging.getLogger(__name__)
 
@@ -500,7 +500,7 @@ def annotation_eligible(item_ids, df_status, durations=None,
 
     if max_duration is None:
         try:
-            from fyp.fyp_config import fyp_cf
+            from fyp.core.fyp_config import fyp_cf
             max_duration = fyp_cf.get("machine", {}).get("max_duration_for_annotation", 600)
         except Exception:
             max_duration = 600
