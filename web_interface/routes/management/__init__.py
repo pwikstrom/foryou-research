@@ -8,7 +8,9 @@ All submodules register their view functions on the single shared
 from ._blueprint import management_bp  # noqa: F401
 
 # Importing the submodules registers their routes on management_bp, in the
-# same order the routes appeared in the pre-split module.
+# same order the routes appeared in the pre-split module; the isort fence keeps
+# the import sorter from alphabetising them.
+# isort: off
 from . import (  # noqa: E402,F401
     studies,
     collections,
@@ -19,3 +21,4 @@ from . import (  # noqa: E402,F401
     data_contracts,
     ingestion,
 )
+# isort: on

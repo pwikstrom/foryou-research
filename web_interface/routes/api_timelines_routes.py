@@ -204,7 +204,7 @@ def api_timeline_collections():
     if accepted_col:
         try:
              filtered = df_reset[df_reset[accepted_col] == True]
-        except:
+        except Exception:
              pass
 
     target_id_col = 'collection_id'
@@ -284,7 +284,7 @@ def api_timeline_collections():
         try:
             if data_io.exists(storage_location="recoded", filename=da_filename):
                 annotations = data_io.load_json(storage_location="recoded", filename=da_filename) or {}
-        except:
+        except Exception:
             pass
 
         final_list = []

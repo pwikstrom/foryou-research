@@ -1174,7 +1174,7 @@ def api_admin_annotations():
                                         if pd.isna(disp): disp = var_name
                                         
                                         friendly_name = f"{sec} - {disp}"
-                                    except:
+                                    except Exception:
                                         pass
 
                             

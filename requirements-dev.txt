@@ -3,5 +3,5 @@
 -r requirements.txt
 
 pytest>=8.2
-ruff>=0.15
+ruff==0.16.3  # keep in step with .pre-commit-config.yaml
 pre-commit>=3.7

@@ -558,7 +558,7 @@ def filter_dataframe(df, column_types, filters, search_query=None):
                 # Ensure x items are also hashable/strings
                 check_set = set(str(item) for item in x)
                 return bool(check_set & search_set)
-            except:
+            except Exception:
                 return False
 
         value_mask = filtered_df[col].apply(robust_check)
@@ -661,7 +661,7 @@ def make_serializable(obj):
     try:
         if pd.isna(obj):
             return None
-    except:
+    except Exception:
         pass
 
     if isinstance(obj, (pd.Timestamp, _dt.datetime)):
@@ -724,7 +724,7 @@ def classify_columns(df: pd.DataFrame) -> dict:
                      column_types[col] = "identifier"
                  else:
                      column_types[col] = "number"
-             except:
+             except Exception:
                  column_types[col] = "number"
              continue
 
@@ -1037,7 +1037,7 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
                   try:
                       exploded = df[col].explode().dropna()
                       return exploded.value_counts().head(20).to_dict()
-                  except:
+                  except Exception:
                       pass
 
              all_items = []
@@ -1047,7 +1047,7 @@ def get_current_stats(df, column_types, number_meta=None, verbose=False):
                       # Deduplicate within row to count Document Frequency
                       try:
                           all_items.extend(list(set(str(x) for x in row)))
-                      except:
+                      except Exception:
                           pass
              return dict(Counter(all_items).most_common(20))
 
